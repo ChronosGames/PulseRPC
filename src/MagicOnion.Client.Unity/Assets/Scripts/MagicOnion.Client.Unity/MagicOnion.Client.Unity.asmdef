@@ -1,0 +1,21 @@
+{
+    "name": "MagicOnion.Unity",
+    "rootNamespace": "",
+    "references": [
+        "MagicOnion.Abstractions",
+        "MagicOnion.Client",
+        "UniTask"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [
+        "Grpc.Core.dll",
+        "Grpc.Core.Api.dll"
+    ],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

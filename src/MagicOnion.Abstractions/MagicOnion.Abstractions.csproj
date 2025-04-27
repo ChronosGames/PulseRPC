@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTrimmable Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsTrimmable>
+
+    <PackageId>MagicOnion.Abstractions</PackageId>
+    <Description>MagicOnion interfaces and abstractions for server and client.
+Commonly used types:
+MagicOnion.IService&lt;TSelf&gt;
+MagicOnion.IStreamingHub&lt;TSelf, TReceiver&gt;
+MagicOnion.UnaryResult&lt;TResult&gt;
+MagicOnion.IgnoreAttribute</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.Core.Api" />
+    <PackageReference Include="MessagePack" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+   <ItemGroup>
+     <None Update="DynamicArgumentTuple.tt">
+       <LastGenOutput>DynamicArgumentTuple.cs</LastGenOutput>
+       <Generator>TextTemplatingFileGenerator</Generator>
+     </None>
+   </ItemGroup>
+   <ItemGroup>
+     <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
+   </ItemGroup>
+   <ItemGroup>
+     <Compile Update="DynamicArgumentTuple.cs">
+       <DesignTime>True</DesignTime>
+       <AutoGen>True</AutoGen>
+       <DependentUpon>DynamicArgumentTuple.tt</DependentUpon>
+     </Compile>
+   </ItemGroup>
+
+</Project>
