@@ -7,8 +7,6 @@ using MagicOnion.Client;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using MagicOnion;
-using MagicOnion.Unity;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -65,7 +63,7 @@ namespace Assets.Scripts
         {
             // Initialize the Hub
             // NOTE: If you want to use SSL/TLS connection, see InitialSettings.OnRuntimeInitialize method.
-            this.channel = GrpcChannelx.ForAddress(SystemConstants.ServerUrl);
+            //this.channel = GrpcChannelx.ForAddress(SystemConstants.ServerUrl);
 
             while (!shutdownCancellation.IsCancellationRequested)
             {
