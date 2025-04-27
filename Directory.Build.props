@@ -12,11 +12,11 @@
   <!-- NuGet Packaging -->
   <PropertyGroup>
     <PackageVersion>$(Version)</PackageVersion>
-    <Company>Cysharp</Company>
-    <Authors>Cysharp</Authors>
-    <Copyright>© Cysharp, Inc.</Copyright>
+    <Company>ChronosGames</Company>
+    <Authors>ChronosGames</Authors>
+    <Copyright>© ChronosGames, Inc.</Copyright>
     <PackageTags>magiconion;grpc;http2</PackageTags>
-    <PackageProjectUrl>https://github.com/Cysharp/MagicOnion</PackageProjectUrl>
+    <PackageProjectUrl>https://github.com/ChronosGames/PulseNet</PackageProjectUrl>
     <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
