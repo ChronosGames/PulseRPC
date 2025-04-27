@@ -8,8 +8,11 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using MemoryPack;
 using UnityTCP.Memory;
 using UnityTCP.Serialization;
+
+#nullable enable
 
 namespace UnityTCP.ZeroCopy
 {
@@ -35,20 +38,20 @@ namespace UnityTCP.ZeroCopy
     public class EnhancedTCPServer : IDisposable
     {
         private readonly EnhancedTCPServerOptions _options;
-        private TcpListener _listener;
+        private TcpListener? _listener;
         private bool _isRunning;
-        private CancellationTokenSource _cts;
+        private CancellationTokenSource? _cts;
         private readonly ConcurrentDictionary<string, ClientSession> _clients = new ConcurrentDictionary<string, ClientSession>();
         private readonly NetworkMemoryAllocator _memoryAllocator = new NetworkMemoryAllocator();
         private readonly SemaphoreSlim _maxConcurrentAccepts = new SemaphoreSlim(5); // 限制并发接受连接数
 
         // 事件
-        public event Action<string> ClientConnected;
-        public event Action<string> ClientDisconnected;
-        public event Action<string, ReadOnlySequence<byte>> DataReceived;
-        public event Action<Exception> ErrorOccurred;
+        public event Action<string>? ClientConnected;
+        public event Action<string>? ClientDisconnected;
+        public event Action<string, ReadOnlySequence<byte>>? DataReceived;
+        public event Action<Exception>? ErrorOccurred;
 
-        public EnhancedTCPServer(EnhancedTCPServerOptions options = null)
+        public EnhancedTCPServer(EnhancedTCPServerOptions? options = null)
         {
             _options = options ?? new EnhancedTCPServerOptions();
         }
@@ -91,7 +94,7 @@ namespace UnityTCP.ZeroCopy
         /// </summary>
         private async Task AcceptConnectionsAsync()
         {
-            while (_isRunning && !_cts.Token.IsCancellationRequested)
+            while (_isRunning && !_cts!.Token.IsCancellationRequested)
             {
                 try
                 {
@@ -99,7 +102,7 @@ namespace UnityTCP.ZeroCopy
 
                     try
                     {
-                        var client = await _listener.AcceptTcpClientAsync();
+                        var client = await _listener!.AcceptTcpClientAsync();
                         _ = HandleClientAsync(client);
                     }
                     finally
@@ -171,7 +174,7 @@ namespace UnityTCP.ZeroCopy
                 await session.ProcessMessagesAsync(
                     data => DataReceived?.Invoke(clientId, data),
                     ex => ErrorOccurred?.Invoke(ex),
-                    _cts.Token);
+                    _cts!.Token);
             }
             catch (Exception ex)
             {
@@ -415,7 +418,7 @@ namespace UnityTCP.ZeroCopy
                 }
 
                 // 读取长度前缀
-                int length = BitConverter.ToInt32(buffer.Slice(0, 4).ToArray(), 0);
+                var length = BitConverter.ToInt32(buffer.Slice(0, 4).ToArray(), 0);
 
                 if (buffer.Length < length + 4)
                 {
@@ -494,12 +497,7 @@ namespace UnityTCP.ZeroCopy
                     var tcs = new TaskCompletionSource<bool>();
                     var args = new SocketAsyncEventArgs();
                     args.SetBuffer(buffer, 0, data.Length + lengthPrefix.Length);
-                    args.UserToken = new SendOperationContext
-                    {
-                        TaskSource = tcs,
-                        Buffer = buffer,
-                        Allocator = _memoryAllocator
-                    };
+                    args.UserToken = new SendOperationContext(tcs, buffer, _memoryAllocator);
 
                     args.Completed += OnSendCompleted;
 
@@ -517,7 +515,7 @@ namespace UnityTCP.ZeroCopy
                 }
             }
 
-            private void OnSendCompleted(object sender, SocketAsyncEventArgs e)
+            private void OnSendCompleted(object? sender, SocketAsyncEventArgs e)
             {
                 var context = (SendOperationContext)e.UserToken;
 
@@ -556,6 +554,13 @@ namespace UnityTCP.ZeroCopy
             // 发送操作上下文
             private class SendOperationContext
             {
+                public SendOperationContext(TaskCompletionSource<bool> taskSource, byte[] buffer, NetworkMemoryAllocator allocator)
+                {
+                    TaskSource = taskSource;
+                    Buffer = buffer;
+                    Allocator = allocator;
+                }
+
                 public TaskCompletionSource<bool> TaskSource { get; set; }
                 public byte[] Buffer { get; set; }
                 public NetworkMemoryAllocator Allocator { get; set; }
