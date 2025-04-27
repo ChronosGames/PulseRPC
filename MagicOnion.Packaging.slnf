@@ -1,0 +1,17 @@
+{
+  "solution": {
+    "path": "MagicOnion.sln",
+    "projects": [
+      "src\\MagicOnion.Abstractions\\MagicOnion.Abstractions.csproj",
+      "src\\MagicOnion.Client\\MagicOnion.Client.csproj",
+      "src\\MagicOnion.Serialization.MessagePack\\MagicOnion.Serialization.MessagePack.csproj",
+      "src\\MagicOnion.Serialization.MemoryPack\\MagicOnion.Serialization.MemoryPack.csproj",
+      "src\\MagicOnion.Server.Redis\\MagicOnion.Server.Redis.csproj",
+      "src\\MagicOnion.Server\\MagicOnion.Server.csproj",
+      "src\\MagicOnion.Server.JsonTranscoding\\MagicOnion.Server.JsonTranscoding.csproj",
+      "src\\MagicOnion.Server.JsonTranscoding.Swagger\\MagicOnion.Server.JsonTranscoding.Swagger.csproj",
+      "src\\MagicOnion.Shared\\MagicOnion.Shared.csproj",
+      "src\\MagicOnion\\MagicOnion.csproj"
+    ]
+  }
+}
