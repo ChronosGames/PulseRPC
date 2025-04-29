@@ -1,0 +1,29 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 开发指南
+
+## 项目配置
+- 所有项目使用中央包版本管理，版本在 [Directory.Packages.props](mdc:Directory.Packages.props) 中定义
+- 全局构建属性在 [Directory.Build.props](mdc:Directory.Build.props) 中配置
+- NuGet 包源配置在 [NuGet.Config](mdc:NuGet.Config) 中设置
+
+## 开发流程
+1. 确保安装了 .NET 8 SDK
+2. 使用 Visual Studio 2022 或更高版本打开 [PulseRPC.sln](mdc:PulseRPC.sln)
+3. 运行所有测试以确保环境正确设置
+4. 开发新功能时应该：
+   - 在 `tests/` 目录下添加相应的测试
+   - 在 `samples/` 目录下添加示例代码
+   - 在 `docs/` 目录下更新相关文档
+
+## 代码生成
+- 使用 Source Generator 自动生成客户端代码
+- 生成器代码位于 [PulseRPC.Generators](mdc:src/PulseRPC.Generators) 目录
+
+## 性能测试
+- 性能测试代码位于 `perf/` 目录
+- 运行性能测试前请确保系统处于稳定状态
+

@@ -3,27 +3,23 @@ description:
 globs:
 alwaysApply: false
 ---
-# MagicOnion项目结构
+# PulseRPC 项目结构指南
 
-MagicOnion是一个统一的实时/API框架，适用于.NET平台和Unity。
+这是一个基于 gRPC 的现代 RPC 框架，用于 .NET 平台。项目采用以下结构：
 
-## 主要目录
+## 核心目录
+- `src/` - 源代码目录，包含所有核心实现
+- `tests/` - 测试代码目录
+- `samples/` - 示例项目目录
+- `docs/` - 项目文档
+- `perf/` - 性能测试相关代码
 
-- [src](mdc:src) - 源代码目录
-- [samples](mdc:samples) - 示例项目
-- [tests](mdc:tests) - 测试项目
-- [docs](mdc:docs) - 文档
+## 配置文件
+- [Directory.Packages.props](mdc:Directory.Packages.props) - 中央包版本管理
+- [Directory.Build.props](mdc:Directory.Build.props) - MSBuild 全局属性
+- [NuGet.Config](mdc:NuGet.Config) - NuGet 包源配置
 
-## 核心组件
-
-- [MagicOnion.Server](mdc:src/MagicOnion.Server) - 服务器端实现
-- [MagicOnion.Client](mdc:src/MagicOnion.Client) - 客户端实现
-- [MagicOnion.Shared](mdc:src/MagicOnion.Shared) - 服务器和客户端共享的组件
-- [MagicOnion.Abstractions](mdc:src/MagicOnion.Abstractions) - 核心抽象和接口
-
-## 示例应用
-
-- [ChatApp](mdc:samples/ChatApp) - 聊天应用示例
-- [JwtAuthentication](mdc:samples/JwtAuthentication) - JWT认证示例
-- [JsonTranscoding](mdc:samples/JsonTranscoding) - JSON转码示例
+## 解决方案文件
+- [PulseRPC.sln](mdc:PulseRPC.sln) - 主解决方案文件
+- [PulseRPC.Packaging.slnf](mdc:PulseRPC.Packaging.slnf) - 打包相关的解决方案筛选器
 
