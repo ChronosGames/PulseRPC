@@ -1,8 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Security.Claims;
-using System.Threading.Tasks;
 using JwtAuthApp.Server.Authentication;
 using JwtAuthApp.Shared;
 using PulseRPC;
@@ -11,7 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 namespace JwtAuthApp.Server.Services
 {
     [Authorize]
-    public class AccountService : IPulseService<IAccountService>
+    public class AccountService : IPulseService<AccountService>
     {
         private static IDictionary<string, (string Password, long UserId, string DisplayName)> DummyUsers = new Dictionary<string, (string, long, string)>(StringComparer.OrdinalIgnoreCase)
         {
@@ -47,22 +43,22 @@ namespace JwtAuthApp.Server.Services
         [AllowAnonymous]
         public PulseResult<CurrentUserResponse> GetCurrentUserNameAsync()
         {
-            var userPrincipal = Context.User;
-            if (userPrincipal.Identity?.IsAuthenticated ?? false)
-            {
-                if (!int.TryParse(userPrincipal.Claims.FirstOrDefault(x => x.Type == ClaimTypes.NameIdentifier)?.Value, out var userId))
-                {
-                    return PulseResult<CurrentUserResponse>.Success(CurrentUserResponse.Anonymous);
-                }
-
-                var user = DummyUsers.SingleOrDefault(x => x.Value.UserId == userId).Value;
-                return PulseResult<CurrentUserResponse>.Success(new CurrentUserResponse()
-                {
-                    IsAuthenticated = true,
-                    UserId = user.UserId,
-                    Name = user.DisplayName,
-                });
-            }
+            // var userPrincipal = Context.User;
+            // if (userPrincipal.Identity?.IsAuthenticated ?? false)
+            // {
+            //     if (!int.TryParse(userPrincipal.Claims.FirstOrDefault(x => x.Type == ClaimTypes.NameIdentifier)?.Value, out var userId))
+            //     {
+            //         return PulseResult<CurrentUserResponse>.Success(CurrentUserResponse.Anonymous);
+            //     }
+            //
+            //     var user = DummyUsers.SingleOrDefault(x => x.Value.UserId == userId).Value;
+            //     return PulseResult<CurrentUserResponse>.Success(new CurrentUserResponse()
+            //     {
+            //         IsAuthenticated = true,
+            //         UserId = user.UserId,
+            //         Name = user.DisplayName,
+            //     });
+            // }
 
             return PulseResult<CurrentUserResponse>.Success(CurrentUserResponse.Anonymous);
         }
