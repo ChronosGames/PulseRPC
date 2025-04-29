@@ -1,0 +1,72 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# MagicOnion客户端使用
+
+MagicOnion客户端可在各种.NET平台上运行，包括Unity。
+
+## 创建客户端
+
+创建MagicOnion客户端需要以下步骤：
+
+1. 创建gRPC通道
+2. 使用通道创建MagicOnion客户端代理
+
+```csharp
+// 创建gRPC通道
+var channel = GrpcChannel.ForAddress("https://localhost:5001");
+
+// 创建服务客户端代理
+var client = MagicOnionClient.Create<IMyService>(channel);
+
+// 调用远程方法
+var result = await client.SumAsync(123, 456);
+```
+
+## Unity客户端
+
+Unity客户端需要特殊配置：
+
+1. 使用[MagicOnion.Client.Unity](mdc:src/MagicOnion.Client.Unity)包
+2. 配置适合Unity的gRPC通道
+
+```csharp
+// Unity中创建gRPC通道
+var channel = new GrpcChannelx(new GrpcChannelOptions
+{
+    Host = "localhost",
+    Port = 5000,
+    ChannelType = ChannelType.Insecure, // 开发环境可用，生产环境应使用Secure
+});
+
+// 创建服务客户端代理
+var client = MagicOnionClient.Create<IMyService>(channel);
+```
+
+## StreamingHub客户端
+
+StreamingHub客户端的使用方式稍有不同：
+
+```csharp
+// 创建StreamingHub客户端
+var hubClient = StreamingHubClient.Connect<IChatHub, IChatClient>(
+    channel,
+    new ChatClient(this) // 实现IChatClient的对象
+);
+
+// 调用服务端方法
+await hubClient.JoinAsync("UserName");
+
+// 当不再需要连接时，断开连接
+await hubClient.DisposeAsync();
+```
+
+## 代码生成
+
+MagicOnion客户端使用源代码生成提高性能：
+
+1. 对于.NET客户端，使用[MagicOnion.Client.SourceGenerator](mdc:src/MagicOnion.Client.SourceGenerator)
+2. 对于MessagePack序列化，使用MessagePack代码生成工具
+

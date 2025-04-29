@@ -1,0 +1,43 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# MagicOnion示例项目
+
+本仓库包含多个示例项目，展示MagicOnion的各种使用场景。
+
+## 聊天应用示例
+
+[ChatApp](mdc:samples/ChatApp)是一个使用StreamingHub的实时聊天应用示例。
+
+项目结构：
+- [ChatApp.Server](mdc:samples/ChatApp/ChatApp.Server) - 服务器端实现
+- [ChatApp.Shared](mdc:samples/ChatApp/ChatApp.Shared) - 共享类库（服务接口定义）
+- [ChatApp.Unity](mdc:samples/ChatApp/ChatApp.Unity) - Unity客户端
+- [ChatApp.Console](mdc:samples/ChatApp/ChatApp.Console) - 控制台客户端
+
+这个示例展示了如何：
+1. 定义共享接口
+2. 实现服务器端逻辑
+3. 在Unity和控制台客户端中使用MagicOnion
+4. 处理实时通信
+
+## JWT认证示例
+
+[JwtAuthentication](mdc:samples/JwtAuthentication)示例展示如何在MagicOnion中实现JWT身份验证。
+
+这个示例展示了：
+1. 如何在MagicOnion服务中实现身份验证
+2. 如何使用JWT令牌
+3. 如何在客户端发送认证信息
+
+## JSON转码示例
+
+[JsonTranscoding](mdc:samples/JsonTranscoding)示例展示如何将MagicOnion服务暴露为JSON API。
+
+这个示例展示了：
+1. 如何配置JSON转码
+2. 如何使用Swagger文档
+3. 如何同时支持gRPC和JSON请求
+

@@ -1,0 +1,29 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# MagicOnion项目结构
+
+MagicOnion是一个统一的实时/API框架，适用于.NET平台和Unity。
+
+## 主要目录
+
+- [src](mdc:src) - 源代码目录
+- [samples](mdc:samples) - 示例项目
+- [tests](mdc:tests) - 测试项目
+- [docs](mdc:docs) - 文档
+
+## 核心组件
+
+- [MagicOnion.Server](mdc:src/MagicOnion.Server) - 服务器端实现
+- [MagicOnion.Client](mdc:src/MagicOnion.Client) - 客户端实现
+- [MagicOnion.Shared](mdc:src/MagicOnion.Shared) - 服务器和客户端共享的组件
+- [MagicOnion.Abstractions](mdc:src/MagicOnion.Abstractions) - 核心抽象和接口
+
+## 示例应用
+
+- [ChatApp](mdc:samples/ChatApp) - 聊天应用示例
+- [JwtAuthentication](mdc:samples/JwtAuthentication) - JWT认证示例
+- [JsonTranscoding](mdc:samples/JsonTranscoding) - JSON转码示例
+
