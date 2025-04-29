@@ -1,5 +1,6 @@
 using MemoryPack;
 using PulseRPC.Protocol;
+using PulseRPC.Server.Hubs;
 using System.Dynamic;
 using System.Reflection;
 
@@ -8,17 +9,17 @@ namespace PulseRPC.Internal;
 /// <summary>
 /// Base class for dynamic proxies that invoke methods on client receivers.
 /// </summary>
-internal abstract class HubClientsProxy : DynamicObject
+internal class HubClientsProxy : DynamicObject, IHubClients
 {
-    protected readonly ClientSession _session;
-    protected readonly HubHandler _handler;
-    protected readonly Type _receiverType;
-    protected readonly MethodInfo[] _receiverMethods;
-    protected string? _targetGroup;
-    protected string? _targetClient;
-    protected IEnumerable<string>? _excludedGroups;
+    private readonly ClientSession _session;
+    private readonly HubHandler _handler;
+    private readonly Type _receiverType;
+    private readonly MethodInfo[] _receiverMethods;
+    private string? _targetGroup;
+    private string? _targetClient;
+    private IEnumerable<string>? _excludedGroups;
 
-    protected HubClientsProxy(ClientSession session, HubHandler handler, Type receiverType, MethodInfo[] receiverMethods)
+    internal HubClientsProxy(ClientSession session, HubHandler handler, Type receiverType, MethodInfo[] receiverMethods)
     {
         _session = session;
         _handler = handler;
@@ -118,7 +119,7 @@ internal abstract class HubClientsProxy : DynamicObject
         return MemoryPackSerializer.Serialize<object?[]>(args);
     }
 
-    protected Task SendEventInternalAsync(string methodName, byte[] eventData)
+    private Task SendEventInternalAsync(string methodName, byte[] eventData)
     {
         if (_targetClient != null)
         {
@@ -131,15 +132,54 @@ internal abstract class HubClientsProxy : DynamicObject
         // Default to All (or AllExcept)
         return _handler.BroadcastToAllAsync(methodName, eventData, _excludedGroups);
     }
+
+    // 实现 IHubClients 接口
+    public dynamic Caller
+    {
+        get
+        {
+            _targetClient = _session.ClientId;
+            _targetGroup = null;
+            _excludedGroups = null;
+            return this;
+        }
+    }
+
+    public dynamic All
+    {
+        get
+        {
+            _targetClient = null;
+            _targetGroup = null;
+            _excludedGroups = null;
+            return this;
+        }
+    }
+
+    public dynamic Group(string groupName)
+    {
+        _targetClient = null;
+        _targetGroup = groupName;
+        _excludedGroups = null;
+        return this;
+    }
+
+    public dynamic AllExcept(params string[] excludedGroups)
+    {
+        _targetClient = null;
+        _targetGroup = null;
+        _excludedGroups = excludedGroups;
+        return this;
+    }
 }
 
 /// <summary>
 /// Typed proxy for invoking methods on client receivers.
 /// </summary>
 /// <typeparam name="TReceiver">The receiver interface type.</typeparam>
-internal class HubClientsProxy<TReceiver> : HubClientsProxy where TReceiver : class
+internal class HubClientsProxy<TReceiver> : HubClientsProxy, IHubClients<TReceiver> where TReceiver : class
 {
-    public HubClientsProxy(ClientSession session, HubHandler handler, Type receiverType, MethodInfo[] receiverMethods)
+    internal HubClientsProxy(ClientSession session, HubHandler handler, Type receiverType, MethodInfo[] receiverMethods)
         : base(session, handler, receiverType, receiverMethods)
     {
     }
@@ -147,13 +187,11 @@ internal class HubClientsProxy<TReceiver> : HubClientsProxy where TReceiver : cl
     /// <summary>
     /// Targets the calling client.
     /// </summary>
-    public TReceiver Caller
+    public new TReceiver Caller
     {
         get
         {
-            _targetClient = _session.ClientId;
-            _targetGroup = null;
-            _excludedGroups = null;
+            base.Caller.GetType(); // Just to invoke the base getter to set targeting
             return (TReceiver)(object)this; // Cast self to the receiver type
         }
     }
@@ -161,13 +199,11 @@ internal class HubClientsProxy<TReceiver> : HubClientsProxy where TReceiver : cl
     /// <summary>
     /// Targets all connected clients.
     /// </summary>
-    public TReceiver All
+    public new TReceiver All
     {
         get
         {
-            _targetClient = null;
-            _targetGroup = null;
-            _excludedGroups = null;
+            base.All.GetType(); // Just to invoke the base getter to set targeting
             return (TReceiver)(object)this;
         }
     }
@@ -175,41 +211,25 @@ internal class HubClientsProxy<TReceiver> : HubClientsProxy where TReceiver : cl
     /// <summary>
     /// Targets all clients in the specified group.
     /// </summary>
-    public TReceiver Group(string groupName)
+    public new TReceiver Group(string groupName)
     {
-        _targetClient = null;
-        _targetGroup = groupName;
-        _excludedGroups = null;
+        base.Group(groupName);
         return (TReceiver)(object)this;
     }
 
     /// <summary>
     /// Targets all clients except those in the specified groups.
     /// </summary>
-    public TReceiver AllExcept(params string[] excludedGroups)
+    public new TReceiver AllExcept(params string[] excludedGroups)
     {
-        _targetClient = null;
-        _targetGroup = null;
-        _excludedGroups = excludedGroups;
+        base.AllExcept(excludedGroups);
         return (TReceiver)(object)this;
     }
 
     // Override TryInvokeMember for typed dispatch
     public override bool TryInvokeMember(InvokeMemberBinder binder, object?[]? args, out object? result)
     {
-        // Find the method on the TReceiver interface
-        var method = FindReceiverMethod(binder.Name, args);
-        if (method != null)
-        {
-            // Serialize arguments
-            var parameterData = SerializeEventArgs(args);
-
-            // Determine target and send
-            result = SendEventInternalAsync(binder.Name, parameterData);
-            return true;
-        }
-
-        // Fallback to base for Group/AllExcept calls etc.
+        // Use the base implementation that includes our custom method calling logic
         return base.TryInvokeMember(binder, args, out result);
     }
 }

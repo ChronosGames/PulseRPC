@@ -1,4 +1,5 @@
 using System.Reflection;
+using PulseRPC.Server.Hubs;
 
 namespace PulseRPC.Internal;
 
@@ -26,7 +27,7 @@ internal class HubContext : IAsyncDisposable
     /// <summary>
     /// Gets a proxy object for invoking methods on the connected client(s).
     /// </summary>
-    public dynamic Clients => _clientsProxy;
+    public IHubClients Clients => _clientsProxy;
 
     /// <summary>
     /// Gets an object for managing group membership.
@@ -76,13 +77,13 @@ public abstract class HubBase
     /// <summary>
     /// Gets the context for the current Hub invocation.
     /// </summary>
-    protected HubContext Context => _context ?? throw new InvalidOperationException("HubContext has not been initialized.");
+    internal HubContext Context => _context ?? throw new InvalidOperationException("HubContext has not been initialized.");
 
     /// <summary>
     /// Gets a dynamic proxy to invoke methods on the connected client(s).
     /// Example: Clients.Caller.ReceiveMessage("hello"); Clients.Group("myGroup").Notify("update");
     /// </summary>
-    protected dynamic Clients => Context.Clients;
+    protected IHubClients Clients => Context.Clients;
 
     /// <summary>
     /// Gets an object for managing group membership for the current connection.
@@ -115,6 +116,18 @@ public abstract class HubBase
     {
         return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// 处理从客户端发送的事件
+    /// </summary>
+    /// <param name="eventName">事件名称</param>
+    /// <param name="parameters">事件参数</param>
+    /// <returns>处理事件的任务</returns>
+    public virtual Task ProcessEventAsync(string eventName, object? parameters)
+    {
+        // 默认实现不处理事件，子类应该重写此方法以处理特定事件
+        return Task.CompletedTask;
+    }
 }
 
 /// <summary>
@@ -130,7 +143,7 @@ public abstract class PulseHub<THub, TReceiver> : HubBase, IPulseHub<THub, TRece
     /// Gets a typed proxy to invoke methods on the connected client(s).
     /// Provides better type safety and discoverability compared to the dynamic Clients property.
     /// </summary>
-    protected new HubClientsProxy<TReceiver> Clients => (HubClientsProxy<TReceiver>)base.Clients;
+    protected new IHubClients<TReceiver> Clients => (IHubClients<TReceiver>)base.Clients;
 }
 
 /// <summary>
