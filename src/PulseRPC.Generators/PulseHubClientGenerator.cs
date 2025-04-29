@@ -56,7 +56,7 @@ namespace PulseRPC.Generators
                 if (ImplementsPulseHub(interfaceSymbol, pulseHubSymbol, out var receiverType))
                 {
                     // 生成Hub客户端代理代码
-                    var generatedCode = GenerateHubClientProxyCode(interfaceSymbol, receiverType);
+                    var generatedCode = GenerateHubClientProxyCode(interfaceSymbol, receiverType!);
                     if (!string.IsNullOrEmpty(generatedCode))
                     {
                         // 添加生成的代码
@@ -66,7 +66,7 @@ namespace PulseRPC.Generators
             }
         }
 
-        private bool ImplementsPulseHub(INamedTypeSymbol interfaceSymbol, INamedTypeSymbol pulseHubSymbol, out INamedTypeSymbol receiverType)
+        private bool ImplementsPulseHub(INamedTypeSymbol interfaceSymbol, INamedTypeSymbol pulseHubSymbol, out INamedTypeSymbol? receiverType)
         {
             receiverType = null;
 
@@ -385,7 +385,7 @@ namespace PulseRPC.Client.Generated
                         }}";
         }
 
-        private string GetDefaultValueString(IParameterSymbol parameter)
+        private string? GetDefaultValueString(IParameterSymbol parameter)
         {
             if (!parameter.HasExplicitDefaultValue)
                 return string.Empty;

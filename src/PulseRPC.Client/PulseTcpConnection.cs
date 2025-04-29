@@ -5,8 +5,6 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.IO.Pipelines;
 using System.Net.Sockets;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace PulseRPC.Client;
 
@@ -34,10 +32,10 @@ public class PulseTcpConnection : IPulseConnection
     public event Func<PulseEvent, Task>? OnEventReceived;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref=\"PulseTcpConnection\"/> class.
+    /// Initializes a new instance of the <see cref="PulseTcpConnection"/> class.
     /// </summary>
-    /// <param name=\"host\">Server hostname or IP address.</param>
-    /// <param name=\"port\">Server port.</param>
+    /// <param name="host">Server hostname or IP address.</param>
+    /// <param name="port">Server port.</param>
     public PulseTcpConnection(string host, int port)
     {
         _host = host;
@@ -54,6 +52,7 @@ public class PulseTcpConnection : IPulseConnection
                 // Already connected or connecting
                 return;
             }
+
             _isConnectedFlag = true; // Set flag early to prevent race conditions
         }
 
@@ -69,7 +68,7 @@ public class PulseTcpConnection : IPulseConnection
 
             if (!_client.Connected)
             {
-                 _isConnectedFlag = false;
+                _isConnectedFlag = false;
                 throw new SocketException((int)SocketError.NotConnected);
             }
 
@@ -84,7 +83,6 @@ public class PulseTcpConnection : IPulseConnection
             // Start heartbeat loop
             // TODO: Make heartbeat configurable
             _ = StartHeartbeatLoopAsync(_cts.Token, TimeSpan.FromSeconds(15));
-
         }
         catch
         {
@@ -102,13 +100,13 @@ public class PulseTcpConnection : IPulseConnection
 
     private async Task CleanupConnectionAsync()
     {
-         if (!_isConnectedFlag) return; // Already cleaned up
+        if (!_isConnectedFlag) return; // Already cleaned up
 
-         lock(_connectionLock)
-         {
-             if (!_isConnectedFlag) return;
-             _isConnectedFlag = false;
-         }
+        lock (_connectionLock)
+        {
+            if (!_isConnectedFlag) return;
+            _isConnectedFlag = false;
+        }
 
         _cts?.Cancel(); // Signal cancellation to loops
 
@@ -120,24 +118,37 @@ public class PulseTcpConnection : IPulseConnection
                 // Give it a short time to complete gracefully
                 await Task.WhenAny(_receiveTask, Task.Delay(TimeSpan.FromMilliseconds(500)));
             }
-            catch (OperationCanceledException)\ { /* Expected */ }
+            catch (OperationCanceledException)
+            {
+                /* Expected */
+            }
             catch (Exception ex)
             {
                 // Log error from receive task if needed
-                Console.WriteLine($\"Error during receive task shutdown: {ex.Message}\");
+                Console.WriteLine($"Error during receive task shutdown: {ex.Message}");
             }
         }
 
         // Fail pending requests
         foreach (var kvp in _pendingRequests)
         {
-            kvp.Value.TrySetException(new TaskCanceledException(\"Connection closed.\"));
+            kvp.Value.TrySetException(new TaskCanceledException("Connection closed."));
         }
+
         _pendingRequests.Clear();
 
         // Complete pipes
-        try { await (_reader?.CompleteAsync() ?? Task.CompletedTask); } catch { /* Ignore */ }
-        try { await (_writer?.CompleteAsync() ?? Task.CompletedTask); } catch { /* Ignore */ }
+        try { await (_reader?.CompleteAsync() ?? Task.CompletedTask); }
+        catch
+        {
+            /* Ignore */
+        }
+
+        try { await (_writer?.CompleteAsync() ?? Task.CompletedTask); }
+        catch
+        {
+            /* Ignore */
+        }
 
         // Close client and dispose stream
         _client?.Close(); // Closes the stream implicitly
@@ -151,20 +162,22 @@ public class PulseTcpConnection : IPulseConnection
     }
 
     /// <inheritdoc />
-    public async Task<PulseResponse> SendRequestAsync(PulseRequest request, CancellationToken cancellationToken = default)
+    public async Task<PulseResponse> SendRequestAsync(PulseRequest request,
+        CancellationToken cancellationToken = default)
     {
         if (!IsConnected || _writer == null)
-            throw new InvalidOperationException(\"Client is not connected.\");
+            throw new InvalidOperationException("Client is not connected.");
 
         var tcs = new TaskCompletionSource<PulseResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!_pendingRequests.TryAdd(request.RequestId, tcs))
         {
             // Should not happen with Guid, but handle just in case
-            throw new InvalidOperationException(\"Duplicate request ID detected.\");
+            throw new InvalidOperationException("Duplicate request ID detected.");
         }
 
         // Link the provided token with the connection's token
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts?.Token ?? CancellationToken.None);
+        using var linkedCts =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts?.Token ?? CancellationToken.None);
         // TODO: Make request timeout configurable
         linkedCts.CancelAfter(TimeSpan.FromSeconds(30));
 
@@ -174,17 +187,17 @@ public class PulseTcpConnection : IPulseConnection
             var envelope = new MessageEnvelope { Type = MessageType.Request, Payload = requestBytes };
             await SendEnvelopeAsync(envelope, linkedCts.Token);
 
-            // Await the response or timeout/cancellation
+            // 等待响应（带超时和取消）
             return await tcs.Task.WaitAsync(linkedCts.Token);
         }
         catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
         {
-             if(cancellationToken.IsCancellationRequested)
-                throw new OperationCanceledException(\"Request cancelled by caller.\", cancellationToken);
-             else if(_cts?.IsCancellationRequested ?? true)
-                throw new InvalidOperationException(\"Connection closed while waiting for response.\");
-             else
-                throw new TimeoutException(\"Request timed out.\");
+            if (cancellationToken.IsCancellationRequested)
+                throw new OperationCanceledException("Request cancelled by caller.", cancellationToken);
+            else if (_cts?.IsCancellationRequested ?? true)
+                throw new InvalidOperationException("Connection closed while waiting for response.");
+            else
+                throw new TimeoutException("Request timed out.");
         }
         catch (Exception ex)
         {
@@ -205,7 +218,7 @@ public class PulseTcpConnection : IPulseConnection
     {
         try
         {
-             while (!cancellationToken.IsCancellationRequested && _reader != null)
+            while (!cancellationToken.IsCancellationRequested && _reader != null)
             {
                 ReadResult result = await _reader.ReadAsync(cancellationToken);
                 ReadOnlySequence<byte> buffer = result.Buffer;
@@ -215,7 +228,7 @@ public class PulseTcpConnection : IPulseConnection
                     while (TryParseMessage(ref buffer, out var messageData))
                     {
                         // Process messages asynchronously
-                       _ = ProcessMessageAsync(messageData); // Fire-and-forget processing
+                        _ = ProcessMessageAsync(messageData); // Fire-and-forget processing
                     }
 
                     if (result.IsCanceled || result.IsCompleted)
@@ -226,23 +239,23 @@ public class PulseTcpConnection : IPulseConnection
                 finally
                 {
                     // Advance the reader
-                    _reader.AdvanceReader(buffer.Start, buffer.End);
+                    _reader.AdvanceTo(buffer.Start, buffer.End);
                 }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-             Console.WriteLine(\"Receive loop cancelled.\");
+            Console.WriteLine("Receive loop cancelled.");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($\"Error in receive loop: {ex.Message}\");
+            Console.WriteLine($"Error in receive loop: {ex.Message}");
             // Connection likely lost, trigger cleanup
             await CleanupConnectionAsync();
         }
         finally
         {
-            Console.WriteLine(\"Receive loop finished.\");
+            Console.WriteLine("Receive loop finished.");
             // Ensure connection cleanup happens if loop exits unexpectedly
             await CleanupConnectionAsync();
         }
@@ -263,12 +276,12 @@ public class PulseTcpConnection : IPulseConnection
 
         if (messageLength <= 0 || messageLength > 1024 * 1024 * 16) // Basic sanity check (e.g., max 16MB)
         {
-             Console.WriteLine($\"Invalid message length received: {messageLength}\");
-             // Consider closing the connection due to protocol error
-             _ = CleanupConnectionAsync();
-             // Consume the invalid length prefix to avoid infinite loop
-             buffer = buffer.Slice(4);
-             return false;
+            Console.WriteLine($"Invalid message length received: {messageLength}");
+            // Consider closing the connection due to protocol error
+            _ = CleanupConnectionAsync();
+            // Consume the invalid length prefix to avoid infinite loop
+            buffer = buffer.Slice(4);
+            return false;
         }
 
         if (buffer.Length < 4 + messageLength)
@@ -301,13 +314,13 @@ public class PulseTcpConnection : IPulseConnection
                     HandleHeartbeat(envelope.Payload);
                     break;
                 default:
-                    Console.WriteLine($\"Received unknown message type: {envelope.Type}\");
+                    Console.WriteLine($"Received unknown message type: {envelope.Type}");
                     break;
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($\"Error processing received message: {ex.Message}\");
+            Console.WriteLine($"Error processing received message: {ex.Message}");
         }
     }
 
@@ -328,17 +341,17 @@ public class PulseTcpConnection : IPulseConnection
                 else
                 {
                     // TODO: Create specific exception type?
-                    tcs.TrySetException(new RpcException(response.ErrorMessage ?? \"RPC call failed.\"));
+                    tcs.TrySetException(new RpcException(response.ErrorMessage ?? "RPC call failed."));
                 }
             }
             else
             {
-                Console.WriteLine($\"Received response for unknown request ID: {response.RequestId}\");
+                Console.WriteLine($"Received response for unknown request ID: {response.RequestId}");
             }
         }
         catch (Exception ex)
         {
-             Console.WriteLine($\"Error handling response: {ex.Message}\");
+            Console.WriteLine($"Error handling response: {ex.Message}");
         }
     }
 
@@ -359,13 +372,13 @@ public class PulseTcpConnection : IPulseConnection
                 }
                 catch (Exception ex)
                 {
-                     Console.WriteLine($\"Error in OnEventReceived handler: {ex.Message}\");
+                    Console.WriteLine($"Error in OnEventReceived handler: {ex.Message}");
                 }
             }
         }
         catch (Exception ex)
         {
-             Console.WriteLine($\"Error handling event: {ex.Message}\");
+            Console.WriteLine($"Error handling event: {ex.Message}");
         }
     }
 
@@ -377,12 +390,12 @@ public class PulseTcpConnection : IPulseConnection
         // Potential RTT calculation or connection health update
         try
         {
-             var heartbeat = MemoryPackSerializer.Deserialize<PulseHeartbeat>(payload);
-             // Console.WriteLine($\"Received heartbeat response with server timestamp: {heartbeat.Timestamp}\");
+            var heartbeat = MemoryPackSerializer.Deserialize<PulseHeartbeat>(payload);
+            // Console.WriteLine($"Received heartbeat response with server timestamp: {heartbeat.Timestamp}");
         }
         catch (Exception ex)
         {
-             Console.WriteLine($\"Error handling heartbeat: {ex.Message}\");
+            Console.WriteLine($"Error handling heartbeat: {ex.Message}");
         }
     }
 
@@ -413,7 +426,7 @@ public class PulseTcpConnection : IPulseConnection
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($\"Failed to send heartbeat: {ex.Message}\");
+                    Console.WriteLine($"Failed to send heartbeat: {ex.Message}");
                     // Consider disconnecting if heartbeats fail repeatedly
                     await CleanupConnectionAsync();
                     break;
@@ -422,11 +435,11 @@ public class PulseTcpConnection : IPulseConnection
         }
         catch (OperationCanceledException)
         {
-             Console.WriteLine(\"Heartbeat loop cancelled.\");
+            Console.WriteLine("Heartbeat loop cancelled.");
         }
         finally
         {
-             Console.WriteLine(\"Heartbeat loop finished.\");
+            Console.WriteLine("Heartbeat loop finished.");
         }
     }
 
@@ -437,7 +450,7 @@ public class PulseTcpConnection : IPulseConnection
     {
         if (!IsConnected || _writer == null)
         {
-            throw new InvalidOperationException(\"Cannot send, client is not connected.\");
+            throw new InvalidOperationException("Cannot send, client is not connected.");
         }
 
         try
@@ -457,24 +470,24 @@ public class PulseTcpConnection : IPulseConnection
             if (result.IsCanceled || result.IsCompleted)
             {
                 // Connection might be closing
-                throw new OperationCanceledException(\"Send operation cancelled or completed unexpectedly.\");
+                throw new OperationCanceledException("Send operation cancelled or completed unexpectedly.");
             }
         }
         catch (ObjectDisposedException ex) // Catch if PipeWriter is disposed
         {
-            throw new InvalidOperationException(\"Cannot send, connection is disposed.\", ex);
+            throw new InvalidOperationException("Cannot send, connection is disposed.", ex);
         }
         catch (IOException ex)
         {
             // Network error during send
             await CleanupConnectionAsync(); // Assume connection is lost
-            throw new RpcException(\"Network error during send.\", ex);
+            throw new RpcException("Network error during send.", ex);
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             // Catch any other unexpected error during send
             await CleanupConnectionAsync(); // Assume connection is lost
-            throw new RpcException(\"Failed to send message.\", ex);
+            throw new RpcException("Failed to send message.", ex);
         }
     }
 
@@ -494,4 +507,3 @@ public class RpcException : Exception
     public RpcException(string message) : base(message) { }
     public RpcException(string message, Exception innerException) : base(message, innerException) { }
 }
-
