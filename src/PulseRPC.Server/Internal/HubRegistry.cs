@@ -2,6 +2,7 @@ using PulseRPC.Protocol;
 using PulseRPC.Server;
 using System.Collections.Concurrent;
 using System.Reflection;
+using PulseRPC.Server.Monitoring;
 
 namespace PulseRPC.Internal;
 
@@ -11,7 +12,8 @@ namespace PulseRPC.Internal;
 internal interface IHubRegistry
 {
     void Register<THub, TReceiver>(Type implementationType)
-        where THub : class, IPulseHub<THub, TReceiver>;
+        where THub : class, IPulseHub<THub, TReceiver>
+        where TReceiver : class;
 
     HubHandler? GetHandler(string hubName);
 }
@@ -31,6 +33,7 @@ internal class HubRegistry : IHubRegistry
 
     public void Register<THub, TReceiver>(Type implementationType)
         where THub : class, IPulseHub<THub, TReceiver>
+        where TReceiver : class
     {
         var hubType = typeof(THub);
         var hubName = hubType.FullName ?? hubType.Name;
@@ -112,8 +115,14 @@ internal class HubHandler : RequestHandlerBase
     /// </summary>
     public async Task<PulseResponse> HandleRequestAsync(HubContext context, PulseRequest request)
     {
+        // 开始记录请求指标
+        PulseMetrics.StartRequest(request.RequestId);
+
         if (!_methods.TryGetValue(request.MethodName, out var methodInfo))
         {
+            // 记录请求失败
+            PulseMetrics.EndRequest(request.RequestId, request.ServiceName, request.MethodName, false);
+
             return new PulseResponse
             {
                 RequestId = request.RequestId,
@@ -131,6 +140,9 @@ internal class HubHandler : RequestHandlerBase
             var result = await InvokeMethodAsync(methodInfo, context.HubInstance, parameters);
             var serializedResult = SerializeResult(result);
 
+            // 记录请求成功
+            PulseMetrics.EndRequest(request.RequestId, request.ServiceName, request.MethodName, true);
+
             return new PulseResponse
             {
                 RequestId = request.RequestId,
@@ -140,6 +152,9 @@ internal class HubHandler : RequestHandlerBase
         }
         catch (Exception ex)
         {
+            // 记录请求失败
+            PulseMetrics.EndRequest(request.RequestId, request.ServiceName, request.MethodName, false);
+
             var innerExceptionMessage = ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}" : string.Empty;
             return new PulseResponse
             {
@@ -147,6 +162,64 @@ internal class HubHandler : RequestHandlerBase
                 IsSuccess = false,
                 ErrorMessage = $"Error executing hub method '{request.MethodName}': {ex.Message}{innerExceptionMessage}"
             };
+        }
+    }
+
+    /// <summary>
+    /// 处理发送到Hub的事件
+    /// </summary>
+    public async Task HandleEventAsync(HubContext context, PulseEvent @event)
+    {
+        try
+        {
+            // 查找接收者接口上对应的方法
+            var receiverMethod = _receiverMethods.FirstOrDefault(m => m.Name == @event.EventName);
+            if (receiverMethod == null)
+            {
+                throw new InvalidOperationException($"Receiver method '{@event.EventName}' not found on hub receiver interface.");
+            }
+
+            // 获取参数信息
+            var parameterTypes = receiverMethod.GetParameters().Select(p => p.ParameterType).ToArray();
+
+            // 反序列化事件数据
+            object? parameters = null;
+            if (@event.EventData != null && @event.EventData.Length > 0)
+            {
+                parameters = DeserializeParameters(@event.EventData, parameterTypes);
+            }
+
+            // 由于HubContext不允许我们直接调用接收者接口的方法，
+            // 我们需要通过Hub实例间接处理事件
+            // 实际实现会根据Hub的设计而有所不同，这里只是一个框架
+
+            // 记录处理的事件
+            var eventId = Guid.NewGuid(); // 事件没有请求ID，所以我们生成一个用于日志
+            PulseMetrics.StartRequest(eventId);
+
+            try
+            {
+                // 示例：将事件转发到Hub的某个处理方法
+                // 实际实现可能需要更复杂的逻辑
+                if (context.HubInstance is HubBase hubBase)
+                {
+                    await hubBase.ProcessEventAsync(@event.EventName, parameters);
+                    PulseMetrics.EndRequest(eventId, @event.HubName, @event.EventName, true);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Hub instance does not inherit from HubBase.");
+                }
+            }
+            catch (Exception ex)
+            {
+                PulseMetrics.EndRequest(eventId, @event.HubName, @event.EventName, false);
+                throw new InvalidOperationException($"Error processing event '{@event.EventName}': {ex.Message}", ex);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Error handling event: {ex.Message}", ex);
         }
     }
 

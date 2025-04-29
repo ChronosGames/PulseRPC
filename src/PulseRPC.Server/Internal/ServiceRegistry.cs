@@ -1,6 +1,7 @@
 using PulseRPC.Protocol;
 using System.Collections.Concurrent;
 using System.Reflection;
+using PulseRPC.Server.Monitoring;
 
 namespace PulseRPC.Internal;
 
@@ -60,8 +61,14 @@ internal class ServiceHandler : RequestHandlerBase
 
     public async Task<PulseResponse> HandleRequestAsync(PulseRequest request)
     {
+        // 开始记录请求指标
+        PulseMetrics.StartRequest(request.RequestId);
+
         if (!_methods.TryGetValue(request.MethodName, out var methodInfo))
         {
+            // 记录请求失败
+            PulseMetrics.EndRequest(request.RequestId, request.ServiceName, request.MethodName, false);
+
             return new PulseResponse
             {
                 RequestId = request.RequestId,
@@ -78,6 +85,9 @@ internal class ServiceHandler : RequestHandlerBase
             var result = await InvokeMethodAsync(methodInfo, _implementation, parameters);
             var serializedResult = SerializeResult(result);
 
+            // 记录请求成功
+            PulseMetrics.EndRequest(request.RequestId, request.ServiceName, request.MethodName, true);
+
             return new PulseResponse
             {
                 RequestId = request.RequestId,
@@ -87,6 +97,9 @@ internal class ServiceHandler : RequestHandlerBase
         }
         catch (Exception ex)
         {
+            // 记录请求失败
+            PulseMetrics.EndRequest(request.RequestId, request.ServiceName, request.MethodName, false);
+
             // Log the inner exception if it exists
             var innerExceptionMessage = ex.InnerException != null ? $" Inner Exception: {ex.InnerException.Message}" : string.Empty;
             return new PulseResponse

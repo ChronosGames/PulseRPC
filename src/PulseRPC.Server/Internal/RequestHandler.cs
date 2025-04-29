@@ -18,17 +18,43 @@ internal abstract class RequestHandlerBase
 {
     protected object DeserializeParameters(byte[] parameterData, Type[] parameterTypes)
     {
-        // Currently supports single parameter or parameterless methods
+        // 支持无参数方法
         if (parameterTypes.Length == 0)
         {
             return Array.Empty<object>();
         }
+        // 支持单参数方法
         if (parameterTypes.Length == 1)
         {
             return MemoryPack.MemoryPackSerializer.Deserialize(parameterTypes[0], parameterData)!;
         }
-        // TODO: Support multiple parameters (e.g., using tuples or arrays)
-        throw new NotSupportedException("Methods with multiple parameters are not yet supported by the base handler.");
+
+        // 支持多参数方法
+        try
+        {
+            // 使用元组类型序列化多个参数
+            var tupleType = Type.GetType($"System.ValueTuple`{parameterTypes.Length}");
+            if (tupleType == null)
+            {
+                throw new NotSupportedException($"无法创建 {parameterTypes.Length} 个参数的元组类型");
+            }
+
+            var genericTupleType = tupleType.MakeGenericType(parameterTypes);
+            var tuple = MemoryPack.MemoryPackSerializer.Deserialize(genericTupleType, parameterData)!;
+
+            // 从元组中提取各个参数值
+            var parameters = new object[parameterTypes.Length];
+            for (int i = 0; i < parameterTypes.Length; i++)
+            {
+                parameters[i] = tuple.GetType().GetField($"Item{i + 1}")!.GetValue(tuple)!;
+            }
+
+            return parameters;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"反序列化多参数失败: {ex.Message}", ex);
+        }
     }
 
     protected byte[]? SerializeResult(object? result)
