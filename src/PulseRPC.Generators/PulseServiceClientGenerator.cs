@@ -226,7 +226,7 @@ namespace PulseRPC.Client.Generated
             return methodBody;
         }
 
-        private string GetDefaultValueString(IParameterSymbol parameter)
+        private string? GetDefaultValueString(IParameterSymbol parameter)
         {
             if (!parameter.HasExplicitDefaultValue)
                 return string.Empty;
