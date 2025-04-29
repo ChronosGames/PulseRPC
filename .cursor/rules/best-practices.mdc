@@ -1,0 +1,84 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# MagicOnion最佳实践
+
+使用MagicOnion开发项目时的建议和最佳实践。
+
+## 项目结构
+
+推荐的项目结构：
+
+1. **共享项目** (.NET Standard) - 包含服务接口定义和共享模型
+   - 对于Unity项目，需要配置特殊的输出目录
+   - 添加package.json和asmdef文件以支持Unity包引用
+
+2. **服务器项目** (.NET 8+) - 实现服务接口
+   - 引用共享项目
+   - 实现各种服务和业务逻辑
+
+3. **客户端项目** (各种.NET平台) - 连接和使用服务
+   - 引用共享项目
+   - 实现客户端接口和UI逻辑
+
+## 接口设计
+
+1. **保持接口简单**
+   - 方法参数使用简单类型或可序列化的对象
+   - 避免复杂的继承层次结构
+
+2. **命名约定**
+   - 服务接口使用`IXxxService`命名
+   - StreamingHub接口使用`IXxxHub`命名
+   - 客户端接口使用`IXxxClient`命名
+   - 方法名使用`XxxAsync`表示异步操作
+
+3. **返回类型**
+   - Unary服务使用`UnaryResult<T>`
+   - StreamingHub方法通常返回`Task`或`Task<T>`
+
+## 序列化
+
+1. **选择合适的序列化库**
+   - MessagePack适合大多数场景
+   - MemoryPack提供更好的性能，但可能需要更多配置
+
+2. **对象设计**
+   - 使用简单的数据对象（DTO）
+   - 使用可序列化的属性和字段
+   - 避免循环引用
+
+## 错误处理
+
+1. **使用标准异常模式**
+   ```csharp
+   try
+   {
+       // 业务逻辑
+       return new UnaryResult<int>(result);
+   }
+   catch (Exception ex)
+   {
+       throw new ReturnStatusException(StatusCode.Internal, "操作失败", ex);
+   }
+   ```
+
+2. **客户端错误处理**
+   ```csharp
+   try
+   {
+       var result = await client.SomeMethodAsync();
+       // 处理结果
+   }
+   catch (RpcException ex) when (ex.StatusCode == StatusCode.NotFound)
+   {
+       // 处理特定类型的错误
+   }
+   catch (Exception ex)
+   {
+       // 处理通用错误
+   }
+   ```
+
