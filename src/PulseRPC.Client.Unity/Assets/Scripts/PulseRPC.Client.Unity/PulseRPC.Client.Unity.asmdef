@@ -1,9 +1,8 @@
 {
-    "name": "MagicOnion.Unity",
-    "rootNamespace": "",
+    "name": "PulseRPC.Unity",
+    "rootNamespace": "PulseRPC.Unity",
     "references": [
-        "MagicOnion.Abstractions",
-        "MagicOnion.Client",
+        "PulseRPC.Client",
         "UniTask"
     ],
     "includePlatforms": [],
@@ -11,8 +10,6 @@
     "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [
-        "Grpc.Core.dll",
-        "Grpc.Core.Api.dll"
     ],
     "autoReferenced": true,
     "defineConstraints": [],

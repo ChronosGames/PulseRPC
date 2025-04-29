@@ -1,0 +1,15 @@
+  {
+    "name": "com.chronosgames.pulserpc.client.unity",
+    "displayName": "PulseRPC.Client.Unity",
+    "author": { "name": "ChronosGames, Inc.", "url": "https://chronosgames.cn/en/" },
+    "version": "1.0.0",
+    "unity": "2022.3",
+    "description": "Unified Realtime/API framework for .NET platform and Unity.",
+    "keywords": [
+      "grpc",
+      "pulserpc"
+    ],
+    "license": "MIT",
+    "category": "grpc",
+    "dependencies": {}
+  }
