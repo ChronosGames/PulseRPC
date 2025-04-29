@@ -1,1 +1,497 @@
-using MemoryPack;\nusing PulseRPC.Protocol;\nusing System.Buffers;\nusing System.Buffers.Binary;\nusing System.Collections.Concurrent;\nusing System.IO.Pipelines;\nusing System.Net.Sockets;\nusing System.Threading;\nusing System.Threading.Tasks;\n\nnamespace PulseRPC.Client;\n\n/// <summary>\n/// Represents a TCP connection to a PulseRPC server.\n/// </summary>\npublic class PulseTcpConnection : IPulseConnection\n{\n    private readonly string _host;\n    private readonly int _port;\n    private TcpClient? _client;\n    private NetworkStream? _stream;\n    private PipeReader? _reader;\n    private PipeWriter? _writer;\n    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<PulseResponse>> _pendingRequests = new();\n    private Task? _receiveTask;\n    private CancellationTokenSource? _cts;\n    private readonly object _connectionLock = new object();\n    private volatile bool _isConnectedFlag;\n\n    /// <inheritdoc />\n    public bool IsConnected => _isConnectedFlag && _client?.Connected == true;\n\n    /// <inheritdoc />\n    public event Func<PulseEvent, Task>? OnEventReceived;\n\n    /// <summary>\n    /// Initializes a new instance of the <see cref=\"PulseTcpConnection\"/> class.\n    /// </summary>\n    /// <param name=\"host\">Server hostname or IP address.</param>\n    /// <param name=\"port\">Server port.</param>\n    public PulseTcpConnection(string host, int port)\n    {\n        _host = host;\n        _port = port;\n    }\n\n    /// <inheritdoc />\n    public async Task ConnectAsync(CancellationToken cancellationToken = default)\n    {\n        lock (_connectionLock)\n        {\n            if (IsConnected)\n            {\n                // Already connected or connecting\n                return;\n            }\n            _isConnectedFlag = true; // Set flag early to prevent race conditions\n        }\n\n        try\n        {\n            _client = new TcpClient();\n            // Use cancellation token for connect timeout\n            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);\n            // TODO: Make connect timeout configurable\n            connectCts.CancelAfter(TimeSpan.FromSeconds(15)); \n\n            await _client.ConnectAsync(_host, _port, connectCts.Token);\n\n            if (!_client.Connected)\n            {\n                 _isConnectedFlag = false;\n                throw new SocketException((int)SocketError.NotConnected);\n            }\n\n            _stream = _client.GetStream();\n            _reader = PipeReader.Create(_stream);\n            _writer = PipeWriter.Create(_stream);\n            _cts = new CancellationTokenSource();\n\n            // Start the message receiving loop\n            _receiveTask = ReceiveMessagesAsync(_cts.Token);\n\n            // Start heartbeat loop\n            // TODO: Make heartbeat configurable\n            _ = StartHeartbeatLoopAsync(_cts.Token, TimeSpan.FromSeconds(15));\n\n        }\n        catch\n        {\n            _isConnectedFlag = false; // Reset flag on failure\n            await CleanupConnectionAsync();\n            throw;\n        }\n    }\n\n    /// <inheritdoc />\n    public async Task DisconnectAsync()\n    {\n        await CleanupConnectionAsync();\n    }\n\n    private async Task CleanupConnectionAsync()\n    {\n         if (!_isConnectedFlag) return; // Already cleaned up\n\n         lock(_connectionLock)\n         {\n             if (!_isConnectedFlag) return;\n             _isConnectedFlag = false;\n         }\n\n        _cts?.Cancel(); // Signal cancellation to loops\n\n        // Wait for the receive loop to finish\n        if (_receiveTask != null && !_receiveTask.IsCompleted)\n        {\n            try\n            {\n                // Give it a short time to complete gracefully\n                await Task.WhenAny(_receiveTask, Task.Delay(TimeSpan.FromMilliseconds(500)));\n            }\n            catch (OperationCanceledException)\ { /* Expected */ }\n            catch (Exception ex)\n            {\n                // Log error from receive task if needed\n                Console.WriteLine($\"Error during receive task shutdown: {ex.Message}\");\n            }\n        }\n\n        // Fail pending requests\n        foreach (var kvp in _pendingRequests)\n        {\n            kvp.Value.TrySetException(new TaskCanceledException(\"Connection closed.\"));\n        }\n        _pendingRequests.Clear();\n\n        // Complete pipes\n        try { await (_reader?.CompleteAsync() ?? Task.CompletedTask); } catch { /* Ignore */ }\n        try { await (_writer?.CompleteAsync() ?? Task.CompletedTask); } catch { /* Ignore */ }\n\n        // Close client and dispose stream\n        _client?.Close(); // Closes the stream implicitly\n        _stream = null;\n        _client = null;\n        _reader = null;\n        _writer = null;\n\n        _cts?.Dispose();\n        _cts = null;\n    }\n\n    /// <inheritdoc />\n    public async Task<PulseResponse> SendRequestAsync(PulseRequest request, CancellationToken cancellationToken = default)\n    {\n        if (!IsConnected || _writer == null)\n            throw new InvalidOperationException(\"Client is not connected.\");\n\n        var tcs = new TaskCompletionSource<PulseResponse>(TaskCreationOptions.RunContinuationsAsynchronously);\n        if (!_pendingRequests.TryAdd(request.RequestId, tcs))\n        {\n            // Should not happen with Guid, but handle just in case\n            throw new InvalidOperationException(\"Duplicate request ID detected.\");\n        }\n\n        // Link the provided token with the connection's token\n        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts?.Token ?? CancellationToken.None);\n        // TODO: Make request timeout configurable\n        linkedCts.CancelAfter(TimeSpan.FromSeconds(30));\n\n        try\n        {\n            var requestBytes = MemoryPackSerializer.Serialize(request);\n            var envelope = new MessageEnvelope { Type = MessageType.Request, Payload = requestBytes };\n            await SendEnvelopeAsync(envelope, linkedCts.Token);\n\n            // Await the response or timeout/cancellation\n            return await tcs.Task.WaitAsync(linkedCts.Token);\n        }\n        catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)\n        {\n             if(cancellationToken.IsCancellationRequested)\n                throw new OperationCanceledException(\"Request cancelled by caller.\", cancellationToken);\n             else if(_cts?.IsCancellationRequested ?? true)\n                throw new InvalidOperationException(\"Connection closed while waiting for response.\");\n             else\n                throw new TimeoutException(\"Request timed out.\");\n        }\n        catch (Exception ex)\n        {\n            // Ensure TCS is completed exceptionally if sending failed\n            tcs.TrySetException(ex);\n            throw; // Re-throw the original exception\n        }\n        finally\n        {\n            _pendingRequests.TryRemove(request.RequestId, out _);\n        }\n    }\n\n    /// <summary>\n    /// Loop that continuously reads messages from the server.\n    /// </summary>\n    private async Task ReceiveMessagesAsync(CancellationToken cancellationToken)\n    {\n        try\n        {\n             while (!cancellationToken.IsCancellationRequested && _reader != null)\n            {\n                ReadResult result = await _reader.ReadAsync(cancellationToken);\n                ReadOnlySequence<byte> buffer = result.Buffer;\n\n                try\n                {\n                    while (TryParseMessage(ref buffer, out var messageData))\n                    {\n                        // Process messages asynchronously\n                       _ = ProcessMessageAsync(messageData); // Fire-and-forget processing\n                    }\n\n                    if (result.IsCanceled || result.IsCompleted)\n                    {\n                        break; // Exit loop if connection is closed or cancelled\n                    }\n                }\n                finally\n                {\n                    // Advance the reader\n                    _reader.AdvanceReader(buffer.Start, buffer.End);\n                }\n            }\n        }\n        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)\n        {\n             Console.WriteLine(\"Receive loop cancelled.\");\n        }\n        catch (Exception ex)\n        {\n            Console.WriteLine($\"Error in receive loop: {ex.Message}\");\n            // Connection likely lost, trigger cleanup\n            await CleanupConnectionAsync();\n        }\n        finally\n        {\n            Console.WriteLine(\"Receive loop finished.\");\n            // Ensure connection cleanup happens if loop exits unexpectedly\n            await CleanupConnectionAsync();\n        }\n    }\n\n    /// <summary>\n    /// Tries to parse a length-prefixed message from the buffer.\n    /// </summary>\n    private bool TryParseMessage(ref ReadOnlySequence<byte> buffer, out byte[] message)\n    {\n        message = default!;\n        if (buffer.Length < 4)\n            return false;\n\n        Span<byte> lengthBytes = stackalloc byte[4];\n        buffer.Slice(0, 4).CopyTo(lengthBytes);\n        int messageLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);\n\n        if (messageLength <= 0 || messageLength > 1024 * 1024 * 16) // Basic sanity check (e.g., max 16MB)\n        {\n             Console.WriteLine($\"Invalid message length received: {messageLength}\");\n             // Consider closing the connection due to protocol error\n             _ = CleanupConnectionAsync();\n             // Consume the invalid length prefix to avoid infinite loop\n             buffer = buffer.Slice(4);\n             return false;\n        }\n\n        if (buffer.Length < 4 + messageLength)\n            return false;\n\n        var messageBuffer = buffer.Slice(4, messageLength);\n        message = messageBuffer.ToArray();\n        buffer = buffer.Slice(messageBuffer.End);\n        return true;\n    }\n\n    /// <summary>\n    /// Processes a received message payload based on its envelope type.\n    /// </summary>\n    private async Task ProcessMessageAsync(byte[] messageData)\n    {\n        try\n        {\n            var envelope = MemoryPackSerializer.Deserialize<MessageEnvelope>(messageData);\n\n            switch (envelope.Type)\n            {\n                case MessageType.Response:\n                    HandleResponse(envelope.Payload);\n                    break;\n                case MessageType.Event:\n                    await HandleEventAsync(envelope.Payload);\n                    break;\n                case MessageType.Heartbeat:\n                    HandleHeartbeat(envelope.Payload);\n                    break;\n                default:\n                    Console.WriteLine($\"Received unknown message type: {envelope.Type}\");\n                    break;\n            }\n        }\n        catch (Exception ex)\n        {\n            Console.WriteLine($\"Error processing received message: {ex.Message}\");\n        }\n    }\n\n    /// <summary>\n    /// Matches a received response with a pending request.\n    /// </summary>\n    private void HandleResponse(byte[] payload)\n    {\n        try\n        {\n            var response = MemoryPackSerializer.Deserialize<PulseResponse>(payload);\n            if (_pendingRequests.TryGetValue(response.RequestId, out var tcs))\n            {\n                if (response.IsSuccess)\n                {\n                    tcs.TrySetResult(response);\n                }\n                else\n                {\n                    // TODO: Create specific exception type?\n                    tcs.TrySetException(new RpcException(response.ErrorMessage ?? \"RPC call failed.\"));\n                }\n            }\n            else\n            {\n                Console.WriteLine($\"Received response for unknown request ID: {response.RequestId}\");\n            }\n        }\n        catch (Exception ex)\n        {\n             Console.WriteLine($\"Error handling response: {ex.Message}\");\n        }\n    }\n\n    /// <summary>\n    /// Handles a received event by invoking the OnEventReceived delegate.\n    /// </summary>\n    private async Task HandleEventAsync(byte[] payload)\n    {\n        try\n        {\n            var eventPacket = MemoryPackSerializer.Deserialize<PulseEvent>(payload);\n            var handler = OnEventReceived;\n            if (handler != null)\n            {\n                try\n                {\n                    await handler.Invoke(eventPacket);\n                }\n                catch (Exception ex)\n                {\n                     Console.WriteLine($\"Error in OnEventReceived handler: {ex.Message}\");\n                }\n            }\n        }\n        catch (Exception ex)\n        {\n             Console.WriteLine($\"Error handling event: {ex.Message}\");\n        }\n    }\n\n    /// <summary>\n    /// Handles a received heartbeat (currently does nothing).\n    /// </summary>\n    private void HandleHeartbeat(byte[] payload)\n    {\n        // Potential RTT calculation or connection health update\n        try\n        {\n             var heartbeat = MemoryPackSerializer.Deserialize<PulseHeartbeat>(payload);\n             // Console.WriteLine($\"Received heartbeat response with server timestamp: {heartbeat.Timestamp}\");\n        }\n        catch (Exception ex)\n        {\n             Console.WriteLine($\"Error handling heartbeat: {ex.Message}\");\n        }\n    }\n\n    /// <summary>\n    /// Sends a heartbeat message periodically.\n    /// </summary>\n    private async Task StartHeartbeatLoopAsync(CancellationToken cancellationToken, TimeSpan interval)\n    {\n        try\n        {\n            while (!cancellationToken.IsCancellationRequested)\n            {\n                await Task.Delay(interval, cancellationToken);\n\n                if (!IsConnected || _writer == null)\n                    continue;\n\n                try\n                {\n                    var heartbeat = new PulseHeartbeat { Timestamp = DateTime.UtcNow.Ticks };\n                    var heartbeatBytes = MemoryPackSerializer.Serialize(heartbeat);\n                    var envelope = new MessageEnvelope { Type = MessageType.Heartbeat, Payload = heartbeatBytes };\n                    await SendEnvelopeAsync(envelope, cancellationToken);\n                }\n                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)\n                {\n                    break; // Exit loop if cancelled during send\n                }\n                catch (Exception ex)\n                {\n                    Console.WriteLine($\"Failed to send heartbeat: {ex.Message}\");\n                    // Consider disconnecting if heartbeats fail repeatedly\n                    await CleanupConnectionAsync();\n                    break;\n                }\n            }\n        }\n        catch (OperationCanceledException)\n        {\n             Console.WriteLine(\"Heartbeat loop cancelled.\");\n        }\n        finally\n        {\n             Console.WriteLine(\"Heartbeat loop finished.\");\n        }\n    }\n\n    /// <summary>\n    /// Serializes and sends a message envelope with length prefix.\n    /// </summary>\n    private async Task SendEnvelopeAsync(MessageEnvelope envelope, CancellationToken cancellationToken)\n    {\n        if (!IsConnected || _writer == null)\n        {\n            throw new InvalidOperationException(\"Cannot send, client is not connected.\");\n        }\n\n        try\n        {\n            byte[] envelopeBytes = MemoryPackSerializer.Serialize(envelope);\n            int messageLength = envelopeBytes.Length;\n\n            // Get memory, write length, write payload\n            var buffer = _writer.GetMemory(4 + messageLength);\n            BinaryPrimitives.WriteInt32LittleEndian(buffer.Span.Slice(0, 4), messageLength);\n            envelopeBytes.CopyTo(buffer.Slice(4));\n            _writer.Advance(4 + messageLength);\n\n            // Flush the writer\n            FlushResult result = await _writer.FlushAsync(cancellationToken);\n\n            if (result.IsCanceled || result.IsCompleted)\n            {\n                // Connection might be closing\n                throw new OperationCanceledException(\"Send operation cancelled or completed unexpectedly.\");\n            }\n        }\n        catch (ObjectDisposedException ex) // Catch if PipeWriter is disposed\n        {\n            throw new InvalidOperationException(\"Cannot send, connection is disposed.\", ex);\n        }\n        catch (IOException ex)\n        {\n            // Network error during send\n            await CleanupConnectionAsync(); // Assume connection is lost\n            throw new RpcException(\"Network error during send.\", ex);\n        }\n        catch(Exception ex)\n        {\n            // Catch any other unexpected error during send\n            await CleanupConnectionAsync(); // Assume connection is lost\n            throw new RpcException(\"Failed to send message.\", ex);\n        }\n    }\n\n    /// <inheritdoc />\n    public async ValueTask DisposeAsync()\n    {\n        await CleanupConnectionAsync();\n        GC.SuppressFinalize(this);\n    }\n}\n\n/// <summary>\n/// Exception thrown for RPC specific errors.\n/// </summary>\npublic class RpcException : Exception\n{\n    public RpcException(string message) : base(message) { }\n    public RpcException(string message, Exception innerException) : base(message, innerException) { }\n}\n
+using MemoryPack;
+using PulseRPC.Protocol;
+using System.Buffers;
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.IO.Pipelines;
+using System.Net.Sockets;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace PulseRPC.Client;
+
+/// <summary>
+/// Represents a TCP connection to a PulseRPC server.
+/// </summary>
+public class PulseTcpConnection : IPulseConnection
+{
+    private readonly string _host;
+    private readonly int _port;
+    private TcpClient? _client;
+    private NetworkStream? _stream;
+    private PipeReader? _reader;
+    private PipeWriter? _writer;
+    private readonly ConcurrentDictionary<Guid, TaskCompletionSource<PulseResponse>> _pendingRequests = new();
+    private Task? _receiveTask;
+    private CancellationTokenSource? _cts;
+    private readonly object _connectionLock = new object();
+    private volatile bool _isConnectedFlag;
+
+    /// <inheritdoc />
+    public bool IsConnected => _isConnectedFlag && _client?.Connected == true;
+
+    /// <inheritdoc />
+    public event Func<PulseEvent, Task>? OnEventReceived;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref=\"PulseTcpConnection\"/> class.
+    /// </summary>
+    /// <param name=\"host\">Server hostname or IP address.</param>
+    /// <param name=\"port\">Server port.</param>
+    public PulseTcpConnection(string host, int port)
+    {
+        _host = host;
+        _port = port;
+    }
+
+    /// <inheritdoc />
+    public async Task ConnectAsync(CancellationToken cancellationToken = default)
+    {
+        lock (_connectionLock)
+        {
+            if (IsConnected)
+            {
+                // Already connected or connecting
+                return;
+            }
+            _isConnectedFlag = true; // Set flag early to prevent race conditions
+        }
+
+        try
+        {
+            _client = new TcpClient();
+            // Use cancellation token for connect timeout
+            using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            // TODO: Make connect timeout configurable
+            connectCts.CancelAfter(TimeSpan.FromSeconds(15));
+
+            await _client.ConnectAsync(_host, _port, connectCts.Token);
+
+            if (!_client.Connected)
+            {
+                 _isConnectedFlag = false;
+                throw new SocketException((int)SocketError.NotConnected);
+            }
+
+            _stream = _client.GetStream();
+            _reader = PipeReader.Create(_stream);
+            _writer = PipeWriter.Create(_stream);
+            _cts = new CancellationTokenSource();
+
+            // Start the message receiving loop
+            _receiveTask = ReceiveMessagesAsync(_cts.Token);
+
+            // Start heartbeat loop
+            // TODO: Make heartbeat configurable
+            _ = StartHeartbeatLoopAsync(_cts.Token, TimeSpan.FromSeconds(15));
+
+        }
+        catch
+        {
+            _isConnectedFlag = false; // Reset flag on failure
+            await CleanupConnectionAsync();
+            throw;
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task DisconnectAsync()
+    {
+        await CleanupConnectionAsync();
+    }
+
+    private async Task CleanupConnectionAsync()
+    {
+         if (!_isConnectedFlag) return; // Already cleaned up
+
+         lock(_connectionLock)
+         {
+             if (!_isConnectedFlag) return;
+             _isConnectedFlag = false;
+         }
+
+        _cts?.Cancel(); // Signal cancellation to loops
+
+        // Wait for the receive loop to finish
+        if (_receiveTask != null && !_receiveTask.IsCompleted)
+        {
+            try
+            {
+                // Give it a short time to complete gracefully
+                await Task.WhenAny(_receiveTask, Task.Delay(TimeSpan.FromMilliseconds(500)));
+            }
+            catch (OperationCanceledException)\ { /* Expected */ }
+            catch (Exception ex)
+            {
+                // Log error from receive task if needed
+                Console.WriteLine($\"Error during receive task shutdown: {ex.Message}\");
+            }
+        }
+
+        // Fail pending requests
+        foreach (var kvp in _pendingRequests)
+        {
+            kvp.Value.TrySetException(new TaskCanceledException(\"Connection closed.\"));
+        }
+        _pendingRequests.Clear();
+
+        // Complete pipes
+        try { await (_reader?.CompleteAsync() ?? Task.CompletedTask); } catch { /* Ignore */ }
+        try { await (_writer?.CompleteAsync() ?? Task.CompletedTask); } catch { /* Ignore */ }
+
+        // Close client and dispose stream
+        _client?.Close(); // Closes the stream implicitly
+        _stream = null;
+        _client = null;
+        _reader = null;
+        _writer = null;
+
+        _cts?.Dispose();
+        _cts = null;
+    }
+
+    /// <inheritdoc />
+    public async Task<PulseResponse> SendRequestAsync(PulseRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!IsConnected || _writer == null)
+            throw new InvalidOperationException(\"Client is not connected.\");
+
+        var tcs = new TaskCompletionSource<PulseResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_pendingRequests.TryAdd(request.RequestId, tcs))
+        {
+            // Should not happen with Guid, but handle just in case
+            throw new InvalidOperationException(\"Duplicate request ID detected.\");
+        }
+
+        // Link the provided token with the connection's token
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts?.Token ?? CancellationToken.None);
+        // TODO: Make request timeout configurable
+        linkedCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+        try
+        {
+            var requestBytes = MemoryPackSerializer.Serialize(request);
+            var envelope = new MessageEnvelope { Type = MessageType.Request, Payload = requestBytes };
+            await SendEnvelopeAsync(envelope, linkedCts.Token);
+
+            // Await the response or timeout/cancellation
+            return await tcs.Task.WaitAsync(linkedCts.Token);
+        }
+        catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+        {
+             if(cancellationToken.IsCancellationRequested)
+                throw new OperationCanceledException(\"Request cancelled by caller.\", cancellationToken);
+             else if(_cts?.IsCancellationRequested ?? true)
+                throw new InvalidOperationException(\"Connection closed while waiting for response.\");
+             else
+                throw new TimeoutException(\"Request timed out.\");
+        }
+        catch (Exception ex)
+        {
+            // Ensure TCS is completed exceptionally if sending failed
+            tcs.TrySetException(ex);
+            throw; // Re-throw the original exception
+        }
+        finally
+        {
+            _pendingRequests.TryRemove(request.RequestId, out _);
+        }
+    }
+
+    /// <summary>
+    /// Loop that continuously reads messages from the server.
+    /// </summary>
+    private async Task ReceiveMessagesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+             while (!cancellationToken.IsCancellationRequested && _reader != null)
+            {
+                ReadResult result = await _reader.ReadAsync(cancellationToken);
+                ReadOnlySequence<byte> buffer = result.Buffer;
+
+                try
+                {
+                    while (TryParseMessage(ref buffer, out var messageData))
+                    {
+                        // Process messages asynchronously
+                       _ = ProcessMessageAsync(messageData); // Fire-and-forget processing
+                    }
+
+                    if (result.IsCanceled || result.IsCompleted)
+                    {
+                        break; // Exit loop if connection is closed or cancelled
+                    }
+                }
+                finally
+                {
+                    // Advance the reader
+                    _reader.AdvanceReader(buffer.Start, buffer.End);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+             Console.WriteLine(\"Receive loop cancelled.\");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($\"Error in receive loop: {ex.Message}\");
+            // Connection likely lost, trigger cleanup
+            await CleanupConnectionAsync();
+        }
+        finally
+        {
+            Console.WriteLine(\"Receive loop finished.\");
+            // Ensure connection cleanup happens if loop exits unexpectedly
+            await CleanupConnectionAsync();
+        }
+    }
+
+    /// <summary>
+    /// Tries to parse a length-prefixed message from the buffer.
+    /// </summary>
+    private bool TryParseMessage(ref ReadOnlySequence<byte> buffer, out byte[] message)
+    {
+        message = default!;
+        if (buffer.Length < 4)
+            return false;
+
+        Span<byte> lengthBytes = stackalloc byte[4];
+        buffer.Slice(0, 4).CopyTo(lengthBytes);
+        int messageLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
+
+        if (messageLength <= 0 || messageLength > 1024 * 1024 * 16) // Basic sanity check (e.g., max 16MB)
+        {
+             Console.WriteLine($\"Invalid message length received: {messageLength}\");
+             // Consider closing the connection due to protocol error
+             _ = CleanupConnectionAsync();
+             // Consume the invalid length prefix to avoid infinite loop
+             buffer = buffer.Slice(4);
+             return false;
+        }
+
+        if (buffer.Length < 4 + messageLength)
+            return false;
+
+        var messageBuffer = buffer.Slice(4, messageLength);
+        message = messageBuffer.ToArray();
+        buffer = buffer.Slice(messageBuffer.End);
+        return true;
+    }
+
+    /// <summary>
+    /// Processes a received message payload based on its envelope type.
+    /// </summary>
+    private async Task ProcessMessageAsync(byte[] messageData)
+    {
+        try
+        {
+            var envelope = MemoryPackSerializer.Deserialize<MessageEnvelope>(messageData);
+
+            switch (envelope.Type)
+            {
+                case MessageType.Response:
+                    HandleResponse(envelope.Payload);
+                    break;
+                case MessageType.Event:
+                    await HandleEventAsync(envelope.Payload);
+                    break;
+                case MessageType.Heartbeat:
+                    HandleHeartbeat(envelope.Payload);
+                    break;
+                default:
+                    Console.WriteLine($\"Received unknown message type: {envelope.Type}\");
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($\"Error processing received message: {ex.Message}\");
+        }
+    }
+
+    /// <summary>
+    /// Matches a received response with a pending request.
+    /// </summary>
+    private void HandleResponse(byte[] payload)
+    {
+        try
+        {
+            var response = MemoryPackSerializer.Deserialize<PulseResponse>(payload);
+            if (_pendingRequests.TryGetValue(response.RequestId, out var tcs))
+            {
+                if (response.IsSuccess)
+                {
+                    tcs.TrySetResult(response);
+                }
+                else
+                {
+                    // TODO: Create specific exception type?
+                    tcs.TrySetException(new RpcException(response.ErrorMessage ?? \"RPC call failed.\"));
+                }
+            }
+            else
+            {
+                Console.WriteLine($\"Received response for unknown request ID: {response.RequestId}\");
+            }
+        }
+        catch (Exception ex)
+        {
+             Console.WriteLine($\"Error handling response: {ex.Message}\");
+        }
+    }
+
+    /// <summary>
+    /// Handles a received event by invoking the OnEventReceived delegate.
+    /// </summary>
+    private async Task HandleEventAsync(byte[] payload)
+    {
+        try
+        {
+            var eventPacket = MemoryPackSerializer.Deserialize<PulseEvent>(payload);
+            var handler = OnEventReceived;
+            if (handler != null)
+            {
+                try
+                {
+                    await handler.Invoke(eventPacket);
+                }
+                catch (Exception ex)
+                {
+                     Console.WriteLine($\"Error in OnEventReceived handler: {ex.Message}\");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+             Console.WriteLine($\"Error handling event: {ex.Message}\");
+        }
+    }
+
+    /// <summary>
+    /// Handles a received heartbeat (currently does nothing).
+    /// </summary>
+    private void HandleHeartbeat(byte[] payload)
+    {
+        // Potential RTT calculation or connection health update
+        try
+        {
+             var heartbeat = MemoryPackSerializer.Deserialize<PulseHeartbeat>(payload);
+             // Console.WriteLine($\"Received heartbeat response with server timestamp: {heartbeat.Timestamp}\");
+        }
+        catch (Exception ex)
+        {
+             Console.WriteLine($\"Error handling heartbeat: {ex.Message}\");
+        }
+    }
+
+    /// <summary>
+    /// Sends a heartbeat message periodically.
+    /// </summary>
+    private async Task StartHeartbeatLoopAsync(CancellationToken cancellationToken, TimeSpan interval)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(interval, cancellationToken);
+
+                if (!IsConnected || _writer == null)
+                    continue;
+
+                try
+                {
+                    var heartbeat = new PulseHeartbeat { Timestamp = DateTime.UtcNow.Ticks };
+                    var heartbeatBytes = MemoryPackSerializer.Serialize(heartbeat);
+                    var envelope = new MessageEnvelope { Type = MessageType.Heartbeat, Payload = heartbeatBytes };
+                    await SendEnvelopeAsync(envelope, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break; // Exit loop if cancelled during send
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($\"Failed to send heartbeat: {ex.Message}\");
+                    // Consider disconnecting if heartbeats fail repeatedly
+                    await CleanupConnectionAsync();
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+             Console.WriteLine(\"Heartbeat loop cancelled.\");
+        }
+        finally
+        {
+             Console.WriteLine(\"Heartbeat loop finished.\");
+        }
+    }
+
+    /// <summary>
+    /// Serializes and sends a message envelope with length prefix.
+    /// </summary>
+    private async Task SendEnvelopeAsync(MessageEnvelope envelope, CancellationToken cancellationToken)
+    {
+        if (!IsConnected || _writer == null)
+        {
+            throw new InvalidOperationException(\"Cannot send, client is not connected.\");
+        }
+
+        try
+        {
+            byte[] envelopeBytes = MemoryPackSerializer.Serialize(envelope);
+            int messageLength = envelopeBytes.Length;
+
+            // Get memory, write length, write payload
+            var buffer = _writer.GetMemory(4 + messageLength);
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.Span.Slice(0, 4), messageLength);
+            envelopeBytes.CopyTo(buffer.Slice(4));
+            _writer.Advance(4 + messageLength);
+
+            // Flush the writer
+            FlushResult result = await _writer.FlushAsync(cancellationToken);
+
+            if (result.IsCanceled || result.IsCompleted)
+            {
+                // Connection might be closing
+                throw new OperationCanceledException(\"Send operation cancelled or completed unexpectedly.\");
+            }
+        }
+        catch (ObjectDisposedException ex) // Catch if PipeWriter is disposed
+        {
+            throw new InvalidOperationException(\"Cannot send, connection is disposed.\", ex);
+        }
+        catch (IOException ex)
+        {
+            // Network error during send
+            await CleanupConnectionAsync(); // Assume connection is lost
+            throw new RpcException(\"Network error during send.\", ex);
+        }
+        catch(Exception ex)
+        {
+            // Catch any other unexpected error during send
+            await CleanupConnectionAsync(); // Assume connection is lost
+            throw new RpcException(\"Failed to send message.\", ex);
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        await CleanupConnectionAsync();
+        GC.SuppressFinalize(this);
+    }
+}
+
+/// <summary>
+/// Exception thrown for RPC specific errors.
+/// </summary>
+public class RpcException : Exception
+{
+    public RpcException(string message) : base(message) { }
+    public RpcException(string message, Exception innerException) : base(message, innerException) { }
+}
+

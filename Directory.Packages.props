@@ -4,23 +4,14 @@
     <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
   <PropertyGroup>
-    <GrpcVersion>2.57.0</GrpcVersion>
-    <GrpcCCoreVersion>2.46.6</GrpcCCoreVersion>
     <MemoryPackVersion>1.21.1</MemoryPackVersion>
-    <MessagePackVersion>3.1.1</MessagePackVersion>
     <MicrosoftCodeAnalysisVersion>4.3.1</MicrosoftCodeAnalysisVersion>
     <MicrosoftCodeAnalysisVersionUnity>3.9.0</MicrosoftCodeAnalysisVersionUnity>
     <MulticasterVersion>2.0.0</MulticasterVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="BenchmarkDotNet" Version="0.13.12" />
-    <PackageVersion Include="Grpc" Version="$(GrpcCCoreVersion)" />
-    <PackageVersion Include="Grpc.AspNetCore" Version="$(GrpcVersion)" />
-    <PackageVersion Include="Grpc.AspNetCore.Server" Version="$(GrpcVersion)" />
-    <PackageVersion Include="Grpc.Core.Api" Version="$(GrpcVersion)" />
-    <PackageVersion Include="Grpc.Net.Client" Version="$(GrpcVersion)" />
     <PackageVersion Include="MemoryPack" Version="$(MemoryPackVersion)" />
-    <PackageVersion Include="MessagePack" Version="$(MessagePackVersion)" />
     <PackageVersion Include="Microsoft.Bcl.TimeProvider" Version="8.0.1" />
     <PackageVersion Include="Microsoft.CodeAnalysis" Version="$(MicrosoftCodeAnalysisVersion)" />
     <PackageVersion Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="3.3.4" />

@@ -17,7 +17,7 @@ jobs:
     uses: Cysharp/Actions/.github/workflows/update-packagejson.yaml@main
     with:
       file-path: |
-        ./src/MagicOnion.Client.Unity/Assets/Scripts/MagicOnion.Client.Unity/package.json
+        ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/package.json
         ./Directory.Build.props
       tag: ${{ inputs.tag }}
       dry-run: ${{ inputs.dry-run }}
@@ -34,9 +34,9 @@ jobs:
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
       - uses: Cysharp/Actions/.github/actions/setup-dotnet@main
-      - run: dotnet build -c Release ./MagicOnion.sln
+      - run: dotnet build -c Release ./PulseRPC.sln
       # pack nuget
-      - run: dotnet pack -c Release ./MagicOnion.Packaging.slnf --no-build -o ./publish
+      - run: dotnet pack -c Release ./PulseRPC.Packaging.slnf --no-build -o ./publish
       - uses: Cysharp/Actions/.github/actions/upload-artifact@main
         with:
           name: nuget

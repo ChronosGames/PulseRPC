@@ -6,8 +6,8 @@
     <GeneratePackageOnBuild>False</GeneratePackageOnBuild>
 
     <!-- NuGet -->
-    <PackageId>MagicOnion</PackageId>
-    <Description>$(MagicOnionPackageDescription) This package is meta package that includes MagicOnion.Server and MagicOnion.Client.</Description>
+    <PackageId>PulseRPC</PackageId>
+    <Description>$(PulseRPCPackageDescription) This package is meta package that includes PulseRPC.Server and PulseRPC.Client.</Description>
 
     <!-- This is only a metapackage -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MagicOnion.Server\MagicOnion.Server.csproj" />
-    <ProjectReference Include="..\MagicOnion.Client\MagicOnion.Client.csproj" />
+    <ProjectReference Include="..\PulseRPC.Server\PulseRPC.Server.csproj" />
+    <ProjectReference Include="..\PulseRPC.Client\PulseRPC.Client.csproj" />
   </ItemGroup>
 </Project>
