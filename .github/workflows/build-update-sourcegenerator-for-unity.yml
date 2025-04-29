@@ -5,7 +5,7 @@ on:
 
 jobs:
   update-sourcegenerator-unity:
-    name: Update MagicOnion.Client.SourceGenerator.Unity
+    name: Update PulseRPC.Client.SourceGenerator.Unity
     runs-on: ubuntu-latest
     steps:
       - run: echo "Not supported in v7 or later." && exit 1

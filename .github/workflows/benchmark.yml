@@ -51,7 +51,7 @@ jobs:
   loader:
     uses: Cysharp/Actions/.github/workflows/benchmark-loader.yaml@main
     with:
-      benchmark-name-prefix: "magiconion-${{ github.event.issue.number || (inputs.reuse && inputs.reuse_runid || github.run_number) }}"
+      benchmark-name-prefix: "pulserpc-${{ github.event.issue.number || (inputs.reuse && inputs.reuse_runid || github.run_number) }}"
       benchmark-config-path: "perf/BenchmarkApp/configs/${{ inputs.benchmark-config-name || github.event_name }}.yaml"
     secrets: inherit
 

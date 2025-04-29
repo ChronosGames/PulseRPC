@@ -1,0 +1,32 @@
+PulseRPC.Client.Unity 项目结构
+============================
+
+/Assets/
+  /Scripts/
+    /PulseRPC/
+      README.md                              - 项目说明文件，介绍基本使用方法
+      PulseWebSocketConnection.cs            - WebSocket连接实现，支持所有Unity平台
+      PulseClientFactory.cs                  - 客户端代理工厂
+      PulseRPCExample.cs                     - 示例MonoBehaviour，展示如何使用PulseRPC客户端
+
+      /Generated/
+        ExampleServiceClientImpl.cs          - 示例服务代理实现
+        ExampleHubClientImpl.cs              - 示例Hub代理实现
+
+      /WebGLImplementation/
+        WebGLWebSocket.cs                    - WebGL平台特定的WebSocket实现
+        WebSocketCallbacks.cs                - 处理来自JavaScript的WebSocket回调
+        MainThreadDispatcher.cs              - 确保回调在Unity主线程上执行
+
+  /Plugins/
+    /WebGL/
+      PulseRPCWebSocket.jslib               - WebGL JavaScript互操作插件，用于WebSocket通信
+
+/README.md                                  - 项目总体说明文件
+
+主要特点:
+1. 使用WebSocket替代gRPC，实现跨平台支持
+2. 提供与PulseRPC.Client相同的API，但不依赖gRPC
+3. 支持特殊平台（如WebGL）的自定义实现
+4. 支持Unity UI集成和主线程回调
+5. 完整示例展示如何使用服务和Hub
