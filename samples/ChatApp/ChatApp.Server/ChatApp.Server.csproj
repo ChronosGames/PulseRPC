@@ -7,9 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\MagicOnion.Abstractions\MagicOnion.Abstractions.csproj" />
-    <ProjectReference Include="..\..\..\src\MagicOnion.Server\MagicOnion.Server.csproj" />
     <ProjectReference Include="..\ChatApp.Shared\ChatApp.Shared.csproj" />
+    <PackageReference Include="MemoryPack" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="System.IO.Pipelines" />
   </ItemGroup>
 
   <!-- FOR SSL/TLS SUPPORT -->

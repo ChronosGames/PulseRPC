@@ -1,0 +1,66 @@
+name: Build Canary
+
+on:
+  push:
+    branches:
+      - main
+      - release/**
+    tags:
+      - "!*" # not a tag push
+    paths-ignore:
+      - '**.md'
+      - .github/**
+      - docs/**
+      - samples/**
+  workflow_dispatch:
+
+env:
+  DISABLE_NETFX_TARGET_BUILD: 1
+  BUILD_CONFIG: Release
+
+jobs:
+  canary-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: Cysharp/Actions/.github/actions/checkout@main
+      - uses: Cysharp/Actions/.github/actions/setup-dotnet@main
+      - run: echo "MAGICONION_VERSION=ci-$(date '+%Y%m%d-%H%M%S')+${GITHUB_SHA:0:6}" >> $GITHUB_ENV
+      - run: echo "MAGICONION_VERSION=${MAGICONION_VERSION}"
+      # build
+      - run: dotnet build -c ${{ env.BUILD_CONFIG }} ./MagicOnion.sln
+      # pack
+      - run: dotnet pack -c ${{ env.BUILD_CONFIG }} ./MagicOnion.Packaging.slnf --no-build -p:VersionSuffix=${MAGICONION_VERSION} -o ./publish
+      - uses: Cysharp/Actions/.github/actions/upload-artifact@main
+        with:
+          name: nuget
+          path: ./publish/
+          retention-days: 1
+
+  canary-push:
+    needs: [canary-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      NUGET_CREDENTIALPROVIDER_SESSIONTOKENCACHE_ENABLED: true
+    steps:
+      - name: Load secrets
+        id: op-load-secret
+        uses: 1password/load-secrets-action@581a835fb51b8e7ec56b71cf2ffddd7e68bb25e0 # v2.0.0
+        with:
+          export-env: false
+        env:
+          OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN_PUBLIC }}
+          VSS_NUGET_EXTERNAL_FEED_ENDPOINTS_PUBLIC_CANARY: "op://${{ vars.OP_VAULT_ACTIONS_PUBLIC }}/VSS_NUGET_EXTERNAL_FEED_ENDPOINTS_PUBLIC_CANARY/credential"
+      - uses: Cysharp/Actions/.github/actions/download-artifact@main
+      # Upload to NuGet
+      - run: echo "VSS_NUGET_EXTERNAL_FEED_ENDPOINTS=${FEED_ENDPOINTS}" >> $GITHUB_ENV
+        env:
+          FEED_ENDPOINTS: ${{ steps.op-load-secret.outputs.VSS_NUGET_EXTERNAL_FEED_ENDPOINTS_PUBLIC_CANARY }}
+      - run: wget -qO- https://raw.githubusercontent.com/Microsoft/artifacts-credprovider/master/helpers/installcredprovider.sh | bash
+      - run: dotnet nuget push "./nuget/*.nupkg" --skip-duplicate -s https://pkgs.dev.azure.com/cysharp/Public/_packaging/Canary-Build/nuget/v2 -k AzureDevOps
+
+  actions-timeline:
+    needs: [canary-build, canary-push]
+    uses: Cysharp/Actions/.github/workflows/actions-timeline.yaml@main
+    secrets: inherit

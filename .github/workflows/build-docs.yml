@@ -1,0 +1,32 @@
+name: Test Run for Document Generation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release/**
+    paths:
+      - 'docs/**'
+
+jobs:
+  build:
+    name: Build Docusaurus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Cysharp/Actions/.github/actions/checkout@main
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+        with:
+          version: 9
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 18
+          cache: 'pnpm'
+          cache-dependency-path: 'docs/pnpm-lock.yaml'
+      - name: Install dependencies
+        working-directory: docs
+        run: pnpm install --frozen-lockfile
+      - name: Build website
+        working-directory: docs
+        run: pnpm build
