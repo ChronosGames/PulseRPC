@@ -35,6 +35,11 @@ namespace JwtAuthApp.Server.Authentication
 
     public class JwtTokenServiceOptions
     {
+        public JwtTokenServiceOptions(string secret)
+        {
+            Secret = secret;
+        }
+
         public string Secret { get; set; }
     }
 }
