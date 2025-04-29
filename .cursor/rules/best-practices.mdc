@@ -82,3 +82,434 @@ alwaysApply: false
    }
    ```
 
+## PulseRPC项目结构
+
+PulseRPC/
+├── PulseRPC.Core/            # 核心组件和接口定义
+├── PulseRPC.Client/          # 客户端实现
+├── PulseRPC.Server/          # 服务器实现
+├── PulseRPC.Serialization/   # 序列化组件
+├── PulseRPC.Client.Unity/    # Unity客户端支持
+└── PulseRPC.Generators/      # 代码生成工具
+
+namespace PulseRPC
+{
+    // 服务基础接口
+    public interface IPulseService<TService>
+    {
+        // 标记接口
+    }
+
+    // 异步结果类型
+    public struct PulseResult<T>
+    {
+        public bool IsSuccess { get; }
+        public T Value { get; }
+        public string ErrorMessage { get; }
+
+        // 构造函数和工厂方法
+        public static PulseResult<T> Success(T value) => new(value, true, null);
+        public static PulseResult<T> Error(string message) => new(default, false, message);
+    }
+
+    // 双向通信Hub基础接口
+    public interface IPulseHub<THubInterface, TReceiver>
+    {
+        // 标记接口
+    }
+
+    // 连接接口
+    public interface IPulseConnection : IAsyncDisposable
+    {
+        bool IsConnected { get; }
+        Task ConnectAsync(CancellationToken cancellationToken = default);
+        Task DisconnectAsync();
+        Task<PulseResponse> SendRequestAsync(PulseRequest request, CancellationToken cancellationToken = default);
+        event Func<PulseEvent, Task> OnEventReceived;
+    }
+}
+
+namespace PulseRPC.Protocol
+{
+    // 消息类型
+    public enum MessageType
+    {
+        Request = 1,
+        Response = 2,
+        Event = 3,
+        Heartbeat = 4
+    }
+
+    // 消息信封
+    [MemoryPackable]
+    public partial struct MessageEnvelope
+    {
+        [MemoryPackOrder(0)]
+        public MessageType Type { get; set; }
+
+        [MemoryPackOrder(1)]
+        public byte[] Payload { get; set; }
+    }
+
+    // 请求消息
+    [MemoryPackable]
+    public partial struct PulseRequest
+    {
+        [MemoryPackOrder(0)]
+        public Guid RequestId { get; set; }
+
+        [MemoryPackOrder(1)]
+        public string ServiceName { get; set; }
+
+        [MemoryPackOrder(2)]
+        public string MethodName { get; set; }
+
+        [MemoryPackOrder(3)]
+        public byte[] Parameters { get; set; }
+    }
+
+    // 响应消息
+    [MemoryPackable]
+    public partial struct PulseResponse
+    {
+        [MemoryPackOrder(0)]
+        public Guid RequestId { get; set; }
+
+        [MemoryPackOrder(1)]
+        public bool IsSuccess { get; set; }
+
+        [MemoryPackOrder(2)]
+        public byte[] Result { get; set; }
+
+        [MemoryPackOrder(3)]
+        public string ErrorMessage { get; set; }
+    }
+
+    // 事件消息
+    [MemoryPackable]
+    public partial struct PulseEvent
+    {
+        [MemoryPackOrder(0)]
+        public string HubName { get; set; }
+
+        [MemoryPackOrder(1)]
+        public string EventName { get; set; }
+
+        [MemoryPackOrder(2)]
+        public byte[] EventData { get; set; }
+    }
+
+    // 心跳消息
+    [MemoryPackable]
+    public partial struct PulseHeartbeat
+    {
+        [MemoryPackOrder(0)]
+        public long Timestamp { get; set; }
+    }
+}
+
+namespace PulseRPC.Client
+{
+    // 客户端工厂
+    public static class PulseClient
+    {
+        public static TService Create<TService>(IPulseConnection connection)
+            where TService : IPulseService<TService>
+        {
+            return ServiceProxyGenerator.CreateProxy<TService>(connection);
+        }
+
+        public static THub ConnectToHub<THub, TReceiver>(
+            IPulseConnection connection,
+            TReceiver receiver)
+            where THub : IPulseHub<THub, TReceiver>
+        {
+            return HubProxyGenerator.CreateHubProxy<THub, TReceiver>(connection, receiver);
+        }
+    }
+
+    // TCP连接实现
+    public class PulseTcpConnection : IPulseConnection
+    {
+        private readonly string _host;
+        private readonly int _port;
+        private TcpClient _client;
+        private NetworkStream _stream;
+        private PipeReader _reader;
+        private PipeWriter _writer;
+        private readonly ConcurrentDictionary<Guid, TaskCompletionSource<PulseResponse>> _pendingRequests = new();
+        private Task _receiveTask;
+        private CancellationTokenSource _cts;
+
+        public bool IsConnected => _client?.Connected ?? false;
+
+        public event Func<PulseEvent, Task> OnEventReceived;
+
+        public PulseTcpConnection(string host, int port)
+        {
+            _host = host;
+            _port = port;
+        }
+
+        public async Task ConnectAsync(CancellationToken cancellationToken = default)
+        {
+            _client = new TcpClient();
+            await _client.ConnectAsync(_host, _port, cancellationToken);
+
+            _stream = _client.GetStream();
+            _reader = PipeReader.Create(_stream);
+            _writer = PipeWriter.Create(_stream);
+
+            _cts = new CancellationTokenSource();
+            _receiveTask = ReceiveMessagesAsync(_cts.Token);
+        }
+
+        public async Task DisconnectAsync()
+        {
+            _cts?.Cancel();
+
+            if (_receiveTask != null)
+            {
+                try
+                {
+                    await _receiveTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    // 预期的取消
+                }
+            }
+
+            _reader?.Complete();
+            _writer?.Complete();
+            _client?.Close();
+
+            _client = null;
+            _stream = null;
+            _reader = null;
+            _writer = null;
+        }
+
+        public async Task<PulseResponse> SendRequestAsync(PulseRequest request, CancellationToken cancellationToken = default)
+        {
+            if (!IsConnected)
+                throw new InvalidOperationException("Not connected to server");
+
+            var tcs = new TaskCompletionSource<PulseResponse>();
+            _pendingRequests[request.RequestId] = tcs;
+
+            try
+            {
+                // 序列化请求
+                var requestBytes = MemoryPackSerializer.Serialize(request);
+
+                // 构造消息信封
+                var envelope = new MessageEnvelope
+                {
+                    Type = MessageType.Request,
+                    Payload = requestBytes
+                };
+
+                // 序列化并发送信封
+                var envelopeBytes = MemoryPackSerializer.Serialize(envelope);
+
+                // 写入消息长度前缀
+                var lengthSpan = _writer.GetSpan(4);
+                BinaryPrimitives.WriteInt32LittleEndian(lengthSpan, envelopeBytes.Length);
+                _writer.Advance(4);
+
+                // 写入消息内容
+                await _writer.WriteAsync(envelopeBytes, cancellationToken);
+                await _writer.FlushAsync(cancellationToken);
+
+                // 等待响应
+                return await tcs.Task.WaitAsync(cancellationToken);
+            }
+            finally
+            {
+                _pendingRequests.TryRemove(request.RequestId, out _);
+            }
+        }
+
+        private async Task ReceiveMessagesAsync(CancellationToken cancellationToken)
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                ReadResult readResult = await _reader.ReadAsync(cancellationToken);
+                ReadOnlySequence<byte> buffer = readResult.Buffer;
+
+                // 处理接收到的数据
+                while (TryReadMessage(ref buffer, out byte[] messageData))
+                {
+                    ProcessMessage(messageData);
+                }
+
+                _reader.AdvanceReader(buffer.Start);
+
+                if (readResult.IsCompleted)
+                    break;
+            }
+        }
+
+        private bool TryReadMessage(ref ReadOnlySequence<byte> buffer, out byte[] message)
+        {
+            message = null;
+
+            // 检查是否有足够的数据读取消息长度
+            if (buffer.Length < 4)
+                return false;
+
+            // 读取消息长度
+            int messageLength = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(0, 4).ToArray());
+
+            // 检查是否有完整的消息
+            if (buffer.Length < 4 + messageLength)
+                return false;
+
+            // 提取消息数据
+            message = buffer.Slice(4, messageLength).ToArray();
+            buffer = buffer.Slice(4 + messageLength);
+            return true;
+        }
+
+        private void ProcessMessage(byte[] messageData)
+        {
+            var envelope = MemoryPackSerializer.Deserialize<MessageEnvelope>(messageData);
+
+            switch (envelope.Type)
+            {
+                case MessageType.Response:
+                    HandleResponse(envelope.Payload);
+                    break;
+                case MessageType.Event:
+                    HandleEvent(envelope.Payload);
+                    break;
+                case MessageType.Heartbeat:
+                    HandleHeartbeat(envelope.Payload);
+                    break;
+            }
+        }
+
+        private void HandleResponse(byte[] payload)
+        {
+            var response = MemoryPackSerializer.Deserialize<PulseResponse>(payload);
+
+            if (_pendingRequests.TryGetValue(response.RequestId, out var tcs))
+            {
+                tcs.TrySetResult(response);
+            }
+        }
+
+        private void HandleEvent(byte[] payload)
+        {
+            var @event = MemoryPackSerializer.Deserialize<PulseEvent>(payload);
+
+            // 异步触发事件处理
+            _ = OnEventReceived?.Invoke(@event);
+        }
+
+        private void HandleHeartbeat(byte[] payload)
+        {
+            var heartbeat = MemoryPackSerializer.Deserialize<PulseHeartbeat>(payload);
+
+            // 处理心跳响应，例如更新RTT统计信息
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await DisconnectAsync();
+            _cts?.Dispose();
+        }
+    }
+}
+
+namespace SampleApp.Client
+{
+    public class Program
+    {
+        public static async Task Main(string[] args)
+        {
+            // 创建连接
+            using var connection = new PulseTcpConnection("localhost", 5000);
+            try
+            {
+                await connection.ConnectAsync();
+                Console.WriteLine("Connected to PulseRPC server.");
+
+                // 创建服务客户端
+                var greetingService = PulseClient.Create<IGreetingService>(connection);
+
+                // 调用服务
+                string greeting = await greetingService.SayHelloAsync("World");
+                Console.WriteLine($"Server says: {greeting}");  // 输出: Server says: Hello, World!
+
+                int randomNumber = await greetingService.GetRandomNumberAsync(1, 100);
+                Console.WriteLine($"Server random number: {randomNumber}");
+
+                // 创建ChatHub客户端
+                var chatClient = new ChatClientImplementation();
+                var chatHub = PulseClient.ConnectToHub<IChatHub, IChatClient>(connection, chatClient);
+
+                // 加入聊天室
+                await chatHub.JoinRoomAsync("General", "User1");
+                Console.WriteLine("Joined chat room 'General' as 'User1'");
+
+                // 发送消息
+                Console.WriteLine("Sending message...");
+                await chatHub.SendMessageAsync("Hello everyone!");
+
+                Console.WriteLine("Press any key to leave chat and exit...");
+                Console.ReadKey();
+
+                // 离开聊天室
+                await chatHub.LeaveRoomAsync();
+                Console.WriteLine("Left chat room.");
+
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"An error occurred: {ex.Message}");
+                Console.ResetColor();
+            }
+            finally
+            {
+                if (connection.IsConnected)
+                {
+                    await connection.DisconnectAsync();
+                    Console.WriteLine("Disconnected from server.");
+                }
+            }
+        }
+
+        // 实现了IChatClient接口的客户端
+        private class ChatClientImplementation : IChatClient
+        {
+            public void OnUserJoined(string userName)
+            {
+                Console.WriteLine($"[Chat] {userName} joined the room.");
+            }
+
+            public void OnUserLeft(string userName)
+            {
+                Console.WriteLine($"[Chat] {userName} left the room.");
+            }
+
+            public void OnMessageReceived(string userName, string message)
+            {
+                Console.WriteLine($"[Chat] {userName}: {message}");
+            }
+        }
+    }
+}
+
+
+
+
+
+
+
+
+
+
+

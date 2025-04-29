@@ -1,0 +1,10 @@
+{
+  "solution": {
+    "path": "PulseRPC.sln",
+    "projects": [
+      "src\\PulseRPC.Client\\PulseRPC.Client.csproj",
+      "src\\PulseRPC.Core\\PulseRPC.Core.csproj",
+      "src\\PulseRPC.Server\\PulseRPC.Server.csproj"
+    ]
+  }
+}
