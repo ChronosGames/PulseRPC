@@ -1,0 +1,26 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 源代码结构指南
+
+## 核心组件
+- [PulseRPC.Core](mdc:src/PulseRPC.Core) - 框架的核心功能实现
+- [PulseRPC.Client](mdc:src/PulseRPC.Client) - 客户端库
+- [PulseRPC.Server](mdc:src/PulseRPC.Server) - 服务器端实现
+- [PulseRPC.Generators](mdc:src/PulseRPC.Generators) - 代码生成器
+
+## 序列化
+- [MagicOnion.Serialization.MessagePack](mdc:src/MagicOnion.Serialization.MessagePack) - MessagePack 序列化支持
+- [MagicOnion.Serialization.MemoryPack](mdc:src/MagicOnion.Serialization.MemoryPack) - MemoryPack 序列化支持
+
+## 扩展功能
+- [PulseRPC.Server.JsonTranscoding](mdc:src/PulseRPC.Server.JsonTranscoding) - JSON 转码支持
+- [PulseRPC.Server.Redis](mdc:src/PulseRPC.Server.Redis) - Redis 集成
+- [PulseRPC.Server.JsonTranscoding.Swagger](mdc:src/PulseRPC.Server.JsonTranscoding.Swagger) - Swagger/OpenAPI 支持
+
+## 工具和生成器
+- [PulseRPC.Client.SourceGenerator](mdc:src/PulseRPC.Client.SourceGenerator) - 客户端代码生成器
+- [PulseRPC.Client.Unity](mdc:src/PulseRPC.Client.Unity) - Unity 客户端支持
+
