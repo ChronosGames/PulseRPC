@@ -1,5 +1,5 @@
 using System.Threading.Tasks;
-using ChatApp.Shared.MessagePackObjects;
+using ChatApp.Shared.Models;
 
 namespace ChatApp.Shared.Hubs
 {
@@ -14,7 +14,15 @@ namespace ChatApp.Shared.Hubs
 
         void OnSendMessage(MessageResponse message);
 
-
         Task<string> HelloAsync(string name, int age);
+
+        // 定义服务器->客户端的事件ID
+        public static class EventIds
+        {
+            public const int OnJoin = 1;
+            public const int OnLeave = 2;
+            public const int OnSendMessage = 3;
+            public const int HelloAsync = 4;
+        }
     }
 }

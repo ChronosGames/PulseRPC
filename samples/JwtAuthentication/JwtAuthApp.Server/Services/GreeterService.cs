@@ -2,17 +2,17 @@ using System.Security.Claims;
 using JwtAuthApp.Shared;
 using PulseRPC;
 using Microsoft.AspNetCore.Authorization;
+using JwtAuthApp.Server.Services;
 
 namespace JwtAuthApp.Server.Services
 {
     [Authorize]
     public class GreeterService : IPulseService<GreeterService>
     {
-        public PulseResult<string> HelloAsync()
+        public Task<PulseResult<string>> HelloAsync()
         {
-            throw new NotImplementedException();
-            //var userPrincipal = Context.User;
-            //return PulseResult<string>.Success($"Hello {userPrincipal.Identity?.Name} (UserId:{userPrincipal.Claims.First(x => x.Type == ClaimTypes.NameIdentifier).Value})!");
+            var userPrincipal = AccountService.CurrentUser.Value;
+            return Task.FromResult(PulseResult<string>.Success($"Hello {userPrincipal?.Identity?.Name} (UserId:{userPrincipal?.Claims.First(x => x.Type == ClaimTypes.NameIdentifier).Value})!"));
         }
 
         public async Task<PulseResult<string>> ServerAsync(string name, int age)

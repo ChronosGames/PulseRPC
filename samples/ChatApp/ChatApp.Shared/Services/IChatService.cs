@@ -1,14 +1,13 @@
-using MagicOnion;
-using MessagePack;
+using System.Threading.Tasks;
 
 namespace ChatApp.Shared.Services
 {
     /// <summary>
     /// Client -> Server API
     /// </summary>
-    public interface IChatService : IService<IChatService>
+    public interface IChatService
     {
-        UnaryResult GenerateException(string message);
-        UnaryResult SendReportAsync(string message);
+        Task<bool> GenerateException(string message);
+        Task<bool> SendReportAsync(string message);
     }
 }
