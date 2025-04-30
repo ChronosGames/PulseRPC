@@ -1,17 +1,17 @@
-﻿using MessagePack;
+﻿using MemoryPack;
 
-namespace ChatApp.Shared.MessagePackObjects
+namespace ChatApp.Shared.Models
 {
     /// <summary>
     /// Message information
     /// </summary>
-    [MessagePackObject]
-    public struct MessageResponse
+    [MemoryPackable]
+    public partial struct MessageResponse
     {
-        [Key(0)]
+        [MemoryPackOrder(0)]
         public string UserName { get; set; }
 
-        [Key(1)]
+        [MemoryPackOrder(1)]
         public string Message { get; set; }
     }
 }

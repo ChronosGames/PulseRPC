@@ -5,7 +5,7 @@ namespace JwtAuthApp.Shared
 {
     public interface IGreeterService : IPulseService<IGreeterService>
     {
-        PulseResult<string> HelloAsync();
+        Task<PulseResult<string>> HelloAsync();
         Task<PulseResult<string>> ServerAsync(string name, int age);
         Task<PulseResult<string>> ClientAsync(int[] items);
         Task<PulseResult<string>> DuplexAsync(int[] items);

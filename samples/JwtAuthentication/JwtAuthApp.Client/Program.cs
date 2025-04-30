@@ -1,5 +1,3 @@
-using System;
-using System.Threading.Tasks;
 using JwtAuthApp.Shared;
 using PulseRPC;
 using PulseRPC.Client;

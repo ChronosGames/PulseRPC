@@ -17,56 +17,60 @@ namespace JwtAuthApp.Server.Services
 
         private readonly JwtTokenService _jwtTokenService;
 
+        // 使用ThreadLocal存储当前用户
+        internal static ThreadLocal<ClaimsPrincipal> CurrentUser = new ThreadLocal<ClaimsPrincipal>(() => new ClaimsPrincipal(new ClaimsIdentity()));
+
         public AccountService(JwtTokenService jwtTokenService)
         {
             _jwtTokenService = jwtTokenService ?? throw new ArgumentNullException(nameof(jwtTokenService));
         }
 
         [AllowAnonymous]
-        public PulseResult<SignInResponse> SignInAsync(string signInId, string password)
+        public Task<PulseResult<SignInResponse>> SignInAsync(string signInId, string password)
         {
             if (DummyUsers.TryGetValue(signInId, out var userInfo) && userInfo.Password == password)
             {
                 var (token, expires) = _jwtTokenService.CreateToken(userInfo.UserId, userInfo.DisplayName);
 
-                return PulseResult<SignInResponse>.Success(new SignInResponse(
+                return Task.FromResult(PulseResult<SignInResponse>.Success(new SignInResponse(
                     userInfo.UserId,
                     userInfo.DisplayName,
                     token,
                     expires
-                ));
+                )));
             }
 
-            return PulseResult<SignInResponse>.Error("Invalid credentials");
+            return Task.FromResult(PulseResult<SignInResponse>.Error("Invalid credentials"));
         }
 
         [AllowAnonymous]
-        public PulseResult<CurrentUserResponse> GetCurrentUserNameAsync()
+        public Task<PulseResult<CurrentUserResponse>> GetCurrentUserNameAsync()
         {
-            // var userPrincipal = Context.User;
-            // if (userPrincipal.Identity?.IsAuthenticated ?? false)
-            // {
-            //     if (!int.TryParse(userPrincipal.Claims.FirstOrDefault(x => x.Type == ClaimTypes.NameIdentifier)?.Value, out var userId))
-            //     {
-            //         return PulseResult<CurrentUserResponse>.Success(CurrentUserResponse.Anonymous);
-            //     }
-            //
-            //     var user = DummyUsers.SingleOrDefault(x => x.Value.UserId == userId).Value;
-            //     return PulseResult<CurrentUserResponse>.Success(new CurrentUserResponse()
-            //     {
-            //         IsAuthenticated = true,
-            //         UserId = user.UserId,
-            //         Name = user.DisplayName,
-            //     });
-            // }
+            var userPrincipal = CurrentUser.Value;
+            if (!(userPrincipal?.Identity?.IsAuthenticated ?? false))
+            {
+                return Task.FromResult(PulseResult<CurrentUserResponse>.Success(CurrentUserResponse.Anonymous));
+            }
 
-            return PulseResult<CurrentUserResponse>.Success(CurrentUserResponse.Anonymous);
+            if (!long.TryParse(userPrincipal.Claims.FirstOrDefault(x => x.Type == ClaimTypes.NameIdentifier)?.Value, out var userId))
+            {
+                return Task.FromResult(PulseResult<CurrentUserResponse>.Success(CurrentUserResponse.Anonymous));
+            }
+
+            var user = DummyUsers.SingleOrDefault(x => x.Value.UserId == userId).Value;
+            return Task.FromResult(PulseResult<CurrentUserResponse>.Success(new CurrentUserResponse()
+            {
+                IsAuthenticated = true,
+                UserId = user.UserId,
+                Name = user.DisplayName,
+            }));
+
         }
 
         [Authorize(Roles = "Administrators")]
-        public PulseResult<string> DangerousOperationAsync()
+        public Task<PulseResult<string>> DangerousOperationAsync()
         {
-            return PulseResult<string>.Success("rm -rf /");
+            return Task.FromResult(PulseResult<string>.Success("rm -rf /"));
         }
     }
 }

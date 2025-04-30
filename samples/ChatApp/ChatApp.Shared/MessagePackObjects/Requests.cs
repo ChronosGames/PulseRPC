@@ -1,17 +1,17 @@
-﻿using MessagePack;
+﻿using MemoryPack;
 
-namespace ChatApp.Shared.MessagePackObjects
+namespace ChatApp.Shared.Models
 {
     /// <summary>
     /// Room participation information
     /// </summary>
-    [MessagePackObject]
-    public struct JoinRequest
+    [MemoryPackable]
+    public partial struct JoinRequest
     {
-        [Key(0)]
+        [MemoryPackOrder(0)]
         public string RoomName { get; set; }
 
-        [Key(1)]
+        [MemoryPackOrder(1)]
         public string UserName { get; set; }
     }
 }

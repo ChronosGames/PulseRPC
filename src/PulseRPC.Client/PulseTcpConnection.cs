@@ -64,7 +64,11 @@ public class PulseTcpConnection : IPulseConnection
             // TODO: Make connect timeout configurable
             connectCts.CancelAfter(TimeSpan.FromSeconds(15));
 
+#if NET5_0_OR_GREATER
             await _client.ConnectAsync(_host, _port, connectCts.Token);
+#else
+            await _client.ConnectAsync(_host, _port);
+#endif
 
             if (!_client.Connected)
             {
@@ -100,7 +104,10 @@ public class PulseTcpConnection : IPulseConnection
 
     private async Task CleanupConnectionAsync()
     {
-        if (!_isConnectedFlag) return; // Already cleaned up
+        if (!_isConnectedFlag)
+        {
+            return; // Already cleaned up
+        }
 
         lock (_connectionLock)
         {
@@ -108,7 +115,15 @@ public class PulseTcpConnection : IPulseConnection
             _isConnectedFlag = false;
         }
 
-        _cts?.Cancel(); // Signal cancellation to loops
+        // Signal cancellation to loops
+        if (_cts != null && !_cts.IsCancellationRequested) // ( _cts != null && !cts.IsCancellationRequested)
+        {
+            #if NET5_0_OR_GREATER
+            await _cts.CancelAsync();
+            #else
+            _cts.Cancel();
+            #endif
+        }
 
         // Wait for the receive loop to finish
         if (_receiveTask != null && !_receiveTask.IsCompleted)
@@ -138,13 +153,25 @@ public class PulseTcpConnection : IPulseConnection
         _pendingRequests.Clear();
 
         // Complete pipes
-        try { await (_reader?.CompleteAsync() ?? Task.CompletedTask); }
+        try
+        {
+            if (_reader != null)
+            {
+                await _reader.CompleteAsync();
+            }
+        }
         catch
         {
             /* Ignore */
         }
 
-        try { await (_writer?.CompleteAsync() ?? Task.CompletedTask); }
+        try
+        {
+            if (_writer != null)
+            {
+                await _writer.CompleteAsync();
+            }
+        }
         catch
         {
             /* Ignore */
@@ -188,7 +215,12 @@ public class PulseTcpConnection : IPulseConnection
             await SendEnvelopeAsync(envelope, linkedCts.Token);
 
             // 等待响应（带超时和取消）
+#if NET5_0_OR_GREATER
             return await tcs.Task.WaitAsync(linkedCts.Token);
+#else
+            using var registration = linkedCts.Token.Register(() => tcs.TrySetCanceled(linkedCts.Token));
+            return await tcs.Task;
+#endif
         }
         catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
         {
@@ -272,7 +304,7 @@ public class PulseTcpConnection : IPulseConnection
 
         Span<byte> lengthBytes = stackalloc byte[4];
         buffer.Slice(0, 4).CopyTo(lengthBytes);
-        int messageLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
+        var messageLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
 
         if (messageLength <= 0 || messageLength > 1024 * 1024 * 16) // Basic sanity check (e.g., max 16MB)
         {
@@ -285,7 +317,9 @@ public class PulseTcpConnection : IPulseConnection
         }
 
         if (buffer.Length < 4 + messageLength)
+        {
             return false;
+        }
 
         var messageBuffer = buffer.Slice(4, messageLength);
         message = messageBuffer.ToArray();

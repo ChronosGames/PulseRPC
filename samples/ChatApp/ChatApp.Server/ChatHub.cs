@@ -1,5 +1,4 @@
 using ChatApp.Shared.Hubs;
-using ChatApp.Shared.MessagePackObjects;
 using MagicOnion.Server.Hubs;
 using System;
 using System.Collections.Generic;

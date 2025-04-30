@@ -1,81 +1,87 @@
 using System;
 using ChatApp.Shared.Hubs;
-using ChatApp.Shared.MessagePackObjects;
+using ChatApp.Shared.Models;
 using ChatApp.Shared.Services;
-using Grpc.Core;
-using MagicOnion.Client;
-using System.IO;
+using ChatApp.Unity.Network;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityTCP;
 
 namespace Assets.Scripts
 {
     public class ChatComponent : MonoBehaviour, IChatHubReceiver
     {
         private CancellationTokenSource shutdownCancellation = new CancellationTokenSource();
-        private ChannelBase channel;
-        private IChatHub streamingClient;
-        private IChatService client;
+        private TCPNetworkManager networkManager;
+        private ChatHubClient streamingClient;
+        private ChatServiceClient client;
 
         private bool isJoin;
         private bool isSelfDisConnected;
 
+        // 服务器地址配置
+        public string ServerIP = "localhost";
+        public int ServerPort = 12345;
+
         public Text ChatText;
-
         public Button JoinOrLeaveButton;
-
         public Text JoinOrLeaveButtonText;
-
         public Button SendMessageButton;
-
         public InputField Input;
-
         public InputField ReportInput;
-
         public Button SendReportButton;
-
         public Button DisconnectButon;
         public Button ExceptionButton;
         public Button UnaryExceptionButton;
-
         public Text LabelRtt;
 
         async void Start()
         {
+            // 初始化网络管理器
+            networkManager = gameObject.AddComponent<TCPNetworkManager>();
+
             await this.InitializeClientAsync();
             this.InitializeUi();
         }
 
-
         async void OnDestroy()
         {
-            // Clean up Hub and channel
+            // 清理资源
             shutdownCancellation.Cancel();
 
-            if (this.streamingClient != null) await this.streamingClient.DisposeAsync();
-            if (this.channel != null) await this.channel.ShutdownAsync();
-        }
+            if (this.streamingClient != null)
+            {
+                this.streamingClient.Dispose();
+            }
 
+            if (networkManager != null)
+            {
+                networkManager.DisconnectClient();
+                Destroy(networkManager);
+            }
+        }
 
         private async Task InitializeClientAsync()
         {
-            // Initialize the Hub
-            // NOTE: If you want to use SSL/TLS connection, see InitialSettings.OnRuntimeInitialize method.
-            //this.channel = GrpcChannelx.ForAddress(SystemConstants.ServerUrl);
-
+            // 初始化Hub客户端
             while (!shutdownCancellation.IsCancellationRequested)
             {
                 try
                 {
                     Debug.Log($"Connecting to the server...");
-                    var options = StreamingHubClientOptions.CreateWithDefault()
-                        .WithClientHeartbeatResponseReceived(x => LabelRtt.text = $"RTT: {x.RoundTripTime.TotalMilliseconds:#,0}ms")
-                        .WithClientHeartbeatInterval(TimeSpan.FromSeconds(10))
-                        .WithClientHeartbeatTimeout(TimeSpan.FromSeconds(5));
-                    this.streamingClient = await StreamingHubClient.ConnectAsync<IChatHub, IChatHubReceiver>(this.channel, this, options, cancellationToken: shutdownCancellation.Token);
-                    this.RegisterDisconnectEvent(streamingClient);
+
+                    // 连接到服务器
+                    await networkManager.ConnectToServer(ServerIP, ServerPort);
+
+                    // 创建ChatHub客户端
+                    this.streamingClient = new ChatHubClient(networkManager, this);
+
+                    // 注册断开连接事件
+                    this.streamingClient.Disconnected += OnStreamingClientDisconnected;
+                    this.streamingClient.HeartbeatReceived += rtt => LabelRtt.text = $"RTT: {rtt.TotalMilliseconds:#,0}ms";
+
                     Debug.Log($"Connection is established.");
                     break;
                 }
@@ -88,9 +94,9 @@ namespace Assets.Scripts
                 await Task.Delay(5 * 1000);
             }
 
-            this.client = MagicOnionClient.Create<IChatService>(this.channel);
+            // 创建服务客户端
+            this.client = new ChatServiceClient(networkManager);
         }
-
 
         private void InitializeUi()
         {
@@ -104,36 +110,25 @@ namespace Assets.Scripts
             this.ExceptionButton.interactable = false;
         }
 
-
-        private async void RegisterDisconnectEvent(IChatHub streamingClient)
+        private void OnStreamingClientDisconnected()
         {
             try
             {
-                // you can wait disconnected event
-                await streamingClient.WaitForDisconnect();
+                Debug.Log($"Disconnected from the server.");
+
+                if (this.isSelfDisConnected)
+                {
+                    // 设置重连延迟
+                    _ = Task.Delay(2000).ContinueWith(_ => ReconnectServerAsync());
+                }
             }
             catch (Exception e)
             {
                 Debug.LogError(e);
             }
-            finally
-            {
-                // try-to-reconnect? logging event? close? etc...
-                Debug.Log($"disconnected from the server.");
-
-                if (this.isSelfDisConnected)
-                {
-                    // there is no particular meaning
-                    await Task.Delay(2000);
-
-                    // reconnect
-                    await this.ReconnectServerAsync();
-                }
-            }
         }
 
-
-        public async void DisconnectServer()
+        public void DisconnectServer()
         {
             this.isSelfDisConnected = true;
 
@@ -147,55 +142,62 @@ namespace Assets.Scripts
             if (this.isJoin)
                 this.JoinOrLeave();
 
-            await this.streamingClient.DisposeAsync();
+            this.streamingClient.Dispose();
+            networkManager.DisconnectClient();
         }
 
         public async void ReconnectInitializedServer()
         {
-            if (this.channel != null)
+            if (networkManager != null)
             {
-                var chan = this.channel;
-                if (chan == Interlocked.CompareExchange(ref this.channel, null, chan))
-                {
-                    await chan.ShutdownAsync();
-                    this.channel = null;
-                }
-            }
-            if (this.streamingClient != null)
-            {
-                var streamClient = this.streamingClient;
-                if (streamClient == Interlocked.CompareExchange(ref this.streamingClient, null, streamClient))
-                {
-                    await streamClient.DisposeAsync();
-                    this.streamingClient = null;
-                }
+                networkManager.DisconnectClient();
             }
 
-            if (this.channel == null && this.streamingClient == null)
+            if (streamingClient != null)
             {
-                await this.InitializeClientAsync();
-                this.InitializeUi();
+                streamingClient.Dispose();
+                streamingClient = null;
             }
+
+            await this.InitializeClientAsync();
+            this.InitializeUi();
         }
-
 
         private async Task ReconnectServerAsync()
         {
             Debug.Log($"Reconnecting to the server...");
-            this.streamingClient = await StreamingHubClient.ConnectAsync<IChatHub, IChatHubReceiver>(this.channel, this);
-            this.RegisterDisconnectEvent(streamingClient);
-            Debug.Log("Reconnected.");
 
-            this.JoinOrLeaveButton.interactable = true;
-            this.SendMessageButton.interactable = false;
-            this.SendReportButton.interactable = true;
-            this.DisconnectButon.interactable = true;
-            this.ExceptionButton.interactable = true;
-            this.UnaryExceptionButton.interactable = true;
+            try
+            {
+                // 重新连接
+                await networkManager.ConnectToServer(ServerIP, ServerPort);
 
-            this.isSelfDisConnected = false;
+                // 创建新的客户端
+                this.streamingClient = new ChatHubClient(networkManager, this);
+                this.streamingClient.Disconnected += OnStreamingClientDisconnected;
+
+                // 创建新的服务客户端
+                this.client = new ChatServiceClient(networkManager);
+
+                Debug.Log("Reconnected.");
+
+                this.JoinOrLeaveButton.interactable = true;
+                this.SendMessageButton.interactable = false;
+                this.SendReportButton.interactable = true;
+                this.DisconnectButon.interactable = true;
+                this.ExceptionButton.interactable = true;
+                this.UnaryExceptionButton.interactable = true;
+
+                this.isSelfDisConnected = false;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"Reconnection failed: {ex.Message}");
+                // 尝试再次重连
+                await Task.Delay(5000);
+                _ = ReconnectServerAsync();
+            }
         }
-
 
         #region Client -> Server (Streaming)
         public async void JoinOrLeave()
@@ -203,7 +205,6 @@ namespace Assets.Scripts
             if (this.isJoin)
             {
                 await this.streamingClient.LeaveAsync();
-
                 this.InitializeUi();
             }
             else
@@ -220,69 +221,61 @@ namespace Assets.Scripts
             }
         }
 
-
         public async void SendMessage()
         {
             if (!this.isJoin)
                 return;
 
             await this.streamingClient.SendMessageAsync(this.Input.text);
-
             this.Input.text = string.Empty;
         }
 
         public async void GenerateException()
         {
-            // hub
             if (!this.isJoin) return;
             await this.streamingClient.GenerateException("client exception(streaminghub)!");
         }
-
-        public void SampleMethod()
-        {
-            throw new System.NotImplementedException();
-        }
         #endregion
-
 
         #region Server -> Client (Streaming)
         public void OnJoin(string name)
         {
-            this.ChatText.text += $"\n<color=grey>{name} entered the room.</color>";
+            this.ChatText.text += $"{name} entered the room.\n";
         }
-
 
         public void OnLeave(string name)
         {
-            this.ChatText.text += $"\n<color=grey>{name} left the room.</color>";
+            this.ChatText.text += $"{name} left the room.\n";
         }
 
         public void OnSendMessage(MessageResponse message)
         {
-            this.ChatText.text += $"\n{message.UserName}：{message.Message}";
+            this.ChatText.text += $"{message.UserName}: {message.Message}\n";
         }
 
-        Task<string> IChatHubReceiver.HelloAsync(string name, int age)
+        public Task<string> HelloAsync(string name, int age)
         {
-            return Task.FromResult($"Hello {name} ({age}) from Client");
+            Debug.Log($"HelloAsync is called with {name}, {age}");
+            return Task.FromResult($"Hello {name}, you are {age} years old!");
         }
-
         #endregion
 
-
-        #region Client -> Server (Unary)
         public async void SendReport()
         {
             await this.client.SendReportAsync(this.ReportInput.text);
-
-            this.ReportInput.text = string.Empty;
+            ReportInput.text = string.Empty;
         }
 
         public async void UnaryGenerateException()
         {
-            // unary
-            await this.client.GenerateException("client exception(unary)！");
+            try
+            {
+                await this.client.GenerateException("client exception(unary)!");
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"UnaryGenerateException: {e.Message}");
+            }
         }
-        #endregion
     }
 }
