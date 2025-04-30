@@ -5,16 +5,16 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>..\..\..\src\PulseRPC\opensource.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="JetBrains.Profiler.Api" />
-    <PackageReference Include="Microsoft.CodeAnalysis" PrivateAssets="all" />
-    <PackageReference Include="MemoryPack.Core" />
+    <PackageReference Include="BenchmarkDotNet" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\PulseRPC.Generators\PulseRPC.Generators.csproj" />
     <ProjectReference Include="..\..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
   </ItemGroup>
 
