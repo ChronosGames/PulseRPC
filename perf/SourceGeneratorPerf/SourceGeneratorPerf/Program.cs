@@ -1,6 +1,6 @@
 using System.Text;
 using JetBrains.Profiler.Api;
-using MagicOnion.Client.SourceGenerator;
+using PulseRPC.Generators;
 using MagicOnion.Client.SourceGenerator.Tests;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -15,7 +15,7 @@ sb.AppendLine("""
     using System.Threading.Tasks;
     using MagicOnion;
     using MagicOnion.Client;
-    
+
     namespace TempProject;
     """);
 
@@ -31,7 +31,7 @@ for (var i = 0; i < 100; i++)
         Task<string> HelloAsync{{j}}(string name, int age);
     """);
     }
-    
+
     sb.AppendLine($$"""
     }
     public interface IMyStreamingHubReceiver{{i}}
@@ -68,7 +68,7 @@ sb.AppendLine("""
     """);
 
 var (compilation, semanticModel) = CompilationHelper.Create(sb.ToString());
-var sourceGenerator = new MagicOnionClientSourceGenerator();
+var sourceGenerator = new PulseSourceGenerator();
 
 GeneratorDriver driver = CSharpGeneratorDriver.Create(
     generators: new[] { sourceGenerator.AsSourceGenerator() },
