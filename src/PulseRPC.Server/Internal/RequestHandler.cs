@@ -4,14 +4,6 @@ using System.Reflection;
 namespace PulseRPC.Internal;
 
 /// <summary>
-/// Interface for handling requests for a specific service or hub.
-/// </summary>
-internal interface IRequestHandler
-{
-    Task<PulseResponse> HandleRequestAsync(PulseRequest request);
-}
-
-/// <summary>
 /// Base class for request handlers, providing common functionality.
 /// </summary>
 internal abstract class RequestHandlerBase
@@ -91,7 +83,7 @@ internal abstract class RequestHandlerBase
             }
             else
             {
-                task = (Task)method.Invoke(instance, parameters != null ? new[] { parameters } : null)!;
+                task = (Task)method.Invoke(instance, parameters != null ? [parameters] : null)!;
             }
             await task;
             methodResult = ((dynamic)task).Result; // Use dynamic to access Task<T>.Result
@@ -104,7 +96,7 @@ internal abstract class RequestHandlerBase
             }
             else
             {
-                methodResult = method.Invoke(instance, parameters != null ? new[] { parameters } : null);
+                methodResult = method.Invoke(instance, parameters != null ? [parameters] : null);
             }
         }
         return methodResult;
