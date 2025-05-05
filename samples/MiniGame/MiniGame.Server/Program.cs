@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Protocol;
 using PulseRPC.Protocol.Attributes;
 using PulseRPC.Samples.Server.Handlers;
 using PulseRPC.Samples.Shared;
