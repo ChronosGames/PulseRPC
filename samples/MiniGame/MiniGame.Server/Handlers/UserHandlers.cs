@@ -61,7 +61,7 @@ namespace PulseRPC.Samples.Server.Handlers
                     Username = "admin",
                     Nickname = "管理员",
                     AvatarUrl = "https://example.com/avatar/admin.png",
-                    Status = UserStatus.Online,
+                    UserStatus = UserStatus.Online,
                     RegisterTime = new DateTime(2023, 1, 1),
                     LastLoginTime = DateTime.Now.AddHours(-1)
                 };

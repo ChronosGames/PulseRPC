@@ -52,7 +52,7 @@ namespace PulseRPC.Samples.Client
                 await client.ConnectAsync();
 
                 // 初始化RPC客户端
-                RpcClient.Initialize(client);
+                //RpcClient.Initialize(client);
 
                 while (true)
                 {
@@ -89,7 +89,7 @@ namespace PulseRPC.Samples.Client
                 }
 
                 // 断开连接
-                await client.DisconnectAsync();
+                client.Dispose();
             }
             catch (Exception ex)
             {

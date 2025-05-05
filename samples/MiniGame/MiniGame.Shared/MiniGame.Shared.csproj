@@ -7,7 +7,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\PulseRPC.Core\PulseRPC.Core.csproj" />
-    <ProjectReference Include="..\..\src\PulseRPC.Core\PulseRPC.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

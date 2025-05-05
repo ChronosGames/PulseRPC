@@ -66,7 +66,7 @@ namespace PulseRPC.Samples.Shared.Messages
         /// 用户状态
         /// </summary>
         [MemoryPackOrder(6)]
-        public UserStatus Status { get; set; }
+        public UserStatus UserStatus { get; set; }
 
         /// <summary>
         /// 注册时间
