@@ -124,10 +124,7 @@ public class MessageDispatcher
     /// <param name="handlerType">处理器类型</param>
     public void RegisterHandlerType(int messageId, Type? handlerType)
     {
-        if (handlerType == null)
-        {
-            throw new ArgumentNullException(nameof(handlerType));
-        }
+        ArgumentNullException.ThrowIfNull(handlerType, nameof(handlerType));
 
         _handlerTypes[messageId] = handlerType;
         _logger.LogDebug("已注册消息处理器: 消息ID={MessageId}, 处理器={HandlerType}", messageId, handlerType.Name);
