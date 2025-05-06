@@ -22,9 +22,6 @@ public static partial class MessageRegistry
     /// </summary>
     static MessageRegistry()
     {
-        // 手动注册消息类型（正式使用时应该由代码生成器生成）
-        RegisterMessageType<LoginRequest>(1001);
-        RegisterMessageType<LoginResponse>(1002);
     }
 
     /// <summary>
