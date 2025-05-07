@@ -16,12 +16,15 @@ namespace PulseRPC.Samples.Server;
 /// <summary>
 /// 服务器示例程序
 /// </summary>
-class Program
+internal abstract class Program
 {
     static async Task Main(string[] args)
     {
         Console.WriteLine("PulseRPC 服务器示例");
         Console.WriteLine("====================");
+
+        // 初始化消息序列化器
+        MessageSerializerInitializer.Initialize();
 
         // 创建服务容器
         var services = new ServiceCollection();
@@ -53,8 +56,8 @@ class Program
         // 预热处理器实例
         dispatcher.InitializeHandlers();
 
-        // 手动注册消息处理器
-        RegisterMessageHandlers(dispatcher);
+        // 使用处理器注册类注册所有消息处理器
+        ServerHandlerRegistry.RegisterAllHandlers(dispatcher);
 
         // 创建TCP服务器
         var server = new TcpServer(
@@ -115,56 +118,5 @@ class Program
         await server.StopAsync();
 
         Console.WriteLine("服务器已停止");
-    }
-
-    /// <summary>
-    /// 手动注册消息处理器
-    /// </summary>
-    /// <param name="dispatcher">消息分发器</param>
-    private static void RegisterMessageHandlers(MessageDispatcher dispatcher)
-    {
-        // 注意：在Roslyn源代码生成器实现中，这部分会被自动生成
-
-        // 注册LoginRequest处理器
-        dispatcher.RegisterHandler<LoginRequest, LoginRequestHandler>();
-
-        // 注册RegisterRequest处理器
-        dispatcher.RegisterHandler<RegisterRequest, RegisterRequestHandler>();
-
-        // 注册GetUserInfoRequest处理器
-        dispatcher.RegisterHandler<GetUserInfoRequest, GetUserInfoRequestHandler>();
-
-        // 注册UpdateUserInfoRequest处理器
-        dispatcher.RegisterHandler<UpdateUserInfoRequest, UpdateUserInfoRequestHandler>();
-    }
-}
-
-/// <summary>
-/// MessageDispatcher扩展方法
-/// </summary>
-public static class MessageDispatcherExtensions
-{
-    /// <summary>
-    /// 注册处理器
-    /// </summary>
-    /// <typeparam name="TMessage">消息类型</typeparam>
-    /// <typeparam name="THandler">处理器类型</typeparam>
-    /// <param name="dispatcher">消息分发器</param>
-    public static void RegisterHandler<TMessage, THandler>(this MessageDispatcher dispatcher)
-        where TMessage : class, IMessage
-        where THandler : class
-    {
-        // 获取消息特性
-        var messageAttribute = typeof(TMessage).GetCustomAttributes(false)
-            .OfType<MessageAttribute>()
-            .FirstOrDefault();
-
-        if (messageAttribute == null)
-        {
-            throw new InvalidOperationException($"消息类型 {typeof(TMessage).Name} 未标记 MessageAttribute");
-        }
-
-        // 注册处理器
-        dispatcher.RegisterHandlerType(messageAttribute.Id, typeof(THandler));
     }
 }
