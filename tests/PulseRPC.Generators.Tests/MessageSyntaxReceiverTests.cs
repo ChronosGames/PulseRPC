@@ -38,7 +38,7 @@ public class MessageSyntaxReceiverTests
         // 验证结果
         Assert.Single(syntaxReceiver.MessageTypes);
         Assert.Equal(1001, syntaxReceiver.MessageTypes[0].MessageId);
-        Assert.Equal(0, syntaxReceiver.MessageTypes[0].MessageType); // MessageType.Request = 0
+        Assert.Equal(0, (int)syntaxReceiver.MessageTypes[0].MessageType); // MessageType.Request = 0
         Assert.Equal("TestMessage", syntaxReceiver.MessageTypes[0].TypeSymbol.Name);
     }
 
@@ -73,7 +73,7 @@ public class MessageSyntaxReceiverTests
         Assert.Single(syntaxReceiver.MessageTypes);
         Assert.Equal(1001, syntaxReceiver.MessageTypes[0].MessageId);
         Assert.NotNull(syntaxReceiver.MessageTypes[0].HandlerType);
-        Assert.Equal("TestHandler", syntaxReceiver.MessageTypes[0].HandlerType.Name);
+        Assert.Equal("TestHandler", syntaxReceiver.MessageTypes[0].HandlerType!.Name);
     }
 
     /// <summary>
@@ -177,7 +177,7 @@ public class MessageSyntaxReceiverTests
                 // 遍历所有语法节点
                 foreach (var node in syntaxTree.GetRoot().DescendantNodes())
                 {
-                    var context = new GeneratorSyntaxContext(node, semanticModel);
+                    var context = new GeneratorSyntaxContext(/*node, semanticModel*/);
                     _syntaxReceiver.OnVisitSyntaxNode(context);
                 }
             }
