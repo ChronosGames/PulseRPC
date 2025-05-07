@@ -1,8 +1,9 @@
 using System.Text;
+using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
-namespace PulseRPC.Generators.Core;
+namespace PulseRPC.Generators;
 
 /// <summary>
 /// 代码生成器辅助类
