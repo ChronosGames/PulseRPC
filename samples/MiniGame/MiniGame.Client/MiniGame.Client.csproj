@@ -3,10 +3,14 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>default</LangVersion>
+    <EnableSourceGenerators>true</EnableSourceGenerators>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>$(BaseIntermediateOutputPath)Generated</CompilerGeneratedFilesOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Generators.Client\PulseRPC.Generators.Client.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\MiniGame.Shared\MiniGame.Shared.csproj" />
   </ItemGroup>
 

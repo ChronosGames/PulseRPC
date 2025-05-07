@@ -10,9 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
     <ProjectReference Include="..\..\..\src\PulseRPC.Core\PulseRPC.Core.csproj" />
-    <ProjectReference Include="..\..\..\src\PulseRPC.Generators\PulseRPC.Generators.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
