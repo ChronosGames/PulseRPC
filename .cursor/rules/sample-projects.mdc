@@ -3,9 +3,9 @@ description:
 globs:
 alwaysApply: false
 ---
-# MagicOnion示例项目
+# PulseRPC示例项目
 
-本仓库包含多个示例项目，展示MagicOnion的各种使用场景。
+本仓库包含多个示例项目，展示PulseRPC的各种使用场景。
 
 ## 聊天应用示例
 
@@ -20,12 +20,12 @@ alwaysApply: false
 这个示例展示了如何：
 1. 定义共享接口
 2. 实现服务器端逻辑
-3. 在Unity和控制台客户端中使用MagicOnion
+3. 在Unity和控制台客户端中使用PulseRPC
 4. 处理实时通信
 
 ## JWT认证示例
 
-[JwtAuthentication](mdc:samples/JwtAuthentication)示例展示如何在MagicOnion中实现JWT身份验证。
+[JwtAuthentication](mdc:samples/JwtAuthentication)示例展示如何在PulseRPC中实现JWT身份验证。
 
 这个示例展示了：
 1. 如何在MagicOnion服务中实现身份验证
@@ -34,7 +34,7 @@ alwaysApply: false
 
 ## JSON转码示例
 
-[JsonTranscoding](mdc:samples/JsonTranscoding)示例展示如何将MagicOnion服务暴露为JSON API。
+[JsonTranscoding](mdc:samples/JsonTranscoding)示例展示如何将PulseRPC服务暴露为JSON API。
 
 这个示例展示了：
 1. 如何配置JSON转码
