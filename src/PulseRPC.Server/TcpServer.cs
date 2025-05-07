@@ -83,7 +83,7 @@ public class TcpServer
     {
         if (_cts != null && !_cts.IsCancellationRequested)
         {
-            _cts.Cancel();
+            await _cts.CancelAsync();
 
             // 关闭所有客户端连接
             foreach (var session in _sessions.Values)
