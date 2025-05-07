@@ -64,19 +64,17 @@ public class PulseRPCGenerator : ISourceGenerator
         sb.AppendLine("namespace PulseRPC.Protocol.Serialization");
         sb.AppendLine("{");
         sb.AppendLine("    // 自动生成的消息注册表");
-        sb.AppendLine("    public static partial class MessageRegistry");
+        sb.AppendLine("    public static partial class MessageRegistry2");
         sb.AppendLine("    {");
         sb.AppendLine("        // 静态构造函数，初始化注册表");
-        sb.AppendLine("        static MessageRegistry()");
+        sb.AppendLine("        static MessageRegistry2()");
         sb.AppendLine("        {");
 
         // 注册所有消息类型
         foreach (var messageType in messageTypes)
         {
-            var fullyQualifiedName = messageType.TypeSymbol!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            sb.AppendLine($"            // 注册 {messageType.MessageId} - {messageType.TypeSymbol.Name}");
-            sb.AppendLine($"            _messageTypes[{messageType.MessageId}] = typeof({fullyQualifiedName});");
-            sb.AppendLine($"            _typeToIdMap[typeof({fullyQualifiedName})] = {messageType.MessageId};");
+            var fullyQualifiedName = messageType.TypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            sb.AppendLine($"            MessageRegistry.RegisterMessageType<{fullyQualifiedName}>({messageType.MessageId});");
 
             // 如果有处理器，注册处理器类型
             if (messageType.HandlerType != null)
@@ -108,12 +106,20 @@ public class PulseRPCGenerator : ISourceGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC.Protocol.Network;");
         sb.AppendLine("using PulseRPC.Protocol.Serialization;");
+        sb.AppendLine("using Microsoft.Extensions.Logging;");
         sb.AppendLine();
         sb.AppendLine("namespace PulseRPC.Server");
         sb.AppendLine("{");
         sb.AppendLine("    // 自动生成的消息分发器");
-        sb.AppendLine("    public partial class MessageDispatcher");
+        sb.AppendLine("    public partial class MessageDispatcher2");
         sb.AppendLine("    {");
+        sb.AppendLine("        private readonly ILogger _logger;");
+        sb.AppendLine();
+        sb.AppendLine("        public MessageDispatcher2(ILogger<MessageDispatcher2> logger)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            _logger = logger ?? throw new ArgumentNullException(nameof(logger));");
+        sb.AppendLine("        }");
+        sb.AppendLine();
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 高性能消息分发方法");
         sb.AppendLine("        /// </summary>");
@@ -372,9 +378,8 @@ public class MessageSyntaxReceiver : ISyntaxContextReceiver
         if (context.Node is ClassDeclarationSyntax classDeclaration)
         {
             var semanticModel = context.SemanticModel;
-            var typeSymbol = semanticModel.GetDeclaredSymbol(classDeclaration) as INamedTypeSymbol;
 
-            if (typeSymbol != null)
+            if (semanticModel.GetDeclaredSymbol(classDeclaration) is INamedTypeSymbol typeSymbol)
             {
                 var messageAttribute = typeSymbol.GetAttributes()
                     .FirstOrDefault(a => a.AttributeClass?.Name == "MessageAttribute");
