@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.CodeAnalysis;
-using PulseRPC.Generators.Core;
+using PulseRPC.Generators;
+using PulseRPC.Protocol;
 
 namespace PulseRPC.Generators.Client;
 
@@ -110,7 +111,7 @@ public class ClientCodeGenerator : ISourceGenerator
         sb.AppendLine("    {");
 
         // 为请求-响应对生成发送方法
-        var responseTypes = messageTypes.Where(t => t.MessageType == 1).ToDictionary(t => t.MessageId);
+        var responseTypes = messageTypes.Where(t => t.MessageType == MessageType.Response).ToDictionary(t => t.MessageId);
 
         foreach (var messageType in messageTypes.Where(t => t.MessageType == 0))
         {

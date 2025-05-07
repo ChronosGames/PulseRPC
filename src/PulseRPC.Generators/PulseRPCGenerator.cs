@@ -73,13 +73,13 @@ public class PulseRPCGenerator : ISourceGenerator
         // 注册所有消息类型
         foreach (var messageType in messageTypes)
         {
-            var fullyQualifiedName = messageType.TypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var fullyQualifiedName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
             sb.AppendLine($"            MessageRegistry.RegisterMessageType<{fullyQualifiedName}>({messageType.MessageId});");
 
             // 如果有处理器，注册处理器类型
             if (messageType.HandlerType != null)
             {
-                var handlerName = messageType.HandlerType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var handlerName = GeneratorHelper.GetFullyQualifiedName(messageType.HandlerType);
                 sb.AppendLine($"            _handlerTypes[{messageType.MessageId}] = typeof({handlerName});");
             }
 
@@ -91,7 +91,7 @@ public class PulseRPCGenerator : ISourceGenerator
         sb.AppendLine("}");
 
         // 添加生成的源码
-        context.AddSource("MessageRegistry.g.cs", SourceText.From(sb.ToString(), Encoding.UTF8));
+        GeneratorHelper.AddSourceCode(context, "MessageRegistry.g.cs", sb.ToString());
     }
 
     /// <summary>
@@ -137,8 +137,8 @@ public class PulseRPCGenerator : ISourceGenerator
         // 为每个消息类型生成case
         foreach (var messageType in messageTypes.Where(t => t.HandlerType != null))
         {
-            var typeName = messageType.TypeSymbol!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-            var handlerTypeName = messageType.HandlerType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var typeName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
+            var handlerTypeName = GeneratorHelper.GetFullyQualifiedName(messageType.HandlerType!);
 
             sb.AppendLine($"                    case {messageType.MessageId}: // {messageType.TypeSymbol.Name}");
             sb.AppendLine($"                        var message{messageType.MessageId} = MessageSerializer.Deserialize<{typeName}>(data);");
@@ -171,7 +171,7 @@ public class PulseRPCGenerator : ISourceGenerator
 
         foreach (var messageType in messageTypes.Where(t => t.HandlerType != null))
         {
-            var handlerTypeName = messageType.HandlerType!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var handlerTypeName = GeneratorHelper.GetFullyQualifiedName(messageType.HandlerType!);
             sb.AppendLine($"            GetOrCreateHandler(typeof({handlerTypeName}));");
         }
 
@@ -180,7 +180,7 @@ public class PulseRPCGenerator : ISourceGenerator
         sb.AppendLine("}");
 
         // 添加生成的源码
-        context.AddSource("MessageDispatcher.g.cs", SourceText.From(sb.ToString(), Encoding.UTF8));
+        GeneratorHelper.AddSourceCode(context, "MessageDispatcher.g.cs", sb.ToString());
     }
 
     /// <summary>
@@ -213,7 +213,7 @@ public class PulseRPCGenerator : ISourceGenerator
         // 为每个消息类型生成case
         foreach (var messageType in messageTypes)
         {
-            var typeName = messageType.TypeSymbol!.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var typeName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
             sb.AppendLine($"                {messageType.MessageId} => MemoryPackSerializer.Deserialize<{typeName}>(data),");
         }
 
@@ -224,7 +224,7 @@ public class PulseRPCGenerator : ISourceGenerator
         sb.AppendLine("}");
 
         // 添加生成的源码
-        context.AddSource("MessageSerializer.g.cs", SourceText.From(sb.ToString(), Encoding.UTF8));
+        GeneratorHelper.AddSourceCode(context, "MessageSerializer.g.cs", sb.ToString());
     }
 
     /// <summary>
@@ -269,9 +269,9 @@ public class PulseRPCGenerator : ISourceGenerator
             if (responseType == null) continue;
 
             var requestTypeName = requestType.TypeSymbol.Name;
-            var requestFullName = requestType.TypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var requestFullName = GeneratorHelper.GetFullyQualifiedName(requestType.TypeSymbol);
             var responseTypeName = responseType.TypeSymbol.Name;
-            var responseFullName = responseType.TypeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            var responseFullName = GeneratorHelper.GetFullyQualifiedName(responseType.TypeSymbol);
 
             // 获取请求类型的属性
             var properties = requestType.TypeSymbol.GetMembers()
@@ -354,7 +354,7 @@ public class PulseRPCGenerator : ISourceGenerator
         sb.AppendLine("}");
 
         // 添加生成的源码
-        context.AddSource("RpcClient.g.cs", SourceText.From(sb.ToString(), Encoding.UTF8));
+        GeneratorHelper.AddSourceCode(context, "RpcClient.g.cs", sb.ToString());
     }
 }
 
@@ -401,11 +401,14 @@ public class MessageSyntaxReceiver : ISyntaxContextReceiver
                     }
 
                     // 收集消息类型信息
-                    MessageTypes.Add(new MessageTypeInfo(typeSymbol, handlerType!)
+                    var messageInfo = new MessageTypeInfo(typeSymbol)
                     {
                         MessageId = messageId,
                         MessageType = messageType,
-                    });
+                        HandlerType = handlerType
+                    };
+
+                    MessageTypes.Add(messageInfo);
                 }
             }
         }
@@ -415,12 +418,12 @@ public class MessageSyntaxReceiver : ISyntaxContextReceiver
 /// <summary>
 /// 消息类型信息
 /// </summary>
-public class MessageTypeInfo(INamedTypeSymbol typeSymbol, INamedTypeSymbol handlerType)
+public class MessageTypeInfo
 {
     /// <summary>
     /// 类型符号
     /// </summary>
-    public INamedTypeSymbol TypeSymbol { get; set; } = typeSymbol;
+    public INamedTypeSymbol TypeSymbol { get; set; }
 
     /// <summary>
     /// 消息ID
@@ -435,5 +438,14 @@ public class MessageTypeInfo(INamedTypeSymbol typeSymbol, INamedTypeSymbol handl
     /// <summary>
     /// 处理器类型
     /// </summary>
-    public INamedTypeSymbol HandlerType { get; set; } = handlerType;
+    public INamedTypeSymbol? HandlerType { get; set; }
+
+    /// <summary>
+    /// 构造函数
+    /// </summary>
+    /// <param name="typeSymbol">消息类型符号</param>
+    public MessageTypeInfo(INamedTypeSymbol typeSymbol)
+    {
+        TypeSymbol = typeSymbol;
+    }
 }

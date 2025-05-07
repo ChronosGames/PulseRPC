@@ -1,6 +1,6 @@
 using System.Text;
 using Microsoft.CodeAnalysis;
-using PulseRPC.Generators.Core;
+using PulseRPC.Generators;
 
 namespace PulseRPC.Generators.Server;
 

@@ -1,7 +1,7 @@
 using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using PulseRPC.Generators.Core;
+using PulseRPC.Generators;
 using Xunit;
 
 namespace PulseRPC.Generators.Tests;
