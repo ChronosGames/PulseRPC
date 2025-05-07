@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PulseRPC.Generators.Core\PulseRPC.Generators.Core.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Generators.Client\PulseRPC.Generators.Client.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Generators.Server\PulseRPC.Generators.Server.csproj" />
+  </ItemGroup>
+
+</Project>
