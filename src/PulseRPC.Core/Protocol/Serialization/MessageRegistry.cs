@@ -29,7 +29,7 @@ public static partial class MessageRegistry
     /// </summary>
     /// <typeparam name="T">消息类型</typeparam>
     /// <param name="messageId">消息ID</param>
-    private static void RegisterMessageType<T>(int messageId) where T : IMessage
+    public static void RegisterMessageType<T>(int messageId) where T : IMessage
     {
         var type = typeof(T);
         _messageTypes[messageId] = type;
