@@ -1,11 +1,11 @@
 ---
 description:
 globs:
-alwaysApply: false
+alwaysApply: true
 ---
 # PulseRPC 项目结构指南
 
-这是一个基于 gRPC 的现代 RPC 框架，用于 .NET 平台。项目采用以下结构：
+这是一个基于 TCP 的现代 RPC 框架，用于 .NET 平台与 Unity 平台。项目采用以下结构：
 
 ## 核心目录
 - `src/` - 源代码目录，包含所有核心实现
