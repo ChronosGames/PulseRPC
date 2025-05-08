@@ -16,8 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PulseRPC.Core\PulseRPC.Core.csproj" />
-    <ProjectReference Include="..\..\src\PulseRPC.Generators.Client\PulseRPC.Generators.Client.csproj" />
-    <ProjectReference Include="..\..\src\PulseRPC.Generators.Core\PulseRPC.Generators.Core.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" />
   </ItemGroup>
 
 </Project>
