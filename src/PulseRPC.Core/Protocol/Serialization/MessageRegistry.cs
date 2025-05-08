@@ -35,6 +35,17 @@ public static partial class MessageRegistry
     }
 
     /// <summary>
+    /// 注册消息类型
+    /// </summary>
+    /// <param name="messageId">消息ID</param>
+    /// <param name="type">消息类型</param>
+    public static void RegisterMessageType(int messageId, Type type)
+    {
+        _messageTypes[messageId] = type;
+        _typeToIdMap[type] = messageId;
+    }
+
+    /// <summary>
     /// 根据消息ID获取消息类型
     /// </summary>
     /// <param name="messageId">消息ID</param>

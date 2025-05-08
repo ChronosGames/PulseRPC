@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Server.MessageRegistration;
 
 namespace PulseRPC.Server;
 
@@ -38,10 +39,13 @@ public class ServerInitializer
     {
         _logger.LogInformation("开始初始化PulseRPC服务器...");
 
-        // 1. 注册所有处理器
+        // 1. 注册所有消息定义
+        ServerMessageRegistration.Initialize();
+
+        // 2. 注册所有处理器
         RegisterMessageHandlers();
 
-        // 2. 初始化TcpServer
+        // 3. 初始化TcpServer
         var tcpServer = _serviceProvider.GetRequiredService<TcpServer>();
         tcpServer.Start();
 
