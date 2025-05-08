@@ -3,7 +3,7 @@ set -euo pipefail
 
 # stop server over ssh
 #
-# MagicOnion Server
+# PulseRPC Server
 # ssh -o StrictHostKeyChecking=accept-new -i ~/.ssh/id_ed25519 azure-user@4.215.238.2 'bash -s -- ' < ./scripts/benchmark-server-stop.sh
 # $ echo $?
 

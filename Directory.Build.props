@@ -15,14 +15,14 @@
     <Company>ChronosGames</Company>
     <Authors>ChronosGames</Authors>
     <Copyright>© ChronosGames, Inc.</Copyright>
-    <PackageTags>magiconion;grpc;http2</PackageTags>
-    <PackageProjectUrl>https://github.com/ChronosGames/PulseNet</PackageProjectUrl>
+    <PackageTags>game;network;tcp;kcp;memorypack</PackageTags>
+    <PackageProjectUrl>https://github.com/ChronosGames/PulseRPC</PackageProjectUrl>
     <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageIcon>Icon.png</PackageIcon>
 
-    <MagicOnionPackageDescription>Unified Realtime/API framework for .NET platform and Unity.</MagicOnionPackageDescription>
+    <PulseRPCPackageDescription>Unified Realtime/API framework for .NET platform and Unity.</PulseRPCPackageDescription>
 
     <!--<IncludeSource>true</IncludeSource>-->
     <IncludeSymbols>true</IncludeSymbols>
