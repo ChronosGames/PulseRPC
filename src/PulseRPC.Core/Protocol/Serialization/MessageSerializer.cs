@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Reflection;
 using MemoryPack;
 
 namespace PulseRPC.Protocol.Serialization;
@@ -7,6 +9,10 @@ namespace PulseRPC.Protocol.Serialization;
 /// </summary>
 public static partial class MessageSerializer
 {
+    private static readonly ConcurrentDictionary<Type, MethodInfo> _deserializerCache = new();
+    private const string MessageTypeNotFoundError = "找不到ID为{0}的消息类型";
+    private const string DeserializeMethodNotFoundError = "找不到类型 {0} 的反序列化方法";
+
     /// <summary>
     /// 序列化消息
     /// </summary>
@@ -29,34 +35,61 @@ public static partial class MessageSerializer
         return MemoryPackSerializer.Deserialize<T>(data);
     }
 
-    /// <summary>
-    /// 根据消息ID反序列化消息
-    /// </summary>
-    /// <param name="messageId">消息ID</param>
-    /// <param name="data">序列化数据</param>
-    /// <returns>反序列化的消息对象</returns>
-    /// <exception cref="InvalidOperationException">当找不到对应的消息类型时抛出</exception>
     public static object Deserialize(int messageId, byte[] data)
     {
-        // 该方法将被代码生成器扩展，根据消息ID反序列化为对应的类型
-        // 这里提供一个基本实现，实际使用时应由代码生成器生成完整的switch语句
+        var messageType = GetAndValidateMessageType(messageId);
+        var deserializeMethod = GetDeserializeMethod(messageType);
+        return InvokeDeserializer(deserializeMethod, data);
+    }
 
+    private static Type GetAndValidateMessageType(int messageId)
+    {
         var messageType = MessageRegistry.GetMessageType(messageId);
         if (messageType == null)
         {
-            throw new InvalidOperationException($"找不到ID为{messageId}的消息类型");
+            throw new MessageDeserializationException(string.Format(MessageTypeNotFoundError, messageId));
         }
 
-        // 使用通用反射方法反序列化
-        // 注意：这不是最佳性能的实现，应该被代码生成的强类型转换替代
-        var method = typeof(MemoryPackSerializer)
-            .GetMethod(nameof(MemoryPackSerializer.Deserialize), [typeof(byte[])])
-            ?.MakeGenericMethod(messageType);
-        if (method == null)
+        return messageType;
+    }
+
+    private static MethodInfo GetDeserializeMethod(Type messageType)
+    {
+        return _deserializerCache.GetOrAdd(messageType, type =>
         {
-            throw new InvalidOperationException($"找不到反序列化方法");
-        }
+            var method = typeof(MemoryPackSerializer)
+                .GetMethod(nameof(MemoryPackSerializer.Deserialize), [typeof(byte[])])
+                ?.MakeGenericMethod(type);
 
-        return method.Invoke(null, [data])!;
+            if (method == null)
+            {
+                throw new MessageDeserializationException(
+                    string.Format(DeserializeMethodNotFoundError, messageType.Name));
+            }
+
+            return method;
+        });
+    }
+
+    private static object InvokeDeserializer(MethodInfo method, byte[] data)
+    {
+        try
+        {
+            return method.Invoke(null, [data])!;
+        }
+        catch (Exception ex)
+        {
+            throw new MessageDeserializationException("反序列化过程中发生错误", ex);
+        }
+    }
+}
+
+public class MessageDeserializationException : Exception
+{
+    public MessageDeserializationException(string message) : base(message) { }
+
+    public MessageDeserializationException(string message, Exception innerException)
+        : base(message, innerException)
+    {
     }
 }

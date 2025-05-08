@@ -11,14 +11,19 @@ namespace PulseRPC.Samples.Shared.Messages;
 public partial class LoginRequest : IMessage
 {
     /// <summary>
+    /// 请求ID
+    /// </summary>
+    public string RequestId { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>
     /// 用户名
     /// </summary>
-    public string Username { get; set; }
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>
     /// 密码
     /// </summary>
-    public string Password { get; set; }
+    public string Password { get; set; } = string.Empty;
 
     /// <summary>
     /// 客户端版本
@@ -33,24 +38,39 @@ public partial class LoginRequest : IMessage
 public partial class LoginResponse : IMessage
 {
     /// <summary>
-    /// 响应状态
+    /// 请求ID
     /// </summary>
-    public ResponseStatus Status { get; set; }
+    public string RequestId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否成功
+    /// </summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// 错误代码
+    /// </summary>
+    public int ErrorCode { get; set; }
 
     /// <summary>
     /// 错误信息
     /// </summary>
-    public string ErrorMessage { get; set; }
+    public string ErrorMessage { get; set; } = string.Empty;
 
     /// <summary>
     /// 登录令牌
     /// </summary>
-    public string Token { get; set; }
+    public string Token { get; set; } = string.Empty;
 
     /// <summary>
     /// 用户ID
     /// </summary>
     public int UserId { get; set; }
+
+    /// <summary>
+    /// 用户名
+    /// </summary>
+    public string Username { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -60,24 +80,29 @@ public partial class LoginResponse : IMessage
 public partial class RegisterRequest : IMessage
 {
     /// <summary>
+    /// 请求ID
+    /// </summary>
+    public string RequestId { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>
     /// 用户名
     /// </summary>
-    public string Username { get; set; }
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>
     /// 密码
     /// </summary>
-    public string Password { get; set; }
+    public string Password { get; set; } = string.Empty;
 
     /// <summary>
     /// 邮箱
     /// </summary>
-    public string Email { get; set; }
+    public string Email { get; set; } = string.Empty;
 
     /// <summary>
     /// 手机号
     /// </summary>
-    public string PhoneNumber { get; set; }
+    public string PhoneNumber { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -87,17 +112,32 @@ public partial class RegisterRequest : IMessage
 public partial class RegisterResponse : IMessage
 {
     /// <summary>
-    /// 响应状态
+    /// 请求ID
     /// </summary>
-    public ResponseStatus Status { get; set; }
+    public string RequestId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 是否成功
+    /// </summary>
+    public bool Success { get; set; }
+
+    /// <summary>
+    /// 错误代码
+    /// </summary>
+    public int ErrorCode { get; set; }
 
     /// <summary>
     /// 错误信息
     /// </summary>
-    public string ErrorMessage { get; set; }
+    public string ErrorMessage { get; set; } = string.Empty;
 
     /// <summary>
     /// 用户ID
     /// </summary>
     public int UserId { get; set; }
+
+    /// <summary>
+    /// 用户名
+    /// </summary>
+    public string Username { get; set; } = string.Empty;
 }

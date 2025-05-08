@@ -113,10 +113,10 @@ class Program
             Console.WriteLine($"收到系统通知: [{notification.Type}] {notification.Title}");
             Console.WriteLine($"内容: {notification.Content}");
 
-            if (notification.ExtraData != null && notification.ExtraData.Count > 0)
+            if (notification.Metadata.Count > 0)
             {
                 Console.WriteLine("附加数据:");
-                foreach (var item in notification.ExtraData)
+                foreach (var item in notification.Metadata)
                 {
                     Console.WriteLine($"  {item.Key}: {item.Value}");
                 }
@@ -138,8 +138,8 @@ class Program
         {
             Console.WriteLine();
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"收到全局广播: {broadcast.Content}");
-            Console.WriteLine($"发送者: {broadcast.Sender}, 显示时长: {broadcast.Duration}ms");
+            Console.WriteLine($"收到全局广播: {broadcast.Message}");
+            Console.WriteLine($"发送者: {broadcast.Sender}, 显示时长: {broadcast.DisplayTime}ms");
             Console.ResetColor();
             Console.WriteLine();
         });
@@ -172,13 +172,13 @@ class Program
             var response = await client.SendRequestAsync<LoginRequest, LoginResponse>(request);
 
             // 显示响应结果
-            if (response.Status == ResponseStatus.Success)
+            if (response.Success)
             {
                 Console.WriteLine($"登录成功! 用户ID: {response.UserId}, 令牌: {response.Token}");
             }
             else
             {
-                Console.WriteLine($"登录失败: {response.Status} - {response.ErrorMessage}");
+                Console.WriteLine($"登录失败: {response.ErrorCode} - {response.ErrorMessage}");
             }
         }
         catch (TimeoutException)
@@ -225,13 +225,13 @@ class Program
             var response = await client.SendRequestAsync<RegisterRequest, RegisterResponse>(request);
 
             // 显示响应结果
-            if (response.Status == ResponseStatus.Success)
+            if (response.Success)
             {
                 Console.WriteLine($"注册成功! 用户ID: {response.UserId}");
             }
             else
             {
-                Console.WriteLine($"注册失败: {response.Status} - {response.ErrorMessage}");
+                Console.WriteLine($"注册失败: {response.ErrorCode} - {response.ErrorMessage}");
             }
         }
         catch (TimeoutException)

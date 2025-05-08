@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Text;
 
-namespace PulseRPC.Generators;
+namespace PulseRPC.Generators.Core;
 
 /// <summary>
 /// 代码生成器辅助类
@@ -36,7 +36,7 @@ public static class GeneratorHelper
     /// </summary>
     /// <param name="messageTypes">消息类型信息列表</param>
     /// <returns>生成的源代码</returns>
-    public static string GenerateMessageRegistryCode(List<MessageTypeInfo> messageTypes)
+    public static string GenerateMessageRegistryCode<T>(List<T> messageTypes) where T : IMessageTypeInfo
     {
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
