@@ -23,17 +23,21 @@ public class MessageSyntaxReceiver : AbstractMessageSyntaxReceiver
     public override void OnVisitSyntaxNode(GeneratorSyntaxContext context)
     {
         // 检查是否为类声明
-        if (!(context.Node is ClassDeclarationSyntax classDeclaration))
+        if (context.Node is not ClassDeclarationSyntax classDeclaration)
+        {
             return;
+        }
 
         // 尝试获取语义模型和符号
         var semanticModel = context.SemanticModel;
-        var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration) as INamedTypeSymbol;
+        var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
         if (classSymbol == null)
+        {
             return;
+        }
 
         // 检查是否实现了IMessage接口
-        bool implementsIMessage = false;
+        var implementsIMessage = false;
         foreach (var interfaceSymbol in classSymbol.AllInterfaces)
         {
             if (interfaceSymbol.Name == "IMessage" && interfaceSymbol.ContainingNamespace.ToString() == "PulseRPC.Protocol")
@@ -44,7 +48,9 @@ public class MessageSyntaxReceiver : AbstractMessageSyntaxReceiver
         }
 
         if (!implementsIMessage)
+        {
             return;
+        }
 
         // 查找Message特性
         foreach (var attributeData in classSymbol.GetAttributes())

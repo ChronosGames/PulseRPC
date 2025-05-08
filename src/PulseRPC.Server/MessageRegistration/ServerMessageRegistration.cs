@@ -95,11 +95,17 @@ public static class ServerMessageRegistration
                 {
                     // 获取Message特性
                     var attr = type.GetCustomAttribute<MessageAttribute>();
-                    if (attr != null)
+                    if (attr == null)
                     {
-                        MessageRegistry.RegisterMessageType(attr.Id, type);
-                        logger?.LogDebug("已注册消息类型: {Type} (ID: {MessageId})", type.FullName, attr.Id);
+                        continue;
                     }
+
+                    // 使用反射调用泛型方法
+                    var method = typeof(PulseRPCFormatterProvider).GetMethod(nameof(PulseRPCFormatterProvider.RegisterMessageType));
+                    var genericMethod = method?.MakeGenericMethod(type);
+                    genericMethod?.Invoke(null, [attr.Id]);
+
+                    logger?.LogDebug("已注册消息类型: {Type} (ID: {MessageId})", type.FullName, attr.Id);
                 }
                 catch (Exception ex)
                 {
