@@ -2,14 +2,13 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.IO.Pipelines;
 using System.Buffers;
-using System.Buffers.Binary;
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Protocol;
 using PulseRPC.Protocol.Network;
 using PulseRPC.Protocol.Serialization;
+using PulseRPC.Protocol.Messages;
 using PulseRPC.Client.Extensions;
-using System.Runtime.CompilerServices;
 
 namespace PulseRPC.Client;
 
@@ -130,6 +129,9 @@ public class TcpClient : IDisposable
     private const int OptimalReadSize = 8192;      // 8KB
     private const int MaxBufferSize = 65536;       // 64KB
 
+    private readonly HeartbeatOptions? _heartbeatOptions;
+    private HeartbeatManager? _heartbeatManager;
+
     /// <summary>
     /// 获取性能指标
     /// </summary>
@@ -205,6 +207,19 @@ public class TcpClient : IDisposable
         _initialReconnectDelay = options.InitialReconnectDelay;
         _maxReconnectDelay = options.MaxReconnectDelay;
         _autoReconnect = options.AutoReconnect;
+        _heartbeatOptions = options.EnableHeartbeat ? new HeartbeatOptions
+        {
+            Interval = options.HeartbeatInterval,
+            Timeout = options.HeartbeatTimeout,
+            MaxTimeoutCount = options.MaxHeartbeatTimeoutCount
+        } : null;
+
+        // 注册心跳消息处理程序
+        if (_heartbeatOptions != null)
+        {
+            RegisterHandler<HeartbeatMessage>(HandleHeartbeat);
+            RegisterHandler<HeartbeatResponse>(HandleHeartbeatResponse);
+        }
 
         // 创建性能指标监控定时器（每分钟记录一次）
         _metricsTimer = new Timer(LogMetrics, null, TimeSpan.Zero, TimeSpan.FromMinutes(1));
@@ -213,6 +228,35 @@ public class TcpClient : IDisposable
         {
             _reconnectTask = StartReconnectLoopAsync();
         }
+    }
+
+    /// <summary>
+    /// 处理心跳消息
+    /// </summary>
+    private async void HandleHeartbeat(HeartbeatMessage message)
+    {
+        try
+        {
+            var response = MessagePool.Get<HeartbeatResponse>();
+            response.OriginalTimestamp = message.Timestamp;
+            response.ResponseTimestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            response.Sequence = message.Sequence;
+
+            await SendAsync(response, _cts!.Token);
+            MessagePool.Return(response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "处理心跳消息时发生错误");
+        }
+    }
+
+    /// <summary>
+    /// 处理心跳响应消息
+    /// </summary>
+    private void HandleHeartbeatResponse(HeartbeatResponse response)
+    {
+        _heartbeatManager?.HandleHeartbeatResponse(response);
     }
 
     /// <summary>
@@ -231,27 +275,28 @@ public class TcpClient : IDisposable
             _lastConnectAttempt = DateTime.UtcNow;
 
             _client = new System.Net.Sockets.TcpClient();
-#if NET5_0_OR_GREATER
+
+            #if NET5_0_OR_GREATER
             await _client.ConnectAsync(_host, _port, cancellationToken);
-#else
+            #else
             await _client.ConnectAsync(_host, _port);
-#endif
+            #endif
 
             _stream = _client.GetStream();
 
             // 配置读取器选项
             var readerOptions = new StreamPipeReaderOptions(
-                bufferSize: MinimumBufferSize,          // 初始缓冲区大小
-                minimumReadSize: OptimalReadSize,       // 最小读取大小
-                pool: MemoryPool<byte>.Shared,          // 使用共享内存池
-                leaveOpen: true                         // 保持流打开
+                bufferSize: MinimumBufferSize,
+                minimumReadSize: OptimalReadSize,
+                pool: MemoryPool<byte>.Shared,
+                leaveOpen: true
             );
 
             // 配置写入器选项
             var writerOptions = new StreamPipeWriterOptions(
-                pool: MemoryPool<byte>.Shared,          // 使用共享内存池
-                minimumBufferSize: MinimumBufferSize,   // 最小缓冲区大小
-                leaveOpen: true                         // 保持流打开
+                pool: MemoryPool<byte>.Shared,
+                minimumBufferSize: MinimumBufferSize,
+                leaveOpen: true
             );
 
             _reader = PipeReader.Create(_stream, readerOptions);
@@ -259,14 +304,32 @@ public class TcpClient : IDisposable
             _cts = new CancellationTokenSource();
 
             // 配置TCP客户端选项
-            _client.NoDelay = true;                     // 禁用Nagle算法
-            _client.ReceiveBufferSize = MaxBufferSize;  // 设置接收缓冲区大小
-            _client.SendBufferSize = MaxBufferSize;     // 设置发送缓冲区大小
+            _client.NoDelay = true;
+            _client.ReceiveBufferSize = MaxBufferSize;
+            _client.SendBufferSize = MaxBufferSize;
 
             _receiveTask = ReceiveLoopAsync(_cts.Token);
 
             UpdateConnectionState(ConnectionState.Connected);
             _reconnectAttempts = 0;
+
+            // 创建心跳管理器
+            if (_heartbeatOptions != null)
+            {
+                _heartbeatManager?.Dispose();
+                _heartbeatManager = new HeartbeatManager(
+                    new SessionContext(_client),
+                    _logger,
+                    _heartbeatOptions);
+
+                // 监听连接断开事件
+                _heartbeatManager.ConnectionLost += (sender, args) =>
+                {
+                    _logger.LogWarning("心跳检测失败，连接已断开");
+                    UpdateConnectionState(ConnectionState.Disconnected);
+                };
+            }
+
             _logger.LogInformation(
                 "已连接到服务器 {Host}:{Port}, 缓冲区配置: 读取={ReadBuffer}KB, 写入={WriteBuffer}KB",
                 _host, _port,
@@ -296,7 +359,9 @@ public class TcpClient : IDisposable
                 await _reconnectEvent.WaitOneAsync(_cts?.Token ?? CancellationToken.None);
 
                 if (_cts?.Token.IsCancellationRequested ?? true)
+                {
                     break;
+                }
 
                 await TryReconnectAsync();
             }
@@ -338,7 +403,7 @@ public class TcpClient : IDisposable
                         await Task.Delay(delay - timeSinceLastAttempt);
                     }
 
-                    await ConnectAsync();
+                    await ConnectAsync(_cts!.Token);
                     return;
                 }
                 catch (Exception ex)
@@ -412,7 +477,7 @@ public class TcpClient : IDisposable
     }
 
     /// <summary>
-    /// 发送消息到服务器
+    /// 发送消息
     /// </summary>
     /// <typeparam name="T">消息类型</typeparam>
     /// <param name="message">消息实例</param>
@@ -426,46 +491,31 @@ public class TcpClient : IDisposable
 
         try
         {
-            // 获取消息ID
-            int messageId = MessageRegistry.GetMessageId<T>();
-
             // 序列化消息
-            byte[] messageBytes = MessageSerializer.Serialize(message);
-
-            // 消息头长度为8字节：4字节消息长度 + 4字节消息ID
-            const int HeaderLength = 8;
-
-            // 计算消息总长度（消息体长度 + 消息ID的4字节，不包括长度字段本身的4字节）
-            int packetLength = messageBytes.Length + 4; // 消息体长度 + 消息ID长度
+            var messageBytes = MessageSerializer.Serialize(message);
 
             // 更新性能指标
-            _metrics.IncrementBytesSent(packetLength);
+            _metrics.IncrementBytesSent(messageBytes.Length);
             _metrics.IncrementMessagesSent();
-            _metrics.AddMessageSize(packetLength);
+            _metrics.AddMessageSize(messageBytes.Length);
 
-            // 获取足够大的缓冲区（总长度 = 4字节长度 + 4字节消息ID + 消息体长度）
-            Memory<byte> buffer = _writer.GetMemory(4 + packetLength);
+            // 获取足够大的缓冲区
+            var buffer = _writer.GetMemory(messageBytes.Length);
 
-            // 写入消息长度（不包括长度字段本身）
-            BinaryPrimitives.WriteInt32LittleEndian(buffer.Span.Slice(0, 4), packetLength);
-
-            // 写入消息ID
-            BinaryPrimitives.WriteInt32LittleEndian(buffer.Span.Slice(4, 4), messageId);
-
-            // 写入消息体
-            messageBytes.CopyTo(buffer.Slice(HeaderLength));
+            // 写入消息数据
+            messageBytes.CopyTo(buffer);
 
             // 推进写入指针
-            _writer.Advance(4 + packetLength);
+            _writer.Advance(messageBytes.Length);
 
             // 立即刷新数据
-            FlushResult result = await _writer.FlushAsync(cancellationToken);
+            var result = await _writer.FlushAsync(cancellationToken);
             if (result.IsCanceled || result.IsCompleted)
             {
                 throw new OperationCanceledException("发送操作被取消或连接已关闭");
             }
 
-            _logger.LogDebug("已发送消息 {MessageType}, ID={MessageId}, 大小: {Size}字节", typeof(T).Name, messageId, packetLength);
+            _logger.LogDebug("已发送消息 {MessageType}, 大小: {Size}字节", typeof(T).Name, messageBytes.Length);
         }
         catch (Exception ex)
         {
@@ -496,7 +546,7 @@ public class TcpClient : IDisposable
         }
 
         // 创建请求ID
-        int requestId = Interlocked.Increment(ref _requestId);
+        var requestId = Interlocked.Increment(ref _requestId);
 
         // 创建完成源
         var tcs = new TaskCompletionSource<object>();
@@ -554,8 +604,8 @@ public class TcpClient : IDisposable
         {
             while (!cancellationToken.IsCancellationRequested && _connectionState == ConnectionState.Connected)
             {
-                ReadResult result = await _reader!.ReadAsync(cancellationToken);
-                ReadOnlySequence<byte> buffer = result.Buffer;
+                var result = await _reader!.ReadAsync(cancellationToken);
+                var buffer = result.Buffer;
 
                 try
                 {
@@ -661,7 +711,10 @@ public class TcpClient : IDisposable
             }
 
             // 反序列化消息
-            var message = MessageSerializer.Deserialize(messageId, data);
+            var deserializeMethod = typeof(MessageSerializer)
+                .GetMethod(nameof(MessageSerializer.Deserialize))!
+                .MakeGenericMethod(messageType);
+            var message = deserializeMethod.Invoke(null, new object[] { data });
 
             // 检查是否有对应的处理程序
             if (_messageHandlers.TryGetValue(messageType, out var handlerDelegate))
@@ -673,7 +726,7 @@ public class TcpClient : IDisposable
             // 检查是否有等待这个响应的请求
             foreach (var kvp in _pendingRequests)
             {
-                kvp.Value.TrySetResult(message);
+                kvp.Value.TrySetResult(message!);
             }
         }
         catch (Exception ex)
@@ -728,9 +781,10 @@ public class TcpClient : IDisposable
         _metricsTimer?.Dispose();
         _autoReconnect = false;
         _cts?.Cancel();
-        _reconnectEvent.Set(); // 确保重连循环退出
+        _reconnectEvent.Set();
         _reconnectTask?.Wait(TimeSpan.FromSeconds(5));
 
+        _heartbeatManager?.Dispose();
         _connectionLock.Dispose();
         _reconnectEvent.Dispose();
         CleanupAsync().Wait();
@@ -768,4 +822,24 @@ public class TcpClientOptions
     /// 是否启用自动重连
     /// </summary>
     public bool AutoReconnect { get; set; } = true;
+
+    /// <summary>
+    /// 是否启用心跳检测
+    /// </summary>
+    public bool EnableHeartbeat { get; set; } = true;
+
+    /// <summary>
+    /// 心跳间隔（毫秒）
+    /// </summary>
+    public int HeartbeatInterval { get; set; } = 30000;
+
+    /// <summary>
+    /// 心跳超时时间（毫秒）
+    /// </summary>
+    public int HeartbeatTimeout { get; set; } = 5000;
+
+    /// <summary>
+    /// 最大心跳超时次数
+    /// </summary>
+    public int MaxHeartbeatTimeoutCount { get; set; } = 3;
 }

@@ -35,53 +35,21 @@ public class MessageDispatcher
     /// <summary>
     /// 分发消息到处理器
     /// </summary>
-    public async Task DispatchAsync(int messageId, byte[] data, SessionContext context)
+    public async Task DispatchAsync(IMessage message, SessionContext context)
     {
+        // 查询消息ID
+        var messageId = MessageRegistry.GetMessageId(message.GetType());
+
         // 获取处理器类型
         var handlerType = _handlerFactory.GetHandlerType(messageId);
         if (handlerType == null)
         {
             _logger.LogWarning("找不到消息ID {MessageId} 的处理器", messageId);
-
-            // 尝试记录更多有用的诊断信息
-            if (data.Length > 0)
-            {
-                try
-                {
-                    _logger.LogDebug("消息长度: {Length} 字节", data.Length);
-
-                    // 输出前32个字节的十六进制表示，帮助调试
-                    var dataPrefix = data.Length > 32 ? data.Take(32).ToArray() : data;
-                    _logger.LogDebug("消息数据前缀: {DataPrefix}",
-                        BitConverter.ToString(dataPrefix).Replace("-", " "));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "尝试记录消息数据时出错");
-                }
-            }
-
             return;
         }
 
         try
         {
-            _logger.LogDebug("正在反序列化消息ID {MessageId}", messageId);
-
-            // 获取消息类型
-            var messageType = MessageRegistry.GetMessageType(messageId);
-            if (messageType == null)
-            {
-                _logger.LogWarning("找不到消息ID {MessageId} 的类型", messageId);
-                return;
-            }
-
-            // 反序列化消息
-            var message = MessageSerializer.Deserialize(messageId, data);
-
-            _logger.LogDebug("成功反序列化消息ID {MessageId}, 类型: {MessageType}",
-                messageId, message.GetType().Name);
-
             // 获取处理器实例
             var handler = _handlerFactory.GetOrCreate(handlerType);
 
@@ -129,7 +97,7 @@ public class MessageDispatcher
         }
 
         // 调用HandleAsync方法
-        await (Task)handleMethod.Invoke(handler, new[] { context, message })!;
+        await (Task)handleMethod.Invoke(handler, [context, message])!;
     }
 
     /// <summary>

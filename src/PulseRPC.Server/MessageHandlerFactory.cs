@@ -61,7 +61,7 @@ public class MessageHandlerFactory
     /// <returns>处理器类型，如果不存在返回null</returns>
     public Type? GetHandlerType(int messageId)
     {
-        return _handlerTypes.TryGetValue(messageId, out var handlerType) ? handlerType : null;
+        return _handlerTypes.GetValueOrDefault(messageId);
     }
 
     /// <summary>
@@ -71,7 +71,7 @@ public class MessageHandlerFactory
     /// <returns>消息ID，如果不存在返回-1</returns>
     public int GetMessageId(Type messageType)
     {
-        return _messageIdByType.TryGetValue(messageType, out var messageId) ? messageId : -1;
+        return _messageIdByType.GetValueOrDefault(messageType, -1);
     }
 
     /// <summary>
