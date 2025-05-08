@@ -117,10 +117,10 @@ artifacts/
 
 # Unity
 
-src/MagicOnion.Client.Unity/bin/*
-src/MagicOnion.Client.Unity/Library/*
-src/MagicOnion.Client.Unity/obj/*
-src/MagicOnion.Client.Unity/Temp/*
+src/PulseRPC.Client.Unity/bin/*
+src/PulseRPC.Client.Unity/Library/*
+src/PulseRPC.Client.Unity/obj/*
+src/PulseRPC.Client.Unity/Temp/*
 
 **/UserSettings/*
 
@@ -131,7 +131,7 @@ nuget/*.unitypackage
 
 # Jetbrains Rider
 .idea/
-src/MagicOnion.Client.Unity/Packages/manifest.json
+src/PulseRPC.Client.Unity/Packages/manifest.json
 
 packages
 

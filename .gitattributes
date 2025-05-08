@@ -1,4 +1,4 @@
-src/MagicOnion.HttpGateway/Swagger/SwaggerUI/* linguist-vendored
+src/PulseRPC.HttpGateway/Swagger/SwaggerUI/* linguist-vendored
 *.csproj	text
 *.props		text
 *.targets	text
