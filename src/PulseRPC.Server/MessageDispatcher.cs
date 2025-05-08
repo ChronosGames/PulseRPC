@@ -38,7 +38,7 @@ public class MessageDispatcher
     public async Task DispatchAsync(IMessage message, SessionContext context)
     {
         // 查询消息ID
-        var messageId = MessageRegistry.GetMessageId(message.GetType());
+        var messageId = PulseRPCFormatterProvider.GetMessageId(message.GetType());
 
         // 获取处理器类型
         var handlerType = _handlerFactory.GetHandlerType(messageId);

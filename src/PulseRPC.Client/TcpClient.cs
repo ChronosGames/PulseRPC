@@ -703,18 +703,13 @@ public class TcpClient : IDisposable
         try
         {
             // 获取消息类型
-            var messageType = MessageRegistry.GetMessageType(messageId);
-            if (messageType == null)
-            {
-                _logger.LogWarning("收到未知消息ID: {MessageId}", messageId);
-                return;
-            }
+            var messageType = PulseRPCFormatterProvider.GetMessageType(messageId);
 
             // 反序列化消息
             var deserializeMethod = typeof(MessageSerializer)
                 .GetMethod(nameof(MessageSerializer.Deserialize))!
                 .MakeGenericMethod(messageType);
-            var message = deserializeMethod.Invoke(null, new object[] { data });
+            var message = deserializeMethod.Invoke(null, [data]);
 
             // 检查是否有对应的处理程序
             if (_messageHandlers.TryGetValue(messageType, out var handlerDelegate))

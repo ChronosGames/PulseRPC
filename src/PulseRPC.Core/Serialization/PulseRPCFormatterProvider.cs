@@ -24,6 +24,16 @@ public class PulseRPCFormatterProvider
         _formatters[type] = new PulseRPCFormatter<T>(messageId);
     }
 
+    public static int GetMessageId(Type type)
+    {
+        if (_messageIds.TryGetValue(type, out var messageId))
+        {
+            return messageId;
+        }
+
+        throw new InvalidOperationException($"消息类型 {type.Name} 未注册");
+    }
+
     /// <summary>
     /// 获取消息ID
     /// </summary>
