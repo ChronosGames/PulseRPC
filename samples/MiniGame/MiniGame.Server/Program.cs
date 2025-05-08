@@ -12,6 +12,7 @@ using PulseRPC.Samples.Server.Services;
 using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
 using PulseRPC.Server;
+using PulseRPC.Server.MessageRegistration;
 
 namespace PulseRPC.Samples.Server;
 
@@ -131,21 +132,15 @@ internal class Program
     /// </summary>
     private static void RegisterMessageTypes()
     {
-        // 注册请求和响应消息
-        MessageRegistry.RegisterMessageType<LoginRequest>(1001);
-        MessageRegistry.RegisterMessageType<LoginResponse>(1002);
-        MessageRegistry.RegisterMessageType<RegisterRequest>(1003);
-        MessageRegistry.RegisterMessageType<RegisterResponse>(1004);
-        MessageRegistry.RegisterMessageType<GetUserInfoRequest>(1005);
-        MessageRegistry.RegisterMessageType<GetUserInfoResponse>(1006);
-        MessageRegistry.RegisterMessageType<UpdateUserInfoRequest>(1007);
-        MessageRegistry.RegisterMessageType<UpdateUserInfoResponse>(1008);
-
-        // 注册通知消息
-        MessageRegistry.RegisterMessageType<SystemNotification>(2001);
-        MessageRegistry.RegisterMessageType<UserStatusNotification>(2002);
-
-        // 注册广播消息
-        MessageRegistry.RegisterMessageType<GlobalBroadcast>(3001);
+        // 确保 MemoryPack 正确生成序列化器
+        try
+        {
+            MemoryPackHelpers.RegisterAllTypes();
+            Console.WriteLine("MemoryPack 序列化器注册成功");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"MemoryPack 序列化器注册失败: {ex.Message}");
+        }
     }
 }

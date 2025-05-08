@@ -38,8 +38,35 @@ public static partial class MessageSerializer
     public static object Deserialize(int messageId, byte[] data)
     {
         var messageType = GetAndValidateMessageType(messageId);
-        var deserializeMethod = GetDeserializeMethod(messageType);
-        return InvokeDeserializer(deserializeMethod, data);
+
+        try
+        {
+            // 尝试使用 MemoryPackSerializer 直接反序列化
+            var genericMethod = typeof(MemoryPackSerializer).GetMethod(nameof(MemoryPackSerializer.Deserialize), new[] { typeof(byte[]) });
+            if (genericMethod != null)
+            {
+                var method = genericMethod.MakeGenericMethod(messageType);
+                var result = method.Invoke(null, new object[] { data });
+                if (result != null)
+                {
+                    return result;
+                }
+            }
+
+            // 如果直接反序列化失败，则使用缓存的反序列化方法
+            var deserializeMethod = GetDeserializeMethod(messageType);
+            return InvokeDeserializer(deserializeMethod, data);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"反序列化消息 {messageId} 时出错: {ex.Message}");
+            Console.WriteLine($"消息类型: {messageType.FullName}");
+            Console.WriteLine($"数据长度: {data.Length} 字节");
+            Console.WriteLine($"异常堆栈: {ex.StackTrace}");
+
+            throw new MessageDeserializationException(
+                $"反序列化消息 {messageId} ({messageType.Name}) 时出错: {ex.Message}", ex);
+        }
     }
 
     private static Type GetAndValidateMessageType(int messageId)

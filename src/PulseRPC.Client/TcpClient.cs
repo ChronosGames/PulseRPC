@@ -426,21 +426,37 @@ public class TcpClient : IDisposable
 
         try
         {
+            // 获取消息ID
+            int messageId = MessageRegistry.GetMessageId<T>();
+
+            // 序列化消息
             byte[] messageBytes = MessageSerializer.Serialize(message);
-            int messageLength = messageBytes.Length;
+
+            // 消息头长度为8字节：4字节消息长度 + 4字节消息ID
+            const int HeaderLength = 8;
+
+            // 计算消息总长度（消息体长度 + 消息ID的4字节，不包括长度字段本身的4字节）
+            int packetLength = messageBytes.Length + 4; // 消息体长度 + 消息ID长度
 
             // 更新性能指标
-            _metrics.IncrementBytesSent(messageLength);
+            _metrics.IncrementBytesSent(packetLength);
             _metrics.IncrementMessagesSent();
-            _metrics.AddMessageSize(messageLength);
+            _metrics.AddMessageSize(packetLength);
 
-            // 获取足够大的缓冲区
-            Memory<byte> buffer = _writer.GetMemory(4 + messageLength);
+            // 获取足够大的缓冲区（总长度 = 4字节长度 + 4字节消息ID + 消息体长度）
+            Memory<byte> buffer = _writer.GetMemory(4 + packetLength);
 
-            // 写入消息
-            BinaryPrimitives.WriteInt32LittleEndian(buffer.Span.Slice(0, 4), messageLength);
-            messageBytes.CopyTo(buffer.Slice(4));
-            _writer.Advance(4 + messageLength);
+            // 写入消息长度（不包括长度字段本身）
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.Span.Slice(0, 4), packetLength);
+
+            // 写入消息ID
+            BinaryPrimitives.WriteInt32LittleEndian(buffer.Span.Slice(4, 4), messageId);
+
+            // 写入消息体
+            messageBytes.CopyTo(buffer.Slice(HeaderLength));
+
+            // 推进写入指针
+            _writer.Advance(4 + packetLength);
 
             // 立即刷新数据
             FlushResult result = await _writer.FlushAsync(cancellationToken);
@@ -449,7 +465,7 @@ public class TcpClient : IDisposable
                 throw new OperationCanceledException("发送操作被取消或连接已关闭");
             }
 
-            _logger.LogDebug("已发送消息 {MessageType}, 大小: {Size}字节", typeof(T).Name, messageLength);
+            _logger.LogDebug("已发送消息 {MessageType}, ID={MessageId}, 大小: {Size}字节", typeof(T).Name, messageId, packetLength);
         }
         catch (Exception ex)
         {
@@ -580,13 +596,20 @@ public class TcpClient : IDisposable
         messageId = 0;
         messageData = Array.Empty<byte>();
 
-        if (buffer.Length < 4)
+        // 消息头长度为8字节：4字节消息长度 + 4字节消息ID
+        const int HeaderLength = 8;
+
+        // 检查是否有足够的数据读取消息头
+        if (buffer.Length < HeaderLength)
             return false;
 
         var reader = new SequenceReader<byte>(buffer);
+
+        // 读取消息长度（不包括长度字段本身的4字节）
         if (!reader.TryReadLittleEndian(out int messageLength))
             return false;
 
+        // 验证消息长度是否合理
         if (messageLength <= 0 || messageLength > _maxMessageSize)
         {
             _logger.LogWarning("收到无效的消息长度: {Length}", messageLength);
@@ -594,11 +617,22 @@ public class TcpClient : IDisposable
             return false;
         }
 
+        // 检查是否有足够的数据读取整个消息
         if (buffer.Length < 4 + messageLength)
             return false;
 
-        var messageBuffer = buffer.Slice(4, messageLength);
+        // 读取消息ID
+        // 重置reader位置到第4个字节，即消息ID的起始位置
+        reader = new SequenceReader<byte>(buffer.Slice(4, 4));
+        if (!reader.TryReadLittleEndian(out messageId))
+            return false;
+
+        // 读取消息体（从第8个字节开始）
+        var bodyLength = messageLength - 4; // 减去消息ID的4字节
+        var messageBuffer = buffer.Slice(HeaderLength, bodyLength);
         messageData = messageBuffer.ToArray();
+
+        // 移动buffer到消息结束位置
         buffer = buffer.Slice(4 + messageLength);
 
         // 更新性能指标
@@ -606,7 +640,6 @@ public class TcpClient : IDisposable
         _metrics.IncrementMessagesReceived();
         _metrics.AddMessageSize(messageLength);
 
-        messageId = MessageRegistry.GetMessageId(messageData.GetType());
         return true;
     }
 

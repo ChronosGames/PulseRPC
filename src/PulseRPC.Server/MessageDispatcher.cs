@@ -1,8 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Protocol;
 using PulseRPC.Protocol.Attributes;
@@ -17,7 +13,10 @@ namespace PulseRPC.Server;
 public class MessageDispatcher
 {
     private readonly MessageHandlerFactory _handlerFactory;
-    protected readonly ILogger<MessageDispatcher> _logger;
+    private readonly ILogger<MessageDispatcher> _logger;
+
+    // 消息ID到处理器的映射
+    private readonly Dictionary<int, IMessageHandler> _handlers = new();
 
     // 缓存泛型处理方法的调用委托
     private readonly Dictionary<Type, MethodInfo> _genericHandleMethodCache = new();
@@ -34,12 +33,8 @@ public class MessageDispatcher
     }
 
     /// <summary>
-    /// 分发消息到相应的处理程序
+    /// 分发消息到处理器
     /// </summary>
-    /// <param name="messageId">消息ID</param>
-    /// <param name="data">消息数据</param>
-    /// <param name="context">会话上下文</param>
-    /// <returns>处理任务</returns>
     public async Task DispatchAsync(int messageId, byte[] data, SessionContext context)
     {
         // 获取处理器类型
@@ -47,11 +42,32 @@ public class MessageDispatcher
         if (handlerType == null)
         {
             _logger.LogWarning("找不到消息ID {MessageId} 的处理器", messageId);
+
+            // 尝试记录更多有用的诊断信息
+            if (data.Length > 0)
+            {
+                try
+                {
+                    _logger.LogDebug("消息长度: {Length} 字节", data.Length);
+
+                    // 输出前32个字节的十六进制表示，帮助调试
+                    var dataPrefix = data.Length > 32 ? data.Take(32).ToArray() : data;
+                    _logger.LogDebug("消息数据前缀: {DataPrefix}",
+                        BitConverter.ToString(dataPrefix).Replace("-", " "));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "尝试记录消息数据时出错");
+                }
+            }
+
             return;
         }
 
         try
         {
+            _logger.LogDebug("正在反序列化消息ID {MessageId}", messageId);
+
             // 获取消息类型
             var messageType = MessageRegistry.GetMessageType(messageId);
             if (messageType == null)
@@ -62,6 +78,9 @@ public class MessageDispatcher
 
             // 反序列化消息
             var message = MessageSerializer.Deserialize(messageId, data);
+
+            _logger.LogDebug("成功反序列化消息ID {MessageId}, 类型: {MessageType}",
+                messageId, message.GetType().Name);
 
             // 获取处理器实例
             var handler = _handlerFactory.GetOrCreate(handlerType);
