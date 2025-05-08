@@ -1,6 +1,7 @@
 using System.Reflection;
 using PulseRPC.Protocol;
 using PulseRPC.Protocol.Attributes;
+using PulseRPC.Protocol.Messages;
 using PulseRPC.Protocol.Network;
 using PulseRPC.Protocol.Serialization;
 
@@ -61,9 +62,6 @@ public abstract class RequestHandlerBase<TRequest, TResponse> : IMessageHandler<
     /// <param name="response">响应消息</param>
     private static async Task SendResponseAsync(SessionContext context, TResponse response)
     {
-        var messageId = MessageRegistry.GetMessageId<TResponse>();
-        var data = MessageSerializer.Serialize(response);
-
-        await context.SendAsync(messageId, data);
+        await context.SendAsync(response, MessageFlags.Response);
     }
 }

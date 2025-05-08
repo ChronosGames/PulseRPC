@@ -136,6 +136,10 @@ class Program
     {
         logger.LogInformation("开始注册消息类型...");
 
+        // 注册消息类型
+        PulseRPCClientGenerator.Initialize();
+        logger.LogInformation("消息类型注册完成");
+
         // 确保 MemoryPack 正确生成序列化器
         try
         {
@@ -146,7 +150,5 @@ class Program
         {
             logger.LogError(ex, "MemoryPack 序列化器注册失败");
         }
-
-        logger.LogInformation("消息类型注册完成");
     }
 }
