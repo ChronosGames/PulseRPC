@@ -6,7 +6,7 @@ using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
 using PulseRPC.Server;
 
-namespace PulseRPC.Samples.Server.Handlers;
+namespace PulseRPC.Samples.Server.Services;
 
 /// <summary>
 /// 通知服务，用于向客户端发送各种通知
@@ -14,24 +14,17 @@ namespace PulseRPC.Samples.Server.Handlers;
 public class NotificationService
 {
     private readonly ILogger<NotificationService> _logger;
-    private TcpServer? _server;
+    private readonly TcpServer _server;
 
     /// <summary>
     /// 初始化通知服务
     /// </summary>
     /// <param name="logger">日志记录器</param>
-    public NotificationService(ILogger<NotificationService> logger)
+    /// <param name="server">TCP服务器</param>
+    public NotificationService(ILogger<NotificationService> logger, TcpServer server)
     {
-        _logger = logger;
-    }
-
-    /// <summary>
-    /// 设置服务器引用
-    /// </summary>
-    /// <param name="server">服务器实例</param>
-    public void SetServer(TcpServer server)
-    {
-        _server = server;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _server = server ?? throw new ArgumentNullException(nameof(server));
     }
 
     /// <summary>
@@ -50,12 +43,6 @@ public class NotificationService
         long expireTime,
         Dictionary<string, string>? metadata = null)
     {
-        if (_server == null)
-        {
-            _logger.LogWarning("发送系统通知失败: 服务器未设置");
-            return;
-        }
-
         var notification = new SystemNotification
         {
             Id = Guid.NewGuid().ToString("N"),
@@ -85,12 +72,6 @@ public class NotificationService
         int status,
         long lastLoginTime)
     {
-        if (_server == null)
-        {
-            _logger.LogWarning("发送用户状态通知失败: 服务器未设置");
-            return;
-        }
-
         var notification = new UserStatusNotification
         {
             UserId = userId,
@@ -119,12 +100,6 @@ public class NotificationService
         string color,
         int displayTime)
     {
-        if (_server == null)
-        {
-            _logger.LogWarning("发送全局广播失败: 服务器未设置");
-            return;
-        }
-
         var broadcast = new GlobalBroadcast
         {
             Id = Guid.NewGuid().ToString("N"),
