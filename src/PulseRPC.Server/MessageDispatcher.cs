@@ -1,4 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Protocol;
+using PulseRPC.Protocol.Attributes;
 using PulseRPC.Protocol.Network;
 using PulseRPC.Protocol.Serialization;
 
@@ -9,23 +16,20 @@ namespace PulseRPC.Server;
 /// </summary>
 public class MessageDispatcher
 {
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<MessageDispatcher> _logger;
+    private readonly MessageHandlerFactory _handlerFactory;
+    protected readonly ILogger<MessageDispatcher> _logger;
 
-    // 缓存的处理器实例
-    private readonly Dictionary<Type, object> _handlerInstances = new Dictionary<Type, object>();
-
-    // 消息ID到处理器类型的映射
-    private readonly Dictionary<int, Type> _handlerTypes = new Dictionary<int, Type>();
+    // 缓存泛型处理方法的调用委托
+    private readonly Dictionary<Type, MethodInfo> _genericHandleMethodCache = new();
 
     /// <summary>
     /// 初始化消息分发器
     /// </summary>
-    /// <param name="serviceProvider">服务提供者</param>
+    /// <param name="handlerFactory">处理器工厂</param>
     /// <param name="logger">日志记录器</param>
-    public MessageDispatcher(IServiceProvider serviceProvider, ILogger<MessageDispatcher> logger)
+    public MessageDispatcher(MessageHandlerFactory handlerFactory, ILogger<MessageDispatcher> logger)
     {
-        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+        _handlerFactory = handlerFactory ?? throw new ArgumentNullException(nameof(handlerFactory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -39,7 +43,7 @@ public class MessageDispatcher
     public async Task DispatchAsync(int messageId, byte[] data, SessionContext context)
     {
         // 获取处理器类型
-        var handlerType = GetHandlerType(messageId);
+        var handlerType = _handlerFactory.GetHandlerType(messageId);
         if (handlerType == null)
         {
             _logger.LogWarning("找不到消息ID {MessageId} 的处理器", messageId);
@@ -48,9 +52,6 @@ public class MessageDispatcher
 
         try
         {
-            // 通过代码生成器，这段逻辑会被替换成高性能的switch语句
-            // 这里提供一个基本实现，使用反射调用处理器
-
             // 获取消息类型
             var messageType = MessageRegistry.GetMessageType(messageId);
             if (messageType == null)
@@ -62,19 +63,11 @@ public class MessageDispatcher
             // 反序列化消息
             var message = MessageSerializer.Deserialize(messageId, data);
 
-            // 获取或创建处理器实例
-            var handler = GetOrCreateHandler(handlerType);
-
-            // 获取处理方法
-            var handleMethod = handlerType.GetMethod("HandleAsync");
-            if (handleMethod == null)
-            {
-                _logger.LogError("处理器 {HandlerType} 没有实现 HandleAsync 方法", handlerType.Name);
-                return;
-            }
+            // 获取处理器实例
+            var handler = _handlerFactory.GetOrCreate(handlerType);
 
             // 调用处理方法
-            await (Task)handleMethod.Invoke(handler, [context, message])!;
+            await InvokeHandlerAsync(handler, context, message);
         }
         catch (Exception ex)
         {
@@ -84,59 +77,139 @@ public class MessageDispatcher
     }
 
     /// <summary>
-    /// 获取或创建处理器实例
+    /// 调用处理器的HandleAsync方法
     /// </summary>
-    /// <param name="handlerType">处理器类型</param>
-    /// <returns>处理器实例</returns>
-    private object GetOrCreateHandler(Type handlerType)
+    /// <param name="handler">处理器实例</param>
+    /// <param name="context">会话上下文</param>
+    /// <param name="message">消息对象</param>
+    /// <returns>处理任务</returns>
+    private async Task InvokeHandlerAsync(IMessageHandler handler, SessionContext context, object message)
     {
-        if (_handlerInstances.TryGetValue(handlerType, out var handler))
+        var handlerType = handler.GetType();
+        var messageType = message.GetType();
+
+        // 查找并缓存泛型HandleAsync方法
+        if (!_genericHandleMethodCache.TryGetValue(handlerType, out var handleMethod))
         {
-            return handler;
+            // 查找泛型接口实现
+            var interfaceType = handlerType.GetInterfaces()
+                .FirstOrDefault(i => i.IsGenericType &&
+                                    i.GetGenericTypeDefinition() == typeof(IMessageHandler<>) &&
+                                    i.GetGenericArguments()[0] == messageType);
+
+            if (interfaceType == null)
+            {
+                throw new InvalidOperationException($"处理器 {handlerType.Name} 没有实现 IMessageHandler<{messageType.Name}>");
+            }
+
+            // 获取HandleAsync方法
+            handleMethod = interfaceType.GetMethod("HandleAsync") ??
+                throw new InvalidOperationException($"接口 {interfaceType.Name} 没有定义 HandleAsync 方法");
+
+            _genericHandleMethodCache[handlerType] = handleMethod;
         }
 
-        // 从服务容器获取或创建新实例
-        handler = _serviceProvider.GetService(handlerType) ?? Activator.CreateInstance(handlerType);
-        _handlerInstances[handlerType] = handler!;
-
-        return handler!;
+        // 调用HandleAsync方法
+        await (Task)handleMethod.Invoke(handler, new[] { context, message })!;
     }
 
     /// <summary>
-    /// 在应用程序启动时预热处理器实例
+    /// 注册处理器类型
     /// </summary>
-    public void InitializeHandlers()
+    /// <typeparam name="TMessage">消息类型</typeparam>
+    /// <typeparam name="THandler">处理器类型</typeparam>
+    public void RegisterHandler<TMessage, THandler>()
+        where TMessage : class, IMessage
+        where THandler : class, IMessageHandler<TMessage>
     {
-        // 这部分在实际使用中应该由代码生成器生成
-        // 预创建所有已知的处理器实例
-
-        // 示例预热
-        foreach (var handlerType in _handlerTypes.Values)
+        // 获取消息属性
+        var messageAttr = typeof(TMessage).GetCustomAttribute<MessageAttribute>();
+        if (messageAttr == null)
         {
-            GetOrCreateHandler(handlerType);
+            throw new InvalidOperationException($"消息类型 {typeof(TMessage).Name} 未标记 MessageAttribute");
         }
+
+        var messageTypeInfo = new MessageTypeInfo(messageAttr.Id, typeof(TMessage));
+        _handlerFactory.RegisterHandler(messageTypeInfo, typeof(THandler));
     }
 
     /// <summary>
     /// 注册处理器类型
     /// </summary>
     /// <param name="messageId">消息ID</param>
+    /// <param name="messageType">消息类型</param>
     /// <param name="handlerType">处理器类型</param>
-    public void RegisterHandlerType(int messageId, Type? handlerType)
+    public void RegisterHandler(int messageId, Type messageType, Type handlerType)
     {
-        ArgumentNullException.ThrowIfNull(handlerType, nameof(handlerType));
-
-        _handlerTypes[messageId] = handlerType;
-        _logger.LogDebug("已注册消息处理器: 消息ID={MessageId}, 处理器={HandlerType}", messageId, handlerType.Name);
+        var messageTypeInfo = new MessageTypeInfo(messageId, messageType);
+        _handlerFactory.RegisterHandler(messageTypeInfo, handlerType);
     }
 
     /// <summary>
-    /// 获取处理器类型
+    /// 通过反射自动注册程序集中的所有消息处理器
     /// </summary>
-    /// <param name="messageId">消息ID</param>
-    /// <returns>处理器类型，如果未注册则返回null</returns>
-    private Type? GetHandlerType(int messageId)
+    /// <param name="assembly">包含处理器的程序集</param>
+    public void RegisterHandlersFromAssembly(Assembly assembly)
     {
-        return _handlerTypes.GetValueOrDefault(messageId);
+        try
+        {
+            // 查找所有实现了IMessageHandler<>的类型
+            var handlerTypes = assembly.GetTypes()
+                .Where(t => t.IsClass && !t.IsAbstract && t.GetInterfaces()
+                    .Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IMessageHandler<>)));
+
+            foreach (var handlerType in handlerTypes)
+            {
+                // 查找实现的IMessageHandler<>接口
+                var handlerInterface = handlerType.GetInterfaces()
+                    .First(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IMessageHandler<>));
+
+                // 获取消息类型
+                var messageType = handlerInterface.GetGenericArguments()[0];
+
+                // 获取消息ID属性
+                var messageAttr = messageType.GetCustomAttribute<MessageAttribute>();
+                if (messageAttr == null)
+                {
+                    _logger.LogWarning("忽略处理器 {HandlerType}，消息类型 {MessageType} 未标记 MessageAttribute",
+                        handlerType.Name, messageType.Name);
+                    continue;
+                }
+
+                // 注册处理器
+                RegisterHandler(messageAttr.Id, messageType, handlerType);
+                _logger.LogInformation("自动注册处理器: {HandlerType} -> 消息: {MessageType} (ID={MessageId})",
+                    handlerType.Name, messageType.Name, messageAttr.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "从程序集 {Assembly} 注册处理器时出错", assembly.FullName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 注册当前运行的应用程序的所有消息处理器
+    /// </summary>
+    public void RegisterHandlersFromCurrentAppDomain()
+    {
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            // 忽略系统程序集和第三方库程序集
+            if (!assembly.FullName!.StartsWith("System.") &&
+                !assembly.FullName.StartsWith("Microsoft.") &&
+                !assembly.IsDynamic)
+            {
+                try
+                {
+                    RegisterHandlersFromAssembly(assembly);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "从程序集 {Assembly} 注册处理器时出错，已跳过", assembly.FullName);
+                }
+            }
+        }
     }
 }

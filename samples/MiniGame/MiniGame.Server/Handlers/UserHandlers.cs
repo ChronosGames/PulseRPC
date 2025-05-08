@@ -1,10 +1,9 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol.Handlers;
 using PulseRPC.Protocol.Network;
 using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
+using PulseRPC.Server;
+using UserStatus = PulseRPC.Samples.Shared.Messages.UserStatus;
 
 namespace PulseRPC.Samples.Server.Handlers;
 
@@ -16,65 +15,64 @@ public class GetUserInfoRequestHandler : RequestHandlerBase<GetUserInfoRequest, 
     private readonly ILogger<GetUserInfoRequestHandler> _logger;
 
     /// <summary>
-    /// 创建获取用户信息请求处理器
+    /// 初始化获取用户信息请求处理器
     /// </summary>
     /// <param name="logger">日志记录器</param>
     public GetUserInfoRequestHandler(ILogger<GetUserInfoRequestHandler> logger)
     {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _logger = logger;
     }
 
     /// <summary>
     /// 处理获取用户信息请求
     /// </summary>
-    /// <param name="context">会话上下文</param>
-    /// <param name="request">请求</param>
-    /// <returns>响应</returns>
     protected override async Task<GetUserInfoResponse> ProcessRequestAsync(SessionContext context, GetUserInfoRequest request)
     {
-        _logger.LogInformation("处理获取用户信息请求: 用户ID={UserId}", request.UserId);
+        _logger.LogInformation("收到获取用户信息请求: UserId={UserId}", request.UserId);
 
-        // 模拟处理延迟
-        await Task.Delay(150);
-
-        // 检查用户ID
-        if (request.UserId <= 0)
+        // 检查认证状态
+        bool isAuthenticated = context.GetItem<bool>("IsAuthenticated");
+        if (!isAuthenticated)
         {
-            _logger.LogWarning("获取用户信息失败: 无效的用户ID: {UserId}", request.UserId);
             return new GetUserInfoResponse
             {
-                Status = ResponseStatus.InvalidParameter,
-                ErrorMessage = "无效的用户ID"
+                Status = ResponseStatus.AuthenticationFailed,
+                ErrorMessage = "未授权访问，请先登录"
             };
         }
 
-        // 模拟查询用户信息
-        // 在实际应用中应从数据库查询
+        // 构造响应
+        var response = new GetUserInfoResponse
+        {
+            Status = ResponseStatus.Success
+        };
+
+        // 模拟获取用户信息
         if (request.UserId == 1001)
         {
-            _logger.LogInformation("找到用户: UserId={UserId}", request.UserId);
-            return new GetUserInfoResponse
-            {
-                Status = ResponseStatus.Success,
-                ErrorMessage = string.Empty,
-                UserId = 1001,
-                Username = "admin",
-                Nickname = "管理员",
-                AvatarUrl = "https://example.com/avatar/admin.png",
-                UserStatus = UserStatus.Online,
-                RegisterTime = new DateTime(2023, 1, 1),
-                LastLoginTime = DateTime.Now.AddHours(-1)
-            };
+            response.UserId = 1001;
+            response.Username = "admin";
+            response.Nickname = "管理员";
+            response.AvatarUrl = "https://example.com/avatars/admin.png";
+            response.UserStatus = UserStatus.Online;
+            response.RegisterTime = new DateTime(2021, 1, 1);
+            response.LastLoginTime = DateTime.Now;
         }
         else
         {
-            _logger.LogWarning("未找到用户: UserId={UserId}", request.UserId);
-            return new GetUserInfoResponse
-            {
-                Status = ResponseStatus.NotFound,
-                ErrorMessage = "用户不存在"
-            };
+            // 模拟生成随机用户信息
+            response.UserId = request.UserId;
+            response.Username = $"user{request.UserId}";
+            response.Nickname = $"用户{request.UserId}";
+            response.AvatarUrl = $"https://example.com/avatars/user{request.UserId}.png";
+            response.UserStatus = (UserStatus)new Random().Next(0, 3);
+            response.RegisterTime = DateTime.Now.AddDays(-new Random().Next(1, 365));
+            response.LastLoginTime = DateTime.Now.AddHours(-new Random().Next(1, 24));
         }
+
+        _logger.LogInformation("获取用户信息成功: UserId={UserId}, Username={Username}", response.UserId, response.Username);
+
+        return response;
     }
 }
 
@@ -86,68 +84,64 @@ public class UpdateUserInfoRequestHandler : RequestHandlerBase<UpdateUserInfoReq
     private readonly ILogger<UpdateUserInfoRequestHandler> _logger;
 
     /// <summary>
-    /// 创建更新用户信息请求处理器
+    /// 初始化更新用户信息请求处理器
     /// </summary>
     /// <param name="logger">日志记录器</param>
     public UpdateUserInfoRequestHandler(ILogger<UpdateUserInfoRequestHandler> logger)
     {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _logger = logger;
     }
 
     /// <summary>
     /// 处理更新用户信息请求
     /// </summary>
-    /// <param name="context">会话上下文</param>
-    /// <param name="request">请求</param>
-    /// <returns>响应</returns>
     protected override async Task<UpdateUserInfoResponse> ProcessRequestAsync(SessionContext context, UpdateUserInfoRequest request)
     {
-        _logger.LogInformation("处理更新用户信息请求: 用户ID={UserId}", request.UserId);
+        _logger.LogInformation("收到更新用户信息请求: UserId={UserId}", request.UserId);
 
-        // 模拟处理延迟
-        await Task.Delay(180);
-
-        // 检查用户ID
-        if (request.UserId <= 0)
+        // 检查认证状态
+        bool isAuthenticated = context.GetItem<bool>("IsAuthenticated");
+        if (!isAuthenticated)
         {
-            _logger.LogWarning("更新用户信息失败: 无效的用户ID: {UserId}", request.UserId);
             return new UpdateUserInfoResponse
             {
-                Status = ResponseStatus.InvalidParameter,
-                ErrorMessage = "无效的用户ID"
+                Status = ResponseStatus.AuthenticationFailed,
+                ErrorMessage = "未授权访问，请先登录"
             };
         }
 
-        // 检查是否有权限
-        // 在实际应用中应检查用户身份验证和授权
-        if (request.UserId != 1001) // 假设只有ID为1001的用户有权限
+        // 检查用户ID是否匹配
+        int userId = context.GetItem<int>("UserId");
+        if (userId != request.UserId)
         {
-            _logger.LogWarning("更新用户信息失败: 无权限修改用户 {UserId}", request.UserId);
             return new UpdateUserInfoResponse
             {
                 Status = ResponseStatus.PermissionDenied,
-                ErrorMessage = "无权修改此用户信息"
+                ErrorMessage = "无权修改其他用户的信息"
             };
         }
 
-        // 模拟更新用户信息
-        // 在实际应用中应更新数据库
+        // 模拟更新数据
         int updatedCount = 0;
-
-        // 计算更新字段数量
         if (!string.IsNullOrEmpty(request.Nickname))
+        {
             updatedCount++;
-
+        }
         if (!string.IsNullOrEmpty(request.AvatarUrl))
+        {
             updatedCount++;
+        }
 
-        _logger.LogInformation("已更新用户信息: UserId={UserId}, 更新字段数量={Count}", request.UserId, updatedCount);
-
-        return new UpdateUserInfoResponse
+        // 构造响应
+        var response = new UpdateUserInfoResponse
         {
             Status = ResponseStatus.Success,
-            ErrorMessage = string.Empty,
             UpdatedCount = updatedCount
         };
+
+        _logger.LogInformation("更新用户信息成功: UserId={UserId}, Nickname={Nickname}, 更新字段数={UpdatedCount}",
+            request.UserId, request.Nickname, updatedCount);
+
+        return response;
     }
 }

@@ -1,6 +1,8 @@
 using System.Text;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.CodeAnalysis;
-using PulseRPC.Generators;
+using PulseRPC.Generators.Core;
 using PulseRPC.Protocol;
 
 namespace PulseRPC.Generators.Client;
@@ -34,7 +36,7 @@ public class ClientCodeGenerator : ISourceGenerator
         }
 
         // 生成客户端所需的消息注册表代码
-        var messageRegistryCode = GeneratorHelper.GenerateMessageRegistryCode(syntaxReceiver.MessageTypes);
+        var messageRegistryCode = GenerateClientMessageRegistryCode(syntaxReceiver.MessageTypes);
         GeneratorHelper.AddSourceCode(context, "ClientMessageRegistry.g.cs", messageRegistryCode);
 
         // 生成客户端序列化助手代码
@@ -47,11 +49,45 @@ public class ClientCodeGenerator : ISourceGenerator
     }
 
     /// <summary>
+    /// 生成客户端消息注册表代码
+    /// </summary>
+    /// <param name="messageTypes">消息类型信息列表</param>
+    /// <returns>生成的源代码</returns>
+    private string GenerateClientMessageRegistryCode(List<ClientMessageTypeInfo> messageTypes)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("using System;");
+        sb.AppendLine("using System.Collections.Generic;");
+        sb.AppendLine();
+        sb.AppendLine("namespace PulseRPC.Protocol.Serialization");
+        sb.AppendLine("{");
+        sb.AppendLine("    // 自动生成的客户端消息注册表");
+        sb.AppendLine("    public static partial class MessageRegistry");
+        sb.AppendLine("    {");
+        sb.AppendLine("        // 静态构造函数，初始化注册表");
+        sb.AppendLine("        static MessageRegistry()");
+        sb.AppendLine("        {");
+
+        // 注册所有消息类型
+        foreach (var messageType in messageTypes)
+        {
+            var fullyQualifiedName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
+            sb.AppendLine($"            RegisterMessageType<{fullyQualifiedName}>({messageType.MessageId});");
+        }
+
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// 生成客户端序列化助手代码
     /// </summary>
     /// <param name="messageTypes">消息类型信息列表</param>
     /// <returns>生成的源代码</returns>
-    private string GenerateMessageSerializerCode(List<MessageTypeInfo> messageTypes)
+    private string GenerateMessageSerializerCode(List<ClientMessageTypeInfo> messageTypes)
     {
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
@@ -94,51 +130,61 @@ public class ClientCodeGenerator : ISourceGenerator
     /// </summary>
     /// <param name="messageTypes">消息类型信息列表</param>
     /// <returns>生成的源代码</returns>
-    private string GenerateRpcClientCode(List<MessageTypeInfo> messageTypes)
+    private string GenerateRpcClientCode(List<ClientMessageTypeInfo> messageTypes)
     {
         var sb = new StringBuilder();
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
-        sb.AppendLine("using PulseRPC.Protocol;");
-        sb.AppendLine("using PulseRPC.Protocol.Messages;");
         sb.AppendLine("using PulseRPC.Protocol.Serialization;");
         sb.AppendLine();
         sb.AppendLine("namespace PulseRPC.Client");
         sb.AppendLine("{");
-        sb.AppendLine("    // 自动生成的客户端API");
-        sb.AppendLine("    public static partial class RpcClient");
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// 自动生成的RPC客户端");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    public partial class RpcClient");
         sb.AppendLine("    {");
 
-        // 为请求-响应对生成发送方法
-        var responseTypes = messageTypes.Where(t => t.MessageType == MessageType.Response).ToDictionary(t => t.MessageId);
-
-        foreach (var messageType in messageTypes.Where(t => t.MessageType == 0))
+        // 为每个请求类型生成方法
+        var requestMessages = messageTypes.Where(t => t.MessageType == MessageType.Request).ToList();
+        foreach (var messageType in requestMessages)
         {
-            var requestType = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
-            var requestName = messageType.TypeSymbol.Name;
+            var typeName = messageType.TypeSymbol.Name;
+            var fullTypeName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
+            var responseTypeName = $"{typeName}Response"; // 假设响应消息名称为请求消息名+"Response"
 
-            // 尝试找到对应的响应类型
-            // 简单约定：请求ID为N，则响应ID为N+1
-            var responseId = messageType.MessageId + 1;
-            if (responseTypes.TryGetValue(responseId, out var responseTypeInfo))
-            {
-                var responseType = GeneratorHelper.GetFullyQualifiedName(responseTypeInfo.TypeSymbol);
-                var methodName = requestName.Replace("Request", "");
+            sb.AppendLine();
+            sb.AppendLine($"        /// <summary>");
+            sb.AppendLine($"        /// 发送{typeName}请求");
+            sb.AppendLine($"        /// </summary>");
+            sb.AppendLine($"        /// <param name=\"request\">请求消息</param>");
+            sb.AppendLine($"        /// <param name=\"cancellationToken\">取消令牌</param>");
+            sb.AppendLine($"        /// <returns>响应任务</returns>");
+            sb.AppendLine($"        public async Task<{responseTypeName}> Send{typeName}Async({fullTypeName} request, CancellationToken cancellationToken = default)");
+            sb.AppendLine($"        {{");
+            sb.AppendLine($"            return await SendRequestAsync<{fullTypeName}, {responseTypeName}>(request, cancellationToken);");
+            sb.AppendLine($"        }}");
+        }
 
-                sb.AppendLine();
-                sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// 发送{requestName}并等待响应");
-                sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        /// <param name=\"request\">请求消息</param>");
-                sb.AppendLine($"        /// <param name=\"cancellationToken\">取消令牌</param>");
-                sb.AppendLine($"        /// <returns>响应消息</returns>");
-                sb.AppendLine($"        public static async Task<{responseType}> {methodName}Async({requestType} request, CancellationToken cancellationToken = default)");
-                sb.AppendLine("        {");
-                sb.AppendLine($"            var responseData = await SendRequestAsync({messageType.MessageId}, request, cancellationToken);");
-                sb.AppendLine($"            return MemoryPackSerializer.Deserialize<{responseType}>(responseData);");
-                sb.AppendLine("        }");
-            }
+        // 为每个通知类型生成方法
+        var notificationMessages = messageTypes.Where(t => t.MessageType == MessageType.Notification).ToList();
+        foreach (var messageType in notificationMessages)
+        {
+            var typeName = messageType.TypeSymbol.Name;
+            var fullTypeName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
+
+            sb.AppendLine();
+            sb.AppendLine($"        /// <summary>");
+            sb.AppendLine($"        /// 发送{typeName}通知");
+            sb.AppendLine($"        /// </summary>");
+            sb.AppendLine($"        /// <param name=\"notification\">通知消息</param>");
+            sb.AppendLine($"        /// <param name=\"cancellationToken\">取消令牌</param>");
+            sb.AppendLine($"        /// <returns>发送任务</returns>");
+            sb.AppendLine($"        public async Task Send{typeName}Async({fullTypeName} notification, CancellationToken cancellationToken = default)");
+            sb.AppendLine($"        {{");
+            sb.AppendLine($"            await SendNotificationAsync(notification, cancellationToken);");
+            sb.AppendLine($"        }}");
         }
 
         sb.AppendLine("    }");

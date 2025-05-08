@@ -4,15 +4,24 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <IsRoslynComponent>true</IsRoslynComponent>
-    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
     <IncludeSymbols>false</IncludeSymbols>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <TargetFrameworks>net9.0;netstandard2.1</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>..\PulseRPC.snk</AssemblyOriginatorKeyFile>
+    <AssemblyVersion>7.0.3.0</AssemblyVersion>
+    <FileVersion>7.0.3.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference Core for attribute definitions -->
+    <ProjectReference Include="..\PulseRPC.Core\PulseRPC.Core.csproj" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Package the generator in the analyzer directory of the nuget package -->
@@ -25,10 +34,5 @@
       <TargetPathWithTargetPlatformMoniker Include="$(TargetPath)" IncludeRuntimeDependency="false" />
     </ItemGroup>
   </Target>
-
-  <ItemGroup>
-    <!-- Reference Core for attribute definitions, but don't include it in the output -->
-    <ProjectReference Include="..\PulseRPC.Core\PulseRPC.Core.csproj" PrivateAssets="all" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
-  </ItemGroup>
 
 </Project>

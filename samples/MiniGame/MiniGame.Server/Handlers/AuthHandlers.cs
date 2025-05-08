@@ -1,10 +1,9 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol.Handlers;
 using PulseRPC.Protocol.Network;
-using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
+using PulseRPC.Server;
 
 namespace PulseRPC.Samples.Server.Handlers;
 
@@ -14,61 +13,68 @@ namespace PulseRPC.Samples.Server.Handlers;
 public class LoginRequestHandler : RequestHandlerBase<LoginRequest, LoginResponse>
 {
     private readonly ILogger<LoginRequestHandler> _logger;
+    private readonly NotificationService _notificationService;
 
     /// <summary>
-    /// 创建登录请求处理器
+    /// 初始化登录请求处理器
     /// </summary>
     /// <param name="logger">日志记录器</param>
-    public LoginRequestHandler(ILogger<LoginRequestHandler> logger)
+    /// <param name="notificationService">通知服务</param>
+    public LoginRequestHandler(
+        ILogger<LoginRequestHandler> logger,
+        NotificationService notificationService)
     {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _logger = logger;
+        _notificationService = notificationService;
     }
 
     /// <summary>
     /// 处理登录请求
     /// </summary>
-    /// <param name="context">会话上下文</param>
-    /// <param name="request">登录请求</param>
-    /// <returns>登录响应</returns>
     protected override async Task<LoginResponse> ProcessRequestAsync(SessionContext context, LoginRequest request)
     {
-        _logger.LogInformation("处理登录请求: {Username}, 客户端版本: {Version}", request.Username, request.ClientVersion);
+        _logger.LogInformation("收到登录请求: 用户名={Username}, 密码={Password}", request.Username, "******");
 
-        // 模拟处理延迟
-        await Task.Delay(100);
-
-        // 模拟简单的验证逻辑
-        if (string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
+        // 构造响应
+        var response = new LoginResponse
         {
-            _logger.LogWarning("登录失败: 用户名或密码为空");
-            return new LoginResponse
-            {
-                Status = ResponseStatus.InvalidParameter,
-                ErrorMessage = "用户名和密码不能为空"
-            };
-        }
+            RequestId = request.RequestId
+        };
 
-        // 模拟用户验证 (在实际应用中应通过数据库验证)
+        // 模拟验证
         if (request.Username == "admin" && request.Password == "password")
         {
-            _logger.LogInformation("登录成功: {Username}", request.Username);
-            return new LoginResponse
-            {
-                Status = ResponseStatus.Success,
-                Token = "token-" + Guid.NewGuid().ToString("N"),
-                UserId = 1001,
-                ErrorMessage = string.Empty
-            };
+            // 设置会话状态
+            context.SetItem("UserId", 1001);
+            context.SetItem("Username", request.Username);
+            context.SetItem("IsAuthenticated", true);
+
+            // 设置响应
+            response.Success = true;
+            response.UserId = 1001;
+            response.Username = request.Username;
+            response.Token = $"token-{Guid.NewGuid():N}";
+
+            _logger.LogInformation("用户 {Username} 登录成功", request.Username);
+
+            // 发送用户状态通知
+            await _notificationService.SendUserStatusNotificationAsync(
+                userId: 1001,
+                username: request.Username,
+                status: 1,
+                lastLoginTime: DateTimeOffset.Now.ToUnixTimeMilliseconds());
         }
         else
         {
-            _logger.LogWarning("登录失败: 用户名或密码错误");
-            return new LoginResponse
-            {
-                Status = ResponseStatus.AuthenticationFailed,
-                ErrorMessage = "用户名或密码错误"
-            };
+            // 设置响应
+            response.Success = false;
+            response.ErrorCode = 1001;
+            response.ErrorMessage = "用户名或密码错误";
+
+            _logger.LogWarning("用户 {Username} 登录失败: 密码错误", request.Username);
         }
+
+        return response;
     }
 }
 
@@ -80,58 +86,47 @@ public class RegisterRequestHandler : RequestHandlerBase<RegisterRequest, Regist
     private readonly ILogger<RegisterRequestHandler> _logger;
 
     /// <summary>
-    /// 创建注册请求处理器
+    /// 初始化注册请求处理器
     /// </summary>
     /// <param name="logger">日志记录器</param>
     public RegisterRequestHandler(ILogger<RegisterRequestHandler> logger)
     {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _logger = logger;
     }
 
     /// <summary>
     /// 处理注册请求
     /// </summary>
-    /// <param name="context">会话上下文</param>
-    /// <param name="request">注册请求</param>
-    /// <returns>注册响应</returns>
     protected override async Task<RegisterResponse> ProcessRequestAsync(SessionContext context, RegisterRequest request)
     {
-        _logger.LogInformation("处理注册请求: {Username}, Email: {Email}", request.Username, request.Email);
+        _logger.LogInformation("收到注册请求: 用户名={Username}, 邮箱={Email}", request.Username, request.Email);
 
-        // 模拟处理延迟
-        await Task.Delay(200);
-
-        // 模拟简单的验证逻辑
-        if (string.IsNullOrEmpty(request.Username) || string.IsNullOrEmpty(request.Password))
+        // 构造响应
+        var response = new RegisterResponse
         {
-            _logger.LogWarning("注册失败: 用户名或密码为空");
-            return new RegisterResponse
-            {
-                Status = ResponseStatus.InvalidParameter,
-                ErrorMessage = "用户名和密码不能为空"
-            };
-        }
-
-        // 模拟检查用户名是否已存在
-        if (request.Username == "admin")
-        {
-            _logger.LogWarning("注册失败: 用户名已存在");
-            return new RegisterResponse
-            {
-                Status = ResponseStatus.AlreadyExists,
-                ErrorMessage = "用户名已存在"
-            };
-        }
-
-        // 模拟成功注册
-        int newUserId = new Random().Next(10000, 99999);
-        _logger.LogInformation("注册成功: {Username}, 分配用户ID: {UserId}", request.Username, newUserId);
-
-        return new RegisterResponse
-        {
-            Status = ResponseStatus.Success,
-            UserId = newUserId,
-            ErrorMessage = string.Empty
+            RequestId = request.RequestId
         };
+
+        // 模拟注册
+        if (request.Username != "admin")
+        {
+            // 设置响应
+            response.Success = true;
+            response.UserId = new Random().Next(1000, 9999);
+            response.Username = request.Username;
+
+            _logger.LogInformation("用户 {Username} 注册成功，用户ID={UserId}", request.Username, response.UserId);
+        }
+        else
+        {
+            // 设置响应
+            response.Success = false;
+            response.ErrorCode = 1002;
+            response.ErrorMessage = "用户名已存在";
+
+            _logger.LogWarning("用户 {Username} 注册失败: 用户名已存在", request.Username);
+        }
+
+        return response;
     }
 }

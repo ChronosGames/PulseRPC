@@ -1,5 +1,3 @@
-using PulseRPC.Protocol.Messages;
-
 namespace PulseRPC.Protocol.Serialization;
 
 /// <summary>

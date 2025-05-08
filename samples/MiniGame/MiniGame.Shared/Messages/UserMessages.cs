@@ -31,7 +31,7 @@ public partial class GetUserInfoResponse : IMessage
     /// <summary>
     /// 错误信息
     /// </summary>
-    public string ErrorMessage { get; set; }
+    public string ErrorMessage { get; set; } = string.Empty;
 
     /// <summary>
     /// 用户ID
@@ -41,17 +41,17 @@ public partial class GetUserInfoResponse : IMessage
     /// <summary>
     /// 用户名
     /// </summary>
-    public string Username { get; set; }
+    public string Username { get; set; } = string.Empty;
 
     /// <summary>
     /// 用户昵称
     /// </summary>
-    public string Nickname { get; set; }
+    public string Nickname { get; set; } = string.Empty;
 
     /// <summary>
     /// 用户头像URL
     /// </summary>
-    public string AvatarUrl { get; set; }
+    public string AvatarUrl { get; set; } = string.Empty;
 
     /// <summary>
     /// 用户状态
@@ -83,12 +83,12 @@ public partial class UpdateUserInfoRequest : IMessage
     /// <summary>
     /// 用户昵称
     /// </summary>
-    public string Nickname { get; set; }
+    public string Nickname { get; set; } = string.Empty;
 
     /// <summary>
     /// 用户头像URL
     /// </summary>
-    public string AvatarUrl { get; set; }
+    public string AvatarUrl { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -105,7 +105,7 @@ public partial class UpdateUserInfoResponse : IMessage
     /// <summary>
     /// 错误信息
     /// </summary>
-    public string ErrorMessage { get; set; }
+    public string ErrorMessage { get; set; } = string.Empty;
 
     /// <summary>
     /// 更新成功的字段数量

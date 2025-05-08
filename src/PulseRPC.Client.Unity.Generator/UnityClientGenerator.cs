@@ -3,189 +3,116 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.Text;
+using PulseRPC.Generators.Core;
+using PulseRPC.Protocol;
 
 namespace PulseRPC.Client.Unity.Generator
 {
     /// <summary>
-    /// Unity客户端生成器，用于生成AOT友好的代码
+    /// PulseRPC Unity客户端代码生成器
     /// </summary>
     [Generator]
     public class UnityClientGenerator : ISourceGenerator
     {
+        /// <summary>
+        /// 初始化生成器
+        /// </summary>
+        /// <param name="context">初始化上下文</param>
         public void Initialize(GeneratorInitializationContext context)
         {
-            // 注册语法接收器
-            context.RegisterForSyntaxNotifications(() => new SyntaxReceiver());
+            // 注册Unity专用语法接收器
+            context.RegisterForSyntaxNotifications(() => new UnityMessageSyntaxReceiver());
         }
 
+        /// <summary>
+        /// 执行代码生成
+        /// </summary>
+        /// <param name="context">执行上下文</param>
         public void Execute(GeneratorExecutionContext context)
         {
             // 获取语法接收器
-            if (!(context.SyntaxContextReceiver is SyntaxReceiver receiver))
+            if (context.SyntaxContextReceiver is not UnityMessageSyntaxReceiver syntaxReceiver)
+            {
                 return;
+            }
 
-            // 生成AOT注册代码
-            GenerateAOTRegistrationCode(context, receiver);
+            // 生成Unity客户端所需的消息注册表代码
+            var messageRegistryCode = GenerateUnityMessageRegistryCode(syntaxReceiver.MessageTypes);
+            GeneratorHelper.AddSourceCode(context, "UnityMessageRegistry.g.cs", messageRegistryCode);
 
-            // 生成客户端代理
-            GenerateClientProxies(context, receiver);
+            // 生成Unity客户端序列化助手代码
+            var serializerCode = GenerateUnitySerializerCode(syntaxReceiver.MessageTypes);
+            GeneratorHelper.AddSourceCode(context, "UnityMessageSerializer.g.cs", serializerCode);
+
+            // 生成Unity客户端API代码
+            var clientCode = GenerateUnityClientCode(syntaxReceiver.MessageTypes);
+            GeneratorHelper.AddSourceCode(context, "UnityClient.g.cs", clientCode);
         }
 
         /// <summary>
-        /// 生成AOT注册代码
+        /// 生成Unity客户端消息注册表代码
         /// </summary>
-        private void GenerateAOTRegistrationCode(GeneratorExecutionContext context, SyntaxReceiver receiver)
+        /// <param name="messageTypes">消息类型信息列表</param>
+        /// <returns>生成的源代码</returns>
+        private string GenerateUnityMessageRegistryCode(List<UnityMessageTypeInfo> messageTypes)
         {
-            var messageTypes = receiver.MessageTypes;
-            if (messageTypes.Count == 0)
-                return;
-
             var sb = new StringBuilder();
             sb.AppendLine("using System;");
-            sb.AppendLine("using MemoryPack;");
-            sb.AppendLine("using PulseRPC.AOT;");
+            sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine();
-            sb.AppendLine("namespace PulseRPC.Generated");
+            sb.AppendLine("namespace PulseRPC.Protocol.Serialization");
             sb.AppendLine("{");
-            sb.AppendLine("    /// <summary>");
-            sb.AppendLine("    /// 自动生成的AOT注册类，用于在IL2CPP环境中注册所有消息类型");
-            sb.AppendLine("    /// </summary>");
-            sb.AppendLine("    public static class GeneratedAOTRegistration");
+            sb.AppendLine("    // 自动生成的Unity客户端消息注册表");
+            sb.AppendLine("    public static class MessageRegistry");
             sb.AppendLine("    {");
-            sb.AppendLine("        [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]");
-            sb.AppendLine("        public static void RegisterTypes()");
-            sb.AppendLine("        {");
-            sb.AppendLine("            UnityEngine.Debug.Log(\"PulseRPC: 注册生成的AOT类型\");");
+            sb.AppendLine("        // 消息类型ID映射表");
+            sb.AppendLine("        private static readonly Dictionary<Type, int> _typeToId = new Dictionary<Type, int>();");
+            sb.AppendLine("        private static readonly Dictionary<int, Type> _idToType = new Dictionary<int, Type>();");
             sb.AppendLine();
+            sb.AppendLine("        // 静态构造函数，初始化注册表");
+            sb.AppendLine("        static MessageRegistry()");
+            sb.AppendLine("        {");
 
             // 注册所有消息类型
-            foreach (var type in messageTypes)
+            foreach (var messageType in messageTypes)
             {
-                sb.AppendLine($"            // 注册 {type.Name} 类型");
-                sb.AppendLine($"            MemoryPackFormatterProvider.Register<{type.ToDisplayString()}>();");
+                var typeName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
+                sb.AppendLine($"            RegisterMessageType({messageType.MessageId}, typeof({typeName}));");
             }
 
             sb.AppendLine("        }");
-            sb.AppendLine("    }");
-            sb.AppendLine("}");
-
-            // 添加生成的代码
-            context.AddSource("GeneratedAOTRegistration.g.cs", SourceText.From(sb.ToString(), Encoding.UTF8));
-        }
-
-        /// <summary>
-        /// 生成客户端代理
-        /// </summary>
-        private void GenerateClientProxies(GeneratorExecutionContext context, SyntaxReceiver receiver)
-        {
-            var serviceInterfaces = receiver.ServiceInterfaces;
-            if (serviceInterfaces.Count == 0)
-                return;
-
-            foreach (var serviceInterface in serviceInterfaces)
-            {
-                // 生成客户端代理
-                var proxyCode = GenerateClientProxy(serviceInterface);
-                var fileName = $"{serviceInterface.Name.TrimStart('I')}ClientProxy.g.cs";
-
-                // 添加生成的代码
-                context.AddSource(fileName, SourceText.From(proxyCode, Encoding.UTF8));
-            }
-        }
-
-        /// <summary>
-        /// 为服务接口生成客户端代理
-        /// </summary>
-        private string GenerateClientProxy(INamedTypeSymbol serviceInterface)
-        {
-            var interfaceName = serviceInterface.Name;
-            var serviceName = interfaceName.TrimStart('I');
-            var namespaceName = serviceInterface.ContainingNamespace.ToDisplayString();
-
-            var sb = new StringBuilder();
-            sb.AppendLine("using System;");
-            sb.AppendLine("using System.Threading.Tasks;");
-            sb.AppendLine("using PulseRPC;");
-            sb.AppendLine("using PulseRPC.Serialization;");
-            sb.AppendLine();
-            sb.AppendLine($"namespace {namespaceName}.Generated");
-            sb.AppendLine("{");
-            sb.AppendLine("    /// <summary>");
-            sb.AppendLine($"    /// {serviceName}服务的Unity客户端代理");
-            sb.AppendLine("    /// </summary>");
-            sb.AppendLine($"    public class {serviceName}ClientProxy : {interfaceName}");
-            sb.AppendLine("    {");
-            sb.AppendLine("        private readonly UnityClient _client;");
             sb.AppendLine();
             sb.AppendLine("        /// <summary>");
-            sb.AppendLine($"        /// 创建{serviceName}服务的客户端代理");
+            sb.AppendLine("        /// 注册消息类型");
             sb.AppendLine("        /// </summary>");
-            sb.AppendLine("        /// <param name=\"client\">Unity客户端实例</param>");
-            sb.AppendLine($"        public {serviceName}ClientProxy(UnityClient client)");
+            sb.AppendLine("        /// <param name=\"messageId\">消息ID</param>");
+            sb.AppendLine("        /// <param name=\"messageType\">消息类型</param>");
+            sb.AppendLine("        private static void RegisterMessageType(int messageId, Type messageType)");
             sb.AppendLine("        {");
-            sb.AppendLine("            _client = client ?? throw new ArgumentNullException(nameof(client));");
+            sb.AppendLine("            _typeToId[messageType] = messageId;");
+            sb.AppendLine("            _idToType[messageId] = messageType;");
             sb.AppendLine("        }");
             sb.AppendLine();
-
-            // 生成方法实现
-            foreach (var member in serviceInterface.GetMembers().OfType<IMethodSymbol>())
-            {
-                if (member.MethodKind != MethodKind.Ordinary)
-                    continue;
-
-                // 获取方法信息
-                var methodName = member.Name;
-                var returnType = member.ReturnType;
-                var parameters = member.Parameters;
-
-                sb.AppendLine("        /// <summary>");
-                sb.AppendLine($"        /// {methodName}方法的客户端代理实现");
-                sb.AppendLine("        /// </summary>");
-
-                // 生成方法签名
-                sb.Append($"        public {returnType.ToDisplayString()} {methodName}(");
-                sb.Append(string.Join(", ", parameters.Select(p => $"{p.Type.ToDisplayString()} {p.Name}")));
-                sb.AppendLine(")");
-                sb.AppendLine("        {");
-
-                // 检查返回类型是否为Task<T>
-                if (returnType is INamedTypeSymbol namedReturnType &&
-                    namedReturnType.OriginalDefinition.ToDisplayString() == "System.Threading.Tasks.Task<T>")
-                {
-                    // 获取响应类型
-                    var responseType = namedReturnType.TypeArguments[0];
-
-                    // 创建请求类型名称
-                    var requestTypeName = $"{serviceName}{methodName}Request";
-
-                    // 生成异步方法实现
-                    sb.AppendLine($"            // 创建请求对象");
-                    sb.AppendLine($"            var request = new {namespaceName}.{requestTypeName}");
-                    sb.AppendLine("            {");
-
-                    // 添加参数
-                    foreach (var param in parameters)
-                    {
-                        sb.AppendLine($"                {char.ToUpper(param.Name[0]) + param.Name.Substring(1)} = {param.Name},");
-                    }
-
-                    sb.AppendLine("            };");
-                    sb.AppendLine();
-                    sb.AppendLine("            // 发送请求并返回响应");
-                    sb.AppendLine($"            return _client.SendRequest<{namespaceName}.{requestTypeName}, {responseType.ToDisplayString()}>(request);");
-                }
-                else
-                {
-                    sb.AppendLine("            throw new NotImplementedException(\"只支持Task<T>返回类型的方法\");");
-                }
-
-                sb.AppendLine("        }");
-                sb.AppendLine();
-            }
-
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 获取消息类型ID");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <param name=\"messageType\">消息类型</param>");
+            sb.AppendLine("        /// <returns>消息ID</returns>");
+            sb.AppendLine("        public static int GetMessageId(Type messageType)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            return _typeToId.TryGetValue(messageType, out var id) ? id : -1;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 获取消息类型");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <param name=\"messageId\">消息ID</param>");
+            sb.AppendLine("        /// <returns>消息类型</returns>");
+            sb.AppendLine("        public static Type GetMessageType(int messageId)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            return _idToType.TryGetValue(messageId, out var type) ? type : null;");
+            sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
 
@@ -193,93 +120,187 @@ namespace PulseRPC.Client.Unity.Generator
         }
 
         /// <summary>
-        /// 语法接收器，用于收集服务接口和消息类型
+        /// 生成Unity客户端序列化助手代码
         /// </summary>
-        private class SyntaxReceiver : ISyntaxContextReceiver
+        /// <param name="messageTypes">消息类型信息列表</param>
+        /// <returns>生成的源代码</returns>
+        private string GenerateUnitySerializerCode(List<UnityMessageTypeInfo> messageTypes)
         {
-            public List<INamedTypeSymbol> ServiceInterfaces { get; } = new List<INamedTypeSymbol>();
-            public List<INamedTypeSymbol> MessageTypes { get; } = new List<INamedTypeSymbol>();
+            var sb = new StringBuilder();
+            sb.AppendLine("using System;");
+            sb.AppendLine("using System.Text.Json;");
+            sb.AppendLine();
+            sb.AppendLine("namespace PulseRPC.Protocol.Serialization");
+            sb.AppendLine("{");
+            sb.AppendLine("    // 自动生成的Unity客户端序列化助手");
+            sb.AppendLine("    public static class MessageSerializer");
+            sb.AppendLine("    {");
+            sb.AppendLine("        private static readonly JsonSerializerOptions _options = new JsonSerializerOptions");
+            sb.AppendLine("        {");
+            sb.AppendLine("            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,");
+            sb.AppendLine("            WriteIndented = false");
+            sb.AppendLine("        };");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 序列化消息对象");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <param name=\"message\">消息对象</param>");
+            sb.AppendLine("        /// <returns>序列化后的字节数组</returns>");
+            sb.AppendLine("        public static byte[] Serialize(object message)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            return JsonSerializer.SerializeToUtf8Bytes(message, message.GetType(), _options);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 反序列化消息对象");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <param name=\"messageId\">消息ID</param>");
+            sb.AppendLine("        /// <param name=\"data\">序列化数据</param>");
+            sb.AppendLine("        /// <returns>反序列化的对象</returns>");
+            sb.AppendLine("        public static object Deserialize(int messageId, byte[] data)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var type = MessageRegistry.GetMessageType(messageId);");
+            sb.AppendLine("            if (type == null)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                throw new InvalidOperationException($\"找不到ID为{messageId}的消息类型\");");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return JsonSerializer.Deserialize(data, type, _options);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 反序列化特定类型的消息");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <typeparam name=\"T\">消息类型</typeparam>");
+            sb.AppendLine("        /// <param name=\"data\">序列化数据</param>");
+            sb.AppendLine("        /// <returns>反序列化的消息对象</returns>");
+            sb.AppendLine("        public static T Deserialize<T>(byte[] data) where T : class");
+            sb.AppendLine("        {");
+            sb.AppendLine("            return JsonSerializer.Deserialize<T>(data, _options);");
+            sb.AppendLine("        }");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
 
-            public void OnVisitSyntaxNode(GeneratorSyntaxContext context)
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// 生成Unity客户端API代码
+        /// </summary>
+        /// <param name="messageTypes">消息类型信息列表</param>
+        /// <returns>生成的源代码</returns>
+        private string GenerateUnityClientCode(List<UnityMessageTypeInfo> messageTypes)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("using System;");
+            sb.AppendLine("using System.Threading;");
+            sb.AppendLine("using System.Threading.Tasks;");
+            sb.AppendLine("using PulseRPC.Protocol.Serialization;");
+            sb.AppendLine();
+            sb.AppendLine("namespace PulseRPC.Client.Unity");
+            sb.AppendLine("{");
+            sb.AppendLine("    /// <summary>");
+            sb.AppendLine("    /// 自动生成的Unity客户端API");
+            sb.AppendLine("    /// </summary>");
+            sb.AppendLine("    public partial class UnityClient");
+            sb.AppendLine("    {");
+
+            // 为每个请求类型生成方法
+            var requestMessages = messageTypes.Where(t => t.MessageType == MessageType.Request).ToList();
+            foreach (var messageType in requestMessages)
             {
-                // 查找服务接口
-                if (context.Node is InterfaceDeclarationSyntax interfaceDeclaration &&
-                    interfaceDeclaration.AttributeLists.Count > 0)
-                {
-                    var symbol = context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
-                    if (symbol != null && HasServiceAttribute(symbol))
-                    {
-                        ServiceInterfaces.Add(symbol);
+                var typeName = messageType.TypeSymbol.Name;
+                var fullTypeName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
+                var responseTypeName = $"{typeName}Response"; // 假设响应消息名称为请求消息名+"Response"
 
-                        // 收集接口中使用的消息类型
-                        CollectMessageTypes(symbol);
-                    }
-                }
-
-                // 查找消息类型（带有MessagePackObject特性的类）
-                if (context.Node is ClassDeclarationSyntax classDeclaration &&
-                    classDeclaration.AttributeLists.Count > 0)
-                {
-                    var symbol = context.SemanticModel.GetDeclaredSymbol(classDeclaration) as INamedTypeSymbol;
-                    if (symbol != null && HasMemoryPackAttribute(symbol) && !MessageTypes.Contains(symbol))
-                    {
-                        MessageTypes.Add(symbol);
-                    }
-                }
+                sb.AppendLine();
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// 发送{typeName}请求");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        /// <param name=\"request\">请求消息</param>");
+                sb.AppendLine($"        /// <param name=\"cancellationToken\">取消令牌</param>");
+                sb.AppendLine($"        /// <returns>响应任务</returns>");
+                sb.AppendLine($"        public async Task<{responseTypeName}> Send{typeName}Async({fullTypeName} request, CancellationToken cancellationToken = default)");
+                sb.AppendLine($"        {{");
+                sb.AppendLine($"            return await SendRequestAsync<{fullTypeName}, {responseTypeName}>(request, cancellationToken);");
+                sb.AppendLine($"        }}");
             }
 
-            /// <summary>
-            /// 检查类型是否具有服务特性
-            /// </summary>
-            private bool HasServiceAttribute(INamedTypeSymbol symbol)
+            // 为每个通知类型生成方法
+            var notificationMessages = messageTypes.Where(t => t.MessageType == MessageType.Notification).ToList();
+            foreach (var messageType in notificationMessages)
             {
-                return symbol.GetAttributes().Any(attr =>
-                    attr.AttributeClass?.Name == "ServiceAttribute" ||
-                    attr.AttributeClass?.Name == "ServiceContractAttribute");
+                var typeName = messageType.TypeSymbol.Name;
+                var fullTypeName = GeneratorHelper.GetFullyQualifiedName(messageType.TypeSymbol);
+
+                sb.AppendLine();
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// 发送{typeName}通知");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        /// <param name=\"notification\">通知消息</param>");
+                sb.AppendLine($"        /// <param name=\"cancellationToken\">取消令牌</param>");
+                sb.AppendLine($"        /// <returns>发送任务</returns>");
+                sb.AppendLine($"        public async Task Send{typeName}Async({fullTypeName} notification, CancellationToken cancellationToken = default)");
+                sb.AppendLine($"        {{");
+                sb.AppendLine($"            await SendNotificationAsync(notification, cancellationToken);");
+                sb.AppendLine($"        }}");
             }
 
-            /// <summary>
-            /// 检查类型是否具有MemoryPack特性
-            /// </summary>
-            private bool HasMemoryPackAttribute(INamedTypeSymbol symbol)
-            {
-                return symbol.GetAttributes().Any(attr =>
-                    attr.AttributeClass?.Name == "MemoryPackableAttribute" ||
-                    attr.AttributeClass?.ToDisplayString() == "MemoryPack.MemoryPackableAttribute");
-            }
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
 
-            /// <summary>
-            /// 收集接口中使用的消息类型
-            /// </summary>
-            private void CollectMessageTypes(INamedTypeSymbol interfaceSymbol)
-            {
-                foreach (var member in interfaceSymbol.GetMembers().OfType<IMethodSymbol>())
-                {
-                    // 检查返回类型
-                    if (member.ReturnType is INamedTypeSymbol namedReturnType &&
-                        namedReturnType.OriginalDefinition.ToDisplayString() == "System.Threading.Tasks.Task<T>")
-                    {
-                        var responseType = namedReturnType.TypeArguments[0];
-                        if (responseType is INamedTypeSymbol responseTypeSymbol &&
-                            HasMemoryPackAttribute(responseTypeSymbol) &&
-                            !MessageTypes.Contains(responseTypeSymbol))
-                        {
-                            MessageTypes.Add(responseTypeSymbol);
-                        }
-                    }
+            return sb.ToString();
+        }
+    }
 
-                    // 检查参数类型
-                    foreach (var parameter in member.Parameters)
-                    {
-                        if (parameter.Type is INamedTypeSymbol paramTypeSymbol &&
-                            HasMemoryPackAttribute(paramTypeSymbol) &&
-                            !MessageTypes.Contains(paramTypeSymbol))
-                        {
-                            MessageTypes.Add(paramTypeSymbol);
-                        }
-                    }
-                }
-            }
+    /// <summary>
+    /// Unity客户端消息类型信息
+    /// </summary>
+    public class UnityMessageTypeInfo : IMessageTypeInfo
+    {
+        /// <summary>
+        /// 类型符号
+        /// </summary>
+        public INamedTypeSymbol TypeSymbol { get; }
+
+        /// <summary>
+        /// 消息ID
+        /// </summary>
+        public int MessageId { get; set; }
+
+        /// <summary>
+        /// 消息类型
+        /// </summary>
+        public MessageType MessageType { get; set; }
+
+        /// <summary>
+        /// 构造函数
+        /// </summary>
+        /// <param name="typeSymbol">消息类型符号</param>
+        /// <param name="messageId">消息ID</param>
+        /// <param name="messageType">消息类型</param>
+        public UnityMessageTypeInfo(INamedTypeSymbol typeSymbol, int messageId, MessageType messageType)
+        {
+            TypeSymbol = typeSymbol;
+            MessageId = messageId;
+            MessageType = messageType;
+        }
+    }
+
+    /// <summary>
+    /// Unity客户端消息语法接收器
+    /// </summary>
+    public class UnityMessageSyntaxReceiver : AbstractMessageSyntaxReceiver<UnityMessageTypeInfo>
+    {
+        /// <summary>
+        /// 创建消息类型信息
+        /// </summary>
+        /// <param name="typeSymbol">类型符号</param>
+        /// <param name="messageId">消息ID</param>
+        /// <param name="messageType">消息类型</param>
+        /// <returns>消息类型信息</returns>
+        protected override UnityMessageTypeInfo CreateMessageTypeInfo(INamedTypeSymbol typeSymbol, int messageId, MessageType messageType)
+        {
+            return new UnityMessageTypeInfo(typeSymbol, messageId, messageType);
         }
     }
 }

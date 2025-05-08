@@ -2,7 +2,6 @@ using System.Reflection;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using PulseRPC.Generators.Client;
-using PulseRPC.Generators.Server;
 using Xunit;
 
 namespace PulseRPC.Generators.Tests;
@@ -53,46 +52,6 @@ public class GeneratorTests
 
         // 验证不包含服务端相关代码
         Assert.DoesNotContain(generatedSources, s => s.Key.EndsWith("ServerMessageDispatcher.g.cs"));
-    }
-
-    /// <summary>
-    /// 测试服务端生成器仅生成服务端代码
-    /// </summary>
-    [Fact]
-    public void ServerGenerator_ShouldGenerateServerOnlyCode()
-    {
-        // 准备测试代码，包含处理器
-        string testCode = @"
-            using System;
-            using PulseRPC.Protocol;
-            using PulseRPC.Protocol.Attributes;
-
-            namespace TestNamespace
-            {
-                public class TestRequestHandler {}
-
-                [Message(1001, MessageType.Request)]
-                [Handler(typeof(TestRequestHandler))]
-                public partial class TestRequest : IMessage
-                {
-                    public string Text { get; set; }
-                }
-            }";
-
-        // 使用服务端生成器生成代码
-        var generatedSources = RunGenerator(testCode, new ServerCodeGenerator());
-
-        // 验证生成的服务端代码
-        Assert.Contains(generatedSources, s => s.Key.EndsWith("ServerMessageRegistry.g.cs"));
-        Assert.Contains(generatedSources, s => s.Key.EndsWith("ServerMessageSerializer.g.cs"));
-        Assert.Contains(generatedSources, s => s.Key.EndsWith("ServerMessageDispatcher.g.cs"));
-
-        // 检查服务端代码中是否包含处理器相关代码
-        var dispatcherCode = generatedSources.First(s => s.Key.EndsWith("ServerMessageDispatcher.g.cs")).Value;
-        Assert.Contains("TestRequestHandler", dispatcherCode);
-
-        // 验证不包含客户端相关代码
-        Assert.DoesNotContain(generatedSources, s => s.Key.EndsWith("RpcClient.g.cs"));
     }
 
     /// <summary>
