@@ -12,8 +12,8 @@ alwaysApply: false
 - [PulseRPC.Generators](mdc:src/PulseRPC.Generators) - 代码生成器
 
 ## 序列化
-- [MagicOnion.Serialization.MessagePack](mdc:src/MagicOnion.Serialization.MessagePack) - MessagePack 序列化支持
-- [MagicOnion.Serialization.MemoryPack](mdc:src/MagicOnion.Serialization.MemoryPack) - MemoryPack 序列化支持
+- @PulseRPC.Serialization.MessagePack MessagePack 序列化支持
+- @PulseRPC.Serialization.MemoryPack MemoryPack 序列化支持
 
 ## 扩展功能
 - [PulseRPC.Server.JsonTranscoding](mdc:src/PulseRPC.Server.JsonTranscoding) - JSON 转码支持

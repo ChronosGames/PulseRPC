@@ -11,7 +11,7 @@ alwaysApply: true
 - NuGet 包源配置在 [NuGet.Config](mdc:NuGet.Config) 中设置
 
 ## 开发流程
-1. 确保安装了 .NET 9 SDK
+1. 确保安装了 .NET 8 SDK
 2. 使用 Rider 打开 [PulseRPC.sln](mdc:PulseRPC.sln)
 3. 运行所有测试以确保环境正确设置
 4. 开发新功能时应该：

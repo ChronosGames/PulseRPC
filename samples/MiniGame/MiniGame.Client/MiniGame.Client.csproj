@@ -10,7 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
-    <ProjectReference Include="..\..\..\src\PulseRPC.Generators.Client\PulseRPC.Generators.Client.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\MiniGame.Shared\MiniGame.Shared.csproj" />
   </ItemGroup>
 
