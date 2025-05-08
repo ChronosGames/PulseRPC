@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Protocol.Network;
+using PulseRPC.Samples.Server.Services;
 using PulseRPC.Samples.Shared.Messages;
 using PulseRPC.Server;
 

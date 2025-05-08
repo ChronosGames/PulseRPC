@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Protocol;
 using PulseRPC.Protocol.Serialization;
 using PulseRPC.Samples.Server.Handlers;
+using PulseRPC.Samples.Server.Services;
 using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
 using PulseRPC.Server;
@@ -22,99 +25,105 @@ internal class Program
         Console.WriteLine("PulseRPC 迷你游戏服务器示例");
         Console.WriteLine("=============================");
 
-        // 创建服务容器
-        var services = new ServiceCollection();
-
-        // 添加日志
-        services.AddLogging(builder =>
-        {
-            builder.AddConsole();
-            builder.SetMinimumLevel(LogLevel.Debug);
-        });
+        // 创建托管应用程序
+        var host = CreateHostBuilder(args).Build();
 
         // 注册消息类型
         RegisterMessageTypes();
 
-        // 注册通知服务
-        services.AddSingleton<NotificationService>();
+        // 启动服务
+        await host.StartAsync();
 
-        // 添加 PulseRPC 服务
-        services.AddTcpServer(ipAddress: "127.0.0.1", port: 5000);
+        Console.WriteLine("服务器已启动，监听端口: 5000");
+        Console.WriteLine("按 ESC 键退出，按 B 键发送全局广播，按 N 键发送系统通知");
 
-        // 手动注册各种消息处理器
-        services.AddMessageHandler<LoginRequestHandler>();
-        services.AddMessageHandler<RegisterRequestHandler>();
-        services.AddMessageHandler<GetUserInfoRequestHandler>();
-        services.AddMessageHandler<UpdateUserInfoRequestHandler>();
+        // 获取通知服务
+        var notificationService = host.Services.GetRequiredService<NotificationService>();
 
-        // 构建服务提供程序
-        var serviceProvider = services.BuildServiceProvider();
-
-        try
+        // 等待按键
+        var keepRunning = true;
+        while (keepRunning)
         {
-            // 获取服务器初始化器
-            var serverInitializer = serviceProvider.GetRequiredService<ServerInitializer>();
+            var key = Console.ReadKey(true);
 
-            // 获取通知服务和TCP服务器
-            var notificationService = serviceProvider.GetRequiredService<NotificationService>();
-            var tcpServer = serviceProvider.GetRequiredService<TcpServer>();
-
-            // 设置通知服务的服务器
-            notificationService.SetServer(tcpServer);
-
-            // 初始化服务器（自动注册处理器并启动 TcpServer）
-            serverInitializer.Initialize();
-
-            Console.WriteLine("服务器已启动，监听端口: 5000");
-            Console.WriteLine("按 ESC 键退出，按 B 键发送全局广播，按 N 键发送系统通知");
-
-            // 等待按键
-            while (true)
+            switch (key.Key)
             {
-                var key = Console.ReadKey(true);
-
-                if (key.Key == ConsoleKey.Escape)
-                {
+                case ConsoleKey.Escape:
+                    keepRunning = false;
                     break;
-                }
-                else if (key.Key == ConsoleKey.B)
-                {
-                    // 发送全局广播
-                    await notificationService.SendGlobalBroadcastAsync(
-                        "这是一条服务器发送的全局广播消息！",
-                        "服务器",
-                        "#FF0000",
-                        10000);
 
-                    Console.WriteLine("已发送全局广播");
-                }
-                else if (key.Key == ConsoleKey.N)
-                {
-                    // 发送系统通知
-                    await notificationService.SendSystemNotificationAsync(
-                        "系统公告",
-                        "服务器将于今日24:00进行例行维护，预计维护时间2小时。",
-                        NotificationType.Maintenance,
-                        DateTimeOffset.Now.AddHours(12).ToUnixTimeMilliseconds(),
-                        new Dictionary<string, string> { { "MaintenanceId", "M2023120100" } });
+                case ConsoleKey.B:
+                    await SendGlobalBroadcastAsync(notificationService);
+                    break;
 
-                    Console.WriteLine("已发送系统通知");
-                }
+                case ConsoleKey.N:
+                    await SendSystemNotificationAsync(notificationService);
+                    break;
             }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"服务器运行出错: {ex.Message}");
-        }
-        finally
-        {
-            // 关闭服务器
-            if (serviceProvider.GetService<TcpServer>() is TcpServer server)
+
+        // 停止服务
+        await host.StopAsync();
+        Console.WriteLine("服务器已停止");
+    }
+
+    /// <summary>
+    /// 创建托管服务构建器
+    /// </summary>
+    private static IHostBuilder CreateHostBuilder(string[] args) =>
+        Host.CreateDefaultBuilder(args)
+            .ConfigureServices((hostContext, services) =>
             {
-                await server.StopAsync();
-                Console.WriteLine("服务器已停止");
-            }
-        }
+                // 添加日志
+                services.AddLogging(builder =>
+                {
+                    builder.AddConsole();
+                    builder.SetMinimumLevel(LogLevel.Debug);
+                });
+
+                // 注册核心服务
+                services.AddSingleton<NotificationService>();
+
+                // 添加PulseRPC服务器
+                services.AddTcpServerAsHostedService(ipAddress: "127.0.0.1", port: 5000);
+
+                // 手动注册各种消息处理器
+                services.AddMessageHandler<LoginRequestHandler>();
+                services.AddMessageHandler<RegisterRequestHandler>();
+                services.AddMessageHandler<GetUserInfoRequestHandler>();
+                services.AddMessageHandler<UpdateUserInfoRequestHandler>();
+
+                // 添加游戏服务器应用程序生命周期服务
+                services.AddSingleton<IHostedService, GameServerLifetimeService>();
+            });
+
+    /// <summary>
+    /// 发送全局广播
+    /// </summary>
+    private static async Task SendGlobalBroadcastAsync(NotificationService notificationService)
+    {
+        await notificationService.SendGlobalBroadcastAsync(
+            "这是一条服务器发送的全局广播消息！",
+            "服务器",
+            "#FF0000",
+            10000);
+
+        Console.WriteLine("已发送全局广播");
+    }
+
+    /// <summary>
+    /// 发送系统通知
+    /// </summary>
+    private static async Task SendSystemNotificationAsync(NotificationService notificationService)
+    {
+        await notificationService.SendSystemNotificationAsync(
+            "系统公告",
+            "服务器将于今日24:00进行例行维护，预计维护时间2小时。",
+            NotificationType.Maintenance,
+            DateTimeOffset.Now.AddHours(12).ToUnixTimeMilliseconds(),
+            new Dictionary<string, string> { { "MaintenanceId", "M2023120100" } });
+
+        Console.WriteLine("已发送系统通知");
     }
 
     /// <summary>
