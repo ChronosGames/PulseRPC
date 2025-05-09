@@ -1,9 +1,6 @@
-using System;
-using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PulseRPC.Protocol;
 
 namespace PulseRPC.Server;
 
@@ -18,7 +15,8 @@ public static class MessageHandlerExtensions
     /// <param name="services">服务集合</param>
     /// <param name="scanForHandlers">是否自动扫描处理器</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcMessageHandling(this IServiceCollection services, bool scanForHandlers = true)
+    public static IServiceCollection AddPulseRpcMessageHandling(this IServiceCollection services,
+        bool scanForHandlers = true)
     {
         // 注册处理器工厂和分发器
         services.TryAddSingleton<MessageHandlerFactory>();
@@ -58,6 +56,7 @@ public static class MessageHandlerExtensions
         {
             ScanAssemblyForHandlers(services, assembly);
         }
+
         return services;
     }
 
@@ -70,8 +69,8 @@ public static class MessageHandlerExtensions
     {
         var assemblies = AppDomain.CurrentDomain.GetAssemblies()
             .Where(a => !a.IsDynamic &&
-                   !a.FullName!.StartsWith("System.") &&
-                   !a.FullName.StartsWith("Microsoft."))
+                        !a.FullName!.StartsWith("System.") &&
+                        !a.FullName.StartsWith("Microsoft."))
             .ToArray();
 
         foreach (var assembly in assemblies)
@@ -100,8 +99,9 @@ public static class MessageHandlerExtensions
         var handlerTypes = assembly.GetTypes()
             .Where(t => t.IsClass &&
                         !t.IsAbstract &&
-                        t.GetInterfaces().Any(i => i == typeof(IMessageHandler) ||
-                            (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IMessageHandler<>))));
+                        t.GetInterfaces().Any(i => i == typeof(IMessageHandler)
+                                                   || (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(ICommandHandler<>)
+                                                   || (i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IRequestHandler<,>)))));
 
         foreach (var handlerType in handlerTypes)
         {

@@ -1,63 +1,40 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.Protocol;
+using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Server;
 
 /// <summary>
 /// 服务注册消息处理器
 /// </summary>
-public class ServiceRegistrationMessageHandler(
-    ISerializer serializer,
-    IServiceRegistry serviceRegistry,
-    ILogger logger,
-    int id)
-    : MessageHandlerBase<ServiceRegistration>(serializer)
+public class ServiceRegistrationMessageHandler(IServiceRegistry serviceRegistry)
+    : RequestHandlerBase<ServiceRegistration, ServiceRegistrationResponse>
 {
-    private readonly IServiceRegistry _serviceRegistry = serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
+    private readonly IServiceRegistry _serviceRegistry =
+        serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
 
-    protected override async Task HandleMessageAsync(PulseNet.Core.INetSession session, ServiceRegistration registration)
+    protected override async Task<ServiceRegistrationResponse> ProcessRequestAsync(NetworkSession context,
+        ServiceRegistration request)
     {
-        try
-        {
-            await _serviceRegistry.RegisterServiceAsync(registration);
+        await _serviceRegistry.RegisterServiceAsync(request);
 
-            // 发送注册成功响应
-            await session.SendAsync(new ServiceRegistrationResponse
-            {
-                Success = true,
-                Message = "服务注册成功"
-            }, MessageIds.ServiceRegistrationResponse);
-        }
-        catch (Exception ex)
-        {
-            logger?.Error(ex, "处理服务注册消息时出错");
-
-            // 发送注册失败响应
-            await session.SendAsync(new ServiceRegistrationResponse
-            {
-                Success = false,
-                Message = $"服务注册失败: {ex.Message}"
-            }, MessageIds.ServiceRegistrationResponse);
-        }
-    }
-
-    public bool CanHandle(int messageId)
-    {
-        return messageId == id;
+        // 发送注册成功响应
+        return new ServiceRegistrationResponse { Success = true, Message = "服务注册成功" };
     }
 }
 
 /// <summary>
 /// 服务注册响应
 /// </summary>
-public class ServiceRegistrationResponse
+public class ServiceRegistrationResponse : IMessage
 {
     /// <summary>
     /// 是否成功
     /// </summary>
-    public bool Success { get; set; }
+    public bool Success { get; init; }
 
     /// <summary>
     /// 响应消息
     /// </summary>
-    public string Message { get; set; }
+    public required string Message { get; init; }
 }

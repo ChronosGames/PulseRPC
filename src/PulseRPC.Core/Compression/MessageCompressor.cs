@@ -8,54 +8,22 @@ using System.IO.Compression;
 namespace PulseRPC.Protocol.Compression;
 
 /// <summary>
-/// 消息压缩器配置选项
-/// </summary>
-public class MessageCompressorOptions
-{
-    /// <summary>
-    /// 压缩阈值（字节），超过此大小的消息将被压缩
-    /// </summary>
-    public int CompressionThreshold { get; set; } = 1024; // 1KB
-
-    /// <summary>
-    /// Brotli 压缩级别
-    /// </summary>
-    public CompressionLevel CompressionLevel { get; set; } = CompressionLevel.Fastest;
-
-    /// <summary>
-    /// 压缩窗口大小
-    /// </summary>
-    public int WindowBits { get; set; } = 22; // 4MB 窗口
-}
-
-/// <summary>
 /// 消息压缩器，使用 Brotli 算法
 /// </summary>
-public class MessageCompressor
+public static class MessageCompressor
 {
-    private readonly MessageCompressorOptions _options;
-    private readonly ArrayPool<byte> _arrayPool;
-
-    public MessageCompressor(MessageCompressorOptions? options = null)
-    {
-        _options = options ?? new MessageCompressorOptions();
-        _arrayPool = ArrayPool<byte>.Shared;
-    }
+    private static readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
 
     /// <summary>
     /// 压缩消息
     /// </summary>
     /// <param name="data">原始数据</param>
+    /// <param name="compressionLevel">压缩等级</param>
     /// <returns>压缩后的数据</returns>
-    public byte[] Compress(ReadOnlySpan<byte> data)
+    public static byte[] Compress(ReadOnlySpan<byte> data, CompressionLevel compressionLevel = CompressionLevel.Fastest)
     {
-        if (data.Length < _options.CompressionThreshold)
-        {
-            return data.ToArray();
-        }
-
         using var outputStream = new MemoryStream();
-        using var compressor = new BrotliStream(outputStream, _options.CompressionLevel);
+        using var compressor = new BrotliStream(outputStream, compressionLevel);
 
         // 写入原始大小
         var sizeBytes = new byte[4];
@@ -82,16 +50,16 @@ public class MessageCompressor
     /// </summary>
     /// <param name="compressedData">压缩数据</param>
     /// <returns>解压后的数据</returns>
-    public byte[] Decompress(ReadOnlySpan<byte> compressedData)
+    public static byte[] Decompress(ReadOnlySpan<byte> compressedData)
     {
         // 读取原始大小
-        var originalSize = BitConverter.ToInt32(compressedData.Slice(0, 4));
+        var originalSize = BitConverter.ToInt32(compressedData[..4]);
 
         // 分配缓冲区
         var buffer = _arrayPool.Rent(originalSize);
         try
         {
-            using var inputStream = new MemoryStream(compressedData.Slice(4).ToArray());
+            using var inputStream = new MemoryStream(compressedData[4..].ToArray());
             using var decompressor = new BrotliStream(inputStream, CompressionMode.Decompress);
 
             var bytesRead = decompressor.Read(buffer, 0, originalSize);
@@ -113,15 +81,10 @@ public class MessageCompressor
     /// <summary>
     /// 异步压缩消息
     /// </summary>
-    public async ValueTask<byte[]> CompressAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    public static async ValueTask<byte[]> CompressAsync(ReadOnlyMemory<byte> data, CompressionLevel compressionLevel = CompressionLevel.Fastest, CancellationToken cancellationToken = default)
     {
-        if (data.Length < _options.CompressionThreshold)
-        {
-            return data.ToArray();
-        }
-
         using var outputStream = new MemoryStream();
-        using var compressor = new BrotliStream(outputStream, _options.CompressionLevel);
+        await using var compressor = new BrotliStream(outputStream, compressionLevel);
 
         // 写入原始大小
         var sizeBytes = new byte[4];
@@ -146,7 +109,7 @@ public class MessageCompressor
     /// <summary>
     /// 异步解压缩消息
     /// </summary>
-    public async ValueTask<byte[]> DecompressAsync(ReadOnlyMemory<byte> compressedData, CancellationToken cancellationToken = default)
+    public static async ValueTask<byte[]> DecompressAsync(ReadOnlyMemory<byte> compressedData, CancellationToken cancellationToken = default)
     {
         // 读取原始大小
         var originalSize = BitConverter.ToInt32(compressedData.Span[..4]);

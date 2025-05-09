@@ -32,7 +32,7 @@ public class LoginRequestHandler : RequestHandlerBase<LoginRequest, LoginRespons
     /// <summary>
     /// 处理登录请求
     /// </summary>
-    protected override async Task<LoginResponse> ProcessRequestAsync(SessionContext context, LoginRequest request)
+    protected override async Task<LoginResponse> ProcessRequestAsync(NetworkSession context, LoginRequest request)
     {
         _logger.LogInformation("收到登录请求: 用户名={Username}, 密码={Password}", request.Username, "******");
 
@@ -98,7 +98,7 @@ public class RegisterRequestHandler : RequestHandlerBase<RegisterRequest, Regist
     /// <summary>
     /// 处理注册请求
     /// </summary>
-    protected override async Task<RegisterResponse> ProcessRequestAsync(SessionContext context, RegisterRequest request)
+    protected override async Task<RegisterResponse> ProcessRequestAsync(NetworkSession context, RegisterRequest request)
     {
         _logger.LogInformation("收到注册请求: 用户名={Username}, 邮箱={Email}", request.Username, request.Email);
 

@@ -1,9 +1,11 @@
-﻿namespace PulseRPC.Server;
+﻿using PulseRPC.Protocol;
+
+namespace PulseRPC.Server;
 
 /// <summary>
 /// 服务注册信息
 /// </summary>
-public class ServiceRegistration
+public class ServiceRegistration : IMessage
 {
     /// <summary>
     /// 服务类型

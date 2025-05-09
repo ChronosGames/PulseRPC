@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using System.Net.Sockets;
+using Microsoft.Extensions.Logging;
+using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Server;
 
@@ -8,7 +10,7 @@ public class ServiceDiscoveryConnector : IDisposable
     private readonly ILogger _logger;
     private readonly NetClientFactory _clientFactory;
     private readonly Dictionary<string, List<ServiceNode>> _serviceCache;
-    private readonly Dictionary<string, List<INetClient>> _clientPool;
+    private readonly Dictionary<string, List<TcpClient>> _clientPool;
     private readonly SemaphoreSlim _cacheLock;
     private readonly Timer _refreshTimer;
     private readonly TimeSpan _cacheRefreshInterval;
@@ -25,7 +27,7 @@ public class ServiceDiscoveryConnector : IDisposable
         _logger = logger;
         _clientFactory = clientFactory;
         _serviceCache = new Dictionary<string, List<ServiceNode>>();
-        _clientPool = new Dictionary<string, List<INetClient>>();
+        _clientPool = new Dictionary<string, List<TcpClient>>();
         _cacheLock = new SemaphoreSlim(1, 1);
         _cacheRefreshInterval = cacheRefreshInterval;
         _defaultClientOptions = defaultClientOptions ?? new ClientOptions();
@@ -73,7 +75,7 @@ public class ServiceDiscoveryConnector : IDisposable
 
         if (!_clientPool.TryGetValue(serviceType, out var clients))
         {
-            clients = new List<INetClient>();
+            clients = new List<TcpClient>();
             _clientPool[serviceType] = clients;
         }
 
@@ -141,7 +143,7 @@ public class ServiceDiscoveryConnector : IDisposable
         return options;
     }
 
-    public async Task<INetClient> GetClientAsync(string serviceType, ServiceSelectionStrategy strategy = ServiceSelectionStrategy.RoundRobin)
+    public async Task<TcpClient> GetClientAsync(string serviceType, ServiceSelectionStrategy strategy = ServiceSelectionStrategy.RoundRobin)
     {
         await _cacheLock.WaitAsync();
 
@@ -168,7 +170,7 @@ public class ServiceDiscoveryConnector : IDisposable
         }
     }
 
-    private INetClient SelectClient(List<INetClient> clients, ServiceSelectionStrategy strategy)
+    private TcpClient SelectClient(List<TcpClient> clients, ServiceSelectionStrategy strategy)
     {
         // 过滤已连接的客户端
         var availableClients = clients.Where(c => c.Status == ClientStatus.Connected).ToList();
@@ -180,7 +182,7 @@ public class ServiceDiscoveryConnector : IDisposable
         {
             case ServiceSelectionStrategy.RoundRobin:
                 // 简单轮询
-                int index = Interlocked.Increment(ref _roundRobinCounter) % availableClients.Count;
+                var index = Interlocked.Increment(ref _roundRobinCounter) % availableClients.Count;
                 return availableClients[index];
 
             case ServiceSelectionStrategy.Random:
@@ -200,7 +202,7 @@ public class ServiceDiscoveryConnector : IDisposable
 
     public void Dispose()
     {
-        _refreshTimer?.Dispose();
+        _refreshTimer.Dispose();
 
         foreach (var clients in _clientPool.Values)
         {
