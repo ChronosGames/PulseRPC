@@ -408,12 +408,6 @@ public class EnhanceRequest
     public int ClientSequence { get; set; }
 }
 
-// 强化操作成本
-public class EnhancementCost {
-    public int Gold { get; set; }
-    public int EnhanceStones { get; set; }
-    public int ProtectionScrolls { get; set; }
-}
 
 // 强化结果
 public class EnhanceResult {
@@ -435,61 +429,4 @@ public class ResourceChange {
     public int Gold { get; set; }
     public int EnhanceStones { get; set; }
     public int ProtectionScrolls { get; set; }
-}
-
-// 强化错误码
-public enum EnhanceErrorCode {
-    None = 0,
-    PlayerNotFound,
-    EquipmentNotFound,
-    ResourceLocked,
-    InsufficientGold,
-    InsufficientMaterials,
-    InvalidTargetLevel,
-    ServerError
-}
-
-// 操作日志状态
-public enum OperationStatus {
-    InProgress,
-    Completed,
-    Failed,
-    Rollback
-}
-
-// 强化操作日志
-public class EnhanceOperationLog {
-    public Guid OperationId { get; set; }
-    public string PlayerId { get; set; }
-    public Guid EquipmentId { get; set; }
-    public string RequestId { get; set; }
-    public int InitialLevel { get; set; }
-    public int TargetLevel { get; set; }
-    public bool UseProtection { get; set; }
-    public EnhancementCost Cost { get; set; }
-    public DateTime Timestamp { get; set; }
-    public OperationStatus Status { get; set; }
-    public string Result { get; set; }
-    public int FinalLevel { get; set; }
-}
-
-// 装备实体
-public class Equipment {
-    public Guid Id { get; set; }
-    public string Name { get; set; }
-    public string PlayerId { get; set; }
-    public int Quality { get; set; } // 1-5星品质
-    public int EnhanceLevel { get; set; }
-    public int MaxEnhanceLevel { get; set; }
-
-    // 基础属性
-    public int BaseAttack { get; set; }
-    public int BaseDefense { get; set; }
-
-    // 当前属性（包含强化加成）
-    public int Attack { get; set; }
-    public int Defense { get; set; }
-    public double CriticalRate { get; set; }
-    public double DamageReduction { get; set; }
-    public List<string> SpecialEffects { get; set; } = new List<string>();
 }

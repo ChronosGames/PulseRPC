@@ -41,7 +41,7 @@ while (true)
     await hub.SendMessageAsync(message);
 }
 
-[MagicOnionClientGeneration(typeof(IChatHub))]
+[PulseRPCClientGeneration(typeof(IChatHub))]
 partial class MagicOnionGeneratedClientInitializer;
 
 class ChatHubReceiver(Guid sessionId) : IChatHubReceiver
