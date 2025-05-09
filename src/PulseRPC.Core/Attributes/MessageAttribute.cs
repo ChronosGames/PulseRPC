@@ -1,4 +1,5 @@
 using System;
+using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Protocol.Attributes
 {

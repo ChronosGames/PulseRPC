@@ -26,7 +26,7 @@ public class GetUserInfoRequestHandler : RequestHandlerBase<GetUserInfoRequest, 
     /// <summary>
     /// 处理获取用户信息请求
     /// </summary>
-    protected override async Task<GetUserInfoResponse> ProcessRequestAsync(SessionContext context, GetUserInfoRequest request)
+    protected override async Task<GetUserInfoResponse> ProcessRequestAsync(NetworkSession context, GetUserInfoRequest request)
     {
         _logger.LogInformation("收到获取用户信息请求: UserId={UserId}", request.UserId);
 
@@ -95,7 +95,7 @@ public class UpdateUserInfoRequestHandler : RequestHandlerBase<UpdateUserInfoReq
     /// <summary>
     /// 处理更新用户信息请求
     /// </summary>
-    protected override async Task<UpdateUserInfoResponse> ProcessRequestAsync(SessionContext context, UpdateUserInfoRequest request)
+    protected override async Task<UpdateUserInfoResponse> ProcessRequestAsync(NetworkSession context, UpdateUserInfoRequest request)
     {
         _logger.LogInformation("收到更新用户信息请求: UserId={UserId}", request.UserId);
 

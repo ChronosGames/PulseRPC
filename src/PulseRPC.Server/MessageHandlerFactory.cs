@@ -6,6 +6,8 @@ using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Server;
 
+public record MessageTypeInfo(Type MessageType);
+
 /// <summary>
 /// 消息处理器工厂，负责创建和管理消息处理器实例
 /// </summary>
@@ -13,17 +15,16 @@ public class MessageHandlerFactory
 {
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<MessageHandlerFactory> _logger;
+
+    /// <summary>
+    /// 处理器类型与实例的映射
+    /// </summary>
     private readonly ConcurrentDictionary<Type, IMessageHandler> _handlerInstances = new();
 
     /// <summary>
-    /// 消息ID到处理器类型的映射
+    /// 消息类型到处理器类型的映射
     /// </summary>
-    private readonly ConcurrentDictionary<int, Type> _handlerTypes = new();
-
-    /// <summary>
-    /// 类型到消息ID的映射，用于反向查找
-    /// </summary>
-    private readonly ConcurrentDictionary<Type, int> _messageIdByType = new();
+    private readonly ConcurrentDictionary<Type, Type> _handlerTypes = new();
 
     /// <summary>
     /// 初始化消息处理器工厂
@@ -48,30 +49,18 @@ public class MessageHandlerFactory
             throw new ArgumentException($"处理器类型 {handlerType.Name} 未实现 IMessageHandler 接口", nameof(handlerType));
         }
 
-        _handlerTypes[messageTypeInfo.MessageId] = handlerType;
-        _messageIdByType[messageTypeInfo.MessageType] = messageTypeInfo.MessageId;
-        _logger.LogDebug("注册消息处理器: ID={MessageId}, 消息={MessageType}, 处理器={HandlerType}",
-            messageTypeInfo.MessageId, messageTypeInfo.MessageType.Name, handlerType.Name);
+        _handlerTypes[messageTypeInfo.MessageType] = handlerType;
+        _logger.LogDebug($"注册消息处理器: 消息={messageTypeInfo.MessageType.Name}, 处理器={handlerType.Name}");
     }
 
     /// <summary>
     /// 获取指定消息ID的处理器类型
     /// </summary>
-    /// <param name="messageId">消息ID</param>
-    /// <returns>处理器类型，如果不存在返回null</returns>
-    public Type? GetHandlerType(int messageId)
-    {
-        return _handlerTypes.GetValueOrDefault(messageId);
-    }
-
-    /// <summary>
-    /// 获取指定消息类型的消息ID
-    /// </summary>
     /// <param name="messageType">消息类型</param>
-    /// <returns>消息ID，如果不存在返回-1</returns>
-    public int GetMessageId(Type messageType)
+    /// <returns>处理器类型，如果不存在返回null</returns>
+    public Type? GetHandlerType(Type messageType)
     {
-        return _messageIdByType.GetValueOrDefault(messageType, -1);
+        return _handlerTypes.GetValueOrDefault(messageType);
     }
 
     /// <summary>
