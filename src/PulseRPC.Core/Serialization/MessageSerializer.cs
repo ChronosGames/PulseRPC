@@ -1,5 +1,4 @@
 using System;
-using System.Buffers;
 using MemoryPack;
 using PulseRPC.Protocol.Messages;
 
@@ -11,7 +10,6 @@ namespace PulseRPC.Protocol.Serialization;
 public static class MessageSerializer
 {
     private const byte ProtocolVersion = 1;
-    private static readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
 
     /// <summary>
     /// 序列化消息
@@ -75,7 +73,7 @@ public static class MessageSerializer
         }
 
         // 处理压缩
-        byte[] messageData = packet.Payload;
+        var messageData = packet.Payload;
         if ((packet.Header.Flags & MessageFlags.Compressed) != 0)
         {
             messageData = MessageCompressor.Decompress(packet.Payload);

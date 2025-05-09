@@ -1,6 +1,7 @@
 using System;
 using MemoryPack;
 using System.Collections.Concurrent;
+using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Protocol.Serialization;
 
@@ -11,6 +12,11 @@ public class PulseRPCFormatterProvider
 {
     private static readonly ConcurrentDictionary<Type, object> _formatters = new();
     private static readonly ConcurrentDictionary<Type, int> _messageIds = new();
+
+    static PulseRPCFormatterProvider()
+    {
+        RegisterMessageType<HeartbeatMessage>(1);
+    }
 
     /// <summary>
     /// 注册消息类型
