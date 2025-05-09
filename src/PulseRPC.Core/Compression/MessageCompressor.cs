@@ -149,14 +149,14 @@ public class MessageCompressor
     public async ValueTask<byte[]> DecompressAsync(ReadOnlyMemory<byte> compressedData, CancellationToken cancellationToken = default)
     {
         // 读取原始大小
-        var originalSize = BitConverter.ToInt32(compressedData.Span.Slice(0, 4));
+        var originalSize = BitConverter.ToInt32(compressedData.Span[..4]);
 
         // 分配缓冲区
         var buffer = _arrayPool.Rent(originalSize);
         try
         {
-            using var inputStream = new MemoryStream(compressedData.Slice(4).ToArray());
-            using var decompressor = new BrotliStream(inputStream, CompressionMode.Decompress);
+            using var inputStream = new MemoryStream(compressedData[4..].ToArray());
+            await using var decompressor = new BrotliStream(inputStream, CompressionMode.Decompress);
 
             var bytesRead = await decompressor.ReadAsync(buffer, 0, originalSize, cancellationToken).ConfigureAwait(false);
             if (bytesRead != originalSize)

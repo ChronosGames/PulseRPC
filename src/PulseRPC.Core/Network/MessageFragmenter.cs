@@ -40,7 +40,7 @@ public class MessageFragmenter
             yield break;
         }
 
-        var totalFragments = (int)Math.Ceiling((double)data.Length / _options.MaxFragmentSize);
+        var totalFragments = (data.Length + _options.MaxFragmentSize - 1) / _options.MaxFragmentSize;
         var buffer = _arrayPool.Rent(_options.MaxFragmentSize);
 
         try
