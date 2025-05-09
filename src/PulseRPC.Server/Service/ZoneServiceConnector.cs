@@ -142,7 +142,7 @@ public class ZoneServiceConnector : IDisposable
     }
 
     // 辅助方法
-    private string GetLocalIPAddress()
+    private static string GetLocalIPAddress()
     {
         var host = Dns.GetHostEntry(Dns.GetHostName());
         foreach (var ip in host.AddressList)
@@ -156,12 +156,12 @@ public class ZoneServiceConnector : IDisposable
         return "127.0.0.1";
     }
 
-    private double GetCpuUsage()
+    private static double GetCpuUsage()
     {
         return CpuUsageHelper.GetCpuUsage();
     }
 
-    private long GetMemoryUsage()
+    private static long GetMemoryUsage()
     {
         return GC.GetTotalMemory(false);
     }
