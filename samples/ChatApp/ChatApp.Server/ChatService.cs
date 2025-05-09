@@ -1,19 +1,11 @@
 using ChatApp.Shared.Services;
-using MagicOnion;
-using MagicOnion.Server;
-using MessagePack;
 using Microsoft.Extensions.Logging;
 
 namespace ChatApp.Server;
 
-public class ChatService : ServiceBase<IChatService>, IChatService
+public class ChatService(ILogger<ChatService> logger) : ServiceBase<IChatService>, IChatService
 {
-    private readonly ILogger logger;
-
-    public ChatService(ILogger<ChatService> logger)
-    {
-        this.logger = logger;
-    }
+    private readonly ILogger logger = logger;
 
     public UnaryResult GenerateException(string message)
     {

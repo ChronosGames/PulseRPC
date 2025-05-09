@@ -2,14 +2,18 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace ChatApp.Server;
 
 // 客户端装备操作管理器
-public class ClientEquipmentManager {
-    private readonly IGameNetworkClient _networkClient;
-    private readonly IUserSession _userSession;
-    private readonly IClientLogger _logger;
+public class ClientEquipmentManager(
+    IGameNetworkClient networkClient,
+    IUserSession userSession,
+    ILogger logger)
+{
+    private readonly IUserSession _userSession = userSession;
+    private readonly ILogger _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     // 操作队列和排队标志
     private readonly Queue<PendingOperation> _operationQueue = new Queue<PendingOperation>();
@@ -17,16 +21,6 @@ public class ClientEquipmentManager {
 
     // 序列号计数器
     private long _sequenceCounter = 0;
-
-    public ClientEquipmentManager(
-        IGameNetworkClient networkClient,
-        IUserSession userSession,
-        IClientLogger logger) {
-
-        _networkClient = networkClient;
-        _userSession = userSession;
-        _logger = logger;
-    }
 
     // 请求装备强化
     public async Task<EnhanceResult> RequestEnhanceEquipment(
@@ -128,7 +122,7 @@ public class ClientEquipmentManager {
 
                 try {
                     // 尝试执行操作
-                    object result = await ExecuteOperation(operation);
+                    var result = await ExecuteOperation(operation);
 
                     // 操作成功，从队列移除
                     _operationQueue.Dequeue();
@@ -190,17 +184,17 @@ public class ClientEquipmentManager {
             switch (operation.Type) {
                 case OperationType.Enhance:
                     var enhanceRequest = (EnhanceRequest)operation.Request;
-                    return await _networkClient.SendRequest<EnhanceRequest, EnhanceResult>(
+                    return await networkClient.SendRequest<EnhanceRequest, EnhanceResult>(
                         "equipment/enhance", enhanceRequest);
 
                 case OperationType.Dismantle:
                     var dismantleRequest = (DismantleRequest)operation.Request;
-                    return await _networkClient.SendRequest<DismantleRequest, DismantleResult>(
+                    return await networkClient.SendRequest<DismantleRequest, DismantleResult>(
                         "equipment/dismantle", dismantleRequest);
 
                 case OperationType.Equip:
                     var equipRequest = (EquipRequest)operation.Request;
-                    return await _networkClient.SendRequest<EquipRequest, EquipResult>(
+                    return await networkClient.SendRequest<EquipRequest, EquipResult>(
                         "equipment/equip", equipRequest);
 
                 default:
@@ -222,10 +216,10 @@ public class ClientEquipmentManager {
     // 计算重试延迟（指数退避策略）
     private TimeSpan CalculateRetryDelay(int retryCount) {
         // 基础延迟300ms，每次重试翻倍，最大10秒
-        int delayMs = Math.Min(300 * (int)Math.Pow(2, retryCount - 1), 10000);
+        var delayMs = Math.Min(300 * (int)Math.Pow(2, retryCount - 1), 10000);
 
         // 添加随机抖动，避免多个客户端同时重试
-        Random random = new Random();
+        var random = new Random();
         delayMs += random.Next(delayMs / 5);
 
         return TimeSpan.FromMilliseconds(delayMs);

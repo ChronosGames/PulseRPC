@@ -2,7 +2,7 @@
     "name": "ChatApp.Shared.Unity",
     "references": [
         "MessagePack.Annotations",
-        "MagicOnion.Abstractions"
+        "PulseRPC.Abstractions"
     ],
     "optionalUnityReferences": [],
     "includePlatforms": [],
