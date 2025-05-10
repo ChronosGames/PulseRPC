@@ -1,6 +1,5 @@
 ﻿using PulseRPC.Client;
 using PulseRPC.Samples.Shared.Messages;
-using PulseRPC.Protocol.Serialization;
 
 namespace PulseRPC.Samples.Client;
 

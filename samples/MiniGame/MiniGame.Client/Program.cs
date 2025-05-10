@@ -1,7 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
-using PulseRPC.Protocol.Serialization;
+using PulseRPC.Protocol.Network;
 using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
 
@@ -27,6 +27,10 @@ class Program
             builder.SetMinimumLevel(LogLevel.Debug);
         });
 
+        services.AddSingleton<IMessageDispatcher, MessageDispatcher>();
+        services.AddSingleton<NetworkOptions>();
+        services.AddSingleton<NetworkClient>();
+
         // 构建服务提供程序
         var serviceProvider = services.BuildServiceProvider();
 
@@ -34,19 +38,13 @@ class Program
         var logger = serviceProvider.GetRequiredService<ILoggerFactory>()
             .CreateLogger<Program>();
 
-        // 注册消息类型
-        RegisterMessageTypes(logger);
-
         // 创建 TCP 客户端
-        var client = new TcpClient(
-            "127.0.0.1",
-            5000,
-            serviceProvider.GetRequiredService<ILogger<TcpClient>>());
+        var client = serviceProvider.GetRequiredService<NetworkClient>();
 
         try
         {
             // 连接到服务器
-            await client.ConnectAsync();
+            await client.ConnectAsync("127.0.0.1", 8888, true);
             logger.LogInformation("已连接到服务器");
 
             // 登录
@@ -57,16 +55,6 @@ class Program
                 Password = "password",
                 ClientVersion = 1001
             };
-
-            // 验证请求对象可以被序列化
-            try {
-                var serialized = MessageSerializer.Serialize(loginRequest);
-                logger.LogDebug("登录请求序列化成功，大小: {Size} 字节", serialized.Length);
-            }
-            catch (Exception ex) {
-                logger.LogError(ex, "序列化登录请求失败");
-                throw;
-            }
 
             var loginResponse = await client.SendRequestAsync<LoginRequest, LoginResponse>(loginRequest);
 
@@ -127,28 +115,5 @@ class Program
 
         Console.WriteLine("按任意键退出...");
         Console.ReadKey();
-    }
-
-    /// <summary>
-    /// 注册消息类型
-    /// </summary>
-    private static void RegisterMessageTypes(ILogger logger)
-    {
-        logger.LogInformation("开始注册消息类型...");
-
-        // 注册消息类型
-        PulseRPCClientGenerator.Initialize();
-        logger.LogInformation("消息类型注册完成");
-
-        // 确保 MemoryPack 正确生成序列化器
-        try
-        {
-            MemoryPackHelpers.RegisterAllTypes();
-            logger.LogInformation("MemoryPack 序列化器注册成功");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "MemoryPack 序列化器注册失败");
-        }
     }
 }

@@ -52,33 +52,33 @@ public class DockerEnvironmentDetector
     }
 
     // 从环境变量获取服务注册信息
-    public static ServiceRegistration GetServiceRegistrationFromEnv()
-    {
-        var registration = new ServiceRegistration
-        {
-            ServiceType = Environment.GetEnvironmentVariable("SERVICE_TYPE") ?? "Unknown",
-            ZoneId = Environment.GetEnvironmentVariable("ZONE_ID") ?? "default",
-            ServerId = Environment.GetEnvironmentVariable("SERVER_ID") ?? "default",
-            InstanceId = Environment.GetEnvironmentVariable("INSTANCE_ID") ?? "default",
-            Host = GetContainerIP(),
-            Port = GetEnvInt("SERVICE_PORT", 0)
-        };
-
-        // 添加自定义元数据
-        var metadataPrefix = "SERVICE_META_";
-        foreach (var key in Environment.GetEnvironmentVariables().Keys)
-        {
-            var envKey = key.ToString() ?? string.Empty;
-            if (envKey.StartsWith(metadataPrefix, StringComparison.Ordinal))
-            {
-                var metaKey = envKey.Substring(metadataPrefix.Length);
-                var metaValue = Environment.GetEnvironmentVariable(envKey) ?? string.Empty;
-                registration.Metadata[metaKey] = metaValue;
-            }
-        }
-
-        return registration;
-    }
+    // public static ServiceRegistration GetServiceRegistrationFromEnv()
+    // {
+    //     var registration = new ServiceRegistration
+    //     {
+    //         ServiceType = Environment.GetEnvironmentVariable("SERVICE_TYPE") ?? "Unknown",
+    //         ZoneId = Environment.GetEnvironmentVariable("ZONE_ID") ?? "default",
+    //         ServerId = Environment.GetEnvironmentVariable("SERVER_ID") ?? "default",
+    //         InstanceId = Environment.GetEnvironmentVariable("INSTANCE_ID") ?? "default",
+    //         Host = GetContainerIP(),
+    //         Port = GetEnvInt("SERVICE_PORT", 0)
+    //     };
+    //
+    //     // 添加自定义元数据
+    //     var metadataPrefix = "SERVICE_META_";
+    //     foreach (var key in Environment.GetEnvironmentVariables().Keys)
+    //     {
+    //         var envKey = key.ToString() ?? string.Empty;
+    //         if (envKey.StartsWith(metadataPrefix, StringComparison.Ordinal))
+    //         {
+    //             var metaKey = envKey.Substring(metadataPrefix.Length);
+    //             var metaValue = Environment.GetEnvironmentVariable(envKey) ?? string.Empty;
+    //             registration.Metadata[metaKey] = metaValue;
+    //         }
+    //     }
+    //
+    //     return registration;
+    // }
 
     // 获取容器IP地址
     private static string GetContainerIP()

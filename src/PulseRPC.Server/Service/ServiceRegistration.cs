@@ -1,11 +1,14 @@
-﻿using PulseRPC.Protocol;
+﻿using MemoryPack;
+using PulseRPC.Protocol;
+using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Server;
 
 /// <summary>
 /// 服务注册信息
 /// </summary>
-public class ServiceRegistration : IMessage
+[MemoryPackable]
+public partial class ServiceRegistration : Request
 {
     /// <summary>
     /// 服务类型

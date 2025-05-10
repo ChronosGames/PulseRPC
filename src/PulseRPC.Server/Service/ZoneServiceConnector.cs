@@ -77,7 +77,7 @@ public class ZoneServiceConnector : IDisposable
         };
 
         // 发送注册请求
-        await registryClient.SendAsync(registration, MessageIds.ServiceRegistration);
+        await registryClient.SendAsync(registration);
 
         _logger.LogInformation($"Registered GameServer with Zone {_zoneId}, Server {serverId}");
 
@@ -101,7 +101,7 @@ public class ZoneServiceConnector : IDisposable
                     ZoneId = _zoneId,
                     ServerId = serverId,
                     Timestamp = DateTime.UtcNow,
-                    Metrics = new Dictionary<string, object>
+                    Metrics = new
                     {
                         ["ConnectionCount"] = _server.ConnectionCount,
                         ["CpuUsage"] = GetCpuUsage(),

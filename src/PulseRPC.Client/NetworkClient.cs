@@ -11,6 +11,7 @@ namespace PulseRPC.Client;
 public class NetworkClient : IDisposable
 {
     private readonly NetworkOptions _options;
+    private readonly IMessageDispatcher _dispatcher;
     private NetworkSession? _session;
     private readonly object _connectionLock = new object();
     private CancellationTokenSource? _reconnectCts;
@@ -22,16 +23,6 @@ public class NetworkClient : IDisposable
     public event Action<bool, Exception?>? ConnectionChanged;
 
     /// <summary>
-    /// 收到命令事件
-    /// </summary>
-    public event Action<Command>? CommandReceived;
-
-    /// <summary>
-    /// 收到消息事件
-    /// </summary>
-    public event Action<Message>? MessageReceived;
-
-    /// <summary>
     /// 是否已连接
     /// </summary>
     public bool IsConnected => _session != null && !_isDisposed;
@@ -39,9 +30,10 @@ public class NetworkClient : IDisposable
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkClient(NetworkOptions? options = null)
+    public NetworkClient(IMessageDispatcher dispatcher, NetworkOptions? options = null)
     {
         _options = options ?? new NetworkOptions();
+        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _reconnectCts = new CancellationTokenSource();
     }
 
@@ -68,9 +60,7 @@ public class NetworkClient : IDisposable
 
             lock (_connectionLock)
             {
-                _session = new NetworkSession(socket, _options);
-                _session.CommandReceived += OnCommandReceived;
-                _session.MessageReceived += OnMessageReceived;
+                _session = new NetworkSession(socket, _dispatcher, _options);
                 _session.Disconnected += OnDisconnected;
                 _session.Start();
             }
@@ -150,7 +140,7 @@ public class NetworkClient : IDisposable
         EnsureConnected();
         lock (_connectionLock)
         {
-            return _session!.SendCommandAsync(command);
+            return _session!.SendPacketAsync(command);
         }
     }
 
@@ -179,22 +169,6 @@ public class NetworkClient : IDisposable
         {
             throw new InvalidOperationException("Client is not connected");
         }
-    }
-
-    /// <summary>
-    /// 处理收到的命令
-    /// </summary>
-    private void OnCommandReceived(NetworkSession session, Command command)
-    {
-        CommandReceived?.Invoke(command);
-    }
-
-    /// <summary>
-    /// 处理收到的消息
-    /// </summary>
-    private void OnMessageReceived(NetworkSession session, Message message)
-    {
-        MessageReceived?.Invoke(message);
     }
 
     /// <summary>

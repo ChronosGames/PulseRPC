@@ -1,5 +1,5 @@
-using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol;
+using MemoryPack;
+using PulseRPC.Protocol.Messages;
 using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Server;
@@ -7,14 +7,12 @@ namespace PulseRPC.Server;
 /// <summary>
 /// 服务注册消息处理器
 /// </summary>
-public class ServiceRegistrationMessageHandler(IServiceRegistry serviceRegistry)
-    : RequestHandlerBase<ServiceRegistration, ServiceRegistrationResponse>
+public class ServiceRegistrationMessageHandler(IServiceRegistry serviceRegistry) : IRequestHandler<ServiceRegistration, ServiceRegistrationResponse>
 {
     private readonly IServiceRegistry _serviceRegistry =
         serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
 
-    protected override async Task<ServiceRegistrationResponse> ProcessRequestAsync(NetworkSession context,
-        ServiceRegistration request)
+    public async Task<ServiceRegistrationResponse> HandleAsync(NetworkSession session, ServiceRegistration request)
     {
         await _serviceRegistry.RegisterServiceAsync(request);
 
@@ -26,7 +24,8 @@ public class ServiceRegistrationMessageHandler(IServiceRegistry serviceRegistry)
 /// <summary>
 /// 服务注册响应
 /// </summary>
-public class ServiceRegistrationResponse : IMessage
+[MemoryPackable]
+public partial class ServiceRegistrationResponse : Response
 {
     /// <summary>
     /// 是否成功

@@ -1,8 +1,10 @@
 using System;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Protocol.Network;
 using PulseRPC.Samples.Shared;
 using PulseRPC.Server;
 
@@ -14,23 +16,24 @@ namespace PulseRPC.Samples.Server.Services;
 public class GameServerLifetimeService : IHostedService
 {
     private readonly ILogger<GameServerLifetimeService> _logger;
+    private readonly IMessageDispatcher _dispatcher;
     private readonly NotificationService _notificationService;
-    private readonly ServerInitializer _serverInitializer;
+
+    private readonly NetworkServer _server;
 
     /// <summary>
     /// 初始化游戏服务器生命周期管理服务
     /// </summary>
-    /// <param name="logger">日志记录器</param>
-    /// <param name="notificationService">通知服务</param>
-    /// <param name="serverInitializer">服务器初始化器</param>
     public GameServerLifetimeService(
         ILogger<GameServerLifetimeService> logger,
-        NotificationService notificationService,
-        ServerInitializer serverInitializer)
+        IMessageDispatcher dispatcher,
+        NetworkServer server,
+        NotificationService notificationService)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
-        _serverInitializer = serverInitializer ?? throw new ArgumentNullException(nameof(serverInitializer));
+        _server = server ?? throw new ArgumentNullException(nameof(server));
     }
 
     /// <summary>
@@ -44,7 +47,7 @@ public class GameServerLifetimeService : IHostedService
         try
         {
             // 初始化服务器（注册所有处理器）
-            _serverInitializer.Initialize();
+            _server.Start(new IPEndPoint(IPAddress.Any, 8888));
 
             // 发送服务器启动通知
             await _notificationService.SendSystemNotificationAsync(

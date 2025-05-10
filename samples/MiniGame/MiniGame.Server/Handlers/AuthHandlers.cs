@@ -1,5 +1,3 @@
-using System;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Protocol.Network;
 using PulseRPC.Samples.Server.Services;
@@ -11,7 +9,7 @@ namespace PulseRPC.Samples.Server.Handlers;
 /// <summary>
 /// 登录请求处理器
 /// </summary>
-public class LoginRequestHandler : RequestHandlerBase<LoginRequest, LoginResponse>
+public class LoginRequestHandler : IRequestHandler<LoginRequest, LoginResponse>
 {
     private readonly ILogger<LoginRequestHandler> _logger;
     private readonly NotificationService _notificationService;
@@ -32,7 +30,7 @@ public class LoginRequestHandler : RequestHandlerBase<LoginRequest, LoginRespons
     /// <summary>
     /// 处理登录请求
     /// </summary>
-    protected override async Task<LoginResponse> ProcessRequestAsync(NetworkSession context, LoginRequest request)
+    public async Task<LoginResponse> HandleAsync(NetworkSession context, LoginRequest request)
     {
         _logger.LogInformation("收到登录请求: 用户名={Username}, 密码={Password}", request.Username, "******");
 
@@ -53,7 +51,7 @@ public class LoginRequestHandler : RequestHandlerBase<LoginRequest, LoginRespons
             // 设置响应
             response.Success = true;
             response.UserId = 1001;
-            response.Username = request.Username;
+            response.Username = request.Username!;
             response.Token = $"token-{Guid.NewGuid():N}";
 
             _logger.LogInformation("用户 {Username} 登录成功", request.Username);
@@ -82,7 +80,7 @@ public class LoginRequestHandler : RequestHandlerBase<LoginRequest, LoginRespons
 /// <summary>
 /// 注册请求处理器
 /// </summary>
-public class RegisterRequestHandler : RequestHandlerBase<RegisterRequest, RegisterResponse>
+public class RegisterRequestHandler : IRequestHandler<RegisterRequest, RegisterResponse>
 {
     private readonly ILogger<RegisterRequestHandler> _logger;
 
@@ -98,7 +96,7 @@ public class RegisterRequestHandler : RequestHandlerBase<RegisterRequest, Regist
     /// <summary>
     /// 处理注册请求
     /// </summary>
-    protected override async Task<RegisterResponse> ProcessRequestAsync(NetworkSession context, RegisterRequest request)
+    public Task<RegisterResponse> HandleAsync(NetworkSession context, RegisterRequest request)
     {
         _logger.LogInformation("收到注册请求: 用户名={Username}, 邮箱={Email}", request.Username, request.Email);
 
@@ -128,6 +126,6 @@ public class RegisterRequestHandler : RequestHandlerBase<RegisterRequest, Regist
             _logger.LogWarning("用户 {Username} 注册失败: 用户名已存在", request.Username);
         }
 
-        return response;
+        return Task.FromResult(response);
     }
 }

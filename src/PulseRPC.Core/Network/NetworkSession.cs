@@ -19,17 +19,18 @@ namespace PulseRPC.Protocol.Network;
 /// </summary>
 public class NetworkSession
 {
+    private readonly IMessageDispatcher _dispatcher;
     private readonly Socket _socket;
     private readonly NetworkOptions _options;
     private readonly Pipe _receivePipe;
     private readonly Pipe _sendPipe;
     private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
     private readonly ConcurrentDictionary<uint, TaskCompletionSource<IPacket>> _pendingRequests = new();
-    private readonly BatchMessageDispatcher _dispatcher = new();
     private uint _nextSequenceId = 1;
     private uint _nextRequestId = 1;
     private bool _isDisposed;
     private readonly CancellationTokenSource _cts = new();
+    private readonly ConcurrentDictionary<string, object> _metaData = new ConcurrentDictionary<string, object>();
 
     /// <summary>
     /// 连接断开事件
@@ -44,8 +45,9 @@ public class NetworkSession
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkSession(Socket socket, NetworkOptions? options = null)
+    public NetworkSession(Socket socket, IMessageDispatcher dispatcher, NetworkOptions? options = null)
     {
+        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _socket = socket ?? throw new ArgumentNullException(nameof(socket));
         _options = options ?? new NetworkOptions();
         _socket.NoDelay = true;
@@ -197,14 +199,6 @@ public class NetworkSession
     }
 
     /// <summary>
-    /// 注册命令处理器
-    /// </summary>
-    public void RegisterCommandHandler<T>(Func<T, Task> handler) where T : Command
-    {
-        _dispatcher.RegisterHandler(handler);
-    }
-
-    /// <summary>
     /// 处理接收到的帧
     /// </summary>
     private async Task HandleFrameAsync(ReadOnlySequence<byte> frameData, bool isCompressed)
@@ -237,7 +231,7 @@ public class NetworkSession
             }
 
             // 分发处理
-            await _dispatcher.DispatchAsync(packet);
+            await _dispatcher.DispatchAsync(this, packet);
 
             // 如果是响应，处理等待的请求
             if (packet is Response response)
@@ -252,15 +246,6 @@ public class NetworkSession
         {
             Console.WriteLine($"Error deserializing frame: {ex.Message}");
         }
-    }
-
-    /// <summary>
-    /// 发送命令
-    /// </summary>
-    public Task SendCommandAsync<T>(T command) where T : Command
-    {
-        command.SequenceId = GetNextSequenceId();
-        return SendPacketAsync(command);
     }
 
     /// <summary>
@@ -317,7 +302,7 @@ public class NetworkSession
     /// <summary>
     /// 发送数据包
     /// </summary>
-    private async Task SendPacketAsync(IPacket packet)
+    public async Task SendPacketAsync(IPacket packet)
     {
         if (_isDisposed)
         {
@@ -460,5 +445,15 @@ public class NetworkSession
 
         _socket.Close();
         _sendLock.Dispose();
+    }
+
+    public T GetItem<T>(string key) where T : unmanaged
+    {
+        return (T)(_metaData[key] ?? throw new KeyNotFoundException(key));
+    }
+
+    public void SetItem<T>(string key, T value)
+    {
+        // _metaData.TryUpdate(key, value, value);
     }
 }

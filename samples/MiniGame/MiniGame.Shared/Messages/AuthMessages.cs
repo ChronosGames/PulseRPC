@@ -1,20 +1,14 @@
 using MemoryPack;
-using PulseRPC.Protocol;
-using PulseRPC.Protocol.Attributes;
+using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Samples.Shared.Messages;
 
 /// <summary>
 /// 登录请求消息
 /// </summary>
-[MemoryPackable, Message(1001, MessageType.Request)]
-public partial class LoginRequest : IMessage
+[MemoryPackable]
+public partial class LoginRequest : Request
 {
-    /// <summary>
-    /// 请求ID
-    /// </summary>
-    public string RequestId { get; set; } = Guid.NewGuid().ToString("N");
-
     /// <summary>
     /// 用户名
     /// </summary>
@@ -34,14 +28,9 @@ public partial class LoginRequest : IMessage
 /// <summary>
 /// 登录响应消息
 /// </summary>
-[MemoryPackable, Message(1002, MessageType.Response)]
-public partial class LoginResponse : IMessage
+[MemoryPackable]
+public partial class LoginResponse : Response
 {
-    /// <summary>
-    /// 请求ID
-    /// </summary>
-    public string RequestId { get; set; } = string.Empty;
-
     /// <summary>
     /// 是否成功
     /// </summary>
@@ -76,14 +65,9 @@ public partial class LoginResponse : IMessage
 /// <summary>
 /// 注册请求消息
 /// </summary>
-[MemoryPackable, Message(1003, MessageType.Request)]
-public partial class RegisterRequest : IMessage
+[MemoryPackable]
+public partial class RegisterRequest : Request
 {
-    /// <summary>
-    /// 请求ID
-    /// </summary>
-    public string RequestId { get; set; } = Guid.NewGuid().ToString("N");
-
     /// <summary>
     /// 用户名
     /// </summary>
@@ -108,14 +92,9 @@ public partial class RegisterRequest : IMessage
 /// <summary>
 /// 注册响应消息
 /// </summary>
-[MemoryPackable, Message(1004, MessageType.Response)]
-public partial class RegisterResponse : IMessage
+[MemoryPackable]
+public partial class RegisterResponse : Response
 {
-    /// <summary>
-    /// 请求ID
-    /// </summary>
-    public string RequestId { get; set; } = string.Empty;
-
     /// <summary>
     /// 是否成功
     /// </summary>

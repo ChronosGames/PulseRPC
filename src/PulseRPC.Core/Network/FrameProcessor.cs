@@ -102,9 +102,9 @@ public class FrameProcessor
         buffer.Slice(0, FrameHeaderSize).CopyTo(headerSpan);
 
         // 提取帧长度和标志
-        ushort frameLength = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan);
-        byte frameType = headerSpan[2];
-        byte frameFlags = headerSpan[3];
+        var frameLength = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan);
+        var frameType = headerSpan[2];
+        var frameFlags = headerSpan[3];
 
         // 检查长度有效性
         if (frameLength < FrameHeaderSize || frameLength > 65535)

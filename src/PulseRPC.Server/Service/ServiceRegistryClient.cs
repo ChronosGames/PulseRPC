@@ -7,6 +7,8 @@ using MemoryPack;
 using Microsoft.Extensions.Logging;
 using PulseNet.Core;
 using PulseRPC.Protocol;
+using PulseRPC.Protocol.Messages;
+using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Server;
 
@@ -15,25 +17,16 @@ namespace PulseRPC.Server;
 /// </summary>
 public class ServiceRegistryClient : IDisposable
 {
-    private readonly INetClient _client;
+    private readonly NetworkSession _client;
     private readonly ILogger? _logger;
     private readonly Timer _heartbeatTimer;
-    private ServiceRegistration _registration;
+    private ServiceRegistration? _registration;
     private bool _isRegistered;
 
-    public ServiceRegistryClient(INetClient client, ILogger? logger = null)
+    public ServiceRegistryClient(NetworkSession client, ILogger? logger = null)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _logger = logger;
-
-        // 注册响应处理器
-        _client.RegisterHandler<ServiceRegistrationResponse>(
-            MessageIds.ServiceRegistrationResponse,
-            HandleRegistrationResponse);
-
-        _client.RegisterHandler<ServiceHeartbeatResponse>(
-            MessageIds.ServiceHeartbeatResponse,
-            HandleHeartbeatResponse);
 
         // 创建心跳定时器（默认15秒发送一次）
         _heartbeatTimer = new Timer(SendHeartbeat, null, Timeout.Infinite, Timeout.Infinite);
@@ -49,7 +42,7 @@ public class ServiceRegistryClient : IDisposable
         try
         {
             // 发送注册请求
-            await _client.SendAsync(registration, MessageIds.ServiceRegistration);
+            await _client.SendRequestAsync<ServiceRegistration, ServiceRegistrationResponse>(registration);
             _logger?.LogInformation($"发送服务注册请求: {registration.ServiceType}");
         }
         catch (Exception ex)
@@ -88,7 +81,7 @@ public class ServiceRegistryClient : IDisposable
         }
     }
 
-    private async void SendHeartbeat(object state)
+    private async void SendHeartbeat(object? state)
     {
         if (!_isRegistered || _registration == null)
             return;
@@ -105,7 +98,7 @@ public class ServiceRegistryClient : IDisposable
                 Metrics = GetServiceMetrics()
             };
 
-            await _client.SendAsync(heartbeat, MessageIds.ServiceHeartbeat);
+            await _client.SendRequestAsync<ServiceHeartbeat, ServiceHeartbeatResponse>(heartbeat);
         }
         catch (Exception ex)
         {
@@ -187,10 +180,20 @@ public class ServiceRegistryClient : IDisposable
 /// 服务注销请求
 /// </summary>
 [MemoryPackable]
-public partial record ServiceUnregistration(string ServiceType, string ZoneId, string ServerId, string InstanceId) : IMessage;
+public partial class ServiceUnregistration : Request
+{
+    public string ServiceType { get; set; } = string.Empty;
+    public string ZoneId { get; set; } = string.Empty;
+    public string ServerId { get; set; } = string.Empty;
+    public string InstanceId { get; set; } = string.Empty;
+}
 
 /// <summary>
 /// 服务心跳响应
 /// </summary>
 [MemoryPackable]
-public partial record ServiceHeartbeatResponse(bool Success, string Message = "") : IMessage;
+public partial class ServiceHeartbeatResponse : Response
+{
+    public bool Success { get; set; }
+    public string Message { get; set; } = string.Empty;
+}

@@ -109,7 +109,7 @@ public class CommandBatcher
                 if (_pendingCommands.Count == 1)
                 {
                     // 如果只有一个命令，直接发送
-                    await _session.SendCommandAsync(_pendingCommands[0]);
+                    await _session.SendPacketAsync(_pendingCommands[0]);
                 }
                 else
                 {
@@ -117,7 +117,7 @@ public class CommandBatcher
                     var batchCommand = new CommandBatch { Commands = _pendingCommands.ToArray() };
 
                     // 发送批处理包
-                    await _session.SendCommandAsync(batchCommand);
+                    await _session.SendPacketAsync(batchCommand);
                 }
 
                 // 清空待处理命令

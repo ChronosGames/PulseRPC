@@ -39,7 +39,7 @@ public class NetworkBufferPool : IDisposable
     {
         // 初始化11个小块缓冲区池 (2^4 到 2^14) 16B到16KB
         _smallPools = new ConcurrentBag<byte[]>[11];
-        for (int i = 0; i < _smallPools.Length; i++)
+        for (var i = 0; i < _smallPools.Length; i++)
         {
             _smallPools[i] = new ConcurrentBag<byte[]>();
         }
@@ -59,15 +59,17 @@ public class NetworkBufferPool : IDisposable
 
         int[] commonSizes = { 1024, 4096, 8192 };
 
-        foreach (int size in commonSizes)
+        foreach (var size in commonSizes)
         {
-            int sizeIndex = GetSizeIndex(size);
-            if (sizeIndex >= 0 && sizeIndex < _smallPools.Length)
+            var sizeIndex = GetSizeIndex(size);
+            if (sizeIndex < 0 || sizeIndex >= _smallPools.Length)
             {
-                for (int i = 0; i < preAllocCount; i++)
-                {
-                    _smallPools[sizeIndex].Add(new byte[1 << (sizeIndex + 4)]);
-                }
+                continue;
+            }
+
+            for (var i = 0; i < preAllocCount; i++)
+            {
+                _smallPools[sizeIndex].Add(new byte[1 << (sizeIndex + 4)]);
             }
         }
     }
@@ -80,22 +82,23 @@ public class NetworkBufferPool : IDisposable
     public byte[] Rent(int minSize)
     {
         if (minSize <= 0)
+        {
             throw new ArgumentOutOfRangeException(nameof(minSize));
+        }
 
         // 0. 初始化线程本地缓存(如果需要)
         _threadLocalCache ??= new Dictionary<int, byte[]>();
 
         // 1. 检查线程本地缓存
-        int actualSize = CalculateSize(minSize);
-        if (_threadLocalCache.TryGetValue(actualSize, out var localBuffer))
+        var actualSize = CalculateSize(minSize);
+        if (_threadLocalCache.Remove(actualSize, out var localBuffer))
         {
-            _threadLocalCache.Remove(actualSize);
             Interlocked.Increment(ref _hitCount);
             return localBuffer;
         }
 
         // 2. 确定缓冲区大小和索引
-        int sizeIndex = GetSizeIndex(minSize);
+        var sizeIndex = GetSizeIndex(minSize);
 
         // 3. 从相应池获取缓冲区
         if (sizeIndex >= 0 && sizeIndex < _smallPools.Length)
@@ -137,7 +140,7 @@ public class NetworkBufferPool : IDisposable
         // 1. 检查是否可以放入线程本地缓存
         if (_threadLocalCache != null && _threadLocalCache.Count < 8) // 限制本地缓存大小
         {
-            int size = buffer.Length;
+            var size = buffer.Length;
             if (!_threadLocalCache.ContainsKey(size))
             {
                 _threadLocalCache[size] = buffer;
@@ -146,13 +149,13 @@ public class NetworkBufferPool : IDisposable
         }
 
         // 2. 确定缓冲区索引
-        int sizeIndex = GetSizeIndex(buffer.Length);
+        var sizeIndex = GetSizeIndex(buffer.Length);
 
         // 3. 返回到相应池
         if (sizeIndex >= 0 && sizeIndex < _smallPools.Length)
         {
             // 检查是否是2的幂大小 (防止返回不符合规格的缓冲区)
-            int expectedSize = 1 << (sizeIndex + 4);
+            var expectedSize = 1 << (sizeIndex + 4);
             if (buffer.Length == expectedSize)
             {
                 _smallPools[sizeIndex].Add(buffer);
@@ -175,9 +178,9 @@ public class NetworkBufferPool : IDisposable
         _largePools.Clear();
 
         // 对于小块缓冲区，保留一定数量，清除多余
-        for (int i = 0; i < _smallPools.Length; i++)
+        for (var i = 0; i < _smallPools.Length; i++)
         {
-            int maxCount = 32 >> i; // 较小的缓冲区保留更多
+            var maxCount = 32 >> i; // 较小的缓冲区保留更多
 
             var tempPool = _smallPools[i];
             _smallPools[i] = new ConcurrentBag<byte[]>();
@@ -200,8 +203,8 @@ public class NetworkBufferPool : IDisposable
         // 1. 对于小块缓冲区，使用2的幂
         if (minSize <= 16384) // 16KB
         {
-            int power = 4; // 从2^4=16字节开始
-            int size = 1 << power;
+            var power = 4; // 从2^4=16字节开始
+            var size = 1 << power;
 
             while (size < minSize && power < 14)
             {
@@ -220,44 +223,26 @@ public class NetworkBufferPool : IDisposable
     /// <summary>
     /// 获取给定大小对应的小块缓冲区索引
     /// </summary>
-    private int GetSizeIndex(int size)
+    private static int GetSizeIndex(int size)
     {
-        // 对于16B到16KB，使用对应的小块索引
-        if (size <= 16)
-            return 0; // 2^4 = 16B
-
-        if (size <= 32)
-            return 1; // 2^5 = 32B
-
-        if (size <= 64)
-            return 2; // 2^6 = 64B
-
-        if (size <= 128)
-            return 3; // 2^7 = 128B
-
-        if (size <= 256)
-            return 4; // 2^8 = 256B
-
-        if (size <= 512)
-            return 5; // 2^9 = 512B
-
-        if (size <= 1024)
-            return 6; // 2^10 = 1KB
-
-        if (size <= 2048)
-            return 7; // 2^11 = 2KB
-
-        if (size <= 4096)
-            return 8; // 2^12 = 4KB
-
-        if (size <= 8192)
-            return 9; // 2^13 = 8KB
-
-        if (size <= 16384)
-            return 10; // 2^14 = 16KB
+        return size switch
+        {
+            // 对于16B到16KB，使用对应的小块索引
+            <= 16 => 0,
+            <= 32 => 1,
+            <= 64 => 2,
+            <= 128 => 3,
+            <= 256 => 4,
+            <= 512 => 5,
+            <= 1024 => 6,
+            <= 2048 => 7,
+            <= 4096 => 8,
+            <= 8192 => 9,
+            <= 16384 => 10,
+            _ => -1
+        };
 
         // 大于16KB的使用大块缓冲区
-        return -1;
     }
 
     /// <summary>
@@ -265,9 +250,9 @@ public class NetworkBufferPool : IDisposable
     /// </summary>
     public (long TotalAllocated, long HitCount, long MissCount, double HitRatio) GetStats()
     {
-        long hits = Interlocked.Read(ref _hitCount);
-        long misses = Interlocked.Read(ref _missCount);
-        double hitRatio = (hits + misses) > 0 ? (double)hits / (hits + misses) : 0;
+        var hits = Interlocked.Read(ref _hitCount);
+        var misses = Interlocked.Read(ref _missCount);
+        var hitRatio = (hits + misses) > 0 ? (double)hits / (hits + misses) : 0;
 
         return (Interlocked.Read(ref _totalAllocated), hits, misses, hitRatio);
     }

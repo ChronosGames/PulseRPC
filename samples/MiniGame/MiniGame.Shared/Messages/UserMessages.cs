@@ -1,15 +1,13 @@
 using MemoryPack;
-using PulseRPC.Protocol;
-using PulseRPC.Protocol.Attributes;
-using System;
+using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Samples.Shared.Messages;
 
 /// <summary>
 /// 获取用户信息请求
 /// </summary>
-[MemoryPackable, Message(1101, MessageType.Request)]
-public partial class GetUserInfoRequest : IMessage
+[MemoryPackable]
+public partial class GetUserInfoRequest : Request
 {
     /// <summary>
     /// 用户ID
@@ -20,8 +18,8 @@ public partial class GetUserInfoRequest : IMessage
 /// <summary>
 /// 获取用户信息响应
 /// </summary>
-[MemoryPackable, Message(1102, MessageType.Response)]
-public partial class GetUserInfoResponse : IMessage
+[MemoryPackable]
+public partial class GetUserInfoResponse : Response
 {
     /// <summary>
     /// 响应状态
@@ -72,8 +70,8 @@ public partial class GetUserInfoResponse : IMessage
 /// <summary>
 /// 更新用户信息请求
 /// </summary>
-[MemoryPackable, Message(1103, MessageType.Request)]
-public partial class UpdateUserInfoRequest : IMessage
+[MemoryPackable]
+public partial class UpdateUserInfoRequest : Request
 {
     /// <summary>
     /// 用户ID
@@ -94,8 +92,8 @@ public partial class UpdateUserInfoRequest : IMessage
 /// <summary>
 /// 更新用户信息响应
 /// </summary>
-[MemoryPackable, Message(1104, MessageType.Response)]
-public partial class UpdateUserInfoResponse : IMessage
+[MemoryPackable]
+public partial class UpdateUserInfoResponse : Response
 {
     /// <summary>
     /// 响应状态

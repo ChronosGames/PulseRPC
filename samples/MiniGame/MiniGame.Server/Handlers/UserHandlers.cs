@@ -10,7 +10,7 @@ namespace PulseRPC.Samples.Server.Handlers;
 /// <summary>
 /// 获取用户信息请求处理器
 /// </summary>
-public class GetUserInfoRequestHandler : RequestHandlerBase<GetUserInfoRequest, GetUserInfoResponse>
+public class GetUserInfoRequestHandler : IRequestHandler<GetUserInfoRequest, GetUserInfoResponse>
 {
     private readonly ILogger<GetUserInfoRequestHandler> _logger;
 
@@ -26,7 +26,7 @@ public class GetUserInfoRequestHandler : RequestHandlerBase<GetUserInfoRequest, 
     /// <summary>
     /// 处理获取用户信息请求
     /// </summary>
-    protected override async Task<GetUserInfoResponse> ProcessRequestAsync(NetworkSession context, GetUserInfoRequest request)
+    public Task<GetUserInfoResponse> HandleAsync(NetworkSession context, GetUserInfoRequest request)
     {
         _logger.LogInformation("收到获取用户信息请求: UserId={UserId}", request.UserId);
 
@@ -34,11 +34,11 @@ public class GetUserInfoRequestHandler : RequestHandlerBase<GetUserInfoRequest, 
         bool isAuthenticated = context.GetItem<bool>("IsAuthenticated");
         if (!isAuthenticated)
         {
-            return new GetUserInfoResponse
+            return Task.FromResult(new GetUserInfoResponse
             {
                 Status = ResponseStatus.AuthenticationFailed,
                 ErrorMessage = "未授权访问，请先登录"
-            };
+            });
         }
 
         // 构造响应
@@ -72,14 +72,14 @@ public class GetUserInfoRequestHandler : RequestHandlerBase<GetUserInfoRequest, 
 
         _logger.LogInformation("获取用户信息成功: UserId={UserId}, Username={Username}", response.UserId, response.Username);
 
-        return response;
+        return Task.FromResult(response);
     }
 }
 
 /// <summary>
 /// 更新用户信息请求处理器
 /// </summary>
-public class UpdateUserInfoRequestHandler : RequestHandlerBase<UpdateUserInfoRequest, UpdateUserInfoResponse>
+public class UpdateUserInfoRequestHandler : IRequestHandler<UpdateUserInfoRequest, UpdateUserInfoResponse>
 {
     private readonly ILogger<UpdateUserInfoRequestHandler> _logger;
 
@@ -95,7 +95,7 @@ public class UpdateUserInfoRequestHandler : RequestHandlerBase<UpdateUserInfoReq
     /// <summary>
     /// 处理更新用户信息请求
     /// </summary>
-    protected override async Task<UpdateUserInfoResponse> ProcessRequestAsync(NetworkSession context, UpdateUserInfoRequest request)
+    public async Task<UpdateUserInfoResponse> HandleAsync(NetworkSession context, UpdateUserInfoRequest request)
     {
         _logger.LogInformation("收到更新用户信息请求: UserId={UserId}", request.UserId);
 

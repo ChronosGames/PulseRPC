@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PulseNet.Core;
+using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Server;
 
@@ -12,27 +12,16 @@ public class ServiceRegistryServer : IDisposable
 {
     private readonly INetServer _server;
     private readonly IServiceRegistry _registry;
-    private readonly INetCoreLogger _logger;
+    private readonly ILogger? _logger;
 
     public ServiceRegistryServer(
-        ISerializer serializer,
         INetServer server,
         IServiceRegistry registry,
-        INetCoreLogger logger = null)
+        ILogger? logger = null)
     {
         _server = server ?? throw new ArgumentNullException(nameof(server));
         _registry = registry ?? throw new ArgumentNullException(nameof(registry));
         _logger = logger;
-
-        // 注册消息处理器
-        _server.RegisterHandler(MessageIds.ServiceRegistration,
-            new ServiceRegistrationMessageHandler(serializer, _registry, _logger, MessageIds.ServiceRegistration));
-
-        _server.RegisterHandler(MessageIds.ServiceHeartbeat,
-            new ServiceHeartbeatMessageHandler(serializer, _registry, _logger, MessageIds.ServiceHeartbeat));
-
-        _server.RegisterHandler(MessageIds.ServiceUnregistration,
-            new ServiceUnregistrationMessageHandler(serializer, _registry, _logger, MessageIds.ServiceUnregistration));
 
         // 注册会话事件
         _server.SessionConnected += OnSessionConnected;
@@ -54,23 +43,23 @@ public class ServiceRegistryServer : IDisposable
                 NoDelay = true
             });
 
-            _logger?.Info($"服务注册中心已启动，监听端口: {port}");
+            _logger?.LogInformation("服务注册中心已启动，监听端口: {Port}", port);
         }
         catch (Exception ex)
         {
-            _logger?.Error(ex, "启动服务注册中心时出错");
+            _logger?.LogError(ex, "启动服务注册中心时出错");
             throw;
         }
     }
 
     private void OnSessionConnected(object sender, SessionEventArgs e)
     {
-        _logger?.Info($"客户端已连接: {e.Session.RemoteEndPoint}");
+        _logger?.LogInformation((string)"客户端已连接: {RemoteEndPoint}", (object?)e.Session.RemoteEndPoint);
     }
 
     private void OnSessionDisconnected(object sender, DisconnectedEventArgs e)
     {
-        _logger?.Info($"客户端已断开: {e.Session.RemoteEndPoint}, 原因: {e.Reason}");
+        _logger?.LogError("客户端已断开: {RemoteEndPoint}, 原因: {Reason}", e.Session.RemoteEndPoint, e.Reason);
     }
 
     public void Dispose()
@@ -83,55 +72,22 @@ public class ServiceRegistryServer : IDisposable
 /// <summary>
 /// 服务心跳消息处理器
 /// </summary>
-public class ServiceHeartbeatMessageHandler : MessageHandlerBase<ServiceHeartbeat>
+public class ServiceHeartbeatMessageHandler(
+    IServiceRegistry registry,
+    ILogger logger) : IRequestHandler<ServiceHeartbeat, ServiceHeartbeatResponse>
 {
-    private readonly IServiceRegistry _registry;
-    private readonly INetCoreLogger _logger;
-    private readonly int _messageId;
+    private readonly ILogger _logger = logger;
 
-    public ServiceHeartbeatMessageHandler(
-        ISerializer serializer,
-        IServiceRegistry registry,
-        INetCoreLogger logger,
-        int messageId) : base(serializer)
+    public async Task<ServiceHeartbeatResponse> HandleAsync(NetworkSession session, ServiceHeartbeat heartbeat)
     {
-        _registry = registry;
-        _logger = logger;
-        _messageId = messageId;
+        var success = await registry.UpdateHeartbeatAsync(
+            heartbeat.ServiceType,
+            GetServiceId(heartbeat));
+
+        return new ServiceHeartbeatResponse { Success = success, Message = success ? "心跳更新成功" : "服务不存在" };
     }
 
-    protected override async Task HandleMessageAsync(PulseNet.Core.INetSession session, ServiceHeartbeat heartbeat)
-    {
-        try
-        {
-            var success = await _registry.UpdateHeartbeatAsync(
-                heartbeat.ServiceType,
-                GetServiceId(heartbeat));
-
-            await session.SendAsync(new ServiceHeartbeatResponse
-            {
-                Success = success,
-                Message = success ? "心跳更新成功" : "服务不存在"
-            }, MessageIds.ServiceHeartbeatResponse);
-        }
-        catch (Exception ex)
-        {
-            _logger?.Error(ex, "处理服务心跳消息时出错");
-
-            await session.SendAsync(new ServiceHeartbeatResponse
-            {
-                Success = false,
-                Message = $"心跳更新失败: {ex.Message}"
-            }, MessageIds.ServiceHeartbeatResponse);
-        }
-    }
-
-    public bool CanHandle(int messageId)
-    {
-        return messageId == _messageId;
-    }
-
-    private string GetServiceId(ServiceHeartbeat heartbeat)
+    private static string GetServiceId(ServiceHeartbeat heartbeat)
     {
         if (!string.IsNullOrEmpty(heartbeat.InstanceId))
         {
@@ -151,55 +107,24 @@ public class ServiceHeartbeatMessageHandler : MessageHandlerBase<ServiceHeartbea
 /// <summary>
 /// 服务注销消息处理器
 /// </summary>
-public class ServiceUnregistrationMessageHandler : MessageHandlerBase<ServiceUnregistration>
+public class ServiceUnregistrationMessageHandler(
+    IServiceRegistry registry,
+    ILogger<ServiceUnregistrationMessageHandler> logger)
+    : IRequestHandler<ServiceUnregistration, ServiceRegistrationResponse>
 {
-    private readonly IServiceRegistry _registry;
-    private readonly ILogger _logger;
-    private readonly int _messageId;
+    private readonly ILogger _logger = logger;
 
-    public ServiceUnregistrationMessageHandler(
-        ISerializer serializer,
-        IServiceRegistry registry,
-        ILogger logger,
-        int messageId) : base(serializer)
+    public async Task<ServiceRegistrationResponse> HandleAsync(NetworkSession session,
+        ServiceUnregistration unregistration)
     {
-        _registry = registry;
-        _logger = logger;
-        _messageId = messageId;
+        await registry.UnregisterServiceAsync(
+            unregistration.ServiceType,
+            GetServiceId(unregistration));
+
+        return new ServiceRegistrationResponse { Success = true, Message = "服务注销成功" };
     }
 
-    protected override async Task HandleMessageAsync(PulseNet.Core.INetSession session, ServiceUnregistration unregistration)
-    {
-        try
-        {
-            await _registry.UnregisterServiceAsync(
-                unregistration.ServiceType,
-                GetServiceId(unregistration));
-
-            await session.SendAsync(new ServiceRegistrationResponse
-            {
-                Success = true,
-                Message = "服务注销成功"
-            }, MessageIds.ServiceUnregistrationResponse);
-        }
-        catch (Exception ex)
-        {
-            _logger?.Error(ex, "处理服务注销消息时出错");
-
-            await session.SendAsync(new ServiceRegistrationResponse
-            {
-                Success = false,
-                Message = $"服务注销失败: {ex.Message}"
-            }, MessageIds.ServiceUnregistrationResponse);
-        }
-    }
-
-    public bool CanHandle(int messageId)
-    {
-        return messageId == _messageId;
-    }
-
-    private string GetServiceId(ServiceUnregistration unregistration)
+    private static string GetServiceId(ServiceUnregistration unregistration)
     {
         if (!string.IsNullOrEmpty(unregistration.InstanceId))
         {
