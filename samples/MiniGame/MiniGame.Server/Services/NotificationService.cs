@@ -14,14 +14,14 @@ namespace PulseRPC.Samples.Server.Services;
 public class NotificationService
 {
     private readonly ILogger<NotificationService> _logger;
-    private readonly TcpServer _server;
+    private readonly NetworkServer _server;
 
     /// <summary>
     /// 初始化通知服务
     /// </summary>
     /// <param name="logger">日志记录器</param>
     /// <param name="server">TCP服务器</param>
-    public NotificationService(ILogger<NotificationService> logger, TcpServer server)
+    public NotificationService(ILogger<NotificationService> logger, NetworkServer server)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _server = server ?? throw new ArgumentNullException(nameof(server));
@@ -54,8 +54,8 @@ public class NotificationService
             Metadata = metadata ?? new Dictionary<string, string>()
         };
 
-        await _server.BroadcastAsync(notification);
-        _logger.LogInformation($"已发送系统通知: {title}, 类型: {type}");
+        await _server.BroadcastMessageAsync(notification);
+        _logger.LogInformation("已发送系统通知: {Title}, 类型: {NotificationType}", title, type);
     }
 
     /// <summary>
@@ -81,7 +81,7 @@ public class NotificationService
             Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds()
         };
 
-        await _server.BroadcastAsync(notification);
+        await _server.BroadcastMessageAsync(notification);
         _logger.LogInformation("已发送用户状态通知: 用户 {Username} ({UserId}), 状态: {Status}",
             username, userId, status);
     }
@@ -110,7 +110,7 @@ public class NotificationService
             Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds()
         };
 
-        await _server.BroadcastAsync(broadcast);
+        await _server.BroadcastMessageAsync(broadcast);
         _logger.LogInformation("已发送全局广播: {Message}, 发送者: {Sender}", message, sender);
     }
 }

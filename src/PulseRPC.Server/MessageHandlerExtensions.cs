@@ -1,6 +1,7 @@
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Server;
 
@@ -20,7 +21,7 @@ public static class MessageHandlerExtensions
     {
         // 注册处理器工厂和分发器
         services.TryAddSingleton<MessageHandlerFactory>();
-        services.TryAddSingleton<MessageDispatcher>();
+        services.TryAddSingleton<IMessageDispatcher, MessageDispatcher>();
 
         if (scanForHandlers)
         {

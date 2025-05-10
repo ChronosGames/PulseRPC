@@ -1,15 +1,13 @@
 using MemoryPack;
-using PulseRPC.Protocol;
-using PulseRPC.Protocol.Attributes;
-using System.Collections.Generic;
+using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Samples.Shared.Messages;
 
 /// <summary>
 /// 系统通知消息
 /// </summary>
-[MemoryPackable, Message(2001, MessageType.Notification)]
-public partial class SystemNotification : IMessage
+[MemoryPackable]
+public partial class SystemNotification : Message
 {
     /// <summary>
     /// 通知ID
@@ -50,8 +48,8 @@ public partial class SystemNotification : IMessage
 /// <summary>
 /// 用户状态通知消息
 /// </summary>
-[MemoryPackable, Message(2002, MessageType.Notification)]
-public partial class UserStatusNotification : IMessage
+[MemoryPackable]
+public partial class UserStatusNotification : Message
 {
     /// <summary>
     /// 用户ID
@@ -82,8 +80,8 @@ public partial class UserStatusNotification : IMessage
 /// <summary>
 /// 全局广播消息
 /// </summary>
-[MemoryPackable, Message(3001, MessageType.Broadcast)]
-public partial class GlobalBroadcast : IMessage
+[MemoryPackable]
+public partial class GlobalBroadcast : Message
 {
     /// <summary>
     /// 广播ID

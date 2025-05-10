@@ -8,7 +8,6 @@ public class ServiceDiscoveryConnector : IDisposable
 {
     private readonly IServiceDiscovery _serviceDiscovery;
     private readonly ILogger _logger;
-    private readonly NetClientFactory _clientFactory;
     private readonly Dictionary<string, List<ServiceNode>> _serviceCache;
     private readonly Dictionary<string, List<TcpClient>> _clientPool;
     private readonly SemaphoreSlim _cacheLock;
@@ -19,13 +18,11 @@ public class ServiceDiscoveryConnector : IDisposable
     public ServiceDiscoveryConnector(
         IServiceDiscovery serviceDiscovery,
         ILogger logger,
-        NetClientFactory clientFactory,
         TimeSpan cacheRefreshInterval,
-        ClientOptions defaultClientOptions = null)
+        ClientOptions? defaultClientOptions = null)
     {
         _serviceDiscovery = serviceDiscovery;
         _logger = logger;
-        _clientFactory = clientFactory;
         _serviceCache = new Dictionary<string, List<ServiceNode>>();
         _clientPool = new Dictionary<string, List<TcpClient>>();
         _cacheLock = new SemaphoreSlim(1, 1);
@@ -80,41 +77,41 @@ public class ServiceDiscoveryConnector : IDisposable
         }
 
         // 移除不再存在的节点连接
-        var nodeAddresses = nodes.Select(n => $"{n.Host}:{n.Port}").ToHashSet();
-        for (int i = clients.Count - 1; i >= 0; i--)
-        {
-            var client = clients[i];
-            if (client.Status != ClientStatus.Connected ||
-                !nodeAddresses.Contains(client.RemoteEndpoint))
-            {
-                clients.RemoveAt(i);
-                await client.DisconnectAsync();
-                client.Dispose();
-            }
-        }
+        // var nodeAddresses = nodes.Select(n => $"{n.Host}:{n.Port}").ToHashSet();
+        // for (int i = clients.Count - 1; i >= 0; i--)
+        // {
+        //     var client = clients[i];
+        //     if (client.Status != ClientStatus.Connected ||
+        //         !nodeAddresses.Contains(client.RemoteEndpoint))
+        //     {
+        //         clients.RemoveAt(i);
+        //         await client.DisconnectAsync();
+        //         client.Dispose();
+        //     }
+        // }
 
         // 为新节点创建连接
-        foreach (var node in nodes)
-        {
-            var nodeAddress = $"{node.Host}:{node.Port}";
-            if (!clients.Any(c => c.RemoteEndpoint == nodeAddress && c.Status == ClientStatus.Connected))
-            {
-                try
-                {
-                    var client = _clientFactory.CreateTcpClient();
-
-                    // 应用服务特定选项
-                    var options = GetClientOptionsForService(serviceType);
-
-                    await client.ConnectAsync(node.Host, node.Port, options);
-                    clients.Add(client);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, $"Failed to connect to {nodeAddress}");
-                }
-            }
-        }
+        // foreach (var node in nodes)
+        // {
+        //     var nodeAddress = $"{node.Host}:{node.Port}";
+        //     if (!clients.Any(c => c.RemoteEndpoint == nodeAddress && c.Status == ClientStatus.Connected))
+        //     {
+        //         try
+        //         {
+        //             var client = _clientFactory.CreateTcpClient();
+        //
+        //             // 应用服务特定选项
+        //             var options = GetClientOptionsForService(serviceType);
+        //
+        //             await client.ConnectAsync(node.Host, node.Port, options);
+        //             clients.Add(client);
+        //         }
+        //         catch (Exception ex)
+        //         {
+        //             _logger.LogError(ex, $"Failed to connect to {nodeAddress}");
+        //         }
+        //     }
+        // }
     }
 
     private ClientOptions GetClientOptionsForService(string serviceType)
@@ -191,7 +188,7 @@ public class ServiceDiscoveryConnector : IDisposable
 
             case ServiceSelectionStrategy.LeastConnections:
                 // 最少连接
-                return availableClients.OrderBy(c => c.ConnectionCount).First();
+                return availableClients.OrderBy<TcpClient, object>(c => c.ConnectionCount).First();
 
             default:
                 return availableClients[0];

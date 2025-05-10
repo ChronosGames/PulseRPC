@@ -1,36 +1,24 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol;
-using PulseRPC.Protocol.Serialization;
-using PulseRPC.Samples.Server.Handlers;
 using PulseRPC.Samples.Server.Services;
 using PulseRPC.Samples.Shared;
-using PulseRPC.Samples.Shared.Messages;
 using PulseRPC.Server;
-using PulseRPC.Server.MessageRegistration;
 
 namespace PulseRPC.Samples.Server;
 
 /// <summary>
 /// 迷你游戏服务器示例程序
 /// </summary>
-internal class Program
+internal abstract class Program
 {
-    static async Task Main(string[] args)
+    private static async Task Main(string[] args)
     {
         Console.WriteLine("PulseRPC 迷你游戏服务器示例");
         Console.WriteLine("=============================");
 
         // 创建托管应用程序
         var host = CreateHostBuilder(args).Build();
-
-        // 注册消息类型
-        RegisterMessageTypes();
 
         // 启动服务
         await host.StartAsync();
@@ -86,13 +74,10 @@ internal class Program
                 services.AddSingleton<NotificationService>();
 
                 // 添加PulseRPC服务器
-                services.AddTcpServerAsHostedService(ipAddress: "127.0.0.1", port: 5000);
+                services.AddSingleton<NetworkServer>();
 
                 // 手动注册各种消息处理器
-                services.AddMessageHandler<LoginRequestHandler>();
-                services.AddMessageHandler<RegisterRequestHandler>();
-                services.AddMessageHandler<GetUserInfoRequestHandler>();
-                services.AddMessageHandler<UpdateUserInfoRequestHandler>();
+                services.AddPulseRpcMessageHandling();
 
                 // 添加游戏服务器应用程序生命周期服务
                 services.AddSingleton<IHostedService, GameServerLifetimeService>();
@@ -125,22 +110,5 @@ internal class Program
             new Dictionary<string, string> { { "MaintenanceId", "M2023120100" } });
 
         Console.WriteLine("已发送系统通知");
-    }
-
-    /// <summary>
-    /// 注册消息类型
-    /// </summary>
-    private static void RegisterMessageTypes()
-    {
-        // 确保 MemoryPack 正确生成序列化器
-        try
-        {
-            MemoryPackHelpers.RegisterAllTypes();
-            Console.WriteLine("MemoryPack 序列化器注册成功");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"MemoryPack 序列化器注册失败: {ex.Message}");
-        }
     }
 }

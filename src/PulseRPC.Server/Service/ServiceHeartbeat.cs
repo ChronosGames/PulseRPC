@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
+using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Server;
 
 /// <summary>
 /// 服务心跳信息
 /// </summary>
-public class ServiceHeartbeat
+public class ServiceHeartbeat : Request
 {
     /// <summary>
     /// 服务类型
@@ -36,5 +38,5 @@ public class ServiceHeartbeat
     /// <summary>
     /// 服务指标数据
     /// </summary>
-    public Dictionary<string, object> Metrics { get; set; } = new Dictionary<string, object>();
+    public ImmutableDictionary<string, object> Metrics { get; set; } = ImmutableDictionary<string, object>.Empty;
 }

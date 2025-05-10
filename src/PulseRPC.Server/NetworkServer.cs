@@ -11,6 +11,7 @@ namespace PulseRPC.Server;
 public class NetworkServer : IDisposable
 {
     private readonly NetworkOptions _options;
+    private readonly IMessageDispatcher _dispatcher;
     private readonly Socket _listenSocket;
     private readonly List<NetworkSession> _sessions = new List<NetworkSession>();
     private readonly object _sessionsLock = new object();
@@ -28,21 +29,12 @@ public class NetworkServer : IDisposable
     public event Action<NetworkSession, Exception?>? ClientDisconnected;
 
     /// <summary>
-    /// 收到命令事件
-    /// </summary>
-    public event Action<NetworkSession, Command>? CommandReceived;
-
-    /// <summary>
-    /// 收到请求事件
-    /// </summary>
-    public event Action<NetworkSession, Request>? RequestReceived;
-
-    /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkServer(NetworkOptions? options = null)
+    public NetworkServer(IMessageDispatcher dispatcher, NetworkOptions? options = null)
     {
         _options = options ?? new NetworkOptions();
+        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
     }
 
@@ -51,7 +43,7 @@ public class NetworkServer : IDisposable
     /// </summary>
     public void Start(IPEndPoint endPoint, int backlog = 100)
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(NetworkServer));
+        ObjectDisposedException.ThrowIf(_isDisposed, nameof(NetworkServer));
 
         _listenSocket.Bind(endPoint);
         _listenSocket.Listen(backlog);
@@ -76,8 +68,7 @@ public class NetworkServer : IDisposable
                 clientSocket.ReceiveBufferSize = _options.SocketBufferSize;
 
                 // 创建会话
-                var session = new NetworkSession(clientSocket, _options);
-                session.CommandReceived += OnCommandReceived;
+                var session = new NetworkSession(clientSocket, _dispatcher, _options);
                 session.Disconnected += OnClientDisconnected;
 
                 // 添加到会话列表
@@ -114,21 +105,6 @@ public class NetworkServer : IDisposable
     }
 
     /// <summary>
-    /// 处理收到的命令
-    /// </summary>
-    private void OnCommandReceived(NetworkSession session, Command command)
-    {
-        if (command is Request request)
-        {
-            RequestReceived?.Invoke(session, request);
-        }
-        else
-        {
-            CommandReceived?.Invoke(session, command);
-        }
-    }
-
-    /// <summary>
     /// 广播消息给所有客户端
     /// </summary>
     public async Task BroadcastMessageAsync<T>(T message) where T : Message
@@ -144,7 +120,7 @@ public class NetworkServer : IDisposable
         var tasks = new List<Task>(sessions.Length);
         foreach (var session in sessions)
         {
-            tasks.Add(session.SendMessageAsync(message));
+            tasks.Add(session.SendPacketAsync(message));
         }
 
         await Task.WhenAll(tasks);
@@ -156,16 +132,7 @@ public class NetworkServer : IDisposable
     public Task SendMessageAsync<T>(NetworkSession session, T message) where T : Message
     {
         if (_isDisposed) throw new ObjectDisposedException(nameof(NetworkServer));
-        return session.SendMessageAsync(message);
-    }
-
-    /// <summary>
-    /// 发送响应
-    /// </summary>
-    public Task SendResponseAsync<T>(NetworkSession session, T response, uint requestId) where T : Response
-    {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(NetworkServer));
-        return session.SendResponseAsync(response, requestId);
+        return session.SendPacketAsync(message);
     }
 
     /// <summary>

@@ -8,7 +8,7 @@ namespace PulseRPC.Server;
 /// <summary>
 /// 消息分发器，负责将接收到的消息分发到相应的处理程序
 /// </summary>
-public class MessageDispatcher
+public class MessageDispatcher : IMessageDispatcher
 {
     private readonly MessageHandlerFactory _handlerFactory;
     private readonly ILogger<MessageDispatcher> _logger;
@@ -30,13 +30,13 @@ public class MessageDispatcher
     /// <summary>
     /// 分发消息到处理器
     /// </summary>
-    public async Task DispatchAsync(Command command, NetworkSession context)
+    public async Task DispatchAsync(NetworkSession context, IPacket packet)
     {
         // 获取处理器类型
-        var handlerType = _handlerFactory.GetHandlerType(command.GetType());
+        var handlerType = _handlerFactory.GetHandlerType(packet.GetType());
         if (handlerType == null)
         {
-            _logger.LogWarning($"找不到消息ID {command.GetType().Name} 的处理器");
+            _logger.LogWarning("找不到消息ID {Name} 的处理器", packet.GetType().Name);
             return;
         }
 
@@ -46,11 +46,11 @@ public class MessageDispatcher
             var handler = _handlerFactory.GetOrCreate(handlerType);
 
             // 调用处理方法
-            await InvokeHandlerAsync(handler, context, command);
+            await InvokeHandlerAsync(handler, context, packet);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"处理消息 {command.GetType().Name} 时发生错误");
+            _logger.LogError(ex, "处理消息 {Name} 时发生错误", packet.GetType().Name);
             throw;
         }
     }
@@ -62,33 +62,70 @@ public class MessageDispatcher
     /// <param name="context">会话上下文</param>
     /// <param name="message">消息对象</param>
     /// <returns>处理任务</returns>
-    private async Task InvokeHandlerAsync(IMessageHandler handler, NetworkSession context, object message)
+    private async Task InvokeHandlerAsync(IMessageHandler handler, NetworkSession context, IPacket message)
     {
-        var handlerType = handler.GetType();
-        var messageType = message.GetType();
-
-        // 查找并缓存泛型HandleAsync方法
-        if (!_genericHandleMethodCache.TryGetValue(handlerType, out var handleMethod))
+        switch (message)
         {
-            // 查找泛型接口实现
-            var interfaceType = handlerType.GetInterfaces()
-                .FirstOrDefault(i => i.IsGenericType &&
-                                    i.GetGenericTypeDefinition() == typeof(ICommandHandler<>) &&
-                                    i.GetGenericArguments()[0] == messageType);
-
-            if (interfaceType == null)
+            case Command command:
             {
-                throw new InvalidOperationException($"处理器 {handlerType.Name} 没有实现 IMessageHandler<{messageType.Name}>");
+                var handlerType = handler.GetType();
+                var messageType = message.GetType();
+
+                // 查找并缓存泛型HandleAsync方法
+                if (!_genericHandleMethodCache.TryGetValue(handlerType, out var handleMethod))
+                {
+                    // 查找泛型接口实现
+                    var interfaceType = handlerType.GetInterfaces()
+                        .FirstOrDefault(i => i.IsGenericType &&
+                                             i.GetGenericTypeDefinition() == typeof(ICommandHandler<>) &&
+                                             i.GetGenericArguments()[0] == messageType);
+
+                    if (interfaceType == null)
+                    {
+                        throw new InvalidOperationException($"处理器 {handlerType.Name} 没有实现 ICommandHandler<{messageType.Name}>");
+                    }
+
+                    // 获取HandleAsync方法
+                    handleMethod = interfaceType.GetMethod("HandleAsync") ??
+                                   throw new InvalidOperationException($"接口 {interfaceType.Name} 没有定义 HandleAsync 方法");
+
+                    _genericHandleMethodCache[handlerType] = handleMethod;
+                }
+
+                // 调用HandleAsync方法
+                await (Task)handleMethod.Invoke(handler, [context, message])!;
+                break;
             }
+            case Request request:
+            {
+                var handlerType = handler.GetType();
+                var messageType = message.GetType();
 
-            // 获取HandleAsync方法
-            handleMethod = interfaceType.GetMethod("HandleAsync") ??
-                throw new InvalidOperationException($"接口 {interfaceType.Name} 没有定义 HandleAsync 方法");
+                // 查找并缓存泛型HandleAsync方法
+                if (!_genericHandleMethodCache.TryGetValue(handlerType, out var handleMethod))
+                {
+                    // 查找泛型接口实现
+                    var interfaceType = handlerType.GetInterfaces()
+                        .FirstOrDefault(i => i.IsGenericType &&
+                                             i.GetGenericTypeDefinition() == typeof(IRequestHandler<,>) &&
+                                             i.GetGenericArguments()[0] == messageType);
 
-            _genericHandleMethodCache[handlerType] = handleMethod;
+                    if (interfaceType == null)
+                    {
+                        throw new InvalidOperationException($"处理器 {handlerType.Name} 没有实现 IRequestHandler<{messageType.Name}, ResponseType>");
+                    }
+
+                    // 获取HandleAsync方法
+                    handleMethod = interfaceType.GetMethod("HandleAsync") ??
+                                   throw new InvalidOperationException($"接口 {interfaceType.Name} 没有定义 HandleAsync 方法");
+
+                    _genericHandleMethodCache[handlerType] = handleMethod;
+                }
+
+                // 调用HandleAsync方法
+                await (Task)handleMethod.Invoke(handler, [context, request])!;
+                break;
+            }
         }
-
-        // 调用HandleAsync方法
-        await (Task)handleMethod.Invoke(handler, [context, message])!;
     }
 }
