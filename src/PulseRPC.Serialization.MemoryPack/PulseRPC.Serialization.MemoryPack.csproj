@@ -1,0 +1,37 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.1;net8.0</TargetFrameworks>
+
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- NuGet -->
+    <PackageId>PulseRPC.Serialization.MemoryPack</PackageId>
+    <Description>PulseRPC extension package for serialization using MemoryPack.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MemoryPack" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="DynamicArgumentTupleMemoryPackFormatter.cs">
+      <DependentUpon>DynamicArgumentTupleMemoryPackFormatter.tt</DependentUpon>
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="DynamicArgumentTupleMemoryPackFormatter.tt">
+      <LastGenOutput>DynamicArgumentTupleMemoryPackFormatter.cs</LastGenOutput>
+      <Generator>TextTemplatingFileGenerator</Generator>
+    </None>
+  </ItemGroup>
+
+</Project>
