@@ -32,8 +32,8 @@ public class MessageRegistrationGenerator : ISourceGenerator
             .SelectMany(tree => tree.GetRoot().DescendantNodes())
             .OfType<ClassDeclarationSyntax>()
             .Select(c => context.Compilation.GetSemanticModel(c.SyntaxTree).GetDeclaredSymbol(c))
-            .Where(symbol => symbol != null && symbol is INamedTypeSymbol &&
-                symbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == PulseClientGenerationAttributeName))
+            .Where(symbol => symbol is INamedTypeSymbol &&
+                             symbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == PulseClientGenerationAttributeName))
             .Cast<INamedTypeSymbol>()
             .ToList();
 
@@ -189,15 +189,14 @@ public class MessageRegistrationGenerator : ISourceGenerator
 
     private string GenerateMessageRegistration(INamedTypeSymbol clientType, List<INamedTypeSymbol> messageTypes)
     {
+        var index = 0;
         var registrations = messageTypes
             .Select(type =>
             {
                 var messageAttr = type.GetAttributes()
                     .FirstOrDefault(attr => attr.AttributeClass?.ToDisplayString() == MessageAttributeFullName);
-                if (messageAttr == null) return null;
-                var messageId = messageAttr.ConstructorArguments[0].Value;
-                if (messageId == null) return null;
-                return $"            PulseRPCFormatterProvider.RegisterMessageType<{type.ToDisplayString()}>({(int)messageId});";
+                var messageId = messageAttr?.ConstructorArguments[0].Value;
+                return messageId == null ? null : $"         ({(int)messageId}, typeof({type.ToDisplayString()})),";
             })
             .Where(s => s != null)
             .OrderBy(s => s);
@@ -208,12 +207,15 @@ using PulseRPC.Protocol.Serialization;
 
 namespace {clientType.ContainingNamespace}
 {{
+
     public partial class {clientType.Name}
     {{
-        static partial void RegisterMessages()
+        var formatter = new DynamicUnionFormatter<IPacket>(
         {{
 {string.Join("\n", registrations)}
-        }}
+        }});
+
+        MemoryPackFormatterProvider.Register(formatter);
     }}
 }}
 ";

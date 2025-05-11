@@ -1,0 +1,40 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.1;net8.0</TargetFrameworks>
+
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsTrimmable Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsTrimmable>
+
+    <PackageId>PulseRPC.Abstractions</PackageId>
+    <Description>PulseRPC interfaces and abstractions for server and client.
+      Commonly used types:
+      PulseRPC.IService&lt;TSelf&gt;
+      PulseRPC.IStreamingHub&lt;TSelf, TReceiver&gt;
+      PulseRPC.UnaryResult&lt;TResult&gt;
+      PulseRPC.IgnoreAttribute</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MemoryPack" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="DynamicArgumentTuple.tt">
+      <LastGenOutput>DynamicArgumentTuple.cs</LastGenOutput>
+      <Generator>TextTemplatingFileGenerator</Generator>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Update="DynamicArgumentTuple.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+      <DependentUpon>DynamicArgumentTuple.tt</DependentUpon>
+    </Compile>
+  </ItemGroup>
+</Project>
