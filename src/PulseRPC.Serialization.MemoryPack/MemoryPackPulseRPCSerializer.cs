@@ -17,7 +17,7 @@ public partial class MemoryPackPulseRPCSerializerProvider : IPulseRPCSerializerP
 
     static MemoryPackPulseRPCSerializerProvider()
     {
-        DynamicArgumentTupleFormatter.Register();
+        //DynamicArgumentTupleFormatter.Register();
     }
 
     public MemoryPackPulseRPCSerializerProvider WithOptions(MemoryPackSerializerOptions serializerOptions)

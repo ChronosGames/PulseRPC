@@ -7,7 +7,7 @@
 <#@ output extension=".cs" #>
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using MessagePack;
+using MemoryPack;
 
 namespace PulseRPC;
 

@@ -13,18 +13,11 @@
 
   <ItemGroup>
     <PackageReference Include="MemoryPack" />
+    <PackageReference Include="System.CodeDom" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Update="DynamicArgumentTupleMemoryPackFormatter.cs">
-      <DependentUpon>DynamicArgumentTupleMemoryPackFormatter.tt</DependentUpon>
-      <DesignTime>True</DesignTime>
-      <AutoGen>True</AutoGen>
-    </Compile>
   </ItemGroup>
 
   <ItemGroup>
