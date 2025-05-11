@@ -11,7 +11,7 @@
 using System.Runtime.CompilerServices;
 using MemoryPack;
 
-namespace MagicOnion.Serialization.MemoryPack;
+namespace PulseRPC.Serialization.MemoryPack;
 
 public static class DynamicArgumentTupleFormatter
 {
@@ -31,10 +31,10 @@ public static class DynamicArgumentTupleFormatter
     var dynamicArgumentTupleFormatterGenericArgs = string.Join(", ", Enumerable.Range(1, i).Select(x => $"T{x}"));
     var dynamicArgumentTupleGenericArgs = string.Join(", ", Enumerable.Range(1, i).Select(x => $"T{x}?"));
 #>
-[global::MagicOnion.Serialization.MemoryPack.Preserve]
+[global::PulseRPC.Serialization.MemoryPack.Preserve]
 public class DynamicArgumentTupleFormatter<<#= dynamicArgumentTupleFormatterGenericArgs #>> : MemoryPackFormatter<DynamicArgumentTuple<<#= dynamicArgumentTupleGenericArgs #>>>
 {
-    [global::MagicOnion.Serialization.MemoryPack.Preserve]
+    [global::PulseRPC.Serialization.MemoryPack.Preserve]
 #if UNITY_2021_3_OR_NEWER
     public override void Serialize<TBufferWriter>(ref MemoryPackWriter<TBufferWriter> writer, ref DynamicArgumentTuple<<#= dynamicArgumentTupleGenericArgs #>> value)
 #else
@@ -51,7 +51,7 @@ public class DynamicArgumentTupleFormatter<<#= dynamicArgumentTupleFormatterGene
 <#     } #>
     }
 
-    [global::MagicOnion.Serialization.MemoryPack.Preserve]
+    [global::PulseRPC.Serialization.MemoryPack.Preserve]
 #if UNITY_2021_3_OR_NEWER
     public override void Deserialize(ref MemoryPackReader reader, ref DynamicArgumentTuple<<#= dynamicArgumentTupleGenericArgs #>> value)
 #else

@@ -27,6 +27,7 @@
     <PackageVersion Include="PolySharp" Version="1.15.0" />
     <PackageVersion Include="StackExchange.Redis" Version="2.8.31" />
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="7.0.0" />
+    <PackageVersion Include="System.CodeDom" Version="9.0.4" />
     <PackageVersion Include="System.Diagnostics.DiagnosticSource" Version="8.0.0" />
     <PackageVersion Include="System.Diagnostics.PerformanceCounter" Version="9.0.4" />
     <PackageVersion Include="System.Reflection" Version="4.3.0" />
