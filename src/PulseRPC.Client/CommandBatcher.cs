@@ -102,8 +102,7 @@ public class CommandBatcher
                 {
                     return;
                 }
-
-                if (_pendingCommands.Count == 1)
+                else if (_pendingCommands.Count == 1)
                 {
                     // 如果只有一个命令，直接发送
                     await _session.SendPacketAsync(_pendingCommands[0]);
