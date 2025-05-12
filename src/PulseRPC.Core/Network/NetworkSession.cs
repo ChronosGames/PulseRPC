@@ -30,7 +30,7 @@ public class NetworkSession
     private uint _nextRequestId = 1;
     private bool _isDisposed;
     private readonly CancellationTokenSource _cts = new();
-    private readonly ConcurrentDictionary<string, object> _metaData = new ConcurrentDictionary<string, object>();
+    private readonly MetaData<string> _metaData = new();
 
     /// <summary>
     /// 连接断开事件
@@ -447,13 +447,18 @@ public class NetworkSession
         _sendLock.Dispose();
     }
 
-    public T GetItem<T>(string key) where T : unmanaged
+    public bool TryGetItem<T>(string key, out T? value)
     {
-        return (T)(_metaData[key] ?? throw new KeyNotFoundException(key));
+        return _metaData.TryGet(key, out value);
+    }
+
+    public T? GetItem<T>(string key)
+    {
+        return _metaData.Get<T>(key);
     }
 
     public void SetItem<T>(string key, T value)
     {
-        // _metaData.TryUpdate(key, value, value);
+        _metaData.Set(key, value);
     }
 }

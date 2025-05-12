@@ -50,6 +50,15 @@ public abstract partial class Command : IPacket
     public MessageType Type => MessageType.Command;
 }
 
+/// <summary>
+/// 命令批处理包
+/// </summary>
+[MemoryPackable(GenerateType.NoGenerate)]
+public partial class CommandBatch : Command
+{
+    public Command[] Commands { get; set; } = Array.Empty<Command>();
+}
+
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Message : IPacket
 {

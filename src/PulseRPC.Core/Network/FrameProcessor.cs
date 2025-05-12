@@ -95,7 +95,9 @@ public class FrameProcessor
 
         // 确保有足够数据读取帧头
         if (buffer.Length < FrameHeaderSize)
+        {
             return false;
+        }
 
         // 读取帧头
         Span<byte> headerSpan = stackalloc byte[FrameHeaderSize];
@@ -107,12 +109,16 @@ public class FrameProcessor
         var frameFlags = headerSpan[3];
 
         // 检查长度有效性
-        if (frameLength < FrameHeaderSize || frameLength > 65535)
+        if (frameLength < FrameHeaderSize)
+        {
             throw new InvalidDataException($"Invalid frame length: {frameLength}");
+        }
 
         // 确保有完整帧数据
         if (buffer.Length < frameLength)
+        {
             return false;
+        }
 
         // 提取帧数据(不包括头部)
         frameData = buffer.Slice(FrameHeaderSize, frameLength - FrameHeaderSize);

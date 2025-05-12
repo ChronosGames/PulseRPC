@@ -42,7 +42,10 @@ public class NetworkClient : IDisposable
     /// </summary>
     public async Task ConnectAsync(string host, int port, bool autoReconnect = false)
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(NetworkClient));
+        if (_isDisposed)
+        {
+            throw new ObjectDisposedException(nameof(NetworkClient));
+        }
 
         lock (_connectionLock)
         {
@@ -90,7 +93,7 @@ public class NetworkClient : IDisposable
         Task.Run(async () =>
         {
             var token = _reconnectCts.Token;
-            int retryDelay = 1000;
+            var retryDelay = 1000;
             const int maxRetryDelay = 30000;
 
             while (!token.IsCancellationRequested && !IsConnected)
@@ -124,11 +127,13 @@ public class NetworkClient : IDisposable
 
         lock (_connectionLock)
         {
-            if (_session != null)
+            if (_session == null)
             {
-                _session.Dispose();
-                _session = null;
+                return;
             }
+
+            _session.Dispose();
+            _session = null;
         }
     }
 
