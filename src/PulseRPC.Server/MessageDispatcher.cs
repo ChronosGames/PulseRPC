@@ -66,6 +66,37 @@ public class MessageDispatcher : IMessageDispatcher
     {
         switch (message)
         {
+            case CommandBatch batch:
+            {
+                // 直接创建任务数组，避免List<Task>的额外开销
+                var commands = batch.Commands;
+                var taskCount = commands.Length;
+
+                if (taskCount == 0)
+                {
+                    break; // 如果没有命令，立即退出
+                }
+                else if (taskCount == 1)
+                {
+                    // 单个命令不需要并行处理
+                    await InvokeHandlerAsync(handler, context, commands[0]);
+                }
+                else
+                {
+                    // 预分配固定大小数组，避免List动态扩容
+                    var tasks = new Task[taskCount];
+
+                    // 直接填充数组而不是使用LINQ
+                    for (var i = 0; i < taskCount; i++)
+                    {
+                        tasks[i] = InvokeHandlerAsync(handler, context, commands[i]);
+                    }
+
+                    // 等待所有处理完成
+                    await Task.WhenAll(tasks);
+                }
+                break;
+            }
             case Command command:
             {
                 var handlerType = handler.GetType();
@@ -93,7 +124,7 @@ public class MessageDispatcher : IMessageDispatcher
                 }
 
                 // 调用HandleAsync方法
-                await (Task)handleMethod.Invoke(handler, [context, message])!;
+                await (Task)handleMethod.Invoke(handler, [context, command])!;
                 break;
             }
             case Request request:
