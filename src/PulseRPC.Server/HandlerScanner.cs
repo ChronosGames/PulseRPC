@@ -45,13 +45,14 @@ public class HandlerScanner(
         var name = assembly.GetName().Name!;
 
         // 跳过系统和第三方程序集
-        if (name.StartsWith("System.") ||
-            name.StartsWith("Microsoft.") ||
-            name == "netstandard" ||
-            name == "mscorlib")
-            return false;
-
-        return true;
+        return !name.StartsWith("System.", StringComparison.Ordinal) &&
+               !name.StartsWith("Microsoft.", StringComparison.Ordinal) &&
+               !name.StartsWith("JetBrains.", StringComparison.Ordinal) &&
+               !name.StartsWith("PulseRPC.", StringComparison.Ordinal) &&
+               !name.StartsWith("MemoryPack.", StringComparison.Ordinal) &&
+               name != "MemoryPack" &&
+               name != "netstandard" &&
+               name != "mscorlib";
     }
 
     // 注册单个处理器
