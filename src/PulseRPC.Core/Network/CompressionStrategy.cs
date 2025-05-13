@@ -28,7 +28,7 @@ public static class CompressionStrategy
         if (data.Length >= EntropySampleSize)
         {
             // 进行简单的熵检测
-            double entropy = CalculateEntropy(data.AsSpan(0, Math.Min(EntropySampleSize, data.Length)));
+            var entropy = CalculateEntropy(data.AsSpan(0, Math.Min(EntropySampleSize, data.Length)));
 
             // 熵值低表示更可压缩
             return entropy < 0.8;
@@ -44,22 +44,24 @@ public static class CompressionStrategy
     private static double CalculateEntropy(ReadOnlySpan<byte> data)
     {
         if (data.Length == 0)
+        {
             return 0;
+        }
 
         // 计算每个字节值出现的频率
-        int[] frequency = new int[256];
-        for (int i = 0; i < data.Length; i++)
+        var frequency = new int[256];
+        foreach (var t in data)
         {
-            frequency[data[i]]++;
+            frequency[t]++;
         }
 
         // 计算熵
         double entropy = 0;
-        for (int i = 0; i < 256; i++)
+        for (var i = 0; i < 256; i++)
         {
             if (frequency[i] > 0)
             {
-                double probability = frequency[i] / (double)data.Length;
+                var probability = frequency[i] / (double)data.Length;
                 entropy -= probability * Math.Log(probability, 256);
             }
         }

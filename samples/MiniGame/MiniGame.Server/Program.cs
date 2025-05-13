@@ -77,7 +77,7 @@ internal abstract class Program
                 services.AddSingleton<NetworkServer>();
 
                 // 手动注册各种消息处理器
-                services.AddPulseRpcMessageHandling();
+                services.AddPulseServerServices();
 
                 // 添加游戏服务器应用程序生命周期服务
                 services.AddSingleton<IHostedService, GameServerLifetimeService>();

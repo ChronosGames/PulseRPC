@@ -16,22 +16,19 @@ namespace PulseRPC.Samples.Server.Services;
 public class GameServerLifetimeService : IHostedService
 {
     private readonly ILogger<GameServerLifetimeService> _logger;
-    private readonly IMessageDispatcher _dispatcher;
     private readonly NotificationService _notificationService;
 
-    private readonly NetworkServer _server;
+    private readonly PulseServerStartup _server;
 
     /// <summary>
     /// 初始化游戏服务器生命周期管理服务
     /// </summary>
     public GameServerLifetimeService(
         ILogger<GameServerLifetimeService> logger,
-        IMessageDispatcher dispatcher,
-        NetworkServer server,
+        PulseServerStartup server,
         NotificationService notificationService)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _notificationService = notificationService ?? throw new ArgumentNullException(nameof(notificationService));
         _server = server ?? throw new ArgumentNullException(nameof(server));
     }
@@ -47,7 +44,7 @@ public class GameServerLifetimeService : IHostedService
         try
         {
             // 初始化服务器（注册所有处理器）
-            _server.Start(new IPEndPoint(IPAddress.Any, 8888));
+            await _server.InitializeAsync(cancellationToken);
 
             // 发送服务器启动通知
             await _notificationService.SendSystemNotificationAsync(
@@ -81,6 +78,8 @@ public class GameServerLifetimeService : IHostedService
                 "游戏服务器正在关闭，请稍后重新连接...",
                 NotificationType.Maintenance,
                 DateTimeOffset.Now.AddMinutes(30).ToUnixTimeMilliseconds());
+
+            await _server.ShutdownAsync(cancellationToken);
 
             _logger.LogInformation("游戏服务器已停止");
         }

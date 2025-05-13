@@ -1,9 +1,10 @@
-﻿using System.Threading.Tasks;
+﻿using System.Threading;
+using System.Threading.Tasks;
 using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Protocol.Network;
 
 public interface IMessageDispatcher
 {
-    Task DispatchAsync(NetworkSession context, IPacket packet);
+    Task DispatchAsync(NetworkSession context, IPacket packet, CancellationToken cancellationToken = default);
 }

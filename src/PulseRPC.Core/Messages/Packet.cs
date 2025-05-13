@@ -39,6 +39,7 @@ public static class PacketHeader
 [MemoryPackable(GenerateType.NoGenerate)]
 public partial interface IPacket
 {
+    ushort Id { get; }
     MessageType Type { get; }
     uint SequenceId { get; set; }
 }
@@ -46,6 +47,7 @@ public partial interface IPacket
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Command : IPacket
 {
+    public ushort Id { get; } = 0;
     public uint SequenceId { get; set; }
     public MessageType Type => MessageType.Command;
 }
@@ -62,6 +64,7 @@ public partial class CommandBatch : Command
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Message : IPacket
 {
+    public ushort Id { get; } = 0;
     public uint SequenceId { get; set; }
     public MessageType Type => MessageType.Message;
 }
@@ -69,6 +72,7 @@ public abstract partial class Message : IPacket
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Request : IPacket
 {
+    public ushort Id { get; } = 0;
     public uint SequenceId { get; set; }
     public uint RequestId { get; set; }
     public MessageType Type => MessageType.Request;
@@ -77,6 +81,7 @@ public abstract partial class Request : IPacket
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Response : IPacket
 {
+    public ushort Id { get; } = 0;
     public uint SequenceId { get; set; }
     public uint RequestId { get; set; }
     public MessageType Type => MessageType.Response;
