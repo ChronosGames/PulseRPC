@@ -15,7 +15,7 @@ public class NetworkClient : IDisposable
     private readonly IMessageDispatcher _dispatcher;
     private NetworkSession? _session;
     private readonly object _connectionLock = new object();
-    private readonly ConcurrentDictionary<uint, TaskCompletionSource<IPacket>> _pendingRequests = new();
+    private readonly ConcurrentDictionary<uint, TaskCompletionSource<Response>> _pendingRequests = new();
     private CancellationTokenSource? _reconnectCts;
     private uint _nextSequenceId = 1;
     private uint _nextRequestId = 1;
@@ -67,7 +67,7 @@ public class NetworkClient : IDisposable
 
             lock (_connectionLock)
             {
-                _session = new NetworkSession(socket, _dispatcher, _options);
+                _session = new NetworkSession(socket, OnPacketReceived, _options);
                 _session.Disconnected += OnDisconnected;
                 _session.Start();
             }
@@ -169,7 +169,7 @@ public class NetworkClient : IDisposable
             request.SequenceId = GetNextSequenceId();
 
             // 创建等待响应的任务源
-            var tcs = new TaskCompletionSource<IPacket>();
+            var tcs = new TaskCompletionSource<Response>();
             _pendingRequests[request.RequestId] = tcs;
 
             try
@@ -205,6 +205,23 @@ public class NetworkClient : IDisposable
             {
                 _pendingRequests.TryRemove(request.RequestId, out _);
             }
+        }
+    }
+
+    private Task OnPacketReceived(NetworkSession session, IPacket packet, CancellationToken cancellationToken)
+    {
+        switch (packet)
+        {
+            case Response response:
+                if (!_pendingRequests.TryGetValue(response.RequestId, out var tcs))
+                {
+                    throw new InvalidOperationException($"Received response of type {response.GetType()} but expected {typeof(Response)}");
+                }
+
+                tcs.TrySetResult(response);
+                return Task.CompletedTask;
+            default:
+                return _dispatcher.DispatchAsync(session, packet, cancellationToken);
         }
     }
 

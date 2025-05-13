@@ -68,7 +68,7 @@ public class NetworkServer : IDisposable
                 clientSocket.ReceiveBufferSize = _options.SocketBufferSize;
 
                 // 创建会话
-                var session = new NetworkSession(clientSocket, _dispatcher, _options);
+                var session = new NetworkSession(clientSocket, OnMessageReceived, _options);
                 session.Disconnected += OnClientDisconnected;
 
                 // 添加到会话列表
@@ -91,6 +91,11 @@ public class NetworkServer : IDisposable
         }
     }
 
+    private Task OnMessageReceived(NetworkSession session, IPacket packet, CancellationToken cancellationToken)
+    {
+        return _dispatcher.DispatchAsync(session, packet, cancellationToken);
+    }
+
     /// <summary>
     /// 处理客户端断开连接
     /// </summary>
@@ -109,7 +114,7 @@ public class NetworkServer : IDisposable
     /// </summary>
     public async Task BroadcastMessageAsync<T>(T message) where T : Message
     {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(NetworkServer));
+        ObjectDisposedException.ThrowIf(_isDisposed, nameof(NetworkServer));
 
         NetworkSession[] sessions;
         lock (_sessionsLock)
@@ -117,13 +122,7 @@ public class NetworkServer : IDisposable
             sessions = _sessions.ToArray();
         }
 
-        var tasks = new List<Task>(sessions.Length);
-        foreach (var session in sessions)
-        {
-            tasks.Add(session.SendPacketAsync(message));
-        }
-
-        await Task.WhenAll(tasks);
+        await Task.WhenAll(sessions.Select(session => session.SendPacketAsync(message)));
     }
 
     /// <summary>
