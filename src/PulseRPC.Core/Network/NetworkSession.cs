@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Buffers;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
@@ -25,9 +23,6 @@ public class NetworkSession
     private readonly Pipe _receivePipe;
     private readonly Pipe _sendPipe;
     private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
-    private readonly ConcurrentDictionary<uint, TaskCompletionSource<IPacket>> _pendingRequests = new();
-    private uint _nextSequenceId = 1;
-    private uint _nextRequestId = 1;
     private bool _isDisposed;
     private readonly CancellationTokenSource _cts = new();
     private readonly MetaData<string> _metaData = new();
@@ -232,70 +227,10 @@ public class NetworkSession
 
             // 分发处理
             await _dispatcher.DispatchAsync(this, packet);
-
-            // 如果是响应，处理等待的请求
-            if (packet is Response response)
-            {
-                if (_pendingRequests.TryRemove(response.RequestId, out var tcs))
-                {
-                    tcs.TrySetResult(response);
-                }
-            }
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error deserializing frame: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// 发送请求并等待响应
-    /// </summary>
-    public async Task<TResponse> SendRequestAsync<TRequest, TResponse>(TRequest request,
-        CancellationToken cancellationToken = default)
-        where TRequest : Request
-        where TResponse : Response
-    {
-        // 设置请求ID和序列号
-        request.RequestId = GetNextRequestId();
-        request.SequenceId = GetNextSequenceId();
-
-        // 创建等待响应的任务源
-        var tcs = new TaskCompletionSource<IPacket>();
-        _pendingRequests[request.RequestId] = tcs;
-
-        try
-        {
-            // 发送请求
-            await SendPacketAsync(request);
-
-            // 等待响应，设置超时
-            using var timeoutCts = new CancellationTokenSource(_options.RequestTimeout);
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
-
-            var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(-1, linkedCts.Token));
-
-            if (completedTask == tcs.Task)
-            {
-                var response = await tcs.Task;
-                if (response is TResponse typedResponse)
-                {
-                    return typedResponse;
-                }
-                else
-                {
-                    throw new InvalidOperationException(
-                        $"Received response of type {response.GetType()} but expected {typeof(TResponse)}");
-                }
-            }
-            else
-            {
-                throw new TimeoutException("Request timed out");
-            }
-        }
-        finally
-        {
-            _pendingRequests.TryRemove(request.RequestId, out _);
         }
     }
 
@@ -352,46 +287,6 @@ public class NetworkSession
     }
 
     /// <summary>
-    /// 获取下一个序列号
-    /// </summary>
-    private uint GetNextSequenceId()
-    {
-#if NET5_0_OR_GREATER
-        return Interlocked.Increment(ref _nextSequenceId);
-#else
-        unsafe
-        {
-            fixed (uint* pSequence = &_nextSequenceId)
-            {
-                Interlocked.Increment(ref *(int*)pSequence);
-            }
-
-            return _nextSequenceId;
-        }
-#endif
-    }
-
-    /// <summary>
-    /// 获取下一个请求ID
-    /// </summary>
-    private uint GetNextRequestId()
-    {
-#if NET5_0_OR_GREATER
-        return Interlocked.Increment(ref _nextRequestId);
-#else
-        unsafe
-        {
-            fixed (uint* pSequence = &_nextRequestId)
-            {
-                Interlocked.Increment(ref *(int*)pSequence);
-            }
-
-            return _nextRequestId;
-        }
-#endif
-    }
-
-    /// <summary>
     /// 处理连接断开
     /// </summary>
     private void OnDisconnected(Exception ex)
@@ -399,15 +294,6 @@ public class NetworkSession
         if (!_isDisposed)
         {
             Disconnected?.Invoke(this, ex);
-
-            // 取消所有等待中的请求
-            foreach (var pendingRequest in _pendingRequests)
-            {
-                pendingRequest.Value.TrySetException(new IOException("Connection closed", ex));
-            }
-
-            // 清空等待中的请求
-            _pendingRequests.Clear();
         }
     }
 

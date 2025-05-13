@@ -1,4 +1,5 @@
-﻿using System.Net.Sockets;
+﻿using System.Collections.Concurrent;
+using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using PulseRPC.Protocol.Messages;
 using PulseRPC.Protocol.Network;
@@ -14,7 +15,10 @@ public class NetworkClient : IDisposable
     private readonly IMessageDispatcher _dispatcher;
     private NetworkSession? _session;
     private readonly object _connectionLock = new object();
+    private readonly ConcurrentDictionary<uint, TaskCompletionSource<IPacket>> _pendingRequests = new();
     private CancellationTokenSource? _reconnectCts;
+    private uint _nextSequenceId = 1;
+    private uint _nextRequestId = 1;
     private bool _isDisposed;
 
     /// <summary>
@@ -152,15 +156,55 @@ public class NetworkClient : IDisposable
     /// <summary>
     /// 发送请求并等待响应
     /// </summary>
-    public Task<TResponse> SendRequestAsync<TRequest, TResponse>(TRequest request,
+    public async Task<TResponse> SendRequestAsync<TRequest, TResponse>(TRequest request,
         CancellationToken cancellationToken = default)
         where TRequest : Request
         where TResponse : Response
     {
         EnsureConnected();
-        lock (_connectionLock)
+        // lock (_connectionLock)
         {
-            return _session!.SendRequestAsync<TRequest, TResponse>(request, cancellationToken);
+            // 设置请求ID和序列号
+            request.RequestId = GetNextRequestId();
+            request.SequenceId = GetNextSequenceId();
+
+            // 创建等待响应的任务源
+            var tcs = new TaskCompletionSource<IPacket>();
+            _pendingRequests[request.RequestId] = tcs;
+
+            try
+            {
+                // 发送请求
+                await _session!.SendPacketAsync(request);
+
+                // 等待响应，设置超时
+                using var timeoutCts = new CancellationTokenSource(_options.RequestTimeout);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(timeoutCts.Token, cancellationToken);
+
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(-1, linkedCts.Token));
+
+                if (completedTask == tcs.Task)
+                {
+                    var response = await tcs.Task;
+                    if (response is TResponse typedResponse)
+                    {
+                        return typedResponse;
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            $"Received response of type {response.GetType()} but expected {typeof(TResponse)}");
+                    }
+                }
+                else
+                {
+                    throw new TimeoutException("Request timed out");
+                }
+            }
+            finally
+            {
+                _pendingRequests.TryRemove(request.RequestId, out _);
+            }
         }
     }
 
@@ -177,10 +221,60 @@ public class NetworkClient : IDisposable
     }
 
     /// <summary>
+    /// 获取下一个序列号
+    /// </summary>
+    private uint GetNextSequenceId()
+    {
+#if NET5_0_OR_GREATER
+        return Interlocked.Increment(ref _nextSequenceId);
+#else
+        unsafe
+        {
+            fixed (uint* pSequence = &_nextSequenceId)
+            {
+                Interlocked.Increment(ref *(int*)pSequence);
+            }
+
+            return _nextSequenceId;
+        }
+#endif
+    }
+
+    /// <summary>
+    /// 获取下一个请求ID
+    /// </summary>
+    private uint GetNextRequestId()
+    {
+#if NET5_0_OR_GREATER
+        return Interlocked.Increment(ref _nextRequestId);
+#else
+        unsafe
+        {
+            fixed (uint* pSequence = &_nextRequestId)
+            {
+                Interlocked.Increment(ref *(int*)pSequence);
+            }
+
+            return _nextRequestId;
+        }
+#endif
+    }
+
+    /// <summary>
     /// 处理连接断开
     /// </summary>
     private void OnDisconnected(NetworkSession session, Exception ex)
     {
+        // 取消所有等待中的请求
+        foreach (var pendingRequest in _pendingRequests)
+        {
+            pendingRequest.Value.TrySetException(new IOException("Connection closed", ex));
+        }
+
+        // 清空等待中的请求
+        _pendingRequests.Clear();
+
+        // 触发连接状态变更事件
         ConnectionChanged?.Invoke(false, ex);
     }
 
@@ -189,15 +283,17 @@ public class NetworkClient : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (!_isDisposed)
+        if (_isDisposed)
         {
-            _isDisposed = true;
-
-            _reconnectCts?.Cancel();
-            _reconnectCts?.Dispose();
-            _reconnectCts = null;
-
-            Disconnect();
+            return;
         }
+
+        _isDisposed = true;
+
+        _reconnectCts?.Cancel();
+        _reconnectCts?.Dispose();
+        _reconnectCts = null;
+
+        Disconnect();
     }
 }
