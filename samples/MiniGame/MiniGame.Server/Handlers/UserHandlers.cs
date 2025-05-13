@@ -32,7 +32,7 @@ public class GetUserInfoRequestHandler : IRequestHandler<GetUserInfoRequest, Get
         _logger.LogInformation("收到获取用户信息请求: UserId={UserId}", request.UserId);
 
         // 检查认证状态
-        bool isAuthenticated = context.GetItem<bool>("IsAuthenticated");
+        var isAuthenticated = context.GetItem<bool>("IsAuthenticated");
         if (!isAuthenticated)
         {
             return Task.FromResult(new GetUserInfoResponse

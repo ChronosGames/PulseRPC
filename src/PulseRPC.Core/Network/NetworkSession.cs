@@ -17,7 +17,6 @@ namespace PulseRPC.Protocol.Network;
 /// </summary>
 public class NetworkSession
 {
-    private readonly IMessageDispatcher _dispatcher;
     private readonly Socket _socket;
     private readonly NetworkOptions _options;
     private readonly Pipe _receivePipe;
@@ -26,6 +25,7 @@ public class NetworkSession
     private bool _isDisposed;
     private readonly CancellationTokenSource _cts = new();
     private readonly MetaData<string> _metaData = new();
+    private readonly Func<NetworkSession, IPacket, CancellationToken, Task> _callback;
 
     /// <summary>
     /// 连接断开事件
@@ -40,9 +40,8 @@ public class NetworkSession
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkSession(Socket socket, IMessageDispatcher dispatcher, NetworkOptions? options = null)
+    public NetworkSession(Socket socket, Func<NetworkSession, IPacket, CancellationToken, Task> callback, NetworkOptions? options = null)
     {
-        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _socket = socket ?? throw new ArgumentNullException(nameof(socket));
         _options = options ?? new NetworkOptions();
         _socket.NoDelay = true;
@@ -59,6 +58,7 @@ public class NetworkSession
 
         _receivePipe = new Pipe(pipeOptions);
         _sendPipe = new Pipe(pipeOptions);
+        _callback = callback;
     }
 
     /// <summary>
@@ -201,37 +201,30 @@ public class NetworkSession
         // 将帧数据反序列化为消息
         IPacket packet;
 
-        try
+        if (isCompressed)
         {
-            if (isCompressed)
+            var compressedData = frameData.ToArray(); // 不得不复制一次
+            var decompressedData = await MessageCompressor.DecompressAsync(compressedData);
+            packet = MemoryPackSerializer.Deserialize<IPacket>(decompressedData)!;
+        }
+        else
+        {
+            // 未压缩
+            if (frameData.IsSingleSegment)
             {
-                var compressedData = frameData.ToArray(); // 不得不复制一次
-                var decompressedData = await MessageCompressor.DecompressAsync(compressedData);
-                packet = MemoryPackSerializer.Deserialize<IPacket>(decompressedData)!;
+                // 单段数据，直接反序列化
+                packet = MemoryPackSerializer.Deserialize<IPacket>(frameData.First.Span)!;
             }
             else
             {
-                // 未压缩
-                if (frameData.IsSingleSegment)
-                {
-                    // 单段数据，直接反序列化
-                    packet = MemoryPackSerializer.Deserialize<IPacket>(frameData.First.Span)!;
-                }
-                else
-                {
-                    // 多段数据，需要复制到连续内存
-                    var dataArray = frameData.ToArray();
-                    packet = MemoryPackSerializer.Deserialize<IPacket>(dataArray)!;
-                }
+                // 多段数据，需要复制到连续内存
+                var dataArray = frameData.ToArray();
+                packet = MemoryPackSerializer.Deserialize<IPacket>(dataArray)!;
             }
+        }
 
-            // 分发处理
-            await _dispatcher.DispatchAsync(this, packet);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error deserializing frame: {ex.Message}");
-        }
+        // 分发处理
+        await _callback(this, packet, _cts.Token);
     }
 
     /// <summary>
