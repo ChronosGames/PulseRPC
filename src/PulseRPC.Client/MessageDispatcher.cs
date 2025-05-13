@@ -6,7 +6,7 @@ namespace PulseRPC.Client;
 
 public interface IMSGHandler : IPacketHandler
 {
-    Task HandleAsync(NetworkSession context, Message packet);
+    Task HandleAsync(NetworkSession context, Message packet, CancellationToken cancellationToken = default);
 }
 
 public class MessageDispatcher : IMessageDispatcher
@@ -18,7 +18,7 @@ public class MessageDispatcher : IMessageDispatcher
         _handlers.TryAdd(packetType, handler);
     }
 
-    public Task DispatchAsync(NetworkSession context, IPacket packet)
+    public Task DispatchAsync(NetworkSession context, IPacket packet, CancellationToken cancellationToken = default)
     {
         switch (packet)
         {
@@ -29,7 +29,7 @@ public class MessageDispatcher : IMessageDispatcher
                     throw new KeyNotFoundException($"未找到消息处理器: {msg.GetType().Name}");
                 }
 
-                return handler.HandleAsync(context, msg);
+                return handler.HandleAsync(context, msg, cancellationToken);
             }
             case Response _:
                 return Task.CompletedTask;

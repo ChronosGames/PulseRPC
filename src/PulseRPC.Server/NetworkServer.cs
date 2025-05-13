@@ -13,7 +13,7 @@ public class NetworkServer : IDisposable
     private readonly NetworkOptions _options;
     private readonly IMessageDispatcher _dispatcher;
     private readonly Socket _listenSocket;
-    private readonly List<NetworkSession> _sessions = new List<NetworkSession>();
+    private readonly List<NetworkSession> _sessions = [];
     private readonly object _sessionsLock = new object();
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private bool _isDisposed;
@@ -124,15 +124,6 @@ public class NetworkServer : IDisposable
         }
 
         await Task.WhenAll(tasks);
-    }
-
-    /// <summary>
-    /// 向特定客户端发送消息
-    /// </summary>
-    public Task SendMessageAsync<T>(NetworkSession session, T message) where T : Message
-    {
-        if (_isDisposed) throw new ObjectDisposedException(nameof(NetworkServer));
-        return session.SendPacketAsync(message);
     }
 
     /// <summary>
