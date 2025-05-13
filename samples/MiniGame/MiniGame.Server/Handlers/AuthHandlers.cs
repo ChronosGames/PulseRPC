@@ -9,6 +9,7 @@ namespace PulseRPC.Samples.Server.Handlers;
 /// <summary>
 /// 登录请求处理器
 /// </summary>
+[PacketHandler(false, 0x01)]
 public class LoginRequestHandler : IRequestHandler<LoginRequest, LoginResponse>
 {
     private readonly ILogger<LoginRequestHandler> _logger;

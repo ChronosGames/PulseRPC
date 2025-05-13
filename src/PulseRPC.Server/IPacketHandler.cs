@@ -4,7 +4,7 @@ using PulseRPC.Protocol.Network;
 namespace PulseRPC.Server;
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
-public class PacketHandlerAttribute(ushort packetId = 0, bool isInternal = false) : Attribute
+public class PacketHandlerAttribute(bool isInternal = false, ushort packetId = 0) : Attribute
 {
     public ushort PacketId { get; } = packetId;
     public bool IsInternal { get; } = isInternal;

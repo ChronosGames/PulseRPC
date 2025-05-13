@@ -10,6 +10,7 @@ namespace PulseRPC.Samples.Server.Handlers;
 /// <summary>
 /// 获取用户信息请求处理器
 /// </summary>
+[PacketHandler(false, 0x02)]
 public class GetUserInfoRequestHandler : IRequestHandler<GetUserInfoRequest, GetUserInfoResponse>
 {
     private readonly ILogger<GetUserInfoRequestHandler> _logger;

@@ -2,27 +2,21 @@
 using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Server;
-public class MainThreadWorker : IHostedService, IDisposable
+
+public class MainThreadWorker(
+    HandlerThreadPoolManager threadPoolManager,
+    ILogger<MainThreadWorker> logger)
+    : IHostedService, IDisposable
 {
-    private readonly HandlerThreadPoolManager _threadPoolManager;
-    private readonly ILogger<MainThreadWorker> _logger;
     private CancellationTokenSource? _cts;
     private Task? _backgroundTask;
-
-    public MainThreadWorker(
-        HandlerThreadPoolManager threadPoolManager,
-        ILogger<MainThreadWorker> logger)
-    {
-        _threadPoolManager = threadPoolManager;
-        _logger = logger;
-    }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
         // 初始化线程池管理器
-        _threadPoolManager.Initialize();
+        threadPoolManager.Initialize();
 
         // 启动任务处理循环
         _backgroundTask = Task.Run(async () => {
@@ -31,7 +25,7 @@ public class MainThreadWorker : IHostedService, IDisposable
                 try
                 {
                     // 处理队列中的任务
-                    _threadPoolManager.ProcessTasks(20);
+                    threadPoolManager.ProcessTasks(20);
 
                     // 小睡一会以避免CPU占用过高
                     await Task.Delay(16, _cts.Token);
@@ -42,7 +36,7 @@ public class MainThreadWorker : IHostedService, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "任务处理器处理任务时出错");
+                    logger.LogError(ex, "任务处理器处理任务时出错");
                 }
             }
         }, _cts.Token);
@@ -54,7 +48,10 @@ public class MainThreadWorker : IHostedService, IDisposable
     {
         if (_backgroundTask != null)
         {
-            _cts?.Cancel();
+            if (_cts != null)
+            {
+                await _cts.CancelAsync();
+            }
 
             try
             {
@@ -62,13 +59,10 @@ public class MainThreadWorker : IHostedService, IDisposable
             }
             catch (TimeoutException)
             {
-                _logger.LogWarning("任务处理器关闭超时");
+                logger.LogWarning("任务处理器关闭超时");
             }
         }
     }
 
-    public void Dispose()
-    {
-        _cts?.Dispose();
-    }
+    public void Dispose() => _cts?.Dispose();
 }
