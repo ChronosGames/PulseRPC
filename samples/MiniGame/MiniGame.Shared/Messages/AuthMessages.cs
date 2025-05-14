@@ -6,7 +6,7 @@ namespace PulseRPC.Samples.Shared.Messages;
 /// <summary>
 /// 登录请求消息
 /// </summary>
-[MemoryPackable]
+[MemoryPackable, Packet]
 public partial class LoginRequest : Request
 {
     /// <summary>
@@ -28,7 +28,7 @@ public partial class LoginRequest : Request
 /// <summary>
 /// 登录响应消息
 /// </summary>
-[MemoryPackable]
+[MemoryPackable, Packet]
 public partial class LoginResponse : Response
 {
     /// <summary>
@@ -65,7 +65,7 @@ public partial class LoginResponse : Response
 /// <summary>
 /// 注册请求消息
 /// </summary>
-[MemoryPackable]
+[MemoryPackable, Packet]
 public partial class RegisterRequest : Request
 {
     /// <summary>
@@ -92,7 +92,7 @@ public partial class RegisterRequest : Request
 /// <summary>
 /// 注册响应消息
 /// </summary>
-[MemoryPackable]
+[MemoryPackable, Packet]
 public partial class RegisterResponse : Response
 {
     /// <summary>

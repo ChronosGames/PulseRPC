@@ -12,6 +12,7 @@ public class NetworkServer : IDisposable
 {
     private readonly NetworkOptions _options;
     private readonly IMessageDispatcher _dispatcher;
+    private readonly IPulseRPCSerializer _serializer;
     private readonly Socket _listenSocket;
     private readonly List<NetworkSession> _sessions = [];
     private readonly object _sessionsLock = new object();
@@ -31,10 +32,11 @@ public class NetworkServer : IDisposable
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkServer(IMessageDispatcher dispatcher, NetworkOptions? options = null)
+    public NetworkServer(IMessageDispatcher dispatcher, IPulseRPCSerializer serializer, NetworkOptions? options = null)
     {
         _options = options ?? new NetworkOptions();
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
     }
 
@@ -68,7 +70,7 @@ public class NetworkServer : IDisposable
                 clientSocket.ReceiveBufferSize = _options.SocketBufferSize;
 
                 // 创建会话
-                var session = new NetworkSession(clientSocket, OnMessageReceived, _options);
+                var session = new NetworkSession(clientSocket, OnMessageReceived, _serializer, _options);
                 session.Disconnected += OnClientDisconnected;
 
                 // 添加到会话列表

@@ -6,7 +6,7 @@ namespace PulseRPC.Samples.Shared.Messages;
 /// <summary>
 /// 系统通知消息
 /// </summary>
-[MemoryPackable]
+[MemoryPackable, Packet]
 public partial class SystemNotification : Message
 {
     /// <summary>
@@ -48,7 +48,7 @@ public partial class SystemNotification : Message
 /// <summary>
 /// 用户状态通知消息
 /// </summary>
-[MemoryPackable]
+[MemoryPackable, Packet]
 public partial class UserStatusNotification : Message
 {
     /// <summary>
@@ -80,7 +80,7 @@ public partial class UserStatusNotification : Message
 /// <summary>
 /// 全局广播消息
 /// </summary>
-[MemoryPackable]
+[MemoryPackable, Packet]
 public partial class GlobalBroadcast : Message
 {
     /// <summary>

@@ -5,7 +5,6 @@ using System.IO;
 using System.IO.Pipelines;
 using System.Threading;
 using System.Threading.Tasks;
-using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Protocol.Network;
 
@@ -120,11 +119,25 @@ public class FrameProcessor
             return false;
         }
 
-        // 提取帧数据(不包括头部)
-        frameData = buffer.Slice(FrameHeaderSize, frameLength - FrameHeaderSize);
-
         // 检查是否压缩
         isCompressed = (frameFlags & (byte)PacketFlags.Compressed) != 0;
+
+        switch (frameType)
+        {
+            case (byte)MessageType.Request:
+            case (byte)MessageType.Response:
+            {
+                // 提取帧数据(不包括头部)
+                frameData = buffer.Slice(FrameHeaderSize + 4, frameLength - FrameHeaderSize - 4);
+                break;
+            }
+            default:
+            {
+                // 提取帧数据(不包括头部)
+                frameData = buffer.Slice(FrameHeaderSize, frameLength - FrameHeaderSize);
+                break;
+            }
+        }
 
         // 更新缓冲区位置
         buffer = buffer.Slice(frameLength);

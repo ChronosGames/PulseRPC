@@ -1,4 +1,5 @@
 ﻿using System.Reflection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Server;
@@ -22,6 +23,15 @@ public class HandlerScanner(
         foreach (var handlerType in handlerTypes)
         {
             RegisterHandler(handlerType);
+        }
+
+        // 找到所有带有PacketAttribute的类型
+        var packetTypes = assembly.GetTypes()
+            .Where(t => t.GetCustomAttribute<PacketAttribute>() != null);
+
+        foreach (var packetType in packetTypes)
+        {
+            RegisterPacket(packetType);
         }
     }
 
@@ -109,5 +119,27 @@ public class HandlerScanner(
                 logger.LogInformation("已注册请求处理器: {Handler} 用于消息 {MessageId}", handlerType.Name, messageId);
             }
         }
+    }
+
+    private void RegisterPacket(Type packetType)
+    {
+        var attribute = packetType.GetCustomAttribute<PacketAttribute>();
+        if (attribute == null)
+        {
+            return;
+        }
+
+        var messageId = attribute.Id;
+        if (messageId == 0)
+        {
+            messageId = (ushort)FNV1A32.GetHashCode(packetType.FullName!);
+        }
+
+        if (_serviceProvider.GetRequiredService<IPulseRPCSerializer>() is not DynamicPacketRegistrations serializer)
+        {
+            return;
+        }
+
+        serializer.RegisterPacket(messageId, packetType);
     }
 }

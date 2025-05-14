@@ -15,10 +15,5 @@ public interface IMessageTypeInfo
     /// <summary>
     /// 消息ID
     /// </summary>
-    int MessageId { get; }
-
-    /// <summary>
-    /// 消息类型，0=请求，1=响应，2=通知
-    /// </summary>
-    int MessageType { get; }
+    ushort MessageId { get; }
 }

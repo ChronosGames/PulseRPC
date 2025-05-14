@@ -31,7 +31,7 @@ public class LoginRequestHandler : IRequestHandler<LoginRequest, LoginResponse>
     /// <summary>
     /// 处理登录请求
     /// </summary>
-    public async Task<LoginResponse> HandleAsync(NetworkSession context, LoginRequest request)
+    public async Task<LoginResponse> HandleAsync(NetworkSession context, LoginRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("收到登录请求: 用户名={Username}, 密码={Password}", request.Username, "******");
 
@@ -97,7 +97,7 @@ public class RegisterRequestHandler : IRequestHandler<RegisterRequest, RegisterR
     /// <summary>
     /// 处理注册请求
     /// </summary>
-    public Task<RegisterResponse> HandleAsync(NetworkSession context, RegisterRequest request)
+    public Task<RegisterResponse> HandleAsync(NetworkSession context, RegisterRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("收到注册请求: 用户名={Username}, 邮箱={Email}", request.Username, request.Email);
 

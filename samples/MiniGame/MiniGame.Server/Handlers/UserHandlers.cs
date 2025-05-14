@@ -3,7 +3,6 @@ using PulseRPC.Protocol.Network;
 using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
 using PulseRPC.Server;
-using UserStatus = PulseRPC.Samples.Shared.Messages.UserStatus;
 
 namespace PulseRPC.Samples.Server.Handlers;
 
@@ -27,7 +26,7 @@ public class GetUserInfoRequestHandler : IRequestHandler<GetUserInfoRequest, Get
     /// <summary>
     /// 处理获取用户信息请求
     /// </summary>
-    public Task<GetUserInfoResponse> HandleAsync(NetworkSession context, GetUserInfoRequest request)
+    public Task<GetUserInfoResponse> HandleAsync(NetworkSession context, GetUserInfoRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("收到获取用户信息请求: UserId={UserId}", request.UserId);
 
@@ -96,7 +95,7 @@ public class UpdateUserInfoRequestHandler : IRequestHandler<UpdateUserInfoReques
     /// <summary>
     /// 处理更新用户信息请求
     /// </summary>
-    public async Task<UpdateUserInfoResponse> HandleAsync(NetworkSession context, UpdateUserInfoRequest request)
+    public async Task<UpdateUserInfoResponse> HandleAsync(NetworkSession context, UpdateUserInfoRequest request, CancellationToken cancellationToken)
     {
         _logger.LogInformation("收到更新用户信息请求: UserId={UserId}", request.UserId);
 

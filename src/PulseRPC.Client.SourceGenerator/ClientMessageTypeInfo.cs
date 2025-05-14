@@ -7,11 +7,10 @@ namespace PulseRPC.Client.SourceGenerator;
 /// </summary>
 public class ClientMessageTypeInfo : IMessageTypeInfo
 {
-    public ClientMessageTypeInfo(INamedTypeSymbol typeSymbol, int messageId, int messageType, ITypeSymbol? handlerType = null)
+    public ClientMessageTypeInfo(INamedTypeSymbol typeSymbol, ushort messageId, ITypeSymbol? handlerType = null)
     {
         TypeSymbol = typeSymbol;
         MessageId = messageId;
-        MessageType = messageType;
         HandlerType = handlerType;
     }
 
@@ -23,12 +22,7 @@ public class ClientMessageTypeInfo : IMessageTypeInfo
     /// <summary>
     /// 消息ID
     /// </summary>
-    public int MessageId { get; set; }
-
-    /// <summary>
-    /// 消息类型，0=请求，1=响应，2=通知
-    /// </summary>
-    public int MessageType { get; set; }
+    public ushort MessageId { get; set; }
 
     /// <summary>
     /// 处理器类型，如果有定义的话
