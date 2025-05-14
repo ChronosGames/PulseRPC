@@ -36,5 +36,5 @@ public interface IRequestHandler<in TRequest, TResponse> : IPacketHandler
     where TRequest : Request
     where TResponse : Response
 {
-    Task<TResponse> HandleAsync(NetworkSession session, TRequest request);
+    Task<TResponse> HandleAsync(NetworkSession session, TRequest request, CancellationToken cancellationToken);
 }

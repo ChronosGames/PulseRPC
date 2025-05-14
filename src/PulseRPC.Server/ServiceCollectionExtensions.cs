@@ -1,4 +1,5 @@
 using System.Reflection;
+using MemoryPack;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PulseRPC.Protocol.Network;
@@ -34,6 +35,10 @@ public static class ServiceCollectionExtensions
 
         // 消息分发
         services.AddSingleton<IMessageDispatcher, PacketDispatcher>();
+
+        // 消息序列化器
+        services.AddSingleton<MemoryPackSerializerOptions>();
+        services.AddSingleton<IPulseRPCSerializer, DynamicPacketRegistrations>();
 
         // 网络服务
         services.AddSingleton<NetworkServer>();

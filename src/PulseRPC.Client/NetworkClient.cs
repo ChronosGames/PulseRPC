@@ -13,6 +13,7 @@ public class NetworkClient : IDisposable
 {
     private readonly NetworkOptions _options;
     private readonly IMessageDispatcher _dispatcher;
+    private readonly IPulseRPCSerializer _serializer;
     private NetworkSession? _session;
     private readonly object _connectionLock = new object();
     private readonly ConcurrentDictionary<uint, TaskCompletionSource<Response>> _pendingRequests = new();
@@ -34,10 +35,11 @@ public class NetworkClient : IDisposable
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkClient(IMessageDispatcher dispatcher, NetworkOptions? options = null)
+    public NetworkClient(IMessageDispatcher dispatcher, IPulseRPCSerializer serializer, NetworkOptions? options = null)
     {
         _options = options ?? new NetworkOptions();
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
         _reconnectCts = new CancellationTokenSource();
     }
 
@@ -67,7 +69,7 @@ public class NetworkClient : IDisposable
 
             lock (_connectionLock)
             {
-                _session = new NetworkSession(socket, OnPacketReceived, _options);
+                _session = new NetworkSession(socket, OnPacketReceived, _serializer, _options);
                 _session.Disconnected += OnDisconnected;
                 _session.Start();
             }

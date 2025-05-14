@@ -1,3 +1,4 @@
+using MemoryPack;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
@@ -27,6 +28,8 @@ class Program
             builder.SetMinimumLevel(LogLevel.Debug);
         });
 
+        services.AddSingleton<MemoryPackSerializerOptions>();
+        services.AddSingleton<IPulseRPCSerializer, PulseRPCClientGenerator>();
         services.AddSingleton<IMessageDispatcher, MessageDispatcher>();
         services.AddSingleton<NetworkOptions>();
         services.AddSingleton<NetworkClient>();

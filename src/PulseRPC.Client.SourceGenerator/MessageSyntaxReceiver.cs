@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -40,7 +38,7 @@ public class MessageSyntaxReceiver : AbstractMessageSyntaxReceiver
         var implementsIMessage = false;
         foreach (var interfaceSymbol in classSymbol.AllInterfaces)
         {
-            if (interfaceSymbol.Name == "IMessage" && interfaceSymbol.ContainingNamespace.ToString() == "PulseRPC.Protocol")
+            if (interfaceSymbol.Name == "IPacket" && interfaceSymbol.ContainingNamespace.ToString() == "PulseRPC")
             {
                 implementsIMessage = true;
                 break;
@@ -55,28 +53,27 @@ public class MessageSyntaxReceiver : AbstractMessageSyntaxReceiver
         // 查找Message特性
         foreach (var attributeData in classSymbol.GetAttributes())
         {
-            if (attributeData.AttributeClass?.Name == "MessageAttribute" &&
-                attributeData.AttributeClass.ContainingNamespace.ToString() == "PulseRPC.Protocol.Attributes")
+            if (attributeData.AttributeClass?.Name == "PacketAttribute" &&
+                attributeData.AttributeClass.ContainingNamespace.ToString() == "PulseRPC")
             {
                 // 提取消息ID和类型
-                var messageId = attributeData.ConstructorArguments[0].Value as int? ?? 0;
-                var messageType = attributeData.ConstructorArguments[1].Value as int? ?? 0;
+                var messageId = attributeData.ConstructorArguments[0].Value as ushort? ?? 0;
 
                 // 创建消息类型信息对象
-                var messageTypeInfo = new ClientMessageTypeInfo(classSymbol, messageId, messageType, null);
+                var messageTypeInfo = new ClientMessageTypeInfo(classSymbol, messageId, null);
 
                 // 检查是否有Handler特性
-                foreach (var attr in classSymbol.GetAttributes())
-                {
-                    if (attr.AttributeClass?.Name == "HandlerAttribute" &&
-                        attr.AttributeClass.ContainingNamespace.ToString() == "PulseRPC.Protocol.Attributes")
-                    {
-                        if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is ITypeSymbol handlerType)
-                        {
-                            messageTypeInfo.HandlerType = handlerType;
-                        }
-                    }
-                }
+                // foreach (var attr in classSymbol.GetAttributes())
+                // {
+                //     if (attr.AttributeClass?.Name == "HandlerAttribute" &&
+                //         attr.AttributeClass.ContainingNamespace.ToString() == "PulseRPC.Protocol.Attributes")
+                //     {
+                //         if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is ITypeSymbol handlerType)
+                //         {
+                //             messageTypeInfo.HandlerType = handlerType;
+                //         }
+                //     }
+                // }
 
                 // 添加到消息类型列表
                 MessageTypes.Add(messageTypeInfo);

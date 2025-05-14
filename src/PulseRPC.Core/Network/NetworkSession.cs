@@ -40,14 +40,14 @@ public class NetworkSession
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkSession(Socket socket, Func<NetworkSession, IPacket, CancellationToken, Task> callback, NetworkOptions? options = null)
+    public NetworkSession(Socket socket, Func<NetworkSession, IPacket, CancellationToken, Task> callback, IPulseRPCSerializer serializer, NetworkOptions? options = null)
     {
         _socket = socket ?? throw new ArgumentNullException(nameof(socket));
+        _serializer = serializer;
         _options = options ?? new NetworkOptions();
         _socket.NoDelay = true;
         _socket.SendBufferSize = _options.SocketBufferSize;
         _socket.ReceiveBufferSize = _options.SocketBufferSize;
-        _serializer = PulseRPCSerializerProvider.Instance.Create(null);
 
         // 使用定制的PipeOptions
         var pipeOptions = new PipeOptions(

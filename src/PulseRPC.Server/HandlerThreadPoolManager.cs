@@ -216,11 +216,11 @@ public class HandlerThreadPoolManager
         TRequest request,
         Type responseType,
         NetworkSession session,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) where TRequest : Request
     {
         // 使用反射获取正确的RequestHandler类型和方法
         Type handlerInterfaceType = typeof(IRequestHandler<,>).MakeGenericType(
-            typeof(TRequest), responseType);
+            request.GetType(), responseType);
 
         if (!handlerInterfaceType.IsInstanceOfType(handler))
             throw new InvalidOperationException("处理器不实现正确的IRequestHandler接口");
@@ -270,7 +270,7 @@ public class HandlerThreadPoolManager
     {
         return await Task.Factory.StartNew<Response>(() => {
             var responseTask = (Task)methodInfo.Invoke(
-                handler, new object[] { request, session, cancellationToken })!;
+                handler, [session, request, cancellationToken])!;
 
             responseTask.GetAwaiter().GetResult();
 

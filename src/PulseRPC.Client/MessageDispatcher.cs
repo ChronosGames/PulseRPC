@@ -26,7 +26,8 @@ public class MessageDispatcher : IMessageDispatcher
             {
                 if (!_handlers.TryGetValue(msg.GetType(), out var handler))
                 {
-                    throw new KeyNotFoundException($"未找到消息处理器: {msg.GetType().Name}");
+                    //throw new KeyNotFoundException($"未找到消息处理器: {msg.GetType().Name}");
+                    return Task.CompletedTask;
                 }
 
                 return handler.HandleAsync(context, msg, cancellationToken);

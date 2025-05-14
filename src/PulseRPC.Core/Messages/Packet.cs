@@ -1,7 +1,7 @@
 ﻿using System;
 using MemoryPack;
 
-namespace PulseRPC.Protocol.Messages;
+namespace PulseRPC;
 
 [Flags]
 public enum PacketFlags : byte
@@ -16,7 +16,7 @@ public static class PacketHeader
     public static int GetHeaderSize(MessageType type)
     {
         // 基本头部: 类型(1) + 标志(1) + 序列号(4)
-        var size = 6;
+        var size = 8;
 
         // 请求/响应额外包含请求ID
         if (type is MessageType.Request or MessageType.Response)
