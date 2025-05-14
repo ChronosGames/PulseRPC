@@ -6,7 +6,6 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
-using MemoryPack;
 using PulseRPC.Protocol.Compression;
 using PulseRPC.Protocol.Messages;
 
@@ -26,6 +25,7 @@ public class NetworkSession
     private readonly CancellationTokenSource _cts = new();
     private readonly MetaData<string> _metaData = new();
     private readonly Func<NetworkSession, IPacket, CancellationToken, Task> _callback;
+    private readonly IPulseRPCSerializer _serializer;
 
     /// <summary>
     /// 连接断开事件
@@ -47,6 +47,7 @@ public class NetworkSession
         _socket.NoDelay = true;
         _socket.SendBufferSize = _options.SocketBufferSize;
         _socket.ReceiveBufferSize = _options.SocketBufferSize;
+        _serializer = PulseRPCSerializerProvider.Instance.Create(null);
 
         // 使用定制的PipeOptions
         var pipeOptions = new PipeOptions(
@@ -205,7 +206,7 @@ public class NetworkSession
         {
             var compressedData = frameData.ToArray(); // 不得不复制一次
             var decompressedData = await MessageCompressor.DecompressAsync(compressedData);
-            packet = MemoryPackSerializer.Deserialize<IPacket>(decompressedData)!;
+            packet = _serializer.Deserialize2(decompressedData);
         }
         else
         {
@@ -213,13 +214,13 @@ public class NetworkSession
             if (frameData.IsSingleSegment)
             {
                 // 单段数据，直接反序列化
-                packet = MemoryPackSerializer.Deserialize<IPacket>(frameData.First.Span)!;
+                packet = _serializer.Deserialize2(frameData.First.Span);
             }
             else
             {
                 // 多段数据，需要复制到连续内存
                 var dataArray = frameData.ToArray();
-                packet = MemoryPackSerializer.Deserialize<IPacket>(dataArray)!;
+                packet = _serializer.Deserialize2(dataArray);
             }
         }
 
@@ -230,7 +231,7 @@ public class NetworkSession
     /// <summary>
     /// 发送数据包
     /// </summary>
-    public async Task SendPacketAsync(IPacket packet)
+    public async Task SendPacketAsync<T>(T packet) where T : IPacket
     {
         if (_isDisposed)
         {
@@ -241,7 +242,7 @@ public class NetworkSession
         try
         {
             // 序列化消息
-            var packetData = MemoryPackSerializer.Serialize(packet);
+            var packetData = _serializer.Serialize2(packet);
 
             // 确定是否需要压缩
             var shouldCompress = CompressionStrategy.ShouldCompress(packetData, _options);

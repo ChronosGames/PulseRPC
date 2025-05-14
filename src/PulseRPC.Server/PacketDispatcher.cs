@@ -32,25 +32,25 @@ public class PacketDispatcher(
 {
     public async Task DispatchAsync(NetworkSession session, IPacket packet, CancellationToken cancellationToken = default)
     {
-        // 尝试获取处理器信息
-        if (!registry.TryGetRequestHandler(packet.Id, out var handlerInfo))
-        {
-            logger.LogWarning("未找到消息ID {MessageId} 的请求处理器", packet.Id);
-            return;
-        }
-
-        // 获取处理器实例
-        var handler = serviceProvider.GetService(handlerInfo!.HandlerType);
-        if (handler == null)
-        {
-            logger.LogError("无法创建处理器实例 {HandlerType}", handlerInfo.HandlerType.Name);
-            return;
-        }
-
         switch (packet)
         {
             case Request request:
             {
+                // 尝试获取处理器信息
+                if (!registry.TryGetRequestHandler(packet.GetType(), out var handlerInfo))
+                {
+                    logger.LogWarning("未找到消息ID {Name} 的请求处理器", packet.GetType().Name);
+                    return;
+                }
+
+                // 获取处理器实例
+                var handler = serviceProvider.GetService(handlerInfo!.HandlerType);
+                if (handler == null)
+                {
+                    logger.LogError("无法创建处理器实例 {HandlerType}", handlerInfo.HandlerType.Name);
+                    return;
+                }
+
                 // 根据线程策略处理请求并获取响应
                 var response = await threadPoolManager.SubmitRequestTaskAsync(
                     handlerInfo.ThreadingPolicy,
@@ -75,6 +75,21 @@ public class PacketDispatcher(
             }
             case Command command:
             {
+                // 尝试获取处理器信息
+                if (!registry.TryGetCommandHandler(packet.GetType(), out var handlerInfo))
+                {
+                    logger.LogWarning("未找到消息ID {Name} 的请求处理器", packet.GetType().Name);
+                    return;
+                }
+
+                // 获取处理器实例
+                var handler = serviceProvider.GetService(handlerInfo!.HandlerType);
+                if (handler == null)
+                {
+                    logger.LogError("无法创建处理器实例 {HandlerType}", handlerInfo.HandlerType.Name);
+                    return;
+                }
+
                 // 根据线程策略分发到正确的线程处理
                 await threadPoolManager.SubmitCommandTaskAsync(
                     handlerInfo.ThreadingPolicy,
