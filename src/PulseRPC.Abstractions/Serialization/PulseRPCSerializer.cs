@@ -24,6 +24,6 @@ public interface IPulseRPCSerializer
     void Serialize<T>(IBufferWriter<byte> writer, in T value);
     T Deserialize<T>(in ReadOnlySequence<byte> bytes);
 
-    byte[] Serialize2<T>(in T message) where T : IPacket;
+    void Serialize3<T>(IBufferWriter<byte> writer, in T value) where T : IPacket;
     IPacket Deserialize2(in ReadOnlySpan<byte> bytes);
 }

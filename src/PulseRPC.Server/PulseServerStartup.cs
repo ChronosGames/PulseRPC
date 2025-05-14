@@ -37,8 +37,7 @@ public class PulseServerStartup(IServiceProvider serviceProvider, ILogger<PulseS
 
         // 6. 初始化网络服务器
         _networkServer = serviceProvider.GetRequiredService<NetworkServer>();
-        // await _networkServer.StartAsync(cancellationToken);
-        _networkServer.Start(new IPEndPoint(IPAddress.Any, 8888));
+        await _networkServer.StartAsync(new IPEndPoint(IPAddress.Any, 8888));
 
         logger.LogInformation("游戏服务器初始化完成");
     }

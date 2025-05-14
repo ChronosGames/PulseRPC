@@ -62,6 +62,11 @@ public partial class PulseRPCSerializerProvider : IPulseRPCSerializerProvider
             return writer.WrittenSpan.ToArray();
         }
 
+        public void Serialize3<T>(IBufferWriter<byte> writer, in T value) where T : IPacket
+        {
+            throw new NotImplementedException();
+        }
+
         public IPacket Deserialize2(in ReadOnlySpan<byte> bytes)
         {
             var messageId = BinaryPrimitives.ReadUInt16LittleEndian(bytes);

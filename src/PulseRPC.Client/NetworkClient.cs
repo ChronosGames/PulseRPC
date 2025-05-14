@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using PulseRPC.Protocol.Messages;
 using PulseRPC.Protocol.Network;
 
@@ -11,6 +12,7 @@ namespace PulseRPC.Client;
 /// </summary>
 public class NetworkClient : IDisposable
 {
+    private readonly ILogger _logger;
     private readonly NetworkOptions _options;
     private readonly IMessageDispatcher _dispatcher;
     private readonly IPulseRPCSerializer _serializer;
@@ -21,6 +23,7 @@ public class NetworkClient : IDisposable
     private uint _nextSequenceId = 1;
     private uint _nextRequestId = 1;
     private bool _isDisposed;
+    private Task? _receiveTask;
 
     /// <summary>
     /// 连接状态变更事件
@@ -35,8 +38,9 @@ public class NetworkClient : IDisposable
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkClient(IMessageDispatcher dispatcher, IPulseRPCSerializer serializer, NetworkOptions? options = null)
+    public NetworkClient(ILogger<NetworkClient> logger, IMessageDispatcher dispatcher, IPulseRPCSerializer serializer, NetworkOptions? options = null)
     {
+        _logger = logger;
         _options = options ?? new NetworkOptions();
         _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
@@ -69,9 +73,8 @@ public class NetworkClient : IDisposable
 
             lock (_connectionLock)
             {
-                _session = new NetworkSession(socket, OnPacketReceived, _serializer, _options);
-                _session.Disconnected += OnDisconnected;
-                _session.Start();
+                _session = new NetworkSession(_logger, socket, OnPacketReceived, _serializer, _options);
+                _receiveTask = ReceiveMessageAsync();
             }
 
             ConnectionChanged?.Invoke(true, null);
@@ -279,10 +282,31 @@ public class NetworkClient : IDisposable
 #endif
     }
 
+    private async Task ReceiveMessageAsync()
+    {
+        try
+        {
+            await _session!.ProcessMessagesAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常取消
+        }
+        catch (Exception e)
+        {
+            // 连接已关闭
+        }
+        finally
+        {
+            OnDisconnected(_session!, null);
+            Disconnect();
+        }
+    }
+
     /// <summary>
     /// 处理连接断开
     /// </summary>
-    private void OnDisconnected(NetworkSession session, Exception ex)
+    private void OnDisconnected(NetworkSession session, Exception? ex)
     {
         // 取消所有等待中的请求
         foreach (var pendingRequest in _pendingRequests)

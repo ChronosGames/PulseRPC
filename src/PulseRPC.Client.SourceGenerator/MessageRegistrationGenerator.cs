@@ -239,19 +239,19 @@ namespace {clientType.ContainingNamespace}
 
         public T Deserialize<T>(in ReadOnlySequence<byte> bytes) => MemoryPackSerializer.Deserialize<T>(bytes, serializerOptions)!;
 
-        public byte[] Serialize2<T>(in T message) where T : IPacket
+
+        public void Serialize3<T>(IBufferWriter<byte> writer, in T message) where T : IPacket
         {{
-            var messageId = _packet2id[typeof(T)];
+            // 1. 获取消息ID
+            var messageId = _packet2id.GetValueOrDefault(typeof(T));
 
-            var writer = new ArrayBufferWriter<byte>();
-
+            // 2. 为消息ID获取可写入的Span
             var idSpan = writer.GetSpan(2);
             BinaryPrimitives.WriteUInt16LittleEndian(idSpan, messageId);
             writer.Advance(2);
 
+            // 3. 直接序列化消息到写入器
             MemoryPackSerializer.Serialize(writer, message);
-
-            return writer.WrittenSpan.ToArray();
         }}
 
         public IPacket Deserialize2(in ReadOnlySpan<byte> bytes)

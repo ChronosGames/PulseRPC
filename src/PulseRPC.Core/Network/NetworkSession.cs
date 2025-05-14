@@ -1,11 +1,16 @@
 ﻿using System;
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using MemoryPack;
+using Microsoft.Extensions.Logging;
 using PulseRPC.Protocol.Compression;
 using PulseRPC.Protocol.Messages;
 
@@ -16,16 +21,38 @@ namespace PulseRPC.Protocol.Network;
 /// </summary>
 public class NetworkSession
 {
+    private const int PacketHeaderSize = 6; // 4字节长度 + 2字节类型ID
+
     private readonly Socket _socket;
+    private readonly ILogger _logger;
+
     private readonly NetworkOptions _options;
-    private readonly Pipe _receivePipe;
-    private readonly Pipe _sendPipe;
-    private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
-    private bool _isDisposed;
-    private readonly CancellationTokenSource _cts = new();
+
+    // private readonly Pipe _receivePipe;
+    // private readonly Pipe _sendPipe;
+    // private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+    // private bool _isDisposed;
+    // private readonly CancellationTokenSource _cts = new();
     private readonly MetaData<string> _metaData = new();
     private readonly Func<NetworkSession, IPacket, CancellationToken, Task> _callback;
     private readonly IPulseRPCSerializer _serializer;
+
+    private readonly NetworkStream _stream;
+    private readonly PipeReader _reader;
+    private readonly PipeWriter _writer;
+    private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+
+    private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+
+    // private readonly IPulseRPCSerializer _messageHandlers;
+    private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
+    private bool _isDisposed;
+
+    // 性能计数器
+    private long _bytesSent;
+    private long _bytesReceived;
+    private long _messagesSent;
+    private long _messagesReceived;
 
     /// <summary>
     /// 连接断开事件
@@ -33,246 +60,237 @@ public class NetworkSession
     public event Action<NetworkSession, Exception>? Disconnected;
 
     /// <summary>
-    /// 远程终结点
-    /// </summary>
-    public EndPoint? RemoteEndPoint => _socket.RemoteEndPoint;
-
-    /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkSession(Socket socket, Func<NetworkSession, IPacket, CancellationToken, Task> callback, IPulseRPCSerializer serializer, NetworkOptions? options = null)
+    public NetworkSession(ILogger logger, Socket socket,
+        Func<NetworkSession, IPacket, CancellationToken, Task> callback, IPulseRPCSerializer serializer,
+        NetworkOptions? options = null)
     {
         _socket = socket ?? throw new ArgumentNullException(nameof(socket));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _serializer = serializer;
         _options = options ?? new NetworkOptions();
-        _socket.NoDelay = true;
-        _socket.SendBufferSize = _options.SocketBufferSize;
-        _socket.ReceiveBufferSize = _options.SocketBufferSize;
+
+        ConfigureSocket(_socket);
+
+        _stream = new NetworkStream(_socket);
+
+        var readerOptions = new StreamPipeReaderOptions(
+            bufferSize: 65536, // 64KB
+            minimumReadSize: 4096, // 4KB
+            pool: MemoryPool<byte>.Shared,
+            leaveOpen: false
+        );
+
+        var writerOptions = new StreamPipeWriterOptions(
+            minimumBufferSize: 65536, // 64KB
+            pool: MemoryPool<byte>.Shared,
+            leaveOpen: false
+        );
+
+        _reader = PipeReader.Create(_stream, readerOptions);
+        _writer = PipeWriter.Create(_stream, writerOptions);
 
         // 使用定制的PipeOptions
-        var pipeOptions = new PipeOptions(
-            pool: MemoryPool<byte>.Shared,
-            minimumSegmentSize: 4096,
-            pauseWriterThreshold: 1024 * 1024, // 1MB
-            resumeWriterThreshold: 512 * 1024, // 512KB
-            useSynchronizationContext: false);
+        // var pipeOptions = new PipeOptions(
+        //     pool: MemoryPool<byte>.Shared,
+        //     minimumSegmentSize: 4096,
+        //     pauseWriterThreshold: 1024 * 1024, // 1MB
+        //     resumeWriterThreshold: 512 * 1024, // 512KB
+        //     useSynchronizationContext: false);
 
-        _receivePipe = new Pipe(pipeOptions);
-        _sendPipe = new Pipe(pipeOptions);
+        // _receivePipe = new Pipe(pipeOptions);
+        // _sendPipe = new Pipe(pipeOptions);
         _callback = callback;
     }
 
     /// <summary>
-    /// 开始处理网络消息
+    /// 配置Socket选项以优化性能
     /// </summary>
-    public void Start()
+    private void ConfigureSocket(Socket socket)
     {
-        // 启动发送/接收任务
-        Task.Run(ReceiveLoopAsync);
-        Task.Run(SendLoopAsync);
+        // 禁用Nagle算法以减少延迟
+        socket.NoDelay = true;
 
-        // 启动帧处理器
-        var frameProcessor = new FrameProcessor(
-            _receivePipe.Reader,
-            HandleFrameAsync,
-            _cts.Token);
+        // 设置发送和接收缓冲区大小
+        socket.SendBufferSize = _options.SendBufferSize; // 256KB
+        socket.ReceiveBufferSize = _options.RecvBufferSize; // 256KB
 
-        Task.Run(() => frameProcessor.ProcessFramesAsync());
-    }
+        // 配置TCP保活选项
+        socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
 
-    /// <summary>
-    /// 接收循环 - 将数据从Socket读取到Pipe
-    /// </summary>
-    private async Task ReceiveLoopAsync()
-    {
-        const int minimumBufferSize = 4096;
+        // 配置TCP快速关闭
+        socket.LingerState = new LingerOption(true, 0);
 
-        try
+        // 尝试启用零拷贝（仅Linux平台支持）
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
-            while (!_cts.IsCancellationRequested)
+            try
             {
-                // 获取至少4KB的内存
-                var memory = _receivePipe.Writer.GetMemory(minimumBufferSize);
-
-                // 直接接收到Pipe内存中
-                var bytesRead = await _socket.ReceiveAsync(memory, SocketFlags.None, _cts.Token);
-
-                if (bytesRead == 0)
-                {
-                    // 连接已关闭
-                    break;
-                }
-
-                // 更新写入位置并刷新
-                _receivePipe.Writer.Advance(bytesRead);
-                var flushResult = await _receivePipe.Writer.FlushAsync(_cts.Token);
-
-                if (flushResult.IsCompleted || flushResult.IsCanceled)
-                {
-                    break;
-                }
+                // ReSharper disable once InconsistentNaming
+                const int SO_ZEROCOPY = 60;
+                socket.SetSocketOption(SocketOptionLevel.Socket, (SocketOptionName)SO_ZEROCOPY, 1);
+            }
+            catch
+            {
+                // 忽略不支持的错误
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            OnDisconnected(ex);
-        }
-        finally
-        {
-            await _receivePipe.Writer.CompleteAsync();
-        }
     }
 
     /// <summary>
-    /// 发送循环 - 将数据从Pipe发送到Socket
+    /// 开始处理消息
     /// </summary>
-    private async Task SendLoopAsync()
+    public async Task ProcessMessagesAsync()
     {
         try
         {
             while (!_cts.IsCancellationRequested)
             {
-                var readResult = await _sendPipe.Reader.ReadAsync(_cts.Token);
+                var result = await _reader.ReadAsync(_cts.Token);
+                var buffer = result.Buffer;
 
-                if (readResult.IsCanceled)
+                try
                 {
-                    break;
+                    // 处理所有完整的消息
+                    ProcessMessages(ref buffer);
+                }
+                finally
+                {
+                    // 告诉PipeReader我们处理到哪里了
+                    _reader.AdvanceTo(buffer.Start, buffer.End);
                 }
 
-                var buffer = readResult.Buffer;
-
-                if (buffer.IsEmpty && readResult.IsCompleted)
-                {
-                    break;
-                }
-
-                // 发送数据
-                if (!buffer.IsEmpty)
-                {
-                    try
-                    {
-                        // 合并发送多个缓冲区片段
-                        if (buffer.IsSingleSegment)
-                        {
-                            // 单段缓冲区，直接发送
-                            await _socket.SendAsync(buffer.First, SocketFlags.None, _cts.Token);
-                        }
-                        else
-                        {
-                            // 多段缓冲区，创建BufferList发送
-                            var segments = new List<ArraySegment<byte>>();
-                            foreach (var segment in buffer)
-                            {
-                                segments.Add(new ArraySegment<byte>(segment.ToArray()));
-                            }
-
-                            await _socket.SendAsync(segments, SocketFlags.None);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        OnDisconnected(ex);
-                        break;
-                    }
-                }
-
-                _sendPipe.Reader.AdvanceTo(buffer.End);
-
-                if (readResult.IsCompleted)
+                if (result.IsCompleted)
                 {
                     break;
                 }
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
         {
-            OnDisconnected(ex);
+            // 正常取消
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"处理消息时出错");
         }
         finally
         {
-            await _sendPipe.Reader.CompleteAsync();
+            await _reader.CompleteAsync();
+            await _writer.CompleteAsync();
         }
     }
 
     /// <summary>
-    /// 处理接收到的帧
+    /// 处理接收到的所有完整消息
     /// </summary>
-    private async Task HandleFrameAsync(ReadOnlySequence<byte> frameData, bool isCompressed)
+    private void ProcessMessages(ref ReadOnlySequence<byte> buffer)
     {
-        // 将帧数据反序列化为消息
-        IPacket packet;
+        int length = 0;
+        while ((length = TryReadMessage(ref buffer, out var id, out var packet)) > 0)
+        {
+            try
+            {
+                // 更新计数器
+                Interlocked.Increment(ref _messagesReceived);
+                Interlocked.Add(ref _bytesReceived, length + PacketHeaderSize);
 
-        if (isCompressed)
-        {
-            var compressedData = frameData.ToArray(); // 不得不复制一次
-            var decompressedData = await MessageCompressor.DecompressAsync(compressedData);
-            packet = _serializer.Deserialize2(decompressedData);
-        }
-        else
-        {
-            // 未压缩
-            if (frameData.IsSingleSegment)
-            {
-                // 单段数据，直接反序列化
-                packet = _serializer.Deserialize2(frameData.First.Span);
+                // 将消息分发给处理器
+                _callback(this, packet!, _cts.Token);
+                // _messageHandlers.DispatchMessage(packet.TypeId, packet.Data);
             }
-            else
+            finally
             {
-                // 多段数据，需要复制到连续内存
-                var dataArray = frameData.ToArray();
-                packet = _serializer.Deserialize2(dataArray);
+                // 归还缓冲区
+                // if (packet!.Data.Length > 0)
+                // {
+                //     _arrayPool.Return(packet.Data);
+                // }
             }
         }
-
-        // 分发处理
-        await _callback(this, packet, _cts.Token);
     }
 
     /// <summary>
-    /// 发送数据包
+    /// 尝试从缓冲区读取一个完整消息
     /// </summary>
-    public async Task SendPacketAsync<T>(T packet) where T : IPacket
+    private int TryReadMessage(ref ReadOnlySequence<byte> buffer, out ushort id, out IPacket? packet)
+    {
+        id = 0;
+        packet = null;
+
+        // 至少需要8字节：4字节长度 + 4字节类型ID
+        if (buffer.Length < PacketHeaderSize)
+            return 0;
+
+        // 读取消息长度和类型ID
+        Span<byte> headerSpan = stackalloc byte[PacketHeaderSize];
+        buffer.Slice(0, PacketHeaderSize).CopyTo(headerSpan);
+
+        var messageLength = BinaryPrimitives.ReadInt32LittleEndian(headerSpan);
+        id = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan[4..]);
+
+        // 检查长度合理性（防止恶意数据）
+        if (messageLength < 0 || messageLength > _options.MaxPacketSize)
+        {
+            throw new InvalidOperationException($"消息长度无效: {messageLength}");
+        }
+
+        // 确保有完整消息
+        if (buffer.Length < messageLength + PacketHeaderSize)
+            return 0;
+
+        // 提取消息数据
+        // var messageData = _arrayPool.Rent(messageLength);
+        // buffer.Slice(PacketHeaderSize, messageLength).CopyTo(messageData);
+
+        // 创建消息包
+        packet = _serializer.Deserialize2(buffer.Slice(4, messageLength + 2).FirstSpan);
+
+        // 移动缓冲区位置
+        buffer = buffer.Slice(messageLength + PacketHeaderSize);
+
+        return messageLength;
+    }
+
+    /// <summary>
+    /// 发送MemoryPack序列化对象
+    /// </summary>
+    public async Task<bool> SendObjectAsync<T>(ushort typeId, T message) where T : IPacket
     {
         if (_isDisposed)
-        {
-            throw new ObjectDisposedException(nameof(NetworkSession));
-        }
+            return false;
 
         await _sendLock.WaitAsync();
         try
         {
-            // 序列化消息
-            var packetData = _serializer.Serialize2(packet);
+            // 获取MemoryPack序列化的数据
+            var serializedData = MemoryPackSerializer.Serialize(message);
 
-            // 确定是否需要压缩
-            var shouldCompress = CompressionStrategy.ShouldCompress(packetData, _options);
-            var dataToSend = packetData;
+            // 获取输出缓冲区
+            var headerMemory = _writer.GetMemory(PacketHeaderSize);
 
-            if (shouldCompress)
-            {
-                var compressionLevel = CompressionStrategy.SelectCompressionLevel(packetData.Length);
-                dataToSend = await MessageCompressor.CompressAsync(packetData, compressionLevel);
-            }
+            // 写入长度前缀和类型ID
+            BinaryPrimitives.WriteInt32LittleEndian(headerMemory.Span, serializedData.Length);
+            BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span[4..], typeId);
+            _writer.Advance(PacketHeaderSize);
 
-            // 使用零复制API将帧写入到发送管道
-            await FrameProcessor.WriteMarshaledFrameAsync(
-                _sendPipe.Writer,
-                dataToSend,
-                shouldCompress,
-                packet.Type,
-                packet.SequenceId,
-                packet switch
-                {
-                    Request req => req.RequestId,
-                    Response resp => resp.RequestId,
-                    _ => null
-                });
+            // 写入序列化数据
+            _writer.Write(serializedData);
 
-            // 如果使用了压缩，但dataToSend不是packetData，需要释放
-            if (shouldCompress && dataToSend != packetData)
-            {
-                ArrayPool<byte>.Shared.Return(dataToSend);
-            }
+            // 刷新数据
+            await _writer.FlushAsync();
+
+            // 更新计数器
+            Interlocked.Increment(ref _messagesSent);
+            Interlocked.Add(ref _bytesSent, serializedData.Length + PacketHeaderSize);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError("发送消息时出错: {ExMessage}", ex.Message);
+            return false;
         }
         finally
         {
@@ -281,27 +299,101 @@ public class NetworkSession
     }
 
     /// <summary>
-    /// 处理连接断开
+    /// 使用零分配发送对象（高级优化）
     /// </summary>
-    private void OnDisconnected(Exception ex)
+    public async Task<bool> SendPacketAsync<T>(T message) where T : IPacket
     {
-        if (!_isDisposed)
+        if (_isDisposed)
+            return false;
+
+        await _sendLock.WaitAsync();
+        try
         {
-            Disconnected?.Invoke(this, ex);
+            // 首先估计序列化后的大小
+            var estimatedSize = EstimateSerializedSize(message);
+
+            // 获取输出缓冲区
+            var headerMemory = _writer.GetMemory(PacketHeaderSize + estimatedSize);
+
+            // 保存当前位置
+            _writer.Advance(4); // 跳过头部，稍后填充
+
+            // 使用MemoryPack直接序列化到管道
+            _serializer.Serialize3(_writer, message);
+            // MemoryPackSerializer.Serialize(_writer, message);
+
+            // 确定实际序列化大小
+            var actualSize = _writer.UnflushedBytes - PacketHeaderSize;
+
+            // 回写头部
+            BinaryPrimitives.WriteInt32LittleEndian(headerMemory.Span, (int)actualSize);
+            // BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span[4..], typeId);
+
+            // 刷新数据
+            await _writer.FlushAsync();
+
+            // 更新计数器
+            Interlocked.Increment(ref _messagesSent);
+            Interlocked.Add(ref _bytesSent, actualSize + PacketHeaderSize);
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError($"发送消息时出错: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            _sendLock.Release();
         }
     }
 
     /// <summary>
-    /// 关闭连接
+    /// 估计序列化后的对象大小
     /// </summary>
-    public void Close()
+    private static int EstimateSerializedSize<T>(T message)
     {
-        Dispose();
+        // 这是一个估计值，根据对象类型设置合理的初始大小
+        // 在真实环境中，可以根据对象字段数量或缓存历史大小做更精确的估计
+        if (message == null)
+            return 4;
+
+        var type = typeof(T);
+
+        if (type.IsPrimitive)
+            return 8;
+
+        if (type == typeof(string))
+            return ((string)(object)message).Length * 2 + 8;
+
+        if (type.IsClass)
+            return 256; // 类的合理初始大小
+
+        if (type.IsValueType)
+            return 128; // 结构体的合理初始大小
+
+        return 512; // 默认大小
     }
 
     /// <summary>
-    /// 释放资源
+    /// 获取性能统计信息
     /// </summary>
+    public string GetPerformanceStats()
+    {
+        return $"发送: {_messagesSent} 消息 ({_bytesSent} 字节), " +
+               $"接收: {_messagesReceived} 消息 ({_bytesReceived} 字节)";
+    }
+
+    /// <summary>
+    /// 关闭会话
+    /// </summary>
+    public void Close()
+    {
+        _cts.Cancel();
+        Dispose();
+    }
+
     public void Dispose()
     {
         if (_isDisposed)
@@ -311,20 +403,17 @@ public class NetworkSession
 
         _isDisposed = true;
 
-        _cts.Cancel();
         _cts.Dispose();
+        _sendLock.Dispose();
 
         try
         {
-            _socket.Shutdown(SocketShutdown.Both);
+            _socket.Close();
         }
         catch
         {
-            // 忽略关闭时的异常
+            // 忽略错误
         }
-
-        _socket.Close();
-        _sendLock.Dispose();
     }
 
     public bool TryGetItem<T>(string key, out T? value)
