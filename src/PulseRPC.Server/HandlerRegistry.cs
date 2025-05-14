@@ -3,10 +3,10 @@
 public class HandlerRegistry
 {
     // 命令处理器映射
-    private readonly Dictionary<ushort, CommandHandlerInfo> _commandHandlers = new();
+    private readonly Dictionary<Type, CommandHandlerInfo> _commandHandlers = new();
 
     // 请求处理器映射
-    private readonly Dictionary<ushort, RequestHandlerInfo> _requestHandlers = new();
+    private readonly Dictionary<Type, RequestHandlerInfo> _requestHandlers = new();
 
     // 处理器信息基类
     internal abstract class HandlerInfo(Type handlerType, ushort messageId, HandlerThreadingPolicy policy, int priority)
@@ -50,7 +50,7 @@ public class HandlerRegistry
         var info = new CommandHandlerInfo(
             handlerType, typeof(TCommand), messageId, policy, priority);
 
-        _commandHandlers[messageId] = info;
+        _commandHandlers[typeof(TCommand)] = info;
     }
 
     // 注册请求处理器
@@ -60,18 +60,18 @@ public class HandlerRegistry
         var info = new RequestHandlerInfo(
             handlerType, typeof(TRequest), typeof(TResponse), messageId, policy, priority);
 
-        _requestHandlers[messageId] = info;
+        _requestHandlers[typeof(TRequest)] = info;
     }
 
     // 获取命令处理器信息
-    internal bool TryGetCommandHandler(ushort messageId, out CommandHandlerInfo? handlerInfo)
+    internal bool TryGetCommandHandler(Type commandType, out CommandHandlerInfo? handlerInfo)
     {
-        return _commandHandlers.TryGetValue(messageId, out handlerInfo);
+        return _commandHandlers.TryGetValue(commandType, out handlerInfo);
     }
 
     // 获取请求处理器信息
-    internal bool TryGetRequestHandler(ushort messageId, out RequestHandlerInfo? handlerInfo)
+    internal bool TryGetRequestHandler(Type requestType, out RequestHandlerInfo? handlerInfo)
     {
-        return _requestHandlers.TryGetValue(messageId, out handlerInfo);
+        return _requestHandlers.TryGetValue(requestType, out handlerInfo);
     }
 }

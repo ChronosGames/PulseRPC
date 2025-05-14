@@ -18,4 +18,8 @@
     <PackageReference Include="System.Runtime.CompilerServices.Unsafe" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
+  </ItemGroup>
+
 </Project>

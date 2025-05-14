@@ -3,14 +3,6 @@ using MemoryPack;
 
 namespace PulseRPC.Protocol.Messages;
 
-public enum MessageType : byte
-{
-    Command = 0,    // 上行命令
-    Message = 1,    // 下行消息
-    Request = 2,    // 请求
-    Response = 3    // 响应
-}
-
 [Flags]
 public enum PacketFlags : byte
 {
@@ -34,14 +26,6 @@ public static class PacketHeader
 
         return size;
     }
-}
-
-[MemoryPackable(GenerateType.NoGenerate)]
-public partial interface IPacket
-{
-    ushort Id { get; }
-    MessageType Type { get; }
-    uint SequenceId { get; set; }
 }
 
 [MemoryPackable(GenerateType.NoGenerate)]

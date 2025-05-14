@@ -18,24 +18,28 @@ public static class CompressionStrategy
     {
         // 太小的消息不值得压缩
         if (data.Length < options.CompressionThreshold)
-            return false;
-
-        // 超过32KB的消息一定压缩
-        if (data.Length > 32 * 1024)
-            return true;
-
-        // 对中等大小的消息，进行简单熵检测
-        if (data.Length >= EntropySampleSize)
         {
-            // 进行简单的熵检测
-            var entropy = CalculateEntropy(data.AsSpan(0, Math.Min(EntropySampleSize, data.Length)));
-
-            // 熵值低表示更可压缩
-            return entropy < 0.8;
+            return false;
         }
 
-        // 默认对中等大小的消息进行压缩
-        return data.Length >= 2 * 1024; // 2KB
+        switch (data.Length)
+        {
+            // 超过32KB的消息一定压缩
+            case > 32 * 1024:
+                return true;
+            // 对中等大小的消息，进行简单熵检测
+            case >= EntropySampleSize:
+            {
+                // 进行简单的熵检测
+                var entropy = CalculateEntropy(data.AsSpan(0, Math.Min(EntropySampleSize, data.Length)));
+
+                // 熵值低表示更可压缩
+                return entropy < 0.8;
+            }
+            default:
+                // 默认对中等大小的消息进行压缩
+                return data.Length >= 2 * 1024; // 2KB
+        }
     }
 
     /// <summary>

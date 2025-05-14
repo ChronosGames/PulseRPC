@@ -128,47 +128,8 @@ public class FrameProcessor
 
         // 更新缓冲区位置
         buffer = buffer.Slice(frameLength);
+
         return true;
-    }
-
-    /// <summary>
-    /// 将帧写入管道
-    /// </summary>
-    public static async Task WriteFrameAsync(PipeWriter writer, ReadOnlyMemory<byte> data, bool compress,
-        MessageType type, uint sequenceId, uint? requestId = null)
-    {
-        // 1. 计算头部大小
-        var headerSize = PacketHeader.GetHeaderSize(type);
-
-        // 2. 获取内存用于写入帧头
-        var headerMemory = writer.GetMemory(headerSize);
-
-        // 3. 写入帧头
-        var headerSpan = headerMemory.Span;
-
-        // 留出长度字段，稍后填写
-        headerSpan[2] = (byte)type;
-        headerSpan[3] = compress ? (byte)PacketFlags.Compressed : (byte)0;
-        BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(4), sequenceId);
-
-        if (requestId.HasValue)
-        {
-            BinaryPrimitives.WriteUInt32LittleEndian(headerSpan.Slice(8), requestId.Value);
-        }
-
-        writer.Advance(headerSize);
-
-        // 4. 写入帧内容
-        await writer.WriteAsync(data);
-
-        // 5. 计算总帧长度并写回帧头
-        var flushResult = await writer.FlushAsync();
-
-        // 6. 通知完成写入
-        if (flushResult.IsCompleted)
-        {
-            await writer.CompleteAsync();
-        }
     }
 
     /// <summary>
@@ -180,6 +141,10 @@ public class FrameProcessor
         // 计算总长度
         var headerSize = PacketHeader.GetHeaderSize(type);
         var totalLength = headerSize + data.Length;
+        if (totalLength > ushort.MaxValue)
+        {
+            throw new InvalidDataException($"Frame size exceeds maximum limit: {totalLength} > {ushort.MaxValue}.");
+        }
 
         // 获取足够的内存
         var memory = writer.GetMemory(totalLength);
