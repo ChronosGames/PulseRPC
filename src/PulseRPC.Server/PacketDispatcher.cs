@@ -68,7 +68,10 @@ public class PacketDispatcher(
                     // ushort responseMessageId = (ushort)(packet.Id + 1);
 
                     // 发送响应
-                    await session.SendPacketAsync(response);
+                    response.RequestId = request.RequestId;
+                    response.SequenceId = request.SequenceId;
+                    dynamic abc = response;
+                    await session.SendPacketAsync(abc);
                 }
 
                 break;

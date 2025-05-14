@@ -8,8 +8,8 @@ public class NetworkOptions
     // 最大包大小（64KB - 1）
     public int MaxPacketSize { get; set; } = 65535;
 
-    // Socket缓冲区大小
-    public int SocketBufferSize { get; set; } = 8192;
+    public int SendBufferSize { get; set; } = 262144; // 256KB
+    public int RecvBufferSize { get; set; } = 262144; // 256KB
 
     // 请求超时时间(毫秒)
     public int RequestTimeout { get; set; } = 10000;

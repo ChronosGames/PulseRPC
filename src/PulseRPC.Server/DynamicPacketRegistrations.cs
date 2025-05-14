@@ -22,13 +22,10 @@ public class DynamicPacketRegistrations(MemoryPackSerializerOptions serializerOp
     public T Deserialize<T>(in ReadOnlySequence<byte> bytes)
         => MemoryPackSerializer.Deserialize<T>(bytes, serializerOptions)!;
 
-    public byte[] Serialize2<T>(in T message) where T : IPacket
+    public void Serialize3<T>(IBufferWriter<byte> writer, in T message) where T : IPacket
     {
         // 0. 获取消息ID
         var messageId = _typePacketMap.GetValueOrDefault(typeof(T));
-
-        // 1. 创建缓冲区写入器
-        var writer = new ArrayBufferWriter<byte>();
 
         // 2. 为消息ID获取可写入的Span
         var idSpan = writer.GetSpan(2);
@@ -37,9 +34,6 @@ public class DynamicPacketRegistrations(MemoryPackSerializerOptions serializerOp
 
         // 3. 直接序列化消息到写入器
         MemoryPackSerializer.Serialize(writer, message);
-
-        // 4. 复制到结果数组
-        return writer.WrittenSpan.ToArray();
     }
 
     public IPacket Deserialize2(in ReadOnlySpan<byte> bytes)
