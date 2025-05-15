@@ -9,7 +9,7 @@ namespace PulseRPC.Samples.Server.Handlers;
 /// <summary>
 /// 登录请求处理器
 /// </summary>
-[PacketHandler(false, 0x01)]
+[PacketHandler(false)]
 public class LoginRequestHandler : IRequestHandler<LoginRequest, LoginResponse>
 {
     private readonly ILogger<LoginRequestHandler> _logger;
@@ -81,6 +81,7 @@ public class LoginRequestHandler : IRequestHandler<LoginRequest, LoginResponse>
 /// <summary>
 /// 注册请求处理器
 /// </summary>
+[PacketHandler]
 public class RegisterRequestHandler : IRequestHandler<RegisterRequest, RegisterResponse>
 {
     private readonly ILogger<RegisterRequestHandler> _logger;
