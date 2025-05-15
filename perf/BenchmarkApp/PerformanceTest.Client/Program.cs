@@ -1,8 +1,6 @@
-using Grpc.Net.Client;
-using MagicOnion.Client;
-using MagicOnion.Serialization;
-using MagicOnion.Serialization.MemoryPack;
-using MagicOnion.Serialization.MessagePack;
+using PulseRPC.Client;
+using PulseRPC.Serialization;
+using PulseRPC.Serialization.MemoryPack;
 using PerformanceTest.Client;
 using PerformanceTest.Shared;
 using PerformanceTest.Shared.Reporting;
@@ -51,17 +49,6 @@ async Task Main(
     WriteLog($"Debug: {debug}");
     WriteLog($"Tags: {tags}");
 
-    // Setup serializer
-    switch (serialization)
-    {
-        case SerializationType.MessagePack:
-            MagicOnionSerializerProvider.Default = MessagePackMagicOnionSerializerProvider.Default;
-            break;
-        case SerializationType.MemoryPack:
-            MagicOnionSerializerProvider.Default = MemoryPackMagicOnionSerializerProvider.Instance;
-            break;
-    }
-
     // Setup threadpool
     // SetThreads(config.Channels * config.Streams);
 
@@ -69,7 +56,7 @@ async Task Main(
     using var channelControl = config.CreateChannel();
     var controlServiceClient = MagicOnionClient.Create<IPerfTestControlService>(channelControl);
     await controlServiceClient.SetMemoryProfilerCollectAllocationsAsync(true);
-    (DatadogMetricsRecorder.MagicOnionVersions, DatadogMetricsRecorder.EnableLatestTag) = await controlServiceClient.ExchangeMagicOnionVersionTagAsync(ApplicationInformation.Current.TagMagicOnionVersion, ApplicationInformation.Current.IsLatestMagicOnion); // keep in Client
+    (DatadogMetricsRecorder.MagicOnionVersions, DatadogMetricsRecorder.EnableLatestTag) = await controlServiceClient.ExchangeMagicOnionVersionTagAsync(ApplicationInformation.Current.TagPulseRPCVersion, ApplicationInformation.Current.IsLatestPulseRPC); // keep in Client
 
     ServerInformation serverInfo;
     WriteLog("Gathering the server information...");
@@ -283,11 +270,9 @@ void PrintStartupInformation(TextWriter? writer = null)
     writer ??= Console.Out;
 
     writer.WriteLine($"Benchmarker {ApplicationInformation.Current.BenchmarkerVersion}");
-    writer.WriteLine($"MagicOnion {ApplicationInformation.Current.MagicOnionVersion}");
-    writer.WriteLine($"grpc-dotnet {ApplicationInformation.Current.GrpcNetVersion}");
-    writer.WriteLine($"MessagePack {ApplicationInformation.Current.MessagePackVersion}");
+    writer.WriteLine($"PulseRPC {ApplicationInformation.Current.PulseRPCVersion}");
     writer.WriteLine($"MemoryPack {ApplicationInformation.Current.MemoryPackVersion}");
-    writer.WriteLine($"IsLatestMagicOnion {ApplicationInformation.Current.IsLatestMagicOnion}");
+    writer.WriteLine($"IsLatestMagicOnion {ApplicationInformation.Current.IsLatestPulseRPC}");
     writer.WriteLine();
 
     writer.WriteLine("Configurations:");
@@ -322,7 +307,7 @@ IEnumerable<ScenarioType> GetRunScenarios(ScenarioType scenario)
 static class DatadogMetricsRecorderExtensions
 {
     /// <summary>
-    /// Put Client Benchmark metrics average to background. 
+    /// Put Client Benchmark metrics average to background.
     /// </summary>
     /// <param name="recorder"></param>
     /// <param name="scenario"></param>

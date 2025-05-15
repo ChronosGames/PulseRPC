@@ -9,16 +9,16 @@ public class ApplicationInformation
 {
     public static ApplicationInformation Current { get; } = new ApplicationInformation();
 
-    public bool IsLatestMagicOnion { get; } = typeof(ApplicationInformation).Assembly.GetCustomAttribute<PulseRPCIsLatestAttirbute>()?.IsLatest ?? true; // set from csproj
+    public bool IsLatestPulseRPC { get; } = typeof(ApplicationInformation).Assembly.GetCustomAttribute<PulseRPCIsLatestAttirbute>()?.IsLatest ?? true; // set from csproj
 
     public string? BenchmarkerVersion { get; } = typeof(ApplicationInformation).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
 #if SERVER
-    public string? TagPulseRPCVersion { get; } = RemoveHashFromVersion(typeof(PulseRPC.Server.ServiceContext).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
-    public string? PulseRPCVersion { get; } = typeof(PulseRPC.Server.ServiceContext).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+    public string? TagPulseRPCVersion { get; } = RemoveHashFromVersion(typeof(PulseRPC.Server.NetworkServer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+    public string? PulseRPCVersion { get; } = typeof(PulseRPC.Server.NetworkServer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 #elif CLIENT
-    public string? TagPulseRPCVersion { get; } = RemoveHashFromVersion(typeof(MagicOnion.Client.MagicOnionClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
-    public string? PulseRPCVersion { get; } = typeof(MagicOnion.Client.MagicOnionClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+    public string? TagPulseRPCVersion { get; } = RemoveHashFromVersion(typeof(PulseRPC.Client.NetworkClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+    public string? PulseRPCVersion { get; } = typeof(PulseRPC.Client.NetworkClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 #else
     public string? TagPulseRPCVersion { get; } = RemoveHashFromVersion(typeof(PulseRPC.IPacket).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
     public string? PulseRPCVersion { get; } = typeof(PulseRPC.IPacket).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
