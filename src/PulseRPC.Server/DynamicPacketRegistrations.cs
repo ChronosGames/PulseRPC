@@ -16,13 +16,7 @@ public class DynamicPacketRegistrations(MemoryPackSerializerOptions serializerOp
         _typePacketMap.TryAdd(packetType, packetId);
     }
 
-    public void Serialize<T>(IBufferWriter<byte> writer, in T value)
-        => MemoryPackSerializer.Serialize(writer, value, serializerOptions);
-
-    public T Deserialize<T>(in ReadOnlySequence<byte> bytes)
-        => MemoryPackSerializer.Deserialize<T>(bytes, serializerOptions)!;
-
-    public void Serialize3<T>(IBufferWriter<byte> writer, in T message) where T : IPacket
+    public void Serialize<T>(IBufferWriter<byte> writer, in T message) where T : IPacket
     {
         // 0. 获取消息ID
         var messageId = _typePacketMap.GetValueOrDefault(typeof(T));
@@ -36,7 +30,7 @@ public class DynamicPacketRegistrations(MemoryPackSerializerOptions serializerOp
         MemoryPackSerializer.Serialize(writer, message);
     }
 
-    public IPacket Deserialize2(in ReadOnlySpan<byte> bytes)
+    public IPacket Deserialize(in ReadOnlySpan<byte> bytes)
     {
         var packetId = BinaryPrimitives.ReadUInt16LittleEndian(bytes);
         return (IPacket)MemoryPackSerializer.Deserialize(_packetTypeMap.GetValueOrDefault(packetId)!, bytes[2..], serializerOptions)!;

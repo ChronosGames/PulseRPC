@@ -245,7 +245,7 @@ public class NetworkSession
         // buffer.Slice(PacketHeaderSize, messageLength).CopyTo(messageData);
 
         // 创建消息包
-        packet = _serializer.Deserialize2(buffer.Slice(4, messageLength + 2).FirstSpan);
+        packet = _serializer.Deserialize(buffer.Slice(4, messageLength + 2).FirstSpan);
 
         // 移动缓冲区位置
         buffer = buffer.Slice(messageLength + PacketHeaderSize);
@@ -319,8 +319,7 @@ public class NetworkSession
             _writer.Advance(4); // 跳过头部，稍后填充
 
             // 使用MemoryPack直接序列化到管道
-            _serializer.Serialize3(_writer, message);
-            // MemoryPackSerializer.Serialize(_writer, message);
+            _serializer.Serialize(_writer, message);
 
             // 确定实际序列化大小
             var actualSize = _writer.UnflushedBytes - PacketHeaderSize;

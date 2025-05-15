@@ -6,6 +6,9 @@ namespace PulseRPC.Server;
 [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
 public class PacketHandlerAttribute(bool isInternal = false) : Attribute
 {
+    /// <summary>
+    /// 是否为内部处理器
+    /// </summary>
     public bool IsInternal { get; } = isInternal;
 
     // 可选：处理优先级
