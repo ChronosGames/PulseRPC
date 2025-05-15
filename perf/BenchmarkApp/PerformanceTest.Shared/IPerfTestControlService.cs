@@ -1,6 +1,4 @@
-using MagicOnion;
 using MemoryPack;
-using MessagePack;
 using System.Runtime.InteropServices;
 
 namespace PerformanceTest.Shared;
@@ -14,7 +12,6 @@ public interface IPerfTestControlService : IService<IPerfTestControlService>
     UnaryResult CreateMemoryProfilerSnapshotAsync(string name);
 }
 
-[MessagePackObject(true)]
 [MemoryPackable]
 public partial class ServerInformation
 {

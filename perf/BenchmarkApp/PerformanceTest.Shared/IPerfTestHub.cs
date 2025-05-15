@@ -1,4 +1,4 @@
-using MagicOnion;
+using PulseRPC;
 
 namespace PerformanceTest.Shared;
 

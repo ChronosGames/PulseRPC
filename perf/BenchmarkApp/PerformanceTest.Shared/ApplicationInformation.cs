@@ -9,24 +9,20 @@ public class ApplicationInformation
 {
     public static ApplicationInformation Current { get; } = new ApplicationInformation();
 
-    public bool IsLatestMagicOnion { get; } = typeof(ApplicationInformation).Assembly.GetCustomAttribute<MagicOnionIsLatestAttirbute>()?.IsLatest ?? true; // set from csproj
+    public bool IsLatestMagicOnion { get; } = typeof(ApplicationInformation).Assembly.GetCustomAttribute<PulseRPCIsLatestAttirbute>()?.IsLatest ?? true; // set from csproj
 
     public string? BenchmarkerVersion { get; } = typeof(ApplicationInformation).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
 #if SERVER
-    public string? TagMagicOnionVersion { get; } = RemoveHashFromVersion(typeof(MagicOnion.Server.ServiceContext).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
-    public string? MagicOnionVersion { get; } = typeof(MagicOnion.Server.ServiceContext).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-    public string? GrpcNetVersion { get; } = typeof(Grpc.AspNetCore.Server.GrpcServiceOptions).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+    public string? TagPulseRPCVersion { get; } = RemoveHashFromVersion(typeof(PulseRPC.Server.ServiceContext).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+    public string? PulseRPCVersion { get; } = typeof(PulseRPC.Server.ServiceContext).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 #elif CLIENT
-    public string? TagMagicOnionVersion { get; } = RemoveHashFromVersion(typeof(MagicOnion.Client.MagicOnionClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
-    public string? MagicOnionVersion { get; } = typeof(MagicOnion.Client.MagicOnionClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-    public string? GrpcNetVersion { get; } = typeof(Grpc.Net.Client.GrpcChannel).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+    public string? TagPulseRPCVersion { get; } = RemoveHashFromVersion(typeof(MagicOnion.Client.MagicOnionClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+    public string? PulseRPCVersion { get; } = typeof(MagicOnion.Client.MagicOnionClient).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 #else
-    public string? TagMagicOnionVersion { get; } = RemoveHashFromVersion(typeof(MagicOnion.UnaryResult).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
-    public string? MagicOnionVersion { get; } = typeof(MagicOnion.UnaryResult).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-    public string? GrpcNetVersion { get; } = default;
+    public string? TagPulseRPCVersion { get; } = RemoveHashFromVersion(typeof(PulseRPC.IPacket).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
+    public string? PulseRPCVersion { get; } = typeof(PulseRPC.IPacket).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 #endif
-    public string? MessagePackVersion { get; } = typeof(MessagePack.MessagePackSerializer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
     public string? MemoryPackVersion { get; } = typeof(MemoryPack.MemoryPackSerializer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
 
     public bool IsReleaseBuild { get; }
