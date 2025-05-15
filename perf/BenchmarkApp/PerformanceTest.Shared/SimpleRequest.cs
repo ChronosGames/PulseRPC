@@ -1,9 +1,7 @@
 using MemoryPack;
-using MessagePack;
 
 namespace PerformanceTest.Shared;
 
-[MessagePackObject]
 [MemoryPackable]
 public partial class SimpleRequest
 {
@@ -14,15 +12,13 @@ public partial class SimpleRequest
         UseCache = true,
     };
 
-    [Key(0)]
     public byte[] Payload { get; set; } = default!;
-    [Key(1)]
+
     public int ResponseSize { get; set; }
-    [Key(2)]
+
     public bool UseCache { get; set; }
 }
 
-[MessagePackObject]
 [MemoryPackable]
 public partial class SimpleResponse
 {
@@ -31,6 +27,5 @@ public partial class SimpleResponse
         Payload = [],
     };
 
-    [Key(0)]
     public byte[] Payload { get; set; } = default!;
 }

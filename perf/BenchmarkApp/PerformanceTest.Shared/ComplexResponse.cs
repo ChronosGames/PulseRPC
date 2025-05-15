@@ -1,9 +1,7 @@
 using MemoryPack;
-using MessagePack;
 
 namespace PerformanceTest.Shared;
 
-[MessagePackObject]
 [MemoryPackable]
 public partial class ComplexResponse
 {
@@ -39,50 +37,45 @@ public partial class ComplexResponse
         },
     };
 
-    [Key(0)]
     public bool Value1 { get; set; }
-    [Key(1)]
+
     public int Value2 { get; set; }
-    [Key(2)]
+
     public InnerObject1 Value3 { get; set; } = default!;
-    [Key(3)]
+
     public IReadOnlyList<InnerObject2> Value4 { get; set; } = default!;
 }
 
-[MessagePackObject]
 [MemoryPackable]
 public partial class InnerObject1
 {
-    [Key(0)]
     public int Value1 { get; set; }
-    [Key(1)]
+
     public string Value2 { get; set; } = default!;
-    [Key(2)]
+
     public long Value3 { get; set; }
-    [Key(3)]
+
     public bool Value4 { get; set; }
-    [Key(4)]
+
     public int Value5 { get; set; }
-    [Key(5)]
+
     public int Value6 { get; set; }
-    [Key(6)]
+
     public int Value7 { get; set; }
-    [Key(7)]
+
     public int Value8 { get; set; }
-    [Key(8)]
+
     public DateTimeOffset Value9 { get; set; }
 }
-    
-[MessagePackObject]
+
 [MemoryPackable]
 public partial struct InnerObject2
 {
-    [Key(0)]
     public long Value1 { get; set; }
-    [Key(1)]
+
     public int Value2 { get; set; }
-    [Key(2)]
+
     public int Value3 { get; set; }
-    [Key(3)]
+
     public int Value4 { get; set; }
 }

@@ -14,22 +14,18 @@
     <PackageReference Include="Grpc.AspNetCore" Version="$(GrpcVersion)"/>
     <!-- Follow to the Directory.Packages.props version -->
     <PackageReference Include="JetBrains.Profiler.Api" Version="1.4.3"/>
-    <PackageReference Include="MagicOnion.Serialization.MemoryPack" Version="$(UseNuGetServer)-preview" />
-    <PackageReference Include="MagicOnion.Server" Version="$(UseNuGetServer)" />
-    <PackageReference Include="Multicaster" Version="$(MulticasterVersion)" />
+    <PackageReference Include="PulseRPC.Server" Version="$(UseNuGetServer)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseNuGetServer)' == ''">
-    <PackageReference Include="Grpc.AspNetCore" />
     <PackageReference Include="JetBrains.Profiler.Api" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseNuGetServer)' == ''">
-    <ProjectReference Include="..\..\..\src\MagicOnion.Serialization.MemoryPack\MagicOnion.Serialization.MemoryPack.csproj" />
-    <ProjectReference Include="..\..\..\src\MagicOnion.Server\MagicOnion.Server.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <AssemblyAttribute Include="PerformanceTest.Shared.MagicOnionIsLatestAttirbute">
+    <AssemblyAttribute Include="PerformanceTest.Shared.PulseRPCIsLatestAttirbute">
       <_Parameter1>$(UseNuGetServer)</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>

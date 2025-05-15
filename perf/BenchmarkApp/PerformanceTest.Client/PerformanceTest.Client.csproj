@@ -14,20 +14,18 @@
   <ItemGroup Condition="'$(UseNuGetClient)' != ''">
     <!-- Follow to the Directory.Packages.props version -->
     <PackageReference Include="ConsoleAppFramework" Version="4.2.3" />
-    <PackageReference Include="MagicOnion.Client" Version="$(UseNuGetClient)" />
-    <PackageReference Include="MagicOnion.Serialization.MemoryPack" Version="$(UseNuGetClient)-preview" />
+    <PackageReference Include="PulseRPC.Client" Version="$(UseNuGetClient)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseNuGetClient)' == ''">
     <PackageReference Include="ConsoleAppFramework" />
   </ItemGroup>
   <ItemGroup Condition="'$(UseNuGetClient)' == ''">
-    <ProjectReference Include="..\..\..\src\MagicOnion.Client\MagicOnion.Client.csproj" />
-    <ProjectReference Include="..\..\..\src\MagicOnion.Serialization.MemoryPack\MagicOnion.Serialization.MemoryPack.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <AssemblyAttribute Include="PerformanceTest.Shared.MagicOnionIsLatestAttirbute">
+    <AssemblyAttribute Include="PerformanceTest.Shared.PulseRPCIsLatestAttirbute">
       <_Parameter1>$(UseNuGetClient)</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>

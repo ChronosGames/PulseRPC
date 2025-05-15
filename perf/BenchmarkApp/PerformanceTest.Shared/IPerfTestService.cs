@@ -1,5 +1,5 @@
-using MagicOnion;
-using MessagePack;
+using PulseRPC;
+using MemoryPack;
 
 namespace PerformanceTest.Shared;
 
