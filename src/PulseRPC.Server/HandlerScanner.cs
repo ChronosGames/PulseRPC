@@ -65,6 +65,28 @@ public class HandlerScanner(
                name != "mscorlib";
     }
 
+    private void RegisterPacket(Type packetType)
+    {
+        var attribute = packetType.GetCustomAttribute<PacketAttribute>();
+        if (attribute == null)
+        {
+            return;
+        }
+
+        var messageId = attribute.Id;
+        if (messageId == 0)
+        {
+            messageId = (ushort)FNV1A32.GetHashCode(packetType.FullName!);
+        }
+
+        if (_serviceProvider.GetRequiredService<IPulseRPCSerializer>() is not DynamicPacketRegistrations serializer)
+        {
+            return;
+        }
+
+        serializer.RegisterPacket(messageId, packetType);
+    }
+
     // 注册单个处理器
     private void RegisterHandler(Type handlerType)
     {
@@ -74,7 +96,6 @@ public class HandlerScanner(
             return;
         }
 
-        var messageId = attribute.PacketId;
         var policy = attribute.ThreadingPolicy;
         var priority = attribute.Priority;
 
@@ -98,9 +119,9 @@ public class HandlerScanner(
                     .GetMethod(nameof(HandlerRegistry.RegisterCommandHandler))!
                     .MakeGenericMethod(commandType);
 
-                method.Invoke(registry, [handlerType, messageId, policy, priority]);
+                method.Invoke(registry, [handlerType, policy, priority]);
 
-                logger.LogInformation("已注册命令处理器: {Handler} 用于消息 {MessageId}", handlerType.Name, messageId);
+                logger.LogInformation("已注册命令处理器: {Handler} 用于指令 {Name}", handlerType.Name, commandType.Name);
             }
             // 注册请求处理器
             else if (genericTypeDef == typeof(IRequestHandler<,>))
@@ -114,32 +135,10 @@ public class HandlerScanner(
                     .GetMethod(nameof(HandlerRegistry.RegisterRequestHandler))!
                     .MakeGenericMethod(requestType, responseType);
 
-                method.Invoke(registry, [handlerType, messageId, policy, priority]);
+                method.Invoke(registry, [handlerType, policy, priority]);
 
-                logger.LogInformation("已注册请求处理器: {Handler} 用于消息 {MessageId}", handlerType.Name, messageId);
+                logger.LogInformation("已注册请求处理器: {Handler} 用于请求 {RequestName}, {ResponseName}", handlerType.Name, requestType.Name, responseType.Name);
             }
         }
-    }
-
-    private void RegisterPacket(Type packetType)
-    {
-        var attribute = packetType.GetCustomAttribute<PacketAttribute>();
-        if (attribute == null)
-        {
-            return;
-        }
-
-        var messageId = attribute.Id;
-        if (messageId == 0)
-        {
-            messageId = (ushort)FNV1A32.GetHashCode(packetType.FullName!);
-        }
-
-        if (_serviceProvider.GetRequiredService<IPulseRPCSerializer>() is not DynamicPacketRegistrations serializer)
-        {
-            return;
-        }
-
-        serializer.RegisterPacket(messageId, packetType);
     }
 }
