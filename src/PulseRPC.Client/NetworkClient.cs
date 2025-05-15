@@ -2,7 +2,6 @@
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol.Messages;
 using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Client;

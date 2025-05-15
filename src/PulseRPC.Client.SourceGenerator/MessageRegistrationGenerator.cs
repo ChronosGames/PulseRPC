@@ -235,12 +235,7 @@ namespace {clientType.ContainingNamespace}
             {string.Join("\n            ", registrations1)}
         }};
 
-        public void Serialize<T>(IBufferWriter<byte> writer, in T value) => MemoryPackSerializer.Serialize(writer, value, serializerOptions);
-
-        public T Deserialize<T>(in ReadOnlySequence<byte> bytes) => MemoryPackSerializer.Deserialize<T>(bytes, serializerOptions)!;
-
-
-        public void Serialize3<T>(IBufferWriter<byte> writer, in T message) where T : IPacket
+        public void Serialize<T>(IBufferWriter<byte> writer, in T message) where T : IPacket
         {{
             // 1. 获取消息ID
             var messageId = _packet2id.GetValueOrDefault(typeof(T));
@@ -251,10 +246,10 @@ namespace {clientType.ContainingNamespace}
             writer.Advance(2);
 
             // 3. 直接序列化消息到写入器
-            MemoryPackSerializer.Serialize(writer, message);
+            MemoryPackSerializer.Serialize(writer, message, serializerOptions);
         }}
 
-        public IPacket Deserialize2(in ReadOnlySpan<byte> bytes)
+        public IPacket Deserialize(in ReadOnlySpan<byte> bytes)
         {{
             var messageId = BinaryPrimitives.ReadUInt16LittleEndian(bytes);
             switch (messageId)

@@ -1,5 +1,4 @@
-﻿using PulseRPC.Protocol.Messages;
-using PulseRPC.Protocol.Network;
+﻿using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Client;
 

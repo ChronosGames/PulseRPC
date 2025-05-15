@@ -22,10 +22,7 @@ public class HandlerRegistry
         Type commandType,
         HandlerThreadingPolicy policy,
         int priority)
-        : HandlerInfo(handlerType, policy, priority)
-    {
-        public Type CommandType { get; } = commandType;
-    }
+        : HandlerInfo(handlerType, policy, priority);
 
     // 请求处理器信息
     internal class RequestHandlerInfo(
@@ -44,19 +41,14 @@ public class HandlerRegistry
     public void RegisterCommandHandler<TCommand>(
         Type handlerType, HandlerThreadingPolicy policy, int priority)
     {
-        var info = new CommandHandlerInfo(
-            handlerType, typeof(TCommand), policy, priority);
-
+        var info = new CommandHandlerInfo(handlerType, typeof(TCommand), policy, priority);
         _commandHandlers[typeof(TCommand)] = info;
     }
 
     // 注册请求处理器
-    public void RegisterRequestHandler<TRequest, TResponse>(
-        Type handlerType, HandlerThreadingPolicy policy, int priority)
+    public void RegisterRequestHandler<TRequest, TResponse>(Type handlerType, HandlerThreadingPolicy policy, int priority)
     {
-        var info = new RequestHandlerInfo(
-            handlerType, typeof(TRequest), typeof(TResponse), policy, priority);
-
+        var info = new RequestHandlerInfo(handlerType, typeof(TRequest), typeof(TResponse), policy, priority);
         _requestHandlers[typeof(TRequest)] = info;
     }
 

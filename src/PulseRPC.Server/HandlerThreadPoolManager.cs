@@ -1,15 +1,17 @@
 ﻿using System.Collections.Concurrent;
-using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol.Messages;
 using PulseRPC.Protocol.Network;
 
 namespace PulseRPC.Server;
-public class HandlerThreadPoolManager
+
+public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
 {
     // 各种线程池
-    private readonly TaskScheduler _workerThreadScheduler;
-    private readonly TaskScheduler _highPriorityThreadScheduler;
-    private readonly TaskScheduler _lowLatencyThreadScheduler;
+    private readonly TaskScheduler _workerThreadScheduler = new LimitedConcurrencyTaskScheduler(
+        config.WorkerThreads, "WorkerPool");
+    private readonly TaskScheduler _highPriorityThreadScheduler = new LimitedConcurrencyTaskScheduler(
+        config.HighPriorityThreads, "HighPriorityPool");
+    private readonly TaskScheduler _lowLatencyThreadScheduler = new LimitedConcurrencyTaskScheduler(
+        config.LowLatencyThreads, "LowLatencyPool");
 
     // 单一处理队列
     private readonly BlockingCollection<(Task task, bool isLongRunning)> _taskQueue =
@@ -18,18 +20,7 @@ public class HandlerThreadPoolManager
     // 任务处理标志
     private volatile bool _isProcessing;
 
-    public HandlerThreadPoolManager(ThreadPoolConfiguration config)
-    {
-        // 创建自定义线程池
-        _workerThreadScheduler = new LimitedConcurrencyTaskScheduler(
-            config.WorkerThreads, "WorkerPool");
-
-        _highPriorityThreadScheduler = new LimitedConcurrencyTaskScheduler(
-            config.HighPriorityThreads, "HighPriorityPool");
-
-        _lowLatencyThreadScheduler = new LimitedConcurrencyTaskScheduler(
-            config.LowLatencyThreads, "LowLatencyPool");
-    }
+    // 创建自定义线程池
 
     // 简化的初始化方法，不再需要主线程ID
     public void Initialize()
@@ -219,48 +210,41 @@ public class HandlerThreadPoolManager
         CancellationToken cancellationToken) where TRequest : Request
     {
         // 使用反射获取正确的RequestHandler类型和方法
-        Type handlerInterfaceType = typeof(IRequestHandler<,>).MakeGenericType(
-            request.GetType(), responseType);
+        var handlerInterfaceType = typeof(IRequestHandler<,>).MakeGenericType(request.GetType(), responseType);
 
         if (!handlerInterfaceType.IsInstanceOfType(handler))
+        {
             throw new InvalidOperationException("处理器不实现正确的IRequestHandler接口");
+        }
 
         // 获取HandleAsync方法
         var methodInfo = handlerInterfaceType.GetMethod("HandleAsync");
         if (methodInfo == null)
+        {
             throw new InvalidOperationException("找不到HandleAsync方法");
+        }
 
         // 基于策略决定执行位置
-        switch (policy)
+        return policy switch
         {
-            case HandlerThreadingPolicy.MainThread:
-                return await SubmitToTaskProcessorAsync(() => {
-                    var responseTask = (Task)methodInfo.Invoke(
-                        handler, [request!, session, cancellationToken])!;
+            HandlerThreadingPolicy.MainThread => await SubmitToTaskProcessorAsync(() =>
+            {
+                var responseTask = (Task)methodInfo.Invoke(handler, [request, session, cancellationToken])!;
 
-                    responseTask.GetAwaiter().GetResult();
+                responseTask.GetAwaiter().GetResult();
 
-                    // 从Task<TResponse>中提取结果
-                    var resultProperty = responseTask.GetType().GetProperty("Result");
-                    return (Response)resultProperty!.GetValue(responseTask)!;
-                });
-
-            case HandlerThreadingPolicy.LowLatencyThread:
-                return await ExecuteRequestOnScheduler(
-                    _lowLatencyThreadScheduler, handler, methodInfo, request!, session, cancellationToken);
-
-            case HandlerThreadingPolicy.HighPriorityThread:
-                return await ExecuteRequestOnScheduler(
-                    _highPriorityThreadScheduler, handler, methodInfo, request!, session, cancellationToken);
-
-            default: // WorkerThread
-                return await ExecuteRequestOnScheduler(
-                    _workerThreadScheduler, handler, methodInfo, request!, session, cancellationToken);
-        }
+                // 从Task<TResponse>中提取结果
+                var resultProperty = responseTask.GetType().GetProperty("Result");
+                return (Response)resultProperty!.GetValue(responseTask)!;
+            }),
+            HandlerThreadingPolicy.LowLatencyThread => await ExecuteRequestOnScheduler(_lowLatencyThreadScheduler, handler, methodInfo, request, session, cancellationToken),
+            HandlerThreadingPolicy.HighPriorityThread => await ExecuteRequestOnScheduler(_highPriorityThreadScheduler, handler, methodInfo, request, session, cancellationToken),
+            _ => await ExecuteRequestOnScheduler(_workerThreadScheduler, handler, methodInfo, request, session, cancellationToken)
+        };
     }
 
     // 在指定调度器上执行请求处理的辅助方法
-    private async Task<Response> ExecuteRequestOnScheduler(
+    private static Task<Response> ExecuteRequestOnScheduler(
         TaskScheduler scheduler,
         object handler,
         System.Reflection.MethodInfo methodInfo,
@@ -268,9 +252,8 @@ public class HandlerThreadPoolManager
         NetworkSession session,
         CancellationToken cancellationToken)
     {
-        return await Task.Factory.StartNew<Response>(() => {
-            var responseTask = (Task)methodInfo.Invoke(
-                handler, [session, request, cancellationToken])!;
+        return Task.Factory.StartNew(() => {
+            var responseTask = (Task)methodInfo.Invoke(handler, [session, request, cancellationToken])!;
 
             responseTask.GetAwaiter().GetResult();
 
@@ -293,10 +276,10 @@ public class ThreadPoolConfiguration
 public class LimitedConcurrencyTaskScheduler : TaskScheduler
 {
     // 用于同步的对象
-    private readonly object _lock = new object();
+    private readonly object _lock = new();
 
     // 任务队列
-    private readonly LinkedList<Task> _taskQueue = new LinkedList<Task>();
+    private readonly LinkedList<Task> _taskQueue = [];
 
     // 当前正在执行的任务数
     private int _runningTasks;
@@ -336,11 +319,13 @@ public class LimitedConcurrencyTaskScheduler : TaskScheduler
             _taskQueue.AddLast(task);
 
             // 如果可以调度更多任务，则执行
-            if (_runningTasks < _maxConcurrency)
+            if (_runningTasks >= _maxConcurrency)
             {
-                _runningTasks++;
-                ThreadPool.QueueUserWorkItem(ProcessTasks!, null);
+                return;
             }
+
+            _runningTasks++;
+            ThreadPool.QueueUserWorkItem(ProcessTasks!, null);
         }
     }
 
