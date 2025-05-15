@@ -4,9 +4,8 @@ using PulseRPC.Protocol.Network;
 namespace PulseRPC.Server;
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
-public class PacketHandlerAttribute(bool isInternal = false, ushort packetId = 0) : Attribute
+public class PacketHandlerAttribute(bool isInternal = false) : Attribute
 {
-    public ushort PacketId { get; } = packetId;
     public bool IsInternal { get; } = isInternal;
 
     // 可选：处理优先级
@@ -15,11 +14,6 @@ public class PacketHandlerAttribute(bool isInternal = false, ushort packetId = 0
     // 可选：处理线程策略
     public HandlerThreadingPolicy ThreadingPolicy { get; set; } = HandlerThreadingPolicy.WorkerThread;
 }
-
-/// <summary>
-/// 消息处理器接口
-/// </summary>
-public interface IPacketHandler;
 
 /// <summary>
 /// 命令处理器接口

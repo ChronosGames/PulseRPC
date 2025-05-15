@@ -9,10 +9,9 @@ public class HandlerRegistry
     private readonly Dictionary<Type, RequestHandlerInfo> _requestHandlers = new();
 
     // 处理器信息基类
-    internal abstract class HandlerInfo(Type handlerType, ushort messageId, HandlerThreadingPolicy policy, int priority)
+    internal abstract class HandlerInfo(Type handlerType, HandlerThreadingPolicy policy, int priority)
     {
         public Type HandlerType { get; } = handlerType;
-        public ushort MessageId { get; } = messageId;
         public HandlerThreadingPolicy ThreadingPolicy { get; } = policy;
         public int Priority { get; } = priority;
     }
@@ -21,10 +20,9 @@ public class HandlerRegistry
     internal class CommandHandlerInfo(
         Type handlerType,
         Type commandType,
-        ushort messageId,
         HandlerThreadingPolicy policy,
         int priority)
-        : HandlerInfo(handlerType, messageId, policy, priority)
+        : HandlerInfo(handlerType, policy, priority)
     {
         public Type CommandType { get; } = commandType;
     }
@@ -34,10 +32,9 @@ public class HandlerRegistry
         Type handlerType,
         Type requestType,
         Type responseType,
-        ushort messageId,
         HandlerThreadingPolicy policy,
         int priority)
-        : HandlerInfo(handlerType, messageId, policy, priority)
+        : HandlerInfo(handlerType, policy, priority)
     {
         public Type RequestType { get; } = requestType;
         public Type ResponseType { get; } = responseType;
@@ -45,20 +42,20 @@ public class HandlerRegistry
 
     // 注册命令处理器
     public void RegisterCommandHandler<TCommand>(
-        Type handlerType, ushort messageId, HandlerThreadingPolicy policy, int priority)
+        Type handlerType, HandlerThreadingPolicy policy, int priority)
     {
         var info = new CommandHandlerInfo(
-            handlerType, typeof(TCommand), messageId, policy, priority);
+            handlerType, typeof(TCommand), policy, priority);
 
         _commandHandlers[typeof(TCommand)] = info;
     }
 
     // 注册请求处理器
     public void RegisterRequestHandler<TRequest, TResponse>(
-        Type handlerType, ushort messageId, HandlerThreadingPolicy policy, int priority)
+        Type handlerType, HandlerThreadingPolicy policy, int priority)
     {
         var info = new RequestHandlerInfo(
-            handlerType, typeof(TRequest), typeof(TResponse), messageId, policy, priority);
+            handlerType, typeof(TRequest), typeof(TResponse), policy, priority);
 
         _requestHandlers[typeof(TRequest)] = info;
     }
