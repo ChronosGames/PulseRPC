@@ -5,6 +5,7 @@ namespace PulseRPC;
 [MemoryPackable(GenerateType.NoGenerate)]
 public partial interface IPacket
 {
+
 }
 
 [AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
