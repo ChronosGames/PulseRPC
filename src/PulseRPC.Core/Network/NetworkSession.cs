@@ -21,7 +21,7 @@ namespace PulseRPC.Protocol.Network;
 /// </summary>
 public class NetworkSession
 {
-    private const int PacketHeaderSize = 6; // 4字节长度 + 2字节类型ID
+    private const int PacketHeaderSize = 7; // 2字节长度 + 1字节标记 + 2字节流水号 + 2字节类型ID
 
     private readonly Socket _socket;
     private readonly ILogger _logger;
@@ -219,16 +219,18 @@ public class NetworkSession
         id = 0;
         packet = null;
 
-        // 至少需要8字节：4字节长度 + 4字节类型ID
         if (buffer.Length < PacketHeaderSize)
+        {
             return 0;
+        }
 
         // 读取消息长度和类型ID
         Span<byte> headerSpan = stackalloc byte[PacketHeaderSize];
         buffer.Slice(0, PacketHeaderSize).CopyTo(headerSpan);
 
-        var messageLength = BinaryPrimitives.ReadInt32LittleEndian(headerSpan);
-        id = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan[4..]);
+        var messageLength = (int)BinaryPrimitives.ReadUInt16LittleEndian(headerSpan);
+        var flags = headerSpan[2];
+        var sequenceId = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan[3..]);
 
         // 检查长度合理性（防止恶意数据）
         if (messageLength < 0 || messageLength > _options.MaxPacketSize)
@@ -238,64 +240,17 @@ public class NetworkSession
 
         // 确保有完整消息
         if (buffer.Length < messageLength + PacketHeaderSize)
+        {
             return 0;
-
-        // 提取消息数据
-        // var messageData = _arrayPool.Rent(messageLength);
-        // buffer.Slice(PacketHeaderSize, messageLength).CopyTo(messageData);
+        }
 
         // 创建消息包
-        packet = _serializer.Deserialize(buffer.Slice(4, messageLength + 2).FirstSpan);
+        packet = _serializer.Deserialize(buffer.Slice(PacketHeaderSize - 2, messageLength + 2).FirstSpan);
 
         // 移动缓冲区位置
         buffer = buffer.Slice(messageLength + PacketHeaderSize);
 
         return messageLength;
-    }
-
-    /// <summary>
-    /// 发送MemoryPack序列化对象
-    /// </summary>
-    public async Task<bool> SendObjectAsync<T>(ushort typeId, T message) where T : IPacket
-    {
-        if (_isDisposed)
-            return false;
-
-        await _sendLock.WaitAsync();
-        try
-        {
-            // 获取MemoryPack序列化的数据
-            var serializedData = MemoryPackSerializer.Serialize(message);
-
-            // 获取输出缓冲区
-            var headerMemory = _writer.GetMemory(PacketHeaderSize);
-
-            // 写入长度前缀和类型ID
-            BinaryPrimitives.WriteInt32LittleEndian(headerMemory.Span, serializedData.Length);
-            BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span[4..], typeId);
-            _writer.Advance(PacketHeaderSize);
-
-            // 写入序列化数据
-            _writer.Write(serializedData);
-
-            // 刷新数据
-            await _writer.FlushAsync();
-
-            // 更新计数器
-            Interlocked.Increment(ref _messagesSent);
-            Interlocked.Add(ref _bytesSent, serializedData.Length + PacketHeaderSize);
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError("发送消息时出错: {ExMessage}", ex.Message);
-            return false;
-        }
-        finally
-        {
-            _sendLock.Release();
-        }
     }
 
     /// <summary>
@@ -316,7 +271,7 @@ public class NetworkSession
             var headerMemory = _writer.GetMemory(PacketHeaderSize + estimatedSize);
 
             // 保存当前位置
-            _writer.Advance(4); // 跳过头部，稍后填充
+            _writer.Advance(PacketHeaderSize - 2); // 跳过头部，稍后填充
 
             // 使用MemoryPack直接序列化到管道
             _serializer.Serialize(_writer, message);
@@ -325,8 +280,9 @@ public class NetworkSession
             var actualSize = _writer.UnflushedBytes - PacketHeaderSize;
 
             // 回写头部
-            BinaryPrimitives.WriteInt32LittleEndian(headerMemory.Span, (int)actualSize);
-            // BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span[4..], typeId);
+            BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span, (ushort)actualSize);
+            headerMemory.Span[2] = (byte)PacketFlags.None;
+            BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span[3..], ushort.MinValue);
 
             // 刷新数据
             await _writer.FlushAsync();
