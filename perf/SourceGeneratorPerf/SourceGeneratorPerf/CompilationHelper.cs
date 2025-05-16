@@ -1,7 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
-namespace MagicOnion.Client.SourceGenerator.Tests;
+namespace PulseRPC.Client.SourceGenerator.Tests;
 
 public static class CompilationHelper
 {

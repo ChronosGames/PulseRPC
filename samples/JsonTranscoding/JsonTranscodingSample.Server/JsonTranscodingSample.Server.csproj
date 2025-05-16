@@ -11,9 +11,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\MagicOnion.Server.JsonTranscoding.Swagger\MagicOnion.Server.JsonTranscoding.Swagger.csproj" />
-    <ProjectReference Include="..\..\..\src\MagicOnion.Server.JsonTranscoding\MagicOnion.Server.JsonTranscoding.csproj" />
-    <ProjectReference Include="..\..\..\src\MagicOnion.Server\MagicOnion.Server.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Server.JsonTranscoding.Swagger\PulseRPC.Server.JsonTranscoding.Swagger.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Server.JsonTranscoding\PulseRPC.Server.JsonTranscoding.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
     <ProjectReference Include="..\JsonTranscodingSample.Shared\JsonTranscodingSample.Shared.csproj" />
   </ItemGroup>
 
