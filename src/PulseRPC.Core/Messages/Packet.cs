@@ -35,12 +35,10 @@ public abstract partial class Message : IPacket
 public abstract partial class Request : IPacket
 {
     public uint SequenceId { get; set; }
-    public uint RequestId { get; set; }
 }
 
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Response : IPacket
 {
     public uint SequenceId { get; set; }
-    public uint RequestId { get; set; }
 }

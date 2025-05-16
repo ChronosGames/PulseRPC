@@ -20,7 +20,6 @@ public class NetworkClient : IDisposable
     private readonly ConcurrentDictionary<uint, TaskCompletionSource<Response>> _pendingRequests = new();
     private CancellationTokenSource? _reconnectCts;
     private uint _nextSequenceId = 1;
-    private uint _nextRequestId = 1;
     private bool _isDisposed;
     private Task? _receiveTask;
 
@@ -169,12 +168,11 @@ public class NetworkClient : IDisposable
         // lock (_connectionLock)
         {
             // 设置请求ID和序列号
-            request.RequestId = GetNextRequestId();
             request.SequenceId = GetNextSequenceId();
 
             // 创建等待响应的任务源
             var tcs = new TaskCompletionSource<Response>();
-            _pendingRequests[request.RequestId] = tcs;
+            _pendingRequests[request.SequenceId] = tcs;
 
             try
             {
@@ -207,7 +205,7 @@ public class NetworkClient : IDisposable
             }
             finally
             {
-                _pendingRequests.TryRemove(request.RequestId, out _);
+                _pendingRequests.TryRemove(request.SequenceId, out _);
             }
         }
     }
@@ -217,7 +215,7 @@ public class NetworkClient : IDisposable
         switch (packet)
         {
             case Response response:
-                if (!_pendingRequests.TryGetValue(response.RequestId, out var tcs))
+                if (!_pendingRequests.TryGetValue(response.SequenceId, out var tcs))
                 {
                     throw new InvalidOperationException($"Received response of type {response.GetType()} but expected {typeof(Response)}");
                 }
@@ -257,26 +255,6 @@ public class NetworkClient : IDisposable
             }
 
             return _nextSequenceId;
-        }
-#endif
-    }
-
-    /// <summary>
-    /// 获取下一个请求ID
-    /// </summary>
-    private uint GetNextRequestId()
-    {
-#if NET5_0_OR_GREATER
-        return Interlocked.Increment(ref _nextRequestId);
-#else
-        unsafe
-        {
-            fixed (uint* pSequence = &_nextRequestId)
-            {
-                Interlocked.Increment(ref *(int*)pSequence);
-            }
-
-            return _nextRequestId;
         }
 #endif
     }
