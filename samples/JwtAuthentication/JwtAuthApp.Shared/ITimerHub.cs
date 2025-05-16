@@ -4,13 +4,14 @@ using PulseRPC;
 
 namespace JwtAuthApp.Shared
 {
-    public interface ITimerHub : IPulseHub<ITimerHub, ITimerHubReceiver>
+    public interface ITimerHub : IPulseHub<ITimerHub>
     {
         Task SetAsync(TimeSpan interval);
-    }
 
-    public interface ITimerHubReceiver
-    {
-        void OnTick(string message);
+        // 定义事件名称常量
+        public static class Events
+        {
+            public const string OnTick = nameof(OnTick);
+        }
     }
 }

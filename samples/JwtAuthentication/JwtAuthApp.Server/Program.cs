@@ -55,12 +55,12 @@ var logger = serviceProvider.GetRequiredService<ILogger<PulseServer>>();
 var pulseServer = new PulseServer(new IPEndPoint(IPAddress.Any, 5001), logger);
 
 // 添加请求拦截器设置当前用户
-pulseServer.OnBeforeRequest += (request, user) =>
-{
-    // 在每个请求处理前设置当前用户
-    AccountService.CurrentUser.Value = user;
-    return Task.CompletedTask;
-};
+// pulseServer.OnBeforeRequest += (request, user) =>
+// {
+//     // 在每个请求处理前设置当前用户
+//     AccountService.CurrentUser.Value = user;
+//     return Task.CompletedTask;
+// };
 
 // 注册PulseRPC服务
 pulseServer.RegisterService(new AccountService(serviceProvider.GetRequiredService<JwtTokenService>()));

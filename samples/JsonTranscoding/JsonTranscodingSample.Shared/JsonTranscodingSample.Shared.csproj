@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\MagicOnion.Abstractions\MagicOnion.Abstractions.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>
