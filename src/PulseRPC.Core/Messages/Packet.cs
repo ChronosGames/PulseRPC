@@ -10,30 +10,10 @@ public enum PacketFlags : byte
     Compressed = 1  // 数据已压缩
 }
 
-public static class PacketHeader
-{
-    // 计算头部大小
-    public static int GetHeaderSize(MessageType type)
-    {
-        // 基本头部: 类型(1) + 标志(1) + 序列号(4)
-        var size = 8;
-
-        // 请求/响应额外包含请求ID
-        if (type is MessageType.Request or MessageType.Response)
-        {
-            size += 4;
-        }
-
-        return size;
-    }
-}
-
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Command : IPacket
 {
-    public ushort Id { get; } = 0;
     public uint SequenceId { get; set; }
-    public MessageType Type => MessageType.Command;
 }
 
 /// <summary>
@@ -48,25 +28,19 @@ public partial class CommandBatch : Command
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Message : IPacket
 {
-    public ushort Id { get; } = 0;
     public uint SequenceId { get; set; }
-    public MessageType Type => MessageType.Message;
 }
 
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Request : IPacket
 {
-    public ushort Id { get; } = 0;
     public uint SequenceId { get; set; }
     public uint RequestId { get; set; }
-    public MessageType Type => MessageType.Request;
 }
 
 [MemoryPackable(GenerateType.NoGenerate)]
 public abstract partial class Response : IPacket
 {
-    public ushort Id { get; } = 0;
     public uint SequenceId { get; set; }
     public uint RequestId { get; set; }
-    public MessageType Type => MessageType.Response;
 }
