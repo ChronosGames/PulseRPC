@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol.Network;
+using PulseRPC.Network;
 using PulseRPC.Samples.Server.Services;
 using PulseRPC.Samples.Shared.Messages;
 using PulseRPC.Server;
@@ -9,7 +9,7 @@ namespace PulseRPC.Samples.Server.Handlers;
 /// <summary>
 /// 登录请求处理器
 /// </summary>
-[PacketHandler(false)]
+[Handler(false)]
 public class LoginRequestHandler : IRequestHandler<LoginRequest, LoginResponse>
 {
     private readonly ILogger<LoginRequestHandler> _logger;
@@ -78,7 +78,7 @@ public class LoginRequestHandler : IRequestHandler<LoginRequest, LoginResponse>
 /// <summary>
 /// 注册请求处理器
 /// </summary>
-[PacketHandler]
+[Handler]
 public class RegisterRequestHandler : IRequestHandler<RegisterRequest, RegisterResponse>
 {
     private readonly ILogger<RegisterRequestHandler> _logger;

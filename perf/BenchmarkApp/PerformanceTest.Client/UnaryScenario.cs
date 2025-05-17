@@ -4,12 +4,12 @@ using PerformanceTest.Shared;
 
 public class UnaryScenario : IScenario
 {
-    IPerfTestService client = default!;
+    IPerfTestStreamingHub client = default!;
     readonly TimeProvider timeProvider = TimeProvider.System;
 
     public ValueTask PrepareAsync(GrpcChannel channel)
     {
-        this.client = MagicOnionClient.Create<IPerfTestService>(channel);
+        this.client = MagicOnionClient.Create<IPerfTestStreamingHub>(channel);
         return ValueTask.CompletedTask;
     }
 
@@ -32,12 +32,12 @@ public class UnaryScenario : IScenario
 
 public class UnaryComplexScenario : IScenario
 {
-    IPerfTestService client = default!;
+    IPerfTestStreamingHub client = default!;
     readonly TimeProvider timeProvider = TimeProvider.System;
 
     public ValueTask PrepareAsync(GrpcChannel channel)
     {
-        this.client = MagicOnionClient.Create<IPerfTestService>(channel);
+        this.client = MagicOnionClient.Create<IPerfTestStreamingHub>(channel);
         return ValueTask.CompletedTask;
     }
 

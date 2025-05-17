@@ -1,4 +1,4 @@
-﻿namespace PulseRPC.Protocol.Network;
+﻿namespace PulseRPC.Network;
 
 public class NetworkOptions
 {

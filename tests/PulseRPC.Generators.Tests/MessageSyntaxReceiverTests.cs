@@ -21,7 +21,7 @@ public class MessageSyntaxReceiverTests
         string testCode = @"
             using System;
             using PulseRPC.Protocol;
-            using PulseRPC.Protocol.Attributes;
+            using PulseRPC.Attributes;
 
             namespace TestNamespace
             {
@@ -52,7 +52,7 @@ public class MessageSyntaxReceiverTests
         string testCode = @"
             using System;
             using PulseRPC.Protocol;
-            using PulseRPC.Protocol.Attributes;
+            using PulseRPC.Attributes;
 
             namespace TestNamespace
             {
@@ -99,7 +99,7 @@ public class MessageSyntaxReceiverTests
                 }
             }
 
-            namespace PulseRPC.Protocol.Attributes
+            namespace PulseRPC.Attributes
             {
                 [System.AttributeUsage(System.AttributeTargets.Class)]
                 public class MessageAttribute : System.Attribute

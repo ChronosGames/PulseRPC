@@ -66,7 +66,7 @@ public class MessageSyntaxReceiver : AbstractMessageSyntaxReceiver
                 // foreach (var attr in classSymbol.GetAttributes())
                 // {
                 //     if (attr.AttributeClass?.Name == "HandlerAttribute" &&
-                //         attr.AttributeClass.ContainingNamespace.ToString() == "PulseRPC.Protocol.Attributes")
+                //         attr.AttributeClass.ContainingNamespace.ToString() == "PulseRPC.Attributes")
                 //     {
                 //         if (attr.ConstructorArguments.Length > 0 && attr.ConstructorArguments[0].Value is ITypeSymbol handlerType)
                 //         {

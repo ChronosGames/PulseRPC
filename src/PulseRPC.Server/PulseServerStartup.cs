@@ -1,7 +1,7 @@
 ﻿using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol.Network;
+using PulseRPC.Network;
 
 namespace PulseRPC.Server;
 
@@ -9,7 +9,6 @@ public class PulseServerStartup(IServiceProvider serviceProvider, ILogger<PulseS
 {
     private HandlerRegistry? _handlerRegistry;
     private HandlerScanner? _handlerScanner;
-    private IMessageDispatcher? _messageDispatcher;
     private HandlerThreadPoolManager? _threadPoolManager;
     private NetworkServer? _networkServer;
 
@@ -31,9 +30,6 @@ public class PulseServerStartup(IServiceProvider serviceProvider, ILogger<PulseS
 
         // 4. 扫描并注册所有消息处理器
         _handlerScanner.ScanAllAssemblies();
-
-        // 5. 创建消息分发器
-        _messageDispatcher = serviceProvider.GetRequiredService<IMessageDispatcher>();
 
         // 6. 初始化网络服务器
         _networkServer = serviceProvider.GetRequiredService<NetworkServer>();

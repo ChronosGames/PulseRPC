@@ -1,51 +1,37 @@
 ﻿using System;
 using System.Buffers;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO.Pipelines;
-using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol.Compression;
-using PulseRPC.Protocol.Messages;
 
-namespace PulseRPC.Protocol.Network;
+namespace PulseRPC.Network;
 
 /// <summary>
-/// 零复制网络会话 - 高性能版本
+/// 网络会话
 /// </summary>
-public class NetworkSession
+public class NetworkSession : IDisposable
 {
     private const int PacketHeaderSize = 7; // 2字节长度 + 1字节标记 + 2字节流水号 + 2字节类型ID
 
     private readonly Socket _socket;
     private readonly ILogger _logger;
-
     private readonly NetworkOptions _options;
-
-    // private readonly Pipe _receivePipe;
-    // private readonly Pipe _sendPipe;
-    // private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
-    // private bool _isDisposed;
-    // private readonly CancellationTokenSource _cts = new();
-    private readonly MetaData<string> _metaData = new();
-    private readonly Func<NetworkSession, ushort, IPacket, CancellationToken, Task> _callback;
-    private readonly IPulseRPCSerializer _serializer;
+    private readonly IPulseService _pulseService;
 
     private readonly NetworkStream _stream;
     private readonly PipeReader _reader;
     private readonly PipeWriter _writer;
     private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+    private readonly MetaData<string> _metaData = new();
 
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private int _sequenceIdCounter;
 
-    // private readonly IPulseRPCSerializer _messageHandlers;
     private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
     private bool _isDisposed;
 
@@ -63,13 +49,15 @@ public class NetworkSession
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkSession(ILogger logger, Socket socket,
-        Func<NetworkSession, ushort, IPacket, CancellationToken, Task> callback, IPulseRPCSerializer serializer,
+    public NetworkSession(
+        ILogger logger,
+        Socket socket,
+        IPulseService pulseService,
         NetworkOptions? options = null)
     {
-        _socket = socket ?? throw new ArgumentNullException(nameof(socket));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _serializer = serializer;
+        _logger = logger;
+        _socket = socket;
+        _pulseService = pulseService;
         _options = options ?? new NetworkOptions();
 
         ConfigureSocket(_socket);
@@ -91,22 +79,10 @@ public class NetworkSession
 
         _reader = PipeReader.Create(_stream, readerOptions);
         _writer = PipeWriter.Create(_stream, writerOptions);
-
-        // 使用定制的PipeOptions
-        // var pipeOptions = new PipeOptions(
-        //     pool: MemoryPool<byte>.Shared,
-        //     minimumSegmentSize: 4096,
-        //     pauseWriterThreshold: 1024 * 1024, // 1MB
-        //     resumeWriterThreshold: 512 * 1024, // 512KB
-        //     useSynchronizationContext: false);
-
-        // _receivePipe = new Pipe(pipeOptions);
-        // _sendPipe = new Pipe(pipeOptions);
-        _callback = callback;
     }
 
     /// <summary>
-    /// 配置Socket选项以优化性能
+    /// 配置Socket选项
     /// </summary>
     private void ConfigureSocket(Socket socket)
     {
@@ -114,8 +90,8 @@ public class NetworkSession
         socket.NoDelay = true;
 
         // 设置发送和接收缓冲区大小
-        socket.SendBufferSize = _options.SendBufferSize; // 256KB
-        socket.ReceiveBufferSize = _options.RecvBufferSize; // 256KB
+        socket.SendBufferSize = _options.SendBufferSize;
+        socket.ReceiveBufferSize = _options.RecvBufferSize;
 
         // 配置TCP保活选项
         socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
@@ -153,12 +129,10 @@ public class NetworkSession
 
                 try
                 {
-                    // 处理所有完整的消息
-                    ProcessMessages(ref buffer);
+                    await ProcessMessagesAsync(buffer);
                 }
                 finally
                 {
-                    // 告诉PipeReader我们处理到哪里了
                     _reader.AdvanceTo(buffer.Start, buffer.End);
                 }
 
@@ -174,7 +148,8 @@ public class NetworkSession
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"处理消息时出错");
+            _logger.LogError(ex, "处理消息时出错");
+            Disconnected?.Invoke(this, ex);
         }
         finally
         {
@@ -184,74 +159,70 @@ public class NetworkSession
     }
 
     /// <summary>
-    /// 处理接收到的所有完整消息
+    /// 处理所有消息
     /// </summary>
-    private void ProcessMessages(ref ReadOnlySequence<byte> buffer)
+    private async Task ProcessMessagesAsync(ReadOnlySequence<byte> buffer)
     {
-        int length = 0;
-        while ((length = TryReadMessage(ref buffer, out var id, out var packet)) > 0)
+        while (TryReadPacketHeader(ref buffer, out var packetLength, out var flags, out var sequenceId, out var remainingBuffer))
         {
-            try
+            if (remainingBuffer.Length < packetLength)
             {
-                // 更新计数器
-                Interlocked.Increment(ref _messagesReceived);
-                Interlocked.Add(ref _bytesReceived, length + PacketHeaderSize);
+                // 数据不足
+                break;
+            }
 
-                // 将消息分发给处理器
-                _callback(this, id, packet!, _cts.Token);
-                // _messageHandlers.DispatchMessage(packet.TypeId, packet.Data);
-            }
-            finally
-            {
-                // 归还缓冲区
-                // if (packet!.Data.Length > 0)
-                // {
-                //     _arrayPool.Return(packet.Data);
-                // }
-            }
+            // 提取消息内容
+            var messageBuffer = remainingBuffer.Slice(0, packetLength);
+
+            // 处理消息
+            await _pulseService.ProcessMessageAsync(this, sequenceId, messageBuffer, _cts.Token);
+
+            // 更新计数
+            Interlocked.Increment(ref _messagesReceived);
+            Interlocked.Add(ref _bytesReceived, packetLength + PacketHeaderSize);
+
+            // 移动缓冲区位置
+            buffer = remainingBuffer.Slice(packetLength);
         }
     }
 
     /// <summary>
-    /// 尝试从缓冲区读取一个完整消息
+    /// 读取包头
     /// </summary>
-    private int TryReadMessage(ref ReadOnlySequence<byte> buffer, out ushort sequenceId, out IPacket? packet)
+    private bool TryReadPacketHeader(
+        ref ReadOnlySequence<byte> buffer,
+        out int packetLength,
+        out byte flags,
+        out ushort sequenceId,
+        out ReadOnlySequence<byte> remainingBuffer)
     {
-        sequenceId = ushort.MinValue;
-        packet = null;
+        packetLength = 0;
+        flags = 0;
+        sequenceId = 0;
+        remainingBuffer = buffer;
 
         if (buffer.Length < PacketHeaderSize)
         {
-            return 0;
+            return false;
         }
 
-        // 读取消息长度和类型ID
+        // 读取包头
         Span<byte> headerSpan = stackalloc byte[PacketHeaderSize];
         buffer.Slice(0, PacketHeaderSize).CopyTo(headerSpan);
 
-        var messageLength = (int)BinaryPrimitives.ReadUInt16LittleEndian(headerSpan);
-        var flags = headerSpan[2];
-        sequenceId = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan[3..5]);
+        packetLength = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan);
+        flags = headerSpan[2];
+        sequenceId = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan.Slice(3, 2));
 
-        // 检查长度合理性（防止恶意数据）
-        if (messageLength < 0 || messageLength > _options.MaxPacketSize)
+        // 检查包长度是否合理
+        if (packetLength <= 0 || packetLength > _options.MaxPacketSize)
         {
-            throw new InvalidOperationException($"消息长度无效: {messageLength}");
+            throw new InvalidOperationException($"无效的包长度: {packetLength}");
         }
 
-        // 确保有完整消息
-        if (buffer.Length < messageLength + PacketHeaderSize)
-        {
-            return 0;
-        }
-
-        // 创建消息包
-        packet = _serializer.Deserialize(buffer.Slice(PacketHeaderSize - 2, messageLength + 2).FirstSpan);
-
-        // 移动缓冲区位置
-        buffer = buffer.Slice(messageLength + PacketHeaderSize);
-
-        return messageLength;
+        // 返回剩余缓冲区
+        remainingBuffer = buffer.Slice(PacketHeaderSize);
+        return true;
     }
 
     /// <summary>
@@ -263,22 +234,17 @@ public class NetworkSession
 
         do
         {
-            // 使用 int 类型进行原子递增
             var nextValue = Interlocked.Increment(ref _sequenceIdCounter);
-
-            // 转换为 ushort (0-65535 范围)
             id = (ushort)(nextValue & 0xFFFF);
-
-            // 如果溢出回到0，则继续递增
         } while (id == 0);
 
         return id;
     }
 
     /// <summary>
-    /// 使用零分配发送对象（高级优化）
+    /// 发送数据包
     /// </summary>
-    public async Task<bool> SendPacketAsync<T>(T message, ushort sequenceId) where T : IPacket
+    public async Task<bool> SendPacketAsync<T>(T message, ushort sequenceId) where T : IMemoryPackable<T>
     {
         if (_isDisposed)
             return false;
@@ -286,30 +252,30 @@ public class NetworkSession
         await _sendLock.WaitAsync();
         try
         {
-            // 首先估计序列化后的大小
+            // 估计序列化后的大小
             var estimatedSize = EstimateSerializedSize(message);
 
             // 获取输出缓冲区
             var headerMemory = _writer.GetMemory(PacketHeaderSize + estimatedSize);
 
-            // 保存当前位置
-            _writer.Advance(PacketHeaderSize - 2); // 跳过头部，稍后填充
+            // 跳过头部，稍后填充
+            _writer.Advance(PacketHeaderSize - 2);
 
-            // 使用MemoryPack直接序列化到管道
-            _serializer.Serialize(_writer, message);
+            // 序列化消息体
+            _pulseService.Serialize(_writer, message);
 
-            // 确定实际序列化大小
-            var actualSize = _writer.UnflushedBytes - PacketHeaderSize;
+            // 计算实际大小
+            var actualSize = _writer.UnflushedBytes - (PacketHeaderSize - 2);
 
             // 回写头部
             BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span, (ushort)actualSize);
-            headerMemory.Span[2] = (byte)PacketFlags.None;
-            BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span[3..5], sequenceId);
+            headerMemory.Span[2] = 0; // 标志位，默认0
+            BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span.Slice(3, 2), sequenceId);
 
             // 刷新数据
             await _writer.FlushAsync();
 
-            // 更新计数器
+            // 更新计数
             Interlocked.Increment(ref _messagesSent);
             Interlocked.Add(ref _bytesSent, actualSize + PacketHeaderSize);
 
@@ -317,7 +283,7 @@ public class NetworkSession
         }
         catch (Exception ex)
         {
-            _logger.LogError($"发送消息时出错: {ex.Message}");
+            _logger.LogError(ex, "发送消息时出错");
             return false;
         }
         finally
@@ -327,12 +293,10 @@ public class NetworkSession
     }
 
     /// <summary>
-    /// 估计序列化后的对象大小
+    /// 估计序列化后的大小
     /// </summary>
     private static int EstimateSerializedSize<T>(T message)
     {
-        // 这是一个估计值，根据对象类型设置合理的初始大小
-        // 在真实环境中，可以根据对象字段数量或缓存历史大小做更精确的估计
         if (message == null)
             return 4;
 
@@ -345,21 +309,12 @@ public class NetworkSession
             return ((string)(object)message).Length * 2 + 8;
 
         if (type.IsClass)
-            return 256; // 类的合理初始大小
+            return 256;
 
         if (type.IsValueType)
-            return 128; // 结构体的合理初始大小
+            return 128;
 
-        return 512; // 默认大小
-    }
-
-    /// <summary>
-    /// 获取性能统计信息
-    /// </summary>
-    public string GetPerformanceStats()
-    {
-        return $"发送: {_messagesSent} 消息 ({_bytesSent} 字节), " +
-               $"接收: {_messagesReceived} 消息 ({_bytesReceived} 字节)";
+        return 512;
     }
 
     /// <summary>
@@ -371,12 +326,13 @@ public class NetworkSession
         Dispose();
     }
 
+    /// <summary>
+    /// 处理资源
+    /// </summary>
     public void Dispose()
     {
         if (_isDisposed)
-        {
             return;
-        }
 
         _isDisposed = true;
 

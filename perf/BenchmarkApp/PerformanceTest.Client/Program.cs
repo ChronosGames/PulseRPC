@@ -54,7 +54,7 @@ async Task Main(
 
     // Create a control channel
     using var channelControl = config.CreateChannel();
-    var controlServiceClient = MagicOnionClient.Create<IPerfTestControlService>(channelControl);
+    var controlServiceClient = MagicOnionClient.Create<IPerfTestControlStreamingHub>(channelControl);
     await controlServiceClient.SetMemoryProfilerCollectAllocationsAsync(true);
     (DatadogMetricsRecorder.MagicOnionVersions, DatadogMetricsRecorder.EnableLatestTag) = await controlServiceClient.ExchangeMagicOnionVersionTagAsync(ApplicationInformation.Current.TagPulseRPCVersion, ApplicationInformation.Current.IsLatestPulseRPC); // keep in Client
 
@@ -160,7 +160,7 @@ async Task Main(
     WriteLog($"Benchmark completed");
 }
 
-async Task<PerformanceResult> RunScenarioAsync(ScenarioType scenario, ScenarioConfiguration config, IReadOnlyList<GrpcChannel> channels, IPerfTestControlService controlService)
+async Task<PerformanceResult> RunScenarioAsync(ScenarioType scenario, ScenarioConfiguration config, IReadOnlyList<GrpcChannel> channels, IPerfTestControlStreamingHub controlStreamingHub)
 {
     Func<IScenario> scenarioFactory = scenario switch
     {
@@ -213,11 +213,11 @@ async Task<PerformanceResult> RunScenarioAsync(ScenarioType scenario, ScenarioCo
         }
     }
 
-    await controlService.CreateMemoryProfilerSnapshotAsync("Before Warmup");
+    await controlStreamingHub.CreateMemoryProfilerSnapshotAsync("Before Warmup");
     WriteLog($"Warming up...");
     await Task.Delay(TimeSpan.FromSeconds(config.Warmup));
     ctx.Ready();
-    await controlService.CreateMemoryProfilerSnapshotAsync("After Warmup/Run");
+    await controlStreamingHub.CreateMemoryProfilerSnapshotAsync("After Warmup/Run");
     WriteLog("Warmup completed");
 
     WriteLog($"Running...");
@@ -240,7 +240,7 @@ async Task<PerformanceResult> RunScenarioAsync(ScenarioType scenario, ScenarioCo
             // ignore
         }
     }
-    await controlService.CreateMemoryProfilerSnapshotAsync("Completed");
+    await controlStreamingHub.CreateMemoryProfilerSnapshotAsync("Completed");
     WriteLog("Cleanup completed");
 
     var result = ctx.GetResult();

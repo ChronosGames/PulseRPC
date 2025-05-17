@@ -1,8 +1,8 @@
 ﻿using System.Net;
 using System.Net.Sockets;
+using MemoryPack;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Protocol.Messages;
-using PulseRPC.Protocol.Network;
+using PulseRPC.Network;
 
 namespace PulseRPC.Server;
 
@@ -13,12 +13,9 @@ public class NetworkServer : IDisposable
 {
     private readonly ILogger _logger;
     private readonly NetworkOptions _options;
-    private readonly IMessageDispatcher _dispatcher;
-    private readonly IPulseRPCSerializer _serializer;
+    private readonly IPulseService _pulseService;
+    private readonly IClientSessionManager _sessionManager;
     private readonly Socket _listenSocket;
-    private readonly List<NetworkSession> _sessions = [];
-    private readonly Dictionary<string, NetworkSession> _sessionsByName = new();
-    private readonly object _sessionsLock = new object();
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private bool _isRunning;
     private bool _isDisposed;
@@ -38,13 +35,14 @@ public class NetworkServer : IDisposable
     /// <summary>
     /// 构造函数
     /// </summary>
-    public NetworkServer(ILogger<NetworkServer> logger, IMessageDispatcher dispatcher, IPulseRPCSerializer serializer,
+    public NetworkServer(ILogger<NetworkServer> logger, IPulseService pulseService,
+        IClientSessionManager sessionManager,
         NetworkOptions? options = null)
     {
         _logger = logger;
         _options = options ?? new NetworkOptions();
-        _dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
-        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        _sessionManager = sessionManager;
+        _pulseService = pulseService ?? throw new ArgumentNullException(nameof(pulseService));
         _listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
     }
 
@@ -72,7 +70,7 @@ public class NetworkServer : IDisposable
             _logger.LogDebug("服务器已启动，监听地址: {IPEndPoint}", endPoint);
 
             // 开始接受客户端连接
-            await AcceptClientsAsync();
+            _ = AcceptClientsAsync();
         }
         catch (Exception e)
         {
@@ -80,6 +78,9 @@ public class NetworkServer : IDisposable
             _logger.LogError(e, $"启动服务器时出错");
             throw;
         }
+
+        // 等待启动完成
+        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -91,21 +92,19 @@ public class NetworkServer : IDisposable
         {
             try
             {
-                var clientSocket = await _listenSocket.AcceptAsync();
+                var clientSocket = await _listenSocket.AcceptAsync(_cts.Token);
 
-                // 生成客户端ID
-                var clientId = Guid.NewGuid().ToString();
+                // 设置远程地址信息
+                var remoteEndPoint = clientSocket.RemoteEndPoint as IPEndPoint;
+                var clientId = $"{remoteEndPoint!.Address}:{remoteEndPoint.Port}";
 
-                // 创建会话
-                var session = new NetworkSession(_logger, clientSocket, OnMessageReceived, _serializer, _options);
-                session.Disconnected += OnClientDisconnected;
+                _logger.LogDebug($"接受新连接: {clientId}");
 
-                // 添加到会话列表
-                lock (_sessionsLock)
-                {
-                    _sessions.Add(session);
-                    _sessionsByName[clientId] = session;
-                }
+                // 创建网络会话
+                var session = new NetworkSession(_logger, clientSocket, _pulseService, _options);
+
+                // 注册会话到会话管理器
+                _sessionManager.RegisterSession(clientId, session);
 
                 // 开始处理消息
                 _ = ProcessClientAsync(clientId, session);
@@ -148,12 +147,8 @@ public class NetworkServer : IDisposable
         }
         finally
         {
-            // 移除客户端
-            lock (_sessionsLock)
-            {
-                _sessions.Remove(session);
-                _sessionsByName.Remove(clientId);
-            }
+            // 从会话管理器中注销会话
+            _sessionManager.UnregisterSession(clientId);
 
             // 关闭会话
             session.Dispose();
@@ -164,78 +159,13 @@ public class NetworkServer : IDisposable
         }
     }
 
-    private Task OnMessageReceived(NetworkSession session, ushort sequenceId, IPacket packet, CancellationToken cancellationToken)
-    {
-        return _dispatcher.DispatchAsync(session, sequenceId, packet, cancellationToken);
-    }
-
     /// <summary>
-    /// 处理客户端断开连接
+    /// 基于类型ID和客户端ID创建会话组
     /// </summary>
-    private void OnClientDisconnected(NetworkSession session, Exception ex)
+    public void CreateTypeBasedGroup<T>(string groupId) where T : IMemoryPackable<T>
     {
-        lock (_sessionsLock)
-        {
-            _sessions.Remove(session);
-        }
-
-        ClientDisconnected?.Invoke(session, ex);
-    }
-
-    /// <summary>
-    /// 广播消息给所有客户端
-    /// </summary>
-    public async Task BroadcastMessageAsync<T>(T message) where T : IMessage
-    {
-        ObjectDisposedException.ThrowIf(_isDisposed, nameof(NetworkServer));
-
-        NetworkSession[] sessions;
-        lock (_sessionsLock)
-        {
-            sessions = _sessions.ToArray();
-        }
-
-        await Task.WhenAll(sessions.Select(session => session.SendPacketAsync(message, ushort.MinValue)));
-    }
-
-    /// <summary>
-    /// 向特定客户端发送消息
-    /// </summary>
-    public Task SendToClientAsync<T>(string clientId, T message) where T : IPacket
-    {
-        lock (_sessionsLock)
-        {
-            if (_sessionsByName.TryGetValue(clientId, out var session))
-            {
-                return session.SendPacketAsync(message, session.GetNextSequenceId());
-            }
-        }
-
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// 获取连接的客户端数量
-    /// </summary>
-    public int GetConnectedClientCount()
-    {
-        lock (_sessionsLock)
-        {
-            return _sessions.Count;
-        }
-    }
-
-    /// <summary>
-    /// 获取所有客户端ID
-    /// </summary>
-    public string[] GetConnectedClientIds()
-    {
-        lock (_sessionsLock)
-        {
-            var ids = new string[_sessions.Count];
-            _sessionsByName.Keys.CopyTo(ids, 0);
-            return ids;
-        }
+        var typeName = typeof(T).Name;
+        _logger.LogInformation($"为类型 {typeName} 创建会话组 {groupId}");
     }
 
     /// <summary>
@@ -260,23 +190,6 @@ public class NetworkServer : IDisposable
         {
             // 忽略关闭时的异常
         }
-
-        lock (_sessionsLock)
-        {
-            foreach (var session in _sessions)
-            {
-                try
-                {
-                    session.Close();
-                }
-                catch (Exception)
-                {
-                    // 忽略关闭时的异常
-                }
-            }
-
-            _sessions.Clear();
-        }
     }
 
     /// <summary>
@@ -292,6 +205,18 @@ public class NetworkServer : IDisposable
         _isDisposed = true;
 
         Stop();
+
         _cts.Dispose();
+
+        try
+        {
+            _listenSocket.Dispose();
+        }
+        catch
+        {
+            // 忽略异常
+        }
+
+        GC.SuppressFinalize(this);
     }
 }

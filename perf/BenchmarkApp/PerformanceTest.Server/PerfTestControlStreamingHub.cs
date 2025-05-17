@@ -6,7 +6,7 @@ using PerformanceTest.Shared.Reporting;
 
 namespace PerformanceTest.Server;
 
-public class PerfTestControlService : ServiceBase<IPerfTestControlService>, IPerfTestControlService
+public class PerfTestControlStreamingHub : ServiceBase<IPerfTestControlStreamingHub>, IPerfTestControlStreamingHub
 {
     public UnaryResult<ServerInformation> GetServerInformationAsync()
     {

@@ -1,5 +1,7 @@
 ﻿using System.Collections.Concurrent;
-using PulseRPC.Protocol.Network;
+using System.Windows.Input;
+using MemoryPack;
+using PulseRPC.Network;
 
 namespace PulseRPC.Server;
 
@@ -151,7 +153,7 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
         }
     }
 
-    // 修改后的SubmitCommandTaskAsync方法，使用自定义任务提交逻辑
+    // 提交命令任务的泛型方法
     public async Task SubmitCommandTaskAsync<TCommand>(
         HandlerThreadingPolicy policy,
         int priority,
@@ -160,54 +162,164 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
         NetworkSession session,
         CancellationToken cancellationToken) where TCommand : ICommand
     {
-        // 找到正确的Handle或HandleAsync方法
-        var commandHandler = handler as ICommandHandler<TCommand>;
-        if (commandHandler == null)
-            throw new InvalidOperationException("处理器不实现ICommandHandler<TCommand>");
+        await ExecuteOnThreadPool(policy, () => {
+            // 找到正确的Handle或HandleAsync方法
+            var commandHandler = handler as ICommandHandler<TCommand>;
+            if (commandHandler == null)
+                throw new InvalidOperationException("处理器不实现ICommandHandler<TCommand>");
 
-        // 基于策略决定执行位置
+            return commandHandler.HandleAsync(session, command, cancellationToken);
+        });
+    }
+
+    // 提交带上下文的命令任务
+    public async Task SubmitContextualCommandTaskAsync<TCommand, TContext>(
+        HandlerThreadingPolicy policy,
+        int priority,
+        object handler,
+        TCommand command,
+        TContext context,
+        NetworkSession session,
+        CancellationToken cancellationToken) where TCommand : ICommand
+    {
+        await ExecuteOnThreadPool(policy, () => {
+            // 找到正确的Handle或HandleAsync方法
+            var commandHandler = handler as IContextualCommandHandler<TCommand, TContext>;
+            if (commandHandler == null)
+                throw new InvalidOperationException("处理器不实现IContextualCommandHandler<TCommand, TContext>");
+
+            return commandHandler.HandleAsync(session, command, context, cancellationToken);
+        });
+    }
+
+    // 提交请求任务的泛型方法
+    public async Task<TResponse> SubmitRequestTaskAsync<TRequest, TResponse>(
+        HandlerThreadingPolicy policy,
+        int priority,
+        object handler,
+        TRequest request,
+        NetworkSession session,
+        CancellationToken cancellationToken) where TRequest : IMemoryPackable<TRequest>
+    {
+        return await ExecuteOnThreadPool(policy, () => {
+            // 找到正确的Handle或HandleAsync方法
+            var requestHandler = handler as IRequestHandler<TRequest, TResponse>;
+            if (requestHandler == null)
+                throw new InvalidOperationException("处理器不实现IRequestHandler<TRequest, TResponse>");
+
+            return requestHandler.HandleAsync(session, request, cancellationToken);
+        });
+    }
+
+    // 提交带上下文的请求任务
+    public async Task<TResponse> SubmitContextualRequestTaskAsync<TRequest, TResponse, TContext>(
+        HandlerThreadingPolicy policy,
+        int priority,
+        object handler,
+        TRequest request,
+        TContext context,
+        NetworkSession session,
+        CancellationToken cancellationToken) where TRequest : IMemoryPackable<TRequest>
+    {
+        return await ExecuteOnThreadPool(policy, () => {
+            // 找到正确的Handle或HandleAsync方法
+            var requestHandler = handler as IContextualRequestHandler<TRequest, TResponse, TContext>;
+            if (requestHandler == null)
+                throw new InvalidOperationException("处理器不实现IContextualRequestHandler<TRequest, TResponse, TContext>");
+
+            return requestHandler.HandleAsync(session, request, context, cancellationToken);
+        });
+    }
+
+    // 提交扩展请求任务
+    public async Task<(TResponse Response, TResult Result)> SubmitExtendedRequestTaskAsync<TRequest, TResponse, TOptions, TResult>(
+        HandlerThreadingPolicy policy,
+        int priority,
+        object handler,
+        TRequest request,
+        TOptions options,
+        NetworkSession session,
+        CancellationToken cancellationToken) where TRequest : IMemoryPackable<TRequest>
+    {
+        return await ExecuteOnThreadPool(policy, () => {
+            // 找到正确的Handle或HandleAsync方法
+            var requestHandler = handler as IExtendedRequestHandler<TRequest, TResponse, TOptions, TResult>;
+            if (requestHandler == null)
+                throw new InvalidOperationException("处理器不实现IExtendedRequestHandler<TRequest, TResponse, TOptions, TResult>");
+
+            return requestHandler.HandleAsync(session, request, options, cancellationToken);
+        });
+    }
+
+    // 使用指定的线程策略执行任务
+    private async Task ExecuteOnThreadPool(HandlerThreadingPolicy policy, Func<Task> action)
+    {
         switch (policy)
         {
             case HandlerThreadingPolicy.MainThread:
-                await SubmitToTaskProcessorAsync(() =>
-                    commandHandler.HandleAsync(session, command, cancellationToken).GetAwaiter().GetResult());
+                await SubmitToTaskProcessorAsync(() => action().GetAwaiter().GetResult());
                 break;
-
             case HandlerThreadingPolicy.LowLatencyThread:
                 await Task.Factory.StartNew(
-                    () => commandHandler.HandleAsync(session, command, cancellationToken),
-                    cancellationToken,
+                    action,
+                    CancellationToken.None,
                     TaskCreationOptions.None,
                     _lowLatencyThreadScheduler).Unwrap();
                 break;
-
             case HandlerThreadingPolicy.HighPriorityThread:
                 await Task.Factory.StartNew(
-                    () => commandHandler.HandleAsync(session, command, cancellationToken),
-                    cancellationToken,
+                    action,
+                    CancellationToken.None,
                     TaskCreationOptions.None,
                     _highPriorityThreadScheduler).Unwrap();
                 break;
-
             default: // WorkerThread
                 await Task.Factory.StartNew(
-                    () => commandHandler.HandleAsync(session, command, cancellationToken),
-                    cancellationToken,
+                    action,
+                    CancellationToken.None,
                     TaskCreationOptions.None,
                     _workerThreadScheduler).Unwrap();
                 break;
         }
     }
 
-    // 类似地修改SubmitRequestTaskAsync方法
-    public async Task<IResponse> SubmitRequestTaskAsync<TRequest>(
+    // 使用指定的线程策略执行带返回值的任务
+    private async Task<T> ExecuteOnThreadPool<T>(HandlerThreadingPolicy policy, Func<Task<T>> action)
+    {
+        switch (policy)
+        {
+            case HandlerThreadingPolicy.MainThread:
+                return await SubmitToTaskProcessorAsync(() => action().GetAwaiter().GetResult());
+            case HandlerThreadingPolicy.LowLatencyThread:
+                return await Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.None,
+                    _lowLatencyThreadScheduler).Unwrap();
+            case HandlerThreadingPolicy.HighPriorityThread:
+                return await Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.None,
+                    _highPriorityThreadScheduler).Unwrap();
+            default: // WorkerThread
+                return await Task.Factory.StartNew(
+                    action,
+                    CancellationToken.None,
+                    TaskCreationOptions.None,
+                    _workerThreadScheduler).Unwrap();
+        }
+    }
+
+    // 旧方法 - 保持兼容性
+    public async Task<object> SubmitRequestTaskAsync<TRequest>(
         HandlerThreadingPolicy policy,
         int priority,
         object handler,
         TRequest request,
         Type responseType,
         NetworkSession session,
-        CancellationToken cancellationToken) where TRequest : IRequest
+        CancellationToken cancellationToken) where TRequest : notnull
     {
         // 使用反射获取正确的RequestHandler类型和方法
         var handlerInterfaceType = typeof(IRequestHandler<,>).MakeGenericType(request.GetType(), responseType);
@@ -235,16 +347,16 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
 
                 // 从Task<TResponse>中提取结果
                 var resultProperty = responseTask.GetType().GetProperty("Result");
-                return (IResponse)resultProperty!.GetValue(responseTask)!;
+                return resultProperty!.GetValue(responseTask)!;
             }),
             HandlerThreadingPolicy.LowLatencyThread => await ExecuteRequestOnScheduler(_lowLatencyThreadScheduler, handler, methodInfo, request, session, cancellationToken),
             HandlerThreadingPolicy.HighPriorityThread => await ExecuteRequestOnScheduler(_highPriorityThreadScheduler, handler, methodInfo, request, session, cancellationToken),
-            _ => await ExecuteRequestOnScheduler(_workerThreadScheduler, handler, methodInfo, request, session, cancellationToken)
+            _ => await ExecuteRequestOnScheduler(_workerThreadScheduler, handler, methodInfo, request, session, cancellationToken).ConfigureAwait(false)
         };
     }
 
     // 在指定调度器上执行请求处理的辅助方法
-    private static Task<IResponse> ExecuteRequestOnScheduler(
+    private static Task<object> ExecuteRequestOnScheduler(
         TaskScheduler scheduler,
         object handler,
         System.Reflection.MethodInfo methodInfo,
@@ -252,19 +364,18 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
         NetworkSession session,
         CancellationToken cancellationToken)
     {
-        return Task.Factory.StartNew(() => {
+        return Task.Factory.StartNew(() =>
+        {
             var responseTask = (Task)methodInfo.Invoke(handler, [session, request, cancellationToken])!;
-
             responseTask.GetAwaiter().GetResult();
 
             // 从Task<TResponse>中提取结果
             var resultProperty = responseTask.GetType().GetProperty("Result");
-            return (IResponse)resultProperty!.GetValue(responseTask)!;
+            return resultProperty!.GetValue(responseTask)!;
         }, cancellationToken, TaskCreationOptions.None, scheduler);
     }
 }
 
-// 线程池配置类
 public class ThreadPoolConfiguration
 {
     public int WorkerThreads { get; set; } = Environment.ProcessorCount * 2;
@@ -272,43 +383,40 @@ public class ThreadPoolConfiguration
     public int LowLatencyThreads { get; set; } = Math.Max(2, Environment.ProcessorCount / 2);
 }
 
-// 有限并发任务调度器
 public class LimitedConcurrencyTaskScheduler : TaskScheduler
 {
-    // 用于同步的对象
+    // 对象锁
     private readonly object _lock = new();
 
     // 任务队列
     private readonly LinkedList<Task> _taskQueue = [];
 
-    // 当前正在执行的任务数
+    // 当前运行任务数
     private int _runningTasks;
 
-    // 最大并发任务数
+    // 最大并发数
     private readonly int _maxConcurrency;
 
-    // 调度器名称（用于调试）
+    // 调度器名称
     private readonly string _name;
 
     // 构造函数
     public LimitedConcurrencyTaskScheduler(int maxConcurrency, string? name)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrency, 1);
-
         _maxConcurrency = maxConcurrency;
-        _name = name ?? "LimitedConcurrencyTaskScheduler";
+        _name = name ?? $"LimitedConcurrencyPool({maxConcurrency})";
     }
 
-    // 队列中待处理的任务数
+    // 队列任务数
     public int QueuedTaskCount
     {
         get { lock (_lock) { return _taskQueue.Count; } }
     }
 
-    // 获取当前正在运行的任务数
+    // 正在运行的任务数
     public int RunningTaskCount => _runningTasks;
 
-    // 获取调度器名称
+    // 调度器名称
     public string Name => _name;
 
     // 将任务添加到队列
@@ -318,63 +426,53 @@ public class LimitedConcurrencyTaskScheduler : TaskScheduler
         {
             _taskQueue.AddLast(task);
 
-            // 如果可以调度更多任务，则执行
-            if (_runningTasks >= _maxConcurrency)
+            // 如果有可用线程，启动一个任务处理过程
+            if (_runningTasks < _maxConcurrency)
             {
-                return;
+                _runningTasks++;
+                ThreadPool.QueueUserWorkItem(ProcessTasks, null);
             }
-
-            _runningTasks++;
-            ThreadPool.QueueUserWorkItem(ProcessTasks!, null);
         }
     }
 
-    // 处理任务队列
-    private void ProcessTasks(object state)
+    // 任务处理过程
+    private void ProcessTasks(object? state)
     {
         while (true)
         {
-            Task? task;
+            Task? task = null;
 
             lock (_lock)
             {
-                // 如果队列为空，则退出
+                // 没有任务了，退出循环
                 if (_taskQueue.Count == 0)
                 {
                     _runningTasks--;
                     break;
                 }
 
-                // 从队列中获取下一个任务
+                // 获取下一个任务
                 task = _taskQueue.First!.Value;
                 _taskQueue.RemoveFirst();
             }
 
             // 执行任务
-            try
-            {
-                TryExecuteTask(task);
-            }
-            catch (Exception)
-            {
-                // 记录异常但继续处理
-            }
+            TryExecuteTask(task);
         }
     }
 
     // 尝试内联执行任务
     protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued)
     {
-        // 如果当前线程不是由此调度器管理的，则拒绝内联
-        return !taskWasPreviouslyQueued && TryExecuteTask(task);
+        return false; // 不执行内联任务以确保线程隔离
     }
 
-    // 获取所有计划运行的任务
+    // 获取所有调度任务的枚举
     protected override IEnumerable<Task> GetScheduledTasks()
     {
         lock (_lock)
         {
-            return _taskQueue.ToArray();
+            return new List<Task>(_taskQueue);
         }
     }
 }

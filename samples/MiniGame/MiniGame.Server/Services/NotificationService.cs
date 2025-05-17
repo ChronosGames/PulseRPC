@@ -15,16 +15,16 @@ public class NotificationService
 {
     private readonly ILogger<NotificationService> _logger;
     private readonly NetworkServer _server;
+    private readonly IClientSessionManager _clientSessionManager;
 
     /// <summary>
     /// 初始化通知服务
     /// </summary>
-    /// <param name="logger">日志记录器</param>
-    /// <param name="server">TCP服务器</param>
-    public NotificationService(ILogger<NotificationService> logger, NetworkServer server)
+    public NotificationService(ILogger<NotificationService> logger, NetworkServer server, IClientSessionManager clientSessionManager)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _server = server ?? throw new ArgumentNullException(nameof(server));
+        _clientSessionManager = clientSessionManager ?? throw new ArgumentNullException(nameof(clientSessionManager));
     }
 
     /// <summary>
@@ -54,7 +54,7 @@ public class NotificationService
             Metadata = metadata ?? new Dictionary<string, string>()
         };
 
-        await _server.BroadcastMessageAsync(notification);
+        await _clientSessionManager.GetAllReceiver<INotificationStreaming>().ReceiveSystemNotification(notification);
         _logger.LogInformation("已发送系统通知: {Title}, 类型: {NotificationType}", title, type);
     }
 
@@ -81,7 +81,7 @@ public class NotificationService
             Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds()
         };
 
-        await _server.BroadcastMessageAsync(notification);
+        await _clientSessionManager.GetAllReceiver<INotificationStreaming>().ReceiveUserStatusNotification(notification);
         _logger.LogInformation("已发送用户状态通知: 用户 {Username} ({UserId}), 状态: {Status}",
             username, userId, status);
     }
@@ -110,7 +110,7 @@ public class NotificationService
             Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds()
         };
 
-        await _server.BroadcastMessageAsync(broadcast);
+        await _clientSessionManager.GetAllReceiver<INotificationStreaming>().ReceiveGlobalBroadcast(broadcast);
         _logger.LogInformation("已发送全局广播: {Message}, 发送者: {Sender}", message, sender);
     }
 }

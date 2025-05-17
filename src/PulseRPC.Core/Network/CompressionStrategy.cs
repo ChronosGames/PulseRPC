@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO.Compression;
 
-namespace PulseRPC.Protocol.Network;
+namespace PulseRPC.Network;
 
 /// <summary>
 /// 智能压缩策略

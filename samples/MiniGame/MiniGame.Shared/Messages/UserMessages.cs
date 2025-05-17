@@ -1,25 +1,19 @@
 using MemoryPack;
-using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Samples.Shared.Messages;
 
-/// <summary>
-/// 获取用户信息请求
-/// </summary>
-[MemoryPackable, Packet]
-public partial class GetUserInfoRequest : IRequest
+public interface IUserStreamingHub : IStreamingHub<IUserStreamingHub>
 {
-    /// <summary>
-    /// 用户ID
-    /// </summary>
-    public int UserId { get; set; }
+    Task<GetUserInfoResponse> GetUserInfoAsync(int userId);
+
+    Task<ValueTuple<ResponseStatus, string, int>> UpdateUserInfoAsync(UpdateUserInfoRequest request);
 }
 
 /// <summary>
 /// 获取用户信息响应
 /// </summary>
-[MemoryPackable, Packet]
-public partial class GetUserInfoResponse : IResponse
+[MemoryPackable]
+public partial class GetUserInfoResponse
 {
     /// <summary>
     /// 响应状态
@@ -70,8 +64,8 @@ public partial class GetUserInfoResponse : IResponse
 /// <summary>
 /// 更新用户信息请求
 /// </summary>
-[MemoryPackable, Packet]
-public partial class UpdateUserInfoRequest : IRequest
+[MemoryPackable]
+public partial class UpdateUserInfoRequest
 {
     /// <summary>
     /// 用户ID
@@ -87,26 +81,4 @@ public partial class UpdateUserInfoRequest : IRequest
     /// 用户头像URL
     /// </summary>
     public string AvatarUrl { get; set; } = string.Empty;
-}
-
-/// <summary>
-/// 更新用户信息响应
-/// </summary>
-[MemoryPackable, Packet]
-public partial class UpdateUserInfoResponse : IResponse
-{
-    /// <summary>
-    /// 响应状态
-    /// </summary>
-    public ResponseStatus Status { get; set; }
-
-    /// <summary>
-    /// 错误信息
-    /// </summary>
-    public string ErrorMessage { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 更新成功的字段数量
-    /// </summary>
-    public int UpdatedCount { get; set; }
 }

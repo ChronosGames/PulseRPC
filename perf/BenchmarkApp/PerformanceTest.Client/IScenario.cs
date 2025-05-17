@@ -1,5 +1,3 @@
-using Grpc.Net.Client;
-
 public interface IScenario
 {
     ValueTask PrepareAsync(GrpcChannel channel);

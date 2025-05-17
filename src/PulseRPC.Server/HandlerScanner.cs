@@ -18,20 +18,11 @@ public class HandlerScanner(
 
         // 找到所有带有PacketHandlerAttribute的类型
         var handlerTypes = assembly.GetTypes()
-            .Where(t => t.GetCustomAttribute<PacketHandlerAttribute>() != null);
+            .Where(t => t.GetCustomAttribute<HandlerAttribute>() != null);
 
         foreach (var handlerType in handlerTypes)
         {
             RegisterHandler(handlerType);
-        }
-
-        // 找到所有带有PacketAttribute的类型
-        var packetTypes = assembly.GetTypes()
-            .Where(t => t.GetCustomAttribute<PacketAttribute>() != null);
-
-        foreach (var packetType in packetTypes)
-        {
-            RegisterPacket(packetType);
         }
     }
 
@@ -65,32 +56,10 @@ public class HandlerScanner(
                name != "mscorlib";
     }
 
-    private void RegisterPacket(Type packetType)
-    {
-        var attribute = packetType.GetCustomAttribute<PacketAttribute>();
-        if (attribute == null)
-        {
-            return;
-        }
-
-        var messageId = attribute.Id;
-        if (messageId == 0)
-        {
-            messageId = (ushort)FNV1A32.GetHashCode(packetType.FullName!);
-        }
-
-        if (_serviceProvider.GetRequiredService<IPulseRPCSerializer>() is not DynamicPacketRegistrations serializer)
-        {
-            return;
-        }
-
-        serializer.RegisterPacket(messageId, packetType);
-    }
-
     // 注册单个处理器
     private void RegisterHandler(Type handlerType)
     {
-        var attribute = handlerType.GetCustomAttribute<PacketHandlerAttribute>();
+        var attribute = handlerType.GetCustomAttribute<HandlerAttribute>();
         if (attribute == null)
         {
             return;
@@ -99,7 +68,7 @@ public class HandlerScanner(
         var policy = attribute.ThreadingPolicy;
         var priority = attribute.Priority;
 
-        // 检查命令处理器接口
+        // 检查各种处理器接口
         foreach (var interfaceType in handlerType.GetInterfaces())
         {
             if (!interfaceType.IsGenericType)
@@ -109,7 +78,7 @@ public class HandlerScanner(
 
             var genericTypeDef = interfaceType.GetGenericTypeDefinition();
 
-            // 注册命令处理器
+            // 注册标准命令处理器
             if (genericTypeDef == typeof(ICommandHandler<>))
             {
                 var commandType = interfaceType.GetGenericArguments()[0];
@@ -123,7 +92,24 @@ public class HandlerScanner(
 
                 logger.LogInformation("已注册命令处理器: {Handler} 用于指令 {Name}", handlerType.Name, commandType.Name);
             }
-            // 注册请求处理器
+            // 注册上下文命令处理器
+            else if (genericTypeDef == typeof(IContextualCommandHandler<,>))
+            {
+                var genericArgs = interfaceType.GetGenericArguments();
+                var commandType = genericArgs[0];
+                var contextType = genericArgs[1];
+
+                // 使用反射创建RegisterContextualCommandHandler<TCommand, TContext>方法
+                var method = typeof(HandlerRegistry)
+                    .GetMethod(nameof(HandlerRegistry.RegisterContextualCommandHandler))!
+                    .MakeGenericMethod(commandType, contextType);
+
+                method.Invoke(registry, [handlerType, policy, priority]);
+
+                logger.LogInformation("已注册上下文命令处理器: {Handler} 用于指令 {CommandName}, 上下文 {ContextName}",
+                    handlerType.Name, commandType.Name, contextType.Name);
+            }
+            // 注册标准请求处理器
             else if (genericTypeDef == typeof(IRequestHandler<,>))
             {
                 var genericArgs = interfaceType.GetGenericArguments();
@@ -137,7 +123,45 @@ public class HandlerScanner(
 
                 method.Invoke(registry, [handlerType, policy, priority]);
 
-                logger.LogInformation("已注册请求处理器: {Handler} 用于请求 {RequestName}, {ResponseName}", handlerType.Name, requestType.Name, responseType.Name);
+                logger.LogInformation("已注册请求处理器: {Handler} 用于请求 {RequestName}, 响应 {ResponseName}",
+                    handlerType.Name, requestType.Name, responseType.Name);
+            }
+            // 注册上下文请求处理器
+            else if (genericTypeDef == typeof(IContextualRequestHandler<,,>))
+            {
+                var genericArgs = interfaceType.GetGenericArguments();
+                var requestType = genericArgs[0];
+                var responseType = genericArgs[1];
+                var contextType = genericArgs[2];
+
+                // 使用反射创建RegisterContextualRequestHandler<TRequest, TResponse, TContext>方法
+                var method = typeof(HandlerRegistry)
+                    .GetMethod(nameof(HandlerRegistry.RegisterContextualRequestHandler))!
+                    .MakeGenericMethod(requestType, responseType, contextType);
+
+                method.Invoke(registry, [handlerType, policy, priority]);
+
+                logger.LogInformation("已注册上下文请求处理器: {Handler} 用于请求 {RequestName}, 响应 {ResponseName}, 上下文 {ContextName}",
+                    handlerType.Name, requestType.Name, responseType.Name, contextType.Name);
+            }
+            // 注册扩展请求处理器
+            else if (genericTypeDef == typeof(IExtendedRequestHandler<,,,>))
+            {
+                var genericArgs = interfaceType.GetGenericArguments();
+                var requestType = genericArgs[0];
+                var responseType = genericArgs[1];
+                var optionsType = genericArgs[2];
+                var resultType = genericArgs[3];
+
+                // 使用反射创建RegisterExtendedRequestHandler<TRequest, TResponse, TOptions, TResult>方法
+                var method = typeof(HandlerRegistry)
+                    .GetMethod(nameof(HandlerRegistry.RegisterExtendedRequestHandler))!
+                    .MakeGenericMethod(requestType, responseType, optionsType, resultType);
+
+                method.Invoke(registry, [handlerType, policy, priority]);
+
+                logger.LogInformation("已注册扩展请求处理器: {Handler} 用于请求 {RequestName}, 响应 {ResponseName}, 选项 {OptionsName}, 结果 {ResultName}",
+                    handlerType.Name, requestType.Name, responseType.Name, optionsType.Name, resultType.Name);
             }
         }
     }
