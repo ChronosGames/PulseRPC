@@ -1,6 +1,8 @@
 ﻿using System.Collections.Concurrent;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
+using System.Buffers;
+using MemoryPack;
 
 namespace PulseRPC.Client;
 
@@ -73,12 +75,12 @@ public class NodeInfo
     /// <summary>
     /// 网络客户端
     /// </summary>
-    public NetworkClient Client { get; set; }
+    public NetworkClient? Client { get; set; }
 
     /// <summary>
     /// 序列化器
     /// </summary>
-    public IPulseRPCSerializer Serializer { get; set; }
+    public IPulseRPCSerializer? Serializer { get; set; }
 }
 
 /// <summary>
@@ -87,6 +89,7 @@ public class NodeInfo
 public static class NetworkManager
 {
     private static readonly ILogger _logger;
+    private static readonly object _syncLock = new object();
 
     private static readonly ConcurrentDictionary<string, NodeInfo> _nodes = new();
 
@@ -162,7 +165,7 @@ public static class NetworkManager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "关闭节点 {NodeName} 的连接时出错", nodeName);
+                _logger?.LogError(ex, "关闭节点 {NodeName} 的连接时出错", nodeName);
             }
         }
 
@@ -319,7 +322,7 @@ public static class NetworkManager
         var client = GetOrCreateClient(nodeName);
 
         // 创建服务客户端
-        return CreateServiceClient<TService>(client, nodeInfo.Serializer);
+        return CreateServiceClient<TService>(client);
     }
 
     /// <summary>
@@ -348,7 +351,7 @@ public static class NetworkManager
         return RegisterReceiverHandler(client, nodeInfo.Serializer, receiver);
     }
 
-    private static TService CreateServiceClient<TService>(NetworkClient client, IPulseRPCSerializer serializer)
+    private static TService CreateServiceClient<TService>(NetworkClient client)
         where TService : class, IStreamingHub<TService>
     {
         // 查找生成的客户端类型
@@ -361,11 +364,11 @@ public static class NetworkManager
         // 创建客户端实例
         try
         {
-            return (TService)Activator.CreateInstance(clientType, client, serializer);
+            return (TService)Activator.CreateInstance(clientType, client);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"创建服务客户端 {serviceType.Name} 失败");
+            _logger?.LogError(ex, $"创建服务客户端 {serviceType.Name} 失败");
             throw;
         }
     }
@@ -378,14 +381,14 @@ public static class NetworkManager
         // 查找处理器类型
         if (!ReceiverHandlerTypes.TryGetValue(receiverType, out var handlerType))
         {
-            _logger.LogWarning($"未找到接收器类型 {receiverType.Name} 的处理器实现");
+            _logger?.LogWarning($"未找到接收器类型 {receiverType.Name} 的处理器实现");
             return false;
         }
 
         // 创建处理器实例
         try
         {
-            var handler = Activator.CreateInstance(handlerType, receiver, serializer);
+            var handler = Activator.CreateInstance(handlerType, receiver);
             // 注册处理器到客户端会话
             if (client.Session != null)
             {
@@ -397,7 +400,7 @@ public static class NetworkManager
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, $"创建接收器处理器 {receiverType.Name} 失败");
+            _logger?.LogError(ex, $"创建接收器处理器 {receiverType.Name} 失败");
             return false;
         }
     }
@@ -423,7 +426,7 @@ public static class NetworkManager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, $"准备连接节点 {node.Name} 时出错");
+                _logger?.LogError(ex, $"准备连接节点 {node.Name} 时出错");
                 exceptions.Add(ex);
             }
         }
@@ -434,7 +437,7 @@ public static class NetworkManager
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "连接节点时出错");
+            _logger?.LogError(ex, "连接节点时出错");
             exceptions.Add(ex);
         }
 
@@ -473,16 +476,16 @@ public static class NetworkManager
         try
         {
             await nodeInfo.Client.ConnectAsync();
-            _logger.LogInformation("已连接到服务节点 {NodeName} ({Host}:{Port})",
+            _logger?.LogInformation("已连接到服务节点 {NodeName} ({Host}:{Port})",
                 nodeInfo.Name, nodeInfo.Host, nodeInfo.Port);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "连接服务节点 {NodeName} ({Host}:{Port}) 时出错",
+            _logger?.LogError(ex, "连接服务节点 {NodeName} ({Host}:{Port}) 时出错",
                 nodeInfo.Name, nodeInfo.Host, nodeInfo.Port);
 
             // 如果启用了自动重连，不抛出异常
-            if (!nodeInfo.Options.AutoReconnect)
+            if (!nodeInfo.Options?.AutoReconnect ?? false)
                 throw;
         }
     }
@@ -502,30 +505,30 @@ public static class NetworkManager
         // 添加断开连接事件处理
         nodeInfo.Client.Disconnected += async (sender, e) =>
         {
-            _logger.LogWarning("与服务节点 {NodeName} ({Host}:{Port}) 的连接已断开，准备重连",
+            _logger?.LogWarning("与服务节点 {NodeName} ({Host}:{Port}) 的连接已断开，准备重连",
                 nodeInfo.Name, nodeInfo.Host, nodeInfo.Port);
 
             int attemptCount = 0;
 
-            while (nodeInfo.Options.MaxReconnectAttempts == 0 ||
-                   attemptCount < nodeInfo.Options.MaxReconnectAttempts)
+            while ((nodeInfo.Options?.MaxReconnectAttempts ?? 0) == 0 ||
+                   attemptCount < (nodeInfo.Options?.MaxReconnectAttempts ?? 0))
             {
                 attemptCount++;
 
                 try
                 {
                     // 等待重连间隔
-                    await Task.Delay(nodeInfo.Options.ReconnectInterval);
+                    await Task.Delay(nodeInfo.Options?.ReconnectInterval ?? TimeSpan.FromSeconds(3));
 
                     // 尝试重新连接
-                    if (!nodeInfo.Client.IsConnected)
+                    if (nodeInfo.Client?.IsConnected != true)
                     {
-                        _logger.LogInformation("正在重新连接到服务节点 {NodeName} ({Host}:{Port})，第 {Attempt} 次尝试",
+                        _logger?.LogInformation("正在重新连接到服务节点 {NodeName} ({Host}:{Port})，第 {Attempt} 次尝试",
                             nodeInfo.Name, nodeInfo.Host, nodeInfo.Port, attemptCount);
 
-                        await nodeInfo.Client.ConnectAsync();
+                        await nodeInfo.Client?.ConnectAsync();
 
-                        _logger.LogInformation("已重新连接到服务节点 {NodeName} ({Host}:{Port})",
+                        _logger?.LogInformation("已重新连接到服务节点 {NodeName} ({Host}:{Port})",
                             nodeInfo.Name, nodeInfo.Host, nodeInfo.Port);
 
                         // 重连成功，退出循环
@@ -539,18 +542,35 @@ public static class NetworkManager
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "重新连接到服务节点 {NodeName} ({Host}:{Port}) 失败，第 {Attempt} 次尝试",
+                    _logger?.LogError(ex, "重新连接到服务节点 {NodeName} ({Host}:{Port}) 失败，第 {Attempt} 次尝试",
                         nodeInfo.Name, nodeInfo.Host, nodeInfo.Port, attemptCount);
                 }
             }
 
-            if (!nodeInfo.Client.IsConnected &&
-                nodeInfo.Options.MaxReconnectAttempts > 0 &&
-                attemptCount >= nodeInfo.Options.MaxReconnectAttempts)
+            if (nodeInfo.Client?.IsConnected != true &&
+                (nodeInfo.Options?.MaxReconnectAttempts ?? 0) > 0 &&
+                attemptCount >= (nodeInfo.Options?.MaxReconnectAttempts ?? 0))
             {
-                _logger.LogError("重新连接到服务节点 {NodeName} ({Host}:{Port}) 失败，已达到最大重试次数 {MaxAttempts}",
-                    nodeInfo.Name, nodeInfo.Host, nodeInfo.Port, nodeInfo.Options.MaxReconnectAttempts);
+                _logger?.LogError("重新连接到服务节点 {NodeName} ({Host}:{Port}) 失败，已达到最大重试次数 {MaxAttempts}",
+                    nodeInfo.Name, nodeInfo.Host, nodeInfo.Port, nodeInfo.Options?.MaxReconnectAttempts);
             }
         };
+    }
+}
+
+/// <summary>
+/// MemoryPack序列化器
+/// </summary>
+public class MemoryPackRpcSerializer : IPulseRPCSerializer
+{
+    public void Serialize<T>(IBufferWriter<byte> writer, in T value) where T : IMemoryPackable<T>
+    {
+        MemoryPackSerializer.Serialize(writer, value);
+    }
+
+    public int ProcessMessage(ref ReadOnlySequence<byte> buffer)
+    {
+        // 简单实现，在实际应用中需要根据具体协议处理
+        return (int)buffer.Length;
     }
 }
