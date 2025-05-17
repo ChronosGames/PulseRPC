@@ -23,6 +23,7 @@ public class NetworkClient : IDisposable
     private readonly object _connectionLock = new();
     private bool _isConnecting;
     private readonly CancellationTokenSource _cts = new();
+    private readonly RequestResponseManager _requestResponseManager;
 
     /// <summary>
     /// 会话对象
@@ -64,6 +65,7 @@ public class NetworkClient : IDisposable
         _port = port;
         _pulseService = pulseService ?? throw new ArgumentNullException(nameof(pulseService));
         _options = options ?? new NetworkOptions();
+        _requestResponseManager = new RequestResponseManager(_logger);
     }
 
     /// <summary>
@@ -164,21 +166,43 @@ public class NetworkClient : IDisposable
         // 使用NetworkSession发送消息
         try
         {
+            // 获取序列号
             var sequenceId = _session!.GetNextSequenceId();
+
+            // 创建TaskCompletionSource来等待响应
+            var taskCompletionSource = new TaskCompletionSource<TResponse>();
+
+            // 注册请求响应映射
+            _requestResponseManager.RegisterRequestResponseMapping<TRequest, TResponse>();
+
+            // 将请求添加到等待队列
+            var responseTask = _requestResponseManager.AddRequest<TRequest, TResponse>(sequenceId);
+
+            // 设置超时任务
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(_options.RequestTimeout);
+
+            // 注册取消令牌
+            cts.Token.Register(() =>
+            {
+                _requestResponseManager.CancelRequest<TRequest, TResponse>(sequenceId,
+                    new TimeoutException($"请求超时 {typeof(TRequest).Name}"));
+            });
+
+            // 发送数据包
             var success = await _session.SendPacketAsync(request, sequenceId);
 
             if (!success)
             {
-                throw new InvalidOperationException("发送请求失败");
+                throw new InvalidOperationException($"发送请求失败: {typeof(TRequest).Name}");
             }
 
-            // 实际实现中需要等待响应
-            // 这里仅作示例，实际实现应使用TaskCompletionSource等待响应
-            return default!;
+            // 等待响应
+            return await responseTask;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "发送请求失败");
+            _logger.LogError(ex, "发送请求失败: {RequestType}", typeof(TRequest).Name);
 
             // 检查是否为连接异常
             if (IsConnectionException(ex))
@@ -395,10 +419,13 @@ internal class RequestResponseManager
 {
     private readonly ConcurrentDictionary<ushort, TaskCompletionSource<object>> _pendingRequests = new();
     private readonly ConcurrentDictionary<Type, Type> _responseTypeMap = new();
+    private readonly ILogger _logger;
 
-    /// <summary>
-    /// 注册请求类型到响应类型的映射
-    /// </summary>
+    public RequestResponseManager(ILogger logger)
+    {
+        _logger = logger;
+    }
+
     public void RegisterRequestResponseMapping<TRequest, TResponse>()
         where TRequest : IMemoryPackable<TRequest>
         where TResponse : IMemoryPackable<TResponse>
@@ -406,21 +433,30 @@ internal class RequestResponseManager
         _responseTypeMap[typeof(TRequest)] = typeof(TResponse);
     }
 
-    /// <summary>
-    /// 添加待处理请求
-    /// </summary>
     public Task<TResponse> AddRequest<TRequest, TResponse>(ushort sequenceId)
         where TRequest : IMemoryPackable<TRequest>
         where TResponse : IMemoryPackable<TResponse>
     {
         var tcs = new TaskCompletionSource<object>();
         _pendingRequests[sequenceId] = tcs;
-        return tcs.Task.ContinueWith(t => (TResponse)t.Result);
+        return tcs.Task.ContinueWith(t =>
+        {
+            if (t.IsFaulted)
+                throw t.Exception!.InnerException!;
+            return (TResponse)t.Result!;
+        });
     }
 
-    /// <summary>
-    /// 处理响应
-    /// </summary>
+    public void CancelRequest<TRequest, TResponse>(ushort sequenceId, Exception exception)
+        where TRequest : IMemoryPackable<TRequest>
+        where TResponse : IMemoryPackable<TResponse>
+    {
+        if (_pendingRequests.TryRemove(sequenceId, out var tcs))
+        {
+            tcs.TrySetException(exception);
+        }
+    }
+
     public bool ProcessResponse(ushort sequenceId, object response)
     {
         if (_pendingRequests.TryRemove(sequenceId, out var tcs))
@@ -431,14 +467,11 @@ internal class RequestResponseManager
         return false;
     }
 
-    /// <summary>
-    /// 取消所有待处理请求
-    /// </summary>
     public void CancelAllRequests(Exception exception)
     {
-        foreach (var kvp in _pendingRequests)
+        foreach (var request in _pendingRequests)
         {
-            kvp.Value.TrySetException(exception);
+            request.Value.TrySetException(exception);
         }
         _pendingRequests.Clear();
     }

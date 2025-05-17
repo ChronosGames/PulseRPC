@@ -5,10 +5,12 @@ using PulseRPC.Client;
 using PulseRPC.Network;
 using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
+using System.Net;
 
 namespace PulseRPC.Samples.Client;
 
 [assembly: PulseClientGeneration(typeof(IAuthStreamingHub))]
+[assembly: PulseClientGeneration(typeof(IUserStreamingHub))]
 
 /// <summary>
 /// 客户端示例程序
@@ -30,8 +32,15 @@ class Program
             builder.SetMinimumLevel(LogLevel.Debug);
         });
 
+        // 添加网络服务
         services.AddSingleton<NetworkOptions>();
-        services.AddSingleton<NetworkClient>();
+        services.AddSingleton(sp => 
+        {
+            var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger<NetworkClient>();
+            var options = sp.GetRequiredService<NetworkOptions>();
+            // 创建NetworkClient时传入IPulseService实现
+            return new NetworkClient(logger, "127.0.0.1", 8888, new DefaultPulseService(), options);
+        });
 
         // 构建服务提供程序
         var serviceProvider = services.BuildServiceProvider();
@@ -46,8 +55,12 @@ class Program
         try
         {
             // 连接到服务器
-            await client.ConnectAsync("127.0.0.1", 8888, true);
+            await client.ConnectAsync();
             logger.LogInformation("已连接到服务器");
+
+            // 使用源生成的客户端代理
+            var authHub = new AuthStreamingHubClient(client);
+            var userHub = new UserStreamingHubClient(client);
 
             // 登录
             logger.LogInformation("正在登录...");
@@ -58,7 +71,7 @@ class Program
                 ClientVersion = 1001
             };
 
-            var loginResponse = await client.SendRequestAsync<LoginRequest, LoginResponse>(loginRequest);
+            var loginResponse = await authHub.Login(loginRequest);
 
             if (loginResponse.Success)
             {
@@ -66,7 +79,7 @@ class Program
 
                 // 获取用户信息
                 logger.LogInformation("正在获取用户信息...");
-                var userInfoResponse = await client.SendRequestAsync<int, GetUserInfoResponse>(loginResponse.UserId);
+                var userInfoResponse = await userHub.GetUserInfoAsync(loginResponse.UserId);
 
                 if (userInfoResponse.Status == ResponseStatus.Success)
                 {
@@ -75,20 +88,20 @@ class Program
 
                     // 更新用户信息
                     logger.LogInformation("正在更新用户信息...");
-                    var updateResponse = await client.SendRequestAsync<UpdateUserInfoRequest, UpdateUserInfoResponse>(new UpdateUserInfoRequest
+                    var updateResponse = await userHub.UpdateUserInfoAsync(new UpdateUserInfoRequest
                     {
                         UserId = loginResponse.UserId,
                         Nickname = "超级管理员",
                         AvatarUrl = "https://example.com/avatar.png"
                     });
 
-                    if (updateResponse.Status == ResponseStatus.Success)
+                    if (updateResponse.Item1 == ResponseStatus.Success)
                     {
                         logger.LogInformation("用户信息更新成功");
                     }
                     else
                     {
-                        logger.LogError("用户信息更新失败: {ErrorMessage}", updateResponse.ErrorMessage);
+                        logger.LogError("用户信息更新失败: {ErrorMessage}", updateResponse.Item2);
                     }
                 }
                 else
@@ -114,5 +127,25 @@ class Program
 
         Console.WriteLine("按任意键退出...");
         Console.ReadKey();
+    }
+}
+
+// 默认的PulseService实现，用于客户端
+internal class DefaultPulseService : IPulseService
+{
+    public ValueTask<bool> HandleMessageAsync(NetworkSession session, Memory<byte> data, CancellationToken cancellationToken = default)
+    {
+        // 客户端实现，接收服务端消息
+        return ValueTask.FromResult(true);
+    }
+
+    public byte[] SerializeMessage<T>(T message) where T : IMemoryPackable<T>
+    {
+        return MemoryPackSerializer.Serialize(message);
+    }
+
+    public T? DeserializeMessage<T>(ReadOnlyMemory<byte> data) where T : IMemoryPackable<T>
+    {
+        return MemoryPackSerializer.Deserialize<T>(data);
     }
 }
