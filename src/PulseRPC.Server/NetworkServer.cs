@@ -164,9 +164,9 @@ public class NetworkServer : IDisposable
         }
     }
 
-    private Task OnMessageReceived(NetworkSession session, IPacket packet, CancellationToken cancellationToken)
+    private Task OnMessageReceived(NetworkSession session, ushort sequenceId, IPacket packet, CancellationToken cancellationToken)
     {
-        return _dispatcher.DispatchAsync(session, packet, cancellationToken);
+        return _dispatcher.DispatchAsync(session, sequenceId, packet, cancellationToken);
     }
 
     /// <summary>
@@ -185,7 +185,7 @@ public class NetworkServer : IDisposable
     /// <summary>
     /// 广播消息给所有客户端
     /// </summary>
-    public async Task BroadcastMessageAsync<T>(T message) where T : Message
+    public async Task BroadcastMessageAsync<T>(T message) where T : IMessage
     {
         ObjectDisposedException.ThrowIf(_isDisposed, nameof(NetworkServer));
 
@@ -195,7 +195,7 @@ public class NetworkServer : IDisposable
             sessions = _sessions.ToArray();
         }
 
-        await Task.WhenAll(sessions.Select(session => session.SendPacketAsync(message)));
+        await Task.WhenAll(sessions.Select(session => session.SendPacketAsync(message, ushort.MinValue)));
     }
 
     /// <summary>
@@ -207,7 +207,7 @@ public class NetworkServer : IDisposable
         {
             if (_sessionsByName.TryGetValue(clientId, out var session))
             {
-                return session.SendPacketAsync(message);
+                return session.SendPacketAsync(message, session.GetNextSequenceId());
             }
         }
 

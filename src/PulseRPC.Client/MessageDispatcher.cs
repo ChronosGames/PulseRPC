@@ -6,7 +6,7 @@ namespace PulseRPC.Client;
 
 public interface IMSGHandler : IPacketHandler
 {
-    Task HandleAsync(NetworkSession context, Message packet, CancellationToken cancellationToken = default);
+    Task HandleAsync(NetworkSession context, IMessage packet, CancellationToken cancellationToken = default);
 }
 
 public class MessageDispatcher : IMessageDispatcher
@@ -18,11 +18,11 @@ public class MessageDispatcher : IMessageDispatcher
         _handlers.TryAdd(packetType, handler);
     }
 
-    public Task DispatchAsync(NetworkSession context, IPacket packet, CancellationToken cancellationToken = default)
+    public Task DispatchAsync(NetworkSession context, ushort sequenceId, IPacket packet, CancellationToken cancellationToken = default)
     {
         switch (packet)
         {
-            case Message msg:
+            case IMessage msg:
             {
                 if (!_handlers.TryGetValue(msg.GetType(), out var handler))
                 {
@@ -32,7 +32,7 @@ public class MessageDispatcher : IMessageDispatcher
 
                 return handler.HandleAsync(context, msg, cancellationToken);
             }
-            case Response _:
+            case IResponse _:
                 return Task.CompletedTask;
             default:
                 throw new NotSupportedException(packet.GetType().Name);

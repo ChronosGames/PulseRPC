@@ -7,7 +7,7 @@ namespace PulseRPC.Samples.Shared.Messages;
 /// 系统通知消息
 /// </summary>
 [MemoryPackable, Packet]
-public partial class SystemNotification : Message
+public partial class SystemNotification : IMessage
 {
     /// <summary>
     /// 通知ID
@@ -49,7 +49,7 @@ public partial class SystemNotification : Message
 /// 用户状态通知消息
 /// </summary>
 [MemoryPackable, Packet]
-public partial class UserStatusNotification : Message
+public partial class UserStatusNotification : IMessage
 {
     /// <summary>
     /// 用户ID
@@ -81,7 +81,7 @@ public partial class UserStatusNotification : Message
 /// 全局广播消息
 /// </summary>
 [MemoryPackable, Packet]
-public partial class GlobalBroadcast : Message
+public partial class GlobalBroadcast : IMessage
 {
     /// <summary>
     /// 广播ID

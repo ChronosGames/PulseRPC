@@ -30,11 +30,11 @@ public class PacketDispatcher(
     ILogger<PacketDispatcher> logger)
     : IMessageDispatcher
 {
-    public async Task DispatchAsync(NetworkSession session, IPacket packet, CancellationToken cancellationToken = default)
+    public async Task DispatchAsync(NetworkSession session, ushort sequenceId, IPacket packet, CancellationToken cancellationToken = default)
     {
         switch (packet)
         {
-            case Request request:
+            case IRequest request:
             {
                 // 尝试获取处理器信息
                 if (!registry.TryGetRequestHandler(packet.GetType(), out var handlerInfo))
@@ -68,14 +68,13 @@ public class PacketDispatcher(
                     // ushort responseMessageId = (ushort)(packet.Id + 1);
 
                     // 发送响应
-                    response.SequenceId = request.SequenceId;
                     dynamic abc = response;
-                    await session.SendPacketAsync(abc);
+                    await session.SendPacketAsync(abc, sequenceId);
                 }
 
                 break;
             }
-            case Command command:
+            case ICommand command:
             {
                 // 尝试获取处理器信息
                 if (!registry.TryGetCommandHandler(packet.GetType(), out var handlerInfo))

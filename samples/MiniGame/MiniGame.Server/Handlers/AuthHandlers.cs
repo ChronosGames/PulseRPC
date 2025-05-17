@@ -36,10 +36,7 @@ public class LoginRequestHandler : IRequestHandler<LoginRequest, LoginResponse>
         _logger.LogInformation("收到登录请求: 用户名={Username}, 密码={Password}", request.Username, "******");
 
         // 构造响应
-        var response = new LoginResponse
-        {
-            RequestId = request.RequestId
-        };
+        var response = new LoginResponse();
 
         // 模拟验证
         if (request.Username == "admin" && request.Password == "password")
@@ -103,10 +100,7 @@ public class RegisterRequestHandler : IRequestHandler<RegisterRequest, RegisterR
         _logger.LogInformation("收到注册请求: 用户名={Username}, 邮箱={Email}", request.Username, request.Email);
 
         // 构造响应
-        var response = new RegisterResponse
-        {
-            RequestId = request.RequestId
-        };
+        var response = new RegisterResponse();
 
         // 模拟注册
         if (request.Username != "admin")

@@ -17,9 +17,9 @@ public class NetworkClient : IDisposable
     private readonly IPulseRPCSerializer _serializer;
     private NetworkSession? _session;
     private readonly object _connectionLock = new object();
-    private readonly ConcurrentDictionary<uint, TaskCompletionSource<Response>> _pendingRequests = new();
+    private readonly ConcurrentDictionary<ushort, TaskCompletionSource<IResponse>> _pendingRequests = new();
     private CancellationTokenSource? _reconnectCts;
-    private uint _nextSequenceId = 1;
+    private int _sequenceIdCounter;
     private bool _isDisposed;
     private Task? _receiveTask;
 
@@ -145,39 +145,27 @@ public class NetworkClient : IDisposable
     }
 
     /// <summary>
-    /// 发送命令
-    /// </summary>
-    public Task SendCommandAsync<T>(T command) where T : Command
-    {
-        EnsureConnected();
-        lock (_connectionLock)
-        {
-            return _session!.SendPacketAsync(command);
-        }
-    }
-
-    /// <summary>
     /// 发送请求并等待响应
     /// </summary>
     public async Task<TResponse> SendRequestAsync<TRequest, TResponse>(TRequest request,
         CancellationToken cancellationToken = default)
-        where TRequest : Request
-        where TResponse : Response
+        where TRequest : IRequest
+        where TResponse : IResponse
     {
         EnsureConnected();
         // lock (_connectionLock)
         {
             // 设置请求ID和序列号
-            request.SequenceId = GetNextSequenceId();
+            var sequenceId = _session!.GetNextSequenceId();
 
             // 创建等待响应的任务源
-            var tcs = new TaskCompletionSource<Response>();
-            _pendingRequests[request.SequenceId] = tcs;
+            var tcs = new TaskCompletionSource<IResponse>();
+            _pendingRequests[sequenceId] = tcs;
 
             try
             {
                 // 发送请求
-                await _session!.SendPacketAsync(request);
+                await _session!.SendPacketAsync(request, sequenceId);
 
                 // 等待响应，设置超时
                 using var timeoutCts = new CancellationTokenSource(_options.RequestTimeout);
@@ -205,25 +193,25 @@ public class NetworkClient : IDisposable
             }
             finally
             {
-                _pendingRequests.TryRemove(request.SequenceId, out _);
+                _pendingRequests.TryRemove(sequenceId, out _);
             }
         }
     }
 
-    private Task OnPacketReceived(NetworkSession session, IPacket packet, CancellationToken cancellationToken)
+    private Task OnPacketReceived(NetworkSession session, ushort sequenceId, IPacket packet, CancellationToken cancellationToken)
     {
         switch (packet)
         {
-            case Response response:
-                if (!_pendingRequests.TryGetValue(response.SequenceId, out var tcs))
+            case IResponse response:
+                if (!_pendingRequests.TryGetValue(sequenceId, out var tcs))
                 {
-                    throw new InvalidOperationException($"Received response of type {response.GetType()} but expected {typeof(Response)}");
+                    throw new InvalidOperationException($"Received response of type {response.GetType()} but expected {typeof(IResponse)}: {sequenceId}");
                 }
 
                 tcs.TrySetResult(response);
                 return Task.CompletedTask;
             default:
-                return _dispatcher.DispatchAsync(session, packet, cancellationToken);
+                return _dispatcher.DispatchAsync(session, sequenceId, packet, cancellationToken);
         }
     }
 
@@ -237,26 +225,6 @@ public class NetworkClient : IDisposable
         {
             throw new InvalidOperationException("Client is not connected");
         }
-    }
-
-    /// <summary>
-    /// 获取下一个序列号
-    /// </summary>
-    private uint GetNextSequenceId()
-    {
-#if NET5_0_OR_GREATER
-        return Interlocked.Increment(ref _nextSequenceId);
-#else
-        unsafe
-        {
-            fixed (uint* pSequence = &_nextSequenceId)
-            {
-                Interlocked.Increment(ref *(int*)pSequence);
-            }
-
-            return _nextSequenceId;
-        }
-#endif
     }
 
     private async Task ReceiveMessageAsync()

@@ -34,7 +34,7 @@ public class NetworkSession
     // private bool _isDisposed;
     // private readonly CancellationTokenSource _cts = new();
     private readonly MetaData<string> _metaData = new();
-    private readonly Func<NetworkSession, IPacket, CancellationToken, Task> _callback;
+    private readonly Func<NetworkSession, ushort, IPacket, CancellationToken, Task> _callback;
     private readonly IPulseRPCSerializer _serializer;
 
     private readonly NetworkStream _stream;
@@ -43,6 +43,7 @@ public class NetworkSession
     private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
 
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+    private int _sequenceIdCounter;
 
     // private readonly IPulseRPCSerializer _messageHandlers;
     private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
@@ -63,7 +64,7 @@ public class NetworkSession
     /// 构造函数
     /// </summary>
     public NetworkSession(ILogger logger, Socket socket,
-        Func<NetworkSession, IPacket, CancellationToken, Task> callback, IPulseRPCSerializer serializer,
+        Func<NetworkSession, ushort, IPacket, CancellationToken, Task> callback, IPulseRPCSerializer serializer,
         NetworkOptions? options = null)
     {
         _socket = socket ?? throw new ArgumentNullException(nameof(socket));
@@ -197,7 +198,7 @@ public class NetworkSession
                 Interlocked.Add(ref _bytesReceived, length + PacketHeaderSize);
 
                 // 将消息分发给处理器
-                _callback(this, packet!, _cts.Token);
+                _callback(this, id, packet!, _cts.Token);
                 // _messageHandlers.DispatchMessage(packet.TypeId, packet.Data);
             }
             finally
@@ -214,9 +215,9 @@ public class NetworkSession
     /// <summary>
     /// 尝试从缓冲区读取一个完整消息
     /// </summary>
-    private int TryReadMessage(ref ReadOnlySequence<byte> buffer, out ushort id, out IPacket? packet)
+    private int TryReadMessage(ref ReadOnlySequence<byte> buffer, out ushort sequenceId, out IPacket? packet)
     {
-        id = 0;
+        sequenceId = ushort.MinValue;
         packet = null;
 
         if (buffer.Length < PacketHeaderSize)
@@ -230,7 +231,7 @@ public class NetworkSession
 
         var messageLength = (int)BinaryPrimitives.ReadUInt16LittleEndian(headerSpan);
         var flags = headerSpan[2];
-        var sequenceId = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan[3..]);
+        sequenceId = BinaryPrimitives.ReadUInt16LittleEndian(headerSpan[3..5]);
 
         // 检查长度合理性（防止恶意数据）
         if (messageLength < 0 || messageLength > _options.MaxPacketSize)
@@ -254,9 +255,30 @@ public class NetworkSession
     }
 
     /// <summary>
+    /// 获取下一个序列号
+    /// </summary>
+    public ushort GetNextSequenceId()
+    {
+        ushort id;
+
+        do
+        {
+            // 使用 int 类型进行原子递增
+            var nextValue = Interlocked.Increment(ref _sequenceIdCounter);
+
+            // 转换为 ushort (0-65535 范围)
+            id = (ushort)(nextValue & 0xFFFF);
+
+            // 如果溢出回到0，则继续递增
+        } while (id == 0);
+
+        return id;
+    }
+
+    /// <summary>
     /// 使用零分配发送对象（高级优化）
     /// </summary>
-    public async Task<bool> SendPacketAsync<T>(T message) where T : IPacket
+    public async Task<bool> SendPacketAsync<T>(T message, ushort sequenceId) where T : IPacket
     {
         if (_isDisposed)
             return false;
@@ -282,7 +304,7 @@ public class NetworkSession
             // 回写头部
             BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span, (ushort)actualSize);
             headerMemory.Span[2] = (byte)PacketFlags.None;
-            BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span[3..], ushort.MinValue);
+            BinaryPrimitives.WriteUInt16LittleEndian(headerMemory.Span[3..5], sequenceId);
 
             // 刷新数据
             await _writer.FlushAsync();

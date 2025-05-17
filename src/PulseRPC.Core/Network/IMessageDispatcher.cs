@@ -6,5 +6,5 @@ namespace PulseRPC.Protocol.Network;
 
 public interface IMessageDispatcher
 {
-    Task DispatchAsync(NetworkSession session, IPacket packet, CancellationToken cancellationToken = default);
+    Task DispatchAsync(NetworkSession session, ushort sequenceId, IPacket packet, CancellationToken cancellationToken = default);
 }

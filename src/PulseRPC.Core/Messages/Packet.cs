@@ -11,34 +11,30 @@ public enum PacketFlags : byte
 }
 
 [MemoryPackable(GenerateType.NoGenerate)]
-public abstract partial class Command : IPacket
+public partial interface ICommand : IPacket
 {
-    public uint SequenceId { get; set; }
 }
 
 /// <summary>
 /// 命令批处理包
 /// </summary>
 [MemoryPackable(GenerateType.NoGenerate)]
-public partial class CommandBatch : Command
+public partial class CommandBatch : ICommand
 {
-    public Command[] Commands { get; set; } = Array.Empty<Command>();
+    public ICommand[] Commands { get; set; } = Array.Empty<ICommand>();
 }
 
 [MemoryPackable(GenerateType.NoGenerate)]
-public abstract partial class Message : IPacket
+public partial interface IMessage : IPacket
 {
-    public uint SequenceId { get; set; }
 }
 
 [MemoryPackable(GenerateType.NoGenerate)]
-public abstract partial class Request : IPacket
+public partial interface IRequest : IPacket
 {
-    public uint SequenceId { get; set; }
 }
 
 [MemoryPackable(GenerateType.NoGenerate)]
-public abstract partial class Response : IPacket
+public partial interface IResponse : IPacket
 {
-    public uint SequenceId { get; set; }
 }

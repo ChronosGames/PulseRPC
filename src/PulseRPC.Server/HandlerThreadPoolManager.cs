@@ -158,7 +158,7 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
         object handler,
         TCommand command,
         NetworkSession session,
-        CancellationToken cancellationToken) where TCommand : Command
+        CancellationToken cancellationToken) where TCommand : ICommand
     {
         // 找到正确的Handle或HandleAsync方法
         var commandHandler = handler as ICommandHandler<TCommand>;
@@ -200,14 +200,14 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
     }
 
     // 类似地修改SubmitRequestTaskAsync方法
-    public async Task<Response> SubmitRequestTaskAsync<TRequest>(
+    public async Task<IResponse> SubmitRequestTaskAsync<TRequest>(
         HandlerThreadingPolicy policy,
         int priority,
         object handler,
         TRequest request,
         Type responseType,
         NetworkSession session,
-        CancellationToken cancellationToken) where TRequest : Request
+        CancellationToken cancellationToken) where TRequest : IRequest
     {
         // 使用反射获取正确的RequestHandler类型和方法
         var handlerInterfaceType = typeof(IRequestHandler<,>).MakeGenericType(request.GetType(), responseType);
@@ -235,7 +235,7 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
 
                 // 从Task<TResponse>中提取结果
                 var resultProperty = responseTask.GetType().GetProperty("Result");
-                return (Response)resultProperty!.GetValue(responseTask)!;
+                return (IResponse)resultProperty!.GetValue(responseTask)!;
             }),
             HandlerThreadingPolicy.LowLatencyThread => await ExecuteRequestOnScheduler(_lowLatencyThreadScheduler, handler, methodInfo, request, session, cancellationToken),
             HandlerThreadingPolicy.HighPriorityThread => await ExecuteRequestOnScheduler(_highPriorityThreadScheduler, handler, methodInfo, request, session, cancellationToken),
@@ -244,7 +244,7 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
     }
 
     // 在指定调度器上执行请求处理的辅助方法
-    private static Task<Response> ExecuteRequestOnScheduler(
+    private static Task<IResponse> ExecuteRequestOnScheduler(
         TaskScheduler scheduler,
         object handler,
         System.Reflection.MethodInfo methodInfo,
@@ -259,7 +259,7 @@ public class HandlerThreadPoolManager(ThreadPoolConfiguration config)
 
             // 从Task<TResponse>中提取结果
             var resultProperty = responseTask.GetType().GetProperty("Result");
-            return (Response)resultProperty!.GetValue(responseTask)!;
+            return (IResponse)resultProperty!.GetValue(responseTask)!;
         }, cancellationToken, TaskCreationOptions.None, scheduler);
     }
 }
