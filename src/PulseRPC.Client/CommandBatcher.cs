@@ -8,7 +8,7 @@ namespace PulseRPC.Client;
 public class CommandBatcher
 {
     private readonly NetworkSession _session;
-    private readonly List<Command> _pendingCommands = new List<Command>();
+    private readonly List<ICommand> _pendingCommands = new List<ICommand>();
     private readonly SemaphoreSlim _batchLock = new SemaphoreSlim(1, 1);
     private readonly int _maxBatchSize;
     private readonly int _maxBatchDelay;
@@ -30,7 +30,7 @@ public class CommandBatcher
     /// <summary>
     /// 添加命令到批处理队列
     /// </summary>
-    public async Task AddCommandAsync(Command command)
+    public async Task AddCommandAsync(ICommand command)
     {
         await _batchLock.WaitAsync();
 
@@ -104,7 +104,7 @@ public class CommandBatcher
                 else if (_pendingCommands.Count == 1)
                 {
                     // 如果只有一个命令，直接发送
-                    await _session.SendPacketAsync(_pendingCommands[0]);
+                    await _session.SendPacketAsync(_pendingCommands[0], ushort.MinValue);
                 }
                 else
                 {
@@ -112,7 +112,7 @@ public class CommandBatcher
                     var batchCommand = new CommandBatch { Commands = _pendingCommands.ToArray() };
 
                     // 发送批处理包
-                    await _session.SendPacketAsync(batchCommand);
+                    await _session.SendPacketAsync(batchCommand, ushort.MinValue);
                 }
 
                 // 清空待处理命令

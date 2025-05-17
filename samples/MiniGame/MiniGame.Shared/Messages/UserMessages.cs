@@ -7,7 +7,7 @@ namespace PulseRPC.Samples.Shared.Messages;
 /// 获取用户信息请求
 /// </summary>
 [MemoryPackable, Packet]
-public partial class GetUserInfoRequest : Request
+public partial class GetUserInfoRequest : IRequest
 {
     /// <summary>
     /// 用户ID
@@ -19,7 +19,7 @@ public partial class GetUserInfoRequest : Request
 /// 获取用户信息响应
 /// </summary>
 [MemoryPackable, Packet]
-public partial class GetUserInfoResponse : Response
+public partial class GetUserInfoResponse : IResponse
 {
     /// <summary>
     /// 响应状态
@@ -71,7 +71,7 @@ public partial class GetUserInfoResponse : Response
 /// 更新用户信息请求
 /// </summary>
 [MemoryPackable, Packet]
-public partial class UpdateUserInfoRequest : Request
+public partial class UpdateUserInfoRequest : IRequest
 {
     /// <summary>
     /// 用户ID
@@ -93,7 +93,7 @@ public partial class UpdateUserInfoRequest : Request
 /// 更新用户信息响应
 /// </summary>
 [MemoryPackable, Packet]
-public partial class UpdateUserInfoResponse : Response
+public partial class UpdateUserInfoResponse : IResponse
 {
     /// <summary>
     /// 响应状态

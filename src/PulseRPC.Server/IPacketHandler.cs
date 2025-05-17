@@ -21,7 +21,7 @@ public class PacketHandlerAttribute(bool isInternal = false) : Attribute
 /// <summary>
 /// 命令处理器接口
 /// </summary>
-public interface ICommandHandler<in TCommand> : IPacketHandler where TCommand : Command
+public interface ICommandHandler<in TCommand> : IPacketHandler where TCommand : ICommand
 {
     Task HandleAsync(NetworkSession session, TCommand command, CancellationToken cancellationToken);
 }
@@ -30,8 +30,8 @@ public interface ICommandHandler<in TCommand> : IPacketHandler where TCommand : 
 /// 请求处理器接口
 /// </summary>
 public interface IRequestHandler<in TRequest, TResponse> : IPacketHandler
-    where TRequest : Request
-    where TResponse : Response
+    where TRequest : IRequest
+    where TResponse : IResponse
 {
     Task<TResponse> HandleAsync(NetworkSession session, TRequest request, CancellationToken cancellationToken);
 }
