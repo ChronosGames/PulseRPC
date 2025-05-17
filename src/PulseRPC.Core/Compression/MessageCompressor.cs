@@ -5,7 +5,7 @@ using System.Buffers;
 using System.IO;
 using System.IO.Compression;
 
-namespace PulseRPC.Protocol.Compression;
+namespace PulseRPC.Compression;
 
 /// <summary>
 /// 消息压缩器，使用 Brotli 算法
@@ -96,7 +96,7 @@ public static class MessageCompressor
         try
         {
             data.CopyTo(buffer);
-            await compressor.WriteAsync(buffer, 0, data.Length, cancellationToken).ConfigureAwait(false);
+            await compressor.WriteAsync(buffer.AsMemory(0, data.Length), cancellationToken).ConfigureAwait(false);
             await compressor.FlushAsync(cancellationToken).ConfigureAwait(false);
             return outputStream.ToArray();
         }

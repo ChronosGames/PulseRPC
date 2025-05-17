@@ -2,7 +2,7 @@ using System.Reflection;
 using MemoryPack;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PulseRPC.Protocol.Network;
+using PulseRPC.Network;
 
 namespace PulseRPC.Server;
 
@@ -33,12 +33,8 @@ public static class ServiceCollectionExtensions
         // 处理器扫描和注册
         services.AddSingleton<HandlerScanner>();
 
-        // 消息分发
-        services.AddSingleton<IMessageDispatcher, PacketDispatcher>();
-
-        // 消息序列化器
-        services.AddSingleton<MemoryPackSerializerOptions>();
-        services.AddSingleton<IPulseRPCSerializer, DynamicPacketRegistrations>();
+        // 服务注册
+        services.AddSingleton<IPulseService, PulseService>();
 
         // 网络服务
         services.AddSingleton<NetworkServer>();
@@ -70,7 +66,7 @@ public static class ServiceCollectionExtensions
         foreach (var assembly in assembliesToScan)
         {
             var handlerTypes = assembly.GetTypes()
-                .Where(t => t.GetCustomAttribute<PacketHandlerAttribute>() != null)
+                .Where(t => t.GetCustomAttribute<HandlerAttribute>() != null)
                 .ToList();
 
             foreach (var handlerType in handlerTypes)

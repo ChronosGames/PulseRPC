@@ -27,7 +27,7 @@ public class RoleBasedAuthorizationProvider : IAuthorizationProvider
     /// </summary>
     /// <param name="serviceName">服务名称</param>
     /// <param name="requiredRoles">所需角色列表</param>
-    public void RequireRolesForService(string serviceName, params string[] requiredRoles)
+    public void RequireRolesForService(string serviceName, params string[]? requiredRoles)
     {
         if (string.IsNullOrEmpty(serviceName))
         {
@@ -53,7 +53,7 @@ public class RoleBasedAuthorizationProvider : IAuthorizationProvider
     /// <param name="serviceName">服务名称</param>
     /// <param name="methodName">方法名称</param>
     /// <param name="requiredRoles">所需角色列表</param>
-    public void RequireRolesForMethod(string serviceName, string methodName, params string[] requiredRoles)
+    public void RequireRolesForMethod(string serviceName, string methodName, params string[]? requiredRoles)
     {
         if (string.IsNullOrEmpty(serviceName) || string.IsNullOrEmpty(methodName))
         {

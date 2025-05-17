@@ -97,6 +97,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Client.SourceGener
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Abstractions", "src\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj", "{CF3F73F9-A997-4F8C-A4B9-B8564B171260}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Client.Tests", "tests\PulseRPC.Client.Tests\PulseRPC.Client.Tests.csproj", "{81955BC9-36DA-40C8-ADC3-29BD51BB0397}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -367,6 +369,18 @@ Global
 		{CF3F73F9-A997-4F8C-A4B9-B8564B171260}.Release|x64.Build.0 = Release|Any CPU
 		{CF3F73F9-A997-4F8C-A4B9-B8564B171260}.Release|x86.ActiveCfg = Release|Any CPU
 		{CF3F73F9-A997-4F8C-A4B9-B8564B171260}.Release|x86.Build.0 = Release|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Debug|x64.Build.0 = Debug|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Debug|x86.Build.0 = Debug|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Release|Any CPU.Build.0 = Release|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Release|x64.ActiveCfg = Release|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Release|x64.Build.0 = Release|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Release|x86.ActiveCfg = Release|Any CPU
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -402,6 +416,7 @@ Global
 		{35D3536F-58BD-4AB2-BCC0-721F691B63A6} = {ED9172FC-CDDA-4310-B214-7B1B8AD9A9B4}
 		{B47042A4-20B6-42AA-8258-A7C09E9CE01D} = {1987061F-8970-4018-8D58-6932961C9EB4}
 		{CF3F73F9-A997-4F8C-A4B9-B8564B171260} = {1987061F-8970-4018-8D58-6932961C9EB4}
+		{81955BC9-36DA-40C8-ADC3-29BD51BB0397} = {7ACC27E8-8FBE-4807-B91F-B89AF3CFF7E0}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {D5B2E7E3-B727-40A1-BE68-7BAC9B9DE2FE}

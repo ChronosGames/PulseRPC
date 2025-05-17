@@ -1,13 +1,19 @@
 using MemoryPack;
-using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Samples.Shared.Messages;
+
+public interface IAuthStreamingHub : IStreamingHub<IAuthStreamingHub>
+{
+    Task<LoginResponse> Login(LoginRequest request);
+
+    Task<RegisterResponse> Register(RegisterRequest request);
+}
 
 /// <summary>
 /// 登录请求消息
 /// </summary>
-[MemoryPackable, Packet]
-public partial class LoginRequest : IRequest
+[MemoryPackable]
+public partial class LoginRequest
 {
     /// <summary>
     /// 用户名
@@ -28,8 +34,8 @@ public partial class LoginRequest : IRequest
 /// <summary>
 /// 登录响应消息
 /// </summary>
-[MemoryPackable, Packet]
-public partial class LoginResponse : IResponse
+[MemoryPackable]
+public partial class LoginResponse
 {
     /// <summary>
     /// 是否成功
@@ -65,8 +71,8 @@ public partial class LoginResponse : IResponse
 /// <summary>
 /// 注册请求消息
 /// </summary>
-[MemoryPackable, Packet]
-public partial class RegisterRequest : IRequest
+[MemoryPackable]
+public partial class RegisterRequest
 {
     /// <summary>
     /// 用户名
@@ -92,8 +98,8 @@ public partial class RegisterRequest : IRequest
 /// <summary>
 /// 注册响应消息
 /// </summary>
-[MemoryPackable, Packet]
-public partial class RegisterResponse : IResponse
+[MemoryPackable]
+public partial class RegisterResponse
 {
     /// <summary>
     /// 是否成功

@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 
-namespace PulseRPC.Protocol.Network;
+namespace PulseRPC.Network;
 
 /// <summary>
 /// 通用的会话元数据存储器，用于在Session中存储Context信息

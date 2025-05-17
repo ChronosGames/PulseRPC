@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Protocol.Messages;
+namespace PulseRPC;
 
 public unsafe class RingBuffer : IDisposable
 {

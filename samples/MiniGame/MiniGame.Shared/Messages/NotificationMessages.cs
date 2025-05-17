@@ -1,13 +1,30 @@
 using MemoryPack;
-using PulseRPC.Protocol.Messages;
 
 namespace PulseRPC.Samples.Shared.Messages;
+
+public interface INotificationStreaming : IStreamingReceiver
+{
+    /// <summary>
+    /// 接收系统通知
+    /// </summary>
+    Task ReceiveSystemNotification(SystemNotification notification);
+
+    /// <summary>
+    /// 接收用户状态通知
+    /// </summary>
+    Task ReceiveUserStatusNotification(UserStatusNotification notification);
+
+    /// <summary>
+    /// 接收全局广播
+    /// </summary>
+    Task ReceiveGlobalBroadcast(GlobalBroadcast broadcast);
+}
 
 /// <summary>
 /// 系统通知消息
 /// </summary>
-[MemoryPackable, Packet]
-public partial class SystemNotification : IMessage
+[MemoryPackable]
+public partial class SystemNotification
 {
     /// <summary>
     /// 通知ID
@@ -48,8 +65,8 @@ public partial class SystemNotification : IMessage
 /// <summary>
 /// 用户状态通知消息
 /// </summary>
-[MemoryPackable, Packet]
-public partial class UserStatusNotification : IMessage
+[MemoryPackable]
+public partial class UserStatusNotification
 {
     /// <summary>
     /// 用户ID
@@ -80,8 +97,8 @@ public partial class UserStatusNotification : IMessage
 /// <summary>
 /// 全局广播消息
 /// </summary>
-[MemoryPackable, Packet]
-public partial class GlobalBroadcast : IMessage
+[MemoryPackable]
+public partial class GlobalBroadcast
 {
     /// <summary>
     /// 广播ID

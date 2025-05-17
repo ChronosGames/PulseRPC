@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 
-namespace PulseRPC.Protocol.Network;
+namespace PulseRPC.Network;
 
 /// <summary>
 /// 自定义内存池管理器 - 用于降低GC压力

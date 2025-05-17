@@ -8,13 +8,13 @@ namespace PerformanceTest.Client;
 
 public class ServerStreamingScenario : IScenario
 {
-    IPerfTestService client = default!;
+    IPerfTestStreamingHub client = default!;
     ServerStreamingResult<SimpleResponse> stream = default!;
     readonly TimeProvider timeProvider = TimeProvider.System;
 
     public ValueTask PrepareAsync(GrpcChannel channel)
     {
-        this.client = MagicOnionClient.Create<IPerfTestService>(channel);
+        this.client = MagicOnionClient.Create<IPerfTestStreamingHub>(channel);
         return ValueTask.CompletedTask;
     }
 

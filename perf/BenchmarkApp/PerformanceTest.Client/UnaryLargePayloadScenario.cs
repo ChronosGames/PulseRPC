@@ -4,7 +4,7 @@ using PerformanceTest.Shared;
 
 public abstract class UnaryLargePayloadScenarioBase : IScenario
 {
-    IPerfTestService client = default!;
+    IPerfTestStreamingHub client = default!;
     readonly int payloadSize;
     readonly TimeProvider timeProvider = TimeProvider.System;
 
@@ -15,7 +15,7 @@ public abstract class UnaryLargePayloadScenarioBase : IScenario
 
     public ValueTask PrepareAsync(GrpcChannel channel)
     {
-        this.client = MagicOnionClient.Create<IPerfTestService>(channel);
+        this.client = MagicOnionClient.Create<IPerfTestStreamingHub>(channel);
         return ValueTask.CompletedTask;
     }
 

@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading;
 
-namespace PulseRPC.Protocol.Network;
+namespace PulseRPC.Network;
 
 /// <summary>
 /// 可释放的带有引用计数的内存缓冲区

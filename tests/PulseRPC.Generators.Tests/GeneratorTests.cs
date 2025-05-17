@@ -21,7 +21,7 @@ public class GeneratorTests
         string testCode = @"
             using System;
             using PulseRPC.Protocol;
-            using PulseRPC.Protocol.Attributes;
+            using PulseRPC.Attributes;
 
             namespace TestNamespace
             {
@@ -80,7 +80,7 @@ public class GeneratorTests
                 }
             }
 
-            namespace PulseRPC.Protocol.Attributes
+            namespace PulseRPC.Attributes
             {
                 [System.AttributeUsage(System.AttributeTargets.Class)]
                 public class MessageAttribute : System.Attribute
@@ -121,7 +121,7 @@ public class GeneratorTests
                 }
             }
 
-            namespace PulseRPC.Protocol.Network
+            namespace PulseRPC.Network
             {
                 public class SessionContext {}
             }

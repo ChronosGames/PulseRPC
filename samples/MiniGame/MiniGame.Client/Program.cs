@@ -2,11 +2,13 @@ using MemoryPack;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
-using PulseRPC.Protocol.Network;
+using PulseRPC.Network;
 using PulseRPC.Samples.Shared;
 using PulseRPC.Samples.Shared.Messages;
 
 namespace PulseRPC.Samples.Client;
+
+[assembly: PulseClientGeneration(typeof(IAuthStreamingHub))]
 
 /// <summary>
 /// 客户端示例程序
@@ -28,9 +30,6 @@ class Program
             builder.SetMinimumLevel(LogLevel.Debug);
         });
 
-        services.AddSingleton<MemoryPackSerializerOptions>();
-        services.AddSingleton<IPulseRPCSerializer, PulseRPCClientGenerator>();
-        services.AddSingleton<IMessageDispatcher, MessageDispatcher>();
         services.AddSingleton<NetworkOptions>();
         services.AddSingleton<NetworkClient>();
 
@@ -67,10 +66,7 @@ class Program
 
                 // 获取用户信息
                 logger.LogInformation("正在获取用户信息...");
-                var userInfoResponse = await client.SendRequestAsync<GetUserInfoRequest, GetUserInfoResponse>(new GetUserInfoRequest
-                {
-                    UserId = loginResponse.UserId
-                });
+                var userInfoResponse = await client.SendRequestAsync<int, GetUserInfoResponse>(loginResponse.UserId);
 
                 if (userInfoResponse.Status == ResponseStatus.Success)
                 {
