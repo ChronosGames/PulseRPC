@@ -4,9 +4,34 @@ namespace PulseRPC.Samples.Shared.Messages;
 
 public interface IUserStreamingHub : IStreamingHub<IUserStreamingHub>
 {
+    // 额外的游戏特定方法可以在这里添加
+    Task<GameStatusResponse> GetGameStatusAsync();
+
     Task<GetUserInfoResponse> GetUserInfoAsync(int userId);
 
     Task<ValueTuple<ResponseStatus, string, int>> UpdateUserInfoAsync(UpdateUserInfoRequest request);
+}
+
+/// <summary>
+/// 游戏状态响应
+/// </summary>
+[MemoryPack.MemoryPackable]
+public partial class GameStatusResponse
+{
+    /// <summary>
+    /// 游戏状态
+    /// </summary>
+    public string Status { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 在线玩家数量
+    /// </summary>
+    public int OnlinePlayers { get; set; }
+
+    /// <summary>
+    /// 服务器时间
+    /// </summary>
+    public DateTime ServerTime { get; set; }
 }
 
 /// <summary>
