@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using MemoryPack;
+using static MemoryPack.GenerateType;
 
 namespace PulseRPC.Client.SourceGenerator;
 
@@ -214,6 +215,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         sb.AppendLine("using PulseRPC.Client;");
         sb.AppendLine("using MemoryPack;");
         sb.AppendLine("using static MemoryPack.MemoryPackFormatterProvider;");
+        sb.AppendLine("using static MemoryPack.GenerateType;");
         sb.AppendLine();
 
         sb.AppendLine($"namespace {namespaceName}");
@@ -225,8 +227,8 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
         // 添加字段
         sb.AppendLine("        private readonly NetworkClient _client;");
-        sb.AppendLine("        private readonly CancellationToken _defaultCancellationToken;");
-        sb.AppendLine("        private readonly DateTime _defaultDeadline;");
+        sb.AppendLine("        private readonly CancellationToken _cancellationToken;");
+        sb.AppendLine("        private readonly DateTime _deadline;");
         sb.AppendLine("        private readonly string _host;");
         sb.AppendLine();
 
@@ -234,9 +236,19 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         sb.AppendLine($"        public {clientClassName}(NetworkClient client)");
         sb.AppendLine("        {");
         sb.AppendLine("            _client = client;");
-        sb.AppendLine("            _defaultCancellationToken = CancellationToken.None;");
-        sb.AppendLine("            _defaultDeadline = DateTime.MaxValue;");
+        sb.AppendLine("            _cancellationToken = CancellationToken.None;");
+        sb.AppendLine("            _deadline = DateTime.MaxValue;");
         sb.AppendLine("            _host = string.Empty;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // 添加带参数的私有构造函数
+        sb.AppendLine($"        private {clientClassName}(NetworkClient client, CancellationToken cancellationToken, DateTime deadline, string host)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            _client = client;");
+        sb.AppendLine("            _cancellationToken = cancellationToken;");
+        sb.AppendLine("            _deadline = deadline;");
+        sb.AppendLine("            _host = host;");
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -304,9 +316,9 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             {
                 var paramType = methodSymbol.Parameters[0].Type;
                 bool needsWrapper = !IsMemoryPackableType(paramType);
-
+                
                 bool responseNeedsWrapper = !IsMemoryPackableType(returnTypeSymbol);
-
+                
                 if (needsWrapper)
                 {
                     // 有一个参数，使用包装类发送
@@ -316,18 +328,18 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                     sb.AppendLine($"                Value = {methodSymbol.Parameters[0].Name}");
                     sb.AppendLine("            };");
                     sb.AppendLine();
-
+                    
                     if (responseNeedsWrapper)
                     {
                         // 生成结果解包逻辑
                         sb.AppendLine($"            var response = await _client.SendRequestAsync<{requestClassName}, {responseClassName}>(");
-                        sb.AppendLine("                request, _defaultCancellationToken);");
+                        sb.AppendLine("                request, _cancellationToken);");
                         sb.AppendLine($"            return response.Value;");
                     }
-                    else
+                    else 
                     {
                         sb.AppendLine($"            return await _client.SendRequestAsync<{requestClassName}, {returnTypeSymbol.ToDisplayString()}>(");
-                        sb.AppendLine("                request, _defaultCancellationToken);");
+                        sb.AppendLine("                request, _cancellationToken);");
                     }
                 }
                 else
@@ -336,13 +348,13 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                     if (responseNeedsWrapper)
                     {
                         sb.AppendLine($"            var response = await _client.SendRequestAsync<{paramType.ToDisplayString()}, {responseClassName}>(");
-                        sb.AppendLine($"                {methodSymbol.Parameters[0].Name}, _defaultCancellationToken);");
+                        sb.AppendLine($"                {methodSymbol.Parameters[0].Name}, _cancellationToken);");
                         sb.AppendLine($"            return response.Value;");
                     }
                     else
                     {
                         sb.AppendLine($"            return await _client.SendRequestAsync<{paramType.ToDisplayString()}, {returnTypeSymbol.ToDisplayString()}>(");
-                        sb.AppendLine($"                {methodSymbol.Parameters[0].Name}, _defaultCancellationToken);");
+                        sb.AppendLine($"                {methodSymbol.Parameters[0].Name}, _cancellationToken);");
                     }
                 }
             }
@@ -366,12 +378,12 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                 if (!responseNeedsWrapper)
                 {
                     sb.AppendLine($"            return await _client.SendRequestAsync<{requestClassName}, {returnTypeSymbol.ToDisplayString()}>(");
-                    sb.AppendLine("                request, _defaultCancellationToken);");
+                    sb.AppendLine("                request, _cancellationToken);");
                 }
                 else
                 {
                     sb.AppendLine($"            var response = await _client.SendRequestAsync<{requestClassName}, {responseClassName}>(");
-                    sb.AppendLine("                request, _defaultCancellationToken);");
+                    sb.AppendLine("                request, _cancellationToken);");
                     sb.AppendLine($"            return response.Value;");
                 }
             }
@@ -387,12 +399,12 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                 if (!responseNeedsWrapper)
                 {
                     sb.AppendLine($"            return await _client.SendRequestAsync<{requestClassName}, {returnTypeSymbol.ToDisplayString()}>(");
-                    sb.AppendLine("                request, _defaultCancellationToken);");
+                    sb.AppendLine("                request, _cancellationToken);");
                 }
                 else
                 {
                     sb.AppendLine($"            var response = await _client.SendRequestAsync<{requestClassName}, {responseClassName}>(");
-                    sb.AppendLine("                request, _defaultCancellationToken);");
+                    sb.AppendLine("                request, _cancellationToken);");
                     sb.AppendLine($"            return response.Value;");
                 }
             }
@@ -404,29 +416,23 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         // 实现IStreamingHub接口方法
         sb.AppendLine($"        public {hubType.ToDisplayString()} WithDeadline(DateTime deadline)");
         sb.AppendLine("        {");
-        sb.AppendLine("            // 保存新的截止时间");
-        sb.AppendLine("            var client = new " + clientClassName + "(_client);");
-        sb.AppendLine("            client._defaultDeadline = deadline;");
-        sb.AppendLine("            return client;");
+        sb.AppendLine("            // 返回带有新截止时间的实例");
+        sb.AppendLine($"            return new {clientClassName}(_client, _cancellationToken, deadline, _host);");
         sb.AppendLine("        }");
         sb.AppendLine();
 
         sb.AppendLine(
             $"        public {hubType.ToDisplayString()} WithCancellationToken(CancellationToken cancellationToken)");
         sb.AppendLine("        {");
-        sb.AppendLine("            // 保存新的取消令牌");
-        sb.AppendLine("            var client = new " + clientClassName + "(_client);");
-        sb.AppendLine("            client._defaultCancellationToken = cancellationToken;");
-        sb.AppendLine("            return client;");
+        sb.AppendLine("            // 返回带有新取消令牌的实例");
+        sb.AppendLine($"            return new {clientClassName}(_client, cancellationToken, _deadline, _host);");
         sb.AppendLine("        }");
         sb.AppendLine();
 
         sb.AppendLine($"        public {hubType.ToDisplayString()} WithHost(string host)");
         sb.AppendLine("        {");
-        sb.AppendLine("            // 保存新的主机名");
-        sb.AppendLine("            var client = new " + clientClassName + "(_client);");
-        sb.AppendLine("            client._host = host;");
-        sb.AppendLine("            return client;");
+        sb.AppendLine("            // 返回带有新主机名的实例");
+        sb.AppendLine($"            return new {clientClassName}(_client, _cancellationToken, _deadline, host);");
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -450,7 +456,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             {
                 // 生成空请求类
                 sb.AppendLine();
-                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    [MemoryPackable(VersionTolerant)]");
                 sb.AppendLine($"    public partial class {requestClassName}");
                 sb.AppendLine("    {");
                 sb.AppendLine("        // 空请求");
@@ -460,12 +466,12 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             {
                 var paramType = methodSymbol.Parameters[0].Type;
                 bool needsWrapper = !IsMemoryPackableType(paramType);
-
+                
                 if (needsWrapper)
                 {
                     // 生成包装类
                     sb.AppendLine();
-                    sb.AppendLine($"    [MemoryPackable]");
+                    sb.AppendLine($"    [MemoryPackable(VersionTolerant)]");
                     sb.AppendLine($"    public partial class {requestClassName}");
                     sb.AppendLine("    {");
                     sb.AppendLine($"        public {paramType.ToDisplayString()} Value {{ get; set; }}");
@@ -476,7 +482,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             {
                 // 多参数方法的请求类
                 sb.AppendLine();
-                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    [MemoryPackable(VersionTolerant)]");
                 sb.AppendLine($"    public partial class {requestClassName}");
                 sb.AppendLine("    {");
 
@@ -488,14 +494,14 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
                 sb.AppendLine("    }");
             }
-
+            
             // 2. 生成响应类（如果需要）
             var returnTypeSymbol = ExtractTaskResultTypeSymbol(methodSymbol.ReturnType);
-            if (!IsMemoryPackableType(returnTypeSymbol) &&
+            if (!IsMemoryPackableType(returnTypeSymbol) && 
                 responseClassDefinitions.Contains(responseClassName))
             {
                 sb.AppendLine();
-                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    [MemoryPackable(VersionTolerant)]");
                 sb.AppendLine($"    public partial class {responseClassName}");
                 sb.AppendLine("    {");
                 sb.AppendLine($"        public {returnTypeSymbol.ToDisplayString()} Value {{ get; set; }}");
@@ -549,16 +555,18 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         // 检查是否已经实现IMemoryPackable<T>
         foreach (var iface in type.AllInterfaces)
         {
-            if (iface.IsGenericType &&
+            if (iface.IsGenericType && 
                 iface.ConstructedFrom.ToDisplayString() == "MemoryPack.IMemoryPackable<T>" &&
                 iface.TypeArguments[0].Equals(type))
             {
                 return true;
             }
         }
-
+        
         // 是否有[MemoryPackable]特性
-        if (type.GetAttributes().Any(attr => attr.AttributeClass?.Name == "MemoryPackableAttribute"))
+        if (type.GetAttributes().Any(attr => 
+            attr.AttributeClass?.Name == "MemoryPackableAttribute" || 
+            attr.AttributeClass?.ToDisplayString() == "MemoryPack.MemoryPackableAttribute"))
         {
             return true;
         }
