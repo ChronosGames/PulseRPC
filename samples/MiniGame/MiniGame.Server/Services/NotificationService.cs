@@ -54,8 +54,8 @@ public class NotificationService
             Metadata = metadata ?? new Dictionary<string, string>()
         };
 
+        // 使用直接方法发送通知，避免反射问题
         await _clientSessionManager.GetAllReceiver<INotificationStreaming>().ReceiveSystemNotification(notification);
-        _logger.LogInformation("已发送系统通知: {Title}, 类型: {NotificationType}", title, type);
     }
 
     /// <summary>
@@ -81,9 +81,8 @@ public class NotificationService
             Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds()
         };
 
+        // 使用直接方法发送通知，避免反射问题
         await _clientSessionManager.GetAllReceiver<INotificationStreaming>().ReceiveUserStatusNotification(notification);
-        _logger.LogInformation("已发送用户状态通知: 用户 {Username} ({UserId}), 状态: {Status}",
-            username, userId, status);
     }
 
     /// <summary>
@@ -110,7 +109,7 @@ public class NotificationService
             Timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds()
         };
 
+        // 使用直接方法发送通知，避免反射问题
         await _clientSessionManager.GetAllReceiver<INotificationStreaming>().ReceiveGlobalBroadcast(broadcast);
-        _logger.LogInformation("已发送全局广播: {Message}, 发送者: {Sender}", message, sender);
     }
 }

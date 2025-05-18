@@ -24,7 +24,7 @@ public interface INotificationStreaming : IStreamingReceiver
 /// 系统通知消息
 /// </summary>
 [MemoryPackable]
-public partial class SystemNotification
+public partial class SystemNotification : IMemoryPackable<SystemNotification>
 {
     /// <summary>
     /// 通知ID
@@ -66,7 +66,7 @@ public partial class SystemNotification
 /// 用户状态通知消息
 /// </summary>
 [MemoryPackable]
-public partial class UserStatusNotification
+public partial class UserStatusNotification : IMemoryPackable<UserStatusNotification>
 {
     /// <summary>
     /// 用户ID
@@ -98,7 +98,7 @@ public partial class UserStatusNotification
 /// 全局广播消息
 /// </summary>
 [MemoryPackable]
-public partial class GlobalBroadcast
+public partial class GlobalBroadcast : IMemoryPackable<GlobalBroadcast>
 {
     /// <summary>
     /// 广播ID

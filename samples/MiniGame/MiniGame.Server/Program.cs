@@ -73,10 +73,7 @@ internal abstract class Program
                 // 注册核心服务
                 services.AddSingleton<NotificationService>();
 
-                // 添加PulseRPC服务器
-                services.AddSingleton<NetworkServer>();
-
-                // 手动注册各种消息处理器
+                // 添加PulseRPC服务器 (使用新的扩展方法)
                 services.AddPulseServerServices();
 
                 // 添加游戏服务器应用程序生命周期服务
