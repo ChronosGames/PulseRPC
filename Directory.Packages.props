@@ -19,7 +19,8 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="3.11.0-beta1.25123.3" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics" Version="8.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Logging" Version="2.1.1" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Console" Version="8.0.0" />
     <PackageVersion Include="MongoDB.Driver" Version="3.3.0" />
     <PackageVersion Include="Multicaster" Version="$(MulticasterVersion)" />
     <PackageVersion Include="Multicaster.Distributed.Redis" Version="$(MulticasterVersion)" />
@@ -29,6 +30,7 @@
     <PackageVersion Include="StackExchange.Redis" Version="2.8.31" />
     <PackageVersion Include="Swashbuckle.AspNetCore" Version="7.0.0" />
     <PackageVersion Include="System.CodeDom" Version="9.0.4" />
+    <PackageVersion Include="System.Collections.Immutable" Version="7.0.0" />
     <PackageVersion Include="System.Diagnostics.DiagnosticSource" Version="8.0.0" />
     <PackageVersion Include="System.Diagnostics.PerformanceCounter" Version="9.0.4" />
     <PackageVersion Include="System.Reflection" Version="4.3.0" />

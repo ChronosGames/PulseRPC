@@ -1,9 +1,12 @@
-﻿
-using System.Text;
+﻿using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Linq;
 
 namespace PulseRPC.Client.SourceGenerator;
 
@@ -11,276 +14,210 @@ namespace PulseRPC.Client.SourceGenerator;
 /// 接收器实现类生成器
 /// </summary>
 [Generator]
-public class ReceiverImplementationGenerator : ISourceGenerator
+public class ReceiverImplementationGenerator : IIncrementalGenerator
 {
     /// <summary>
     /// 初始化
     /// </summary>
-    public void Initialize(GeneratorInitializationContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        context.RegisterForSyntaxNotifications(() => new ReceiverImplementationSyntaxReceiver());
+        // 注册语法节点提供器
+        var receiverTypes = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (s, _) => s is InterfaceDeclarationSyntax { AttributeLists.Count: > 0 },
+                transform: static (ctx, _) => GetReceiverTypeFromContext(ctx))
+            .Where(static m => m is not null)!;
+
+        // 获取所有通知处理方法
+        var notificationHandlers = context.CompilationProvider
+            .SelectMany((compilation, ct) => GetNotificationHandlers(compilation, ct))
+            .Collect();
+
+        // 组合接收器类型和通知处理方法
+        var combinedData = receiverTypes.Combine(notificationHandlers);
+
+        // 注册源代码输出
+        context.RegisterSourceOutput(combinedData, static (spc, data) =>
+        {
+            if (data.Left != null)
+            {
+                GenerateReceiverImplementation(spc, data.Left, data.Right);
+            }
+        });
+    }
+
+    private static INamedTypeSymbol? GetReceiverTypeFromContext(GeneratorSyntaxContext context)
+    {
+        var interfaceDeclaration = (InterfaceDeclarationSyntax)context.Node;
+
+        var symbol = context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
+        if (symbol == null) return null;
+
+        // 检查是否有 ReceiverInterface 特性
+        if (!symbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == "ReceiverInterfaceAttribute"))
+            return null;
+
+        return symbol;
+    }
+
+    private static IEnumerable<IMethodSymbol> GetNotificationHandlers(Compilation compilation, CancellationToken cancellationToken)
+    {
+        var handlerAttribute = compilation.GetTypeByMetadataName("PulseRPC.NotificationHandlerAttribute");
+        if (handlerAttribute == null) return Enumerable.Empty<IMethodSymbol>();
+
+        // 查找所有标记了 NotificationHandlerAttribute 的方法
+        var handlers = new List<IMethodSymbol>();
+
+        foreach (var syntaxTree in compilation.SyntaxTrees)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var semanticModel = compilation.GetSemanticModel(syntaxTree);
+            var classSyntax = syntaxTree.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>();
+
+            foreach (var classNode in classSyntax)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var methods = classNode.Members.OfType<MethodDeclarationSyntax>();
+                foreach (var method in methods)
+                {
+                    var methodSymbol = semanticModel.GetDeclaredSymbol(method) as IMethodSymbol;
+                    if (methodSymbol != null && methodSymbol.GetAttributes().Any(a =>
+                        a.AttributeClass?.Equals(handlerAttribute, SymbolEqualityComparer.Default) == true))
+                    {
+                        handlers.Add(methodSymbol);
+                    }
+                }
+            }
+        }
+
+        return handlers;
     }
 
     /// <summary>
-    /// 执行生成
+    /// 生成接收器实现类
     /// </summary>
-    public void Execute(GeneratorExecutionContext context)
+    private static void GenerateReceiverImplementation(SourceProductionContext context,
+        INamedTypeSymbol receiverType, ImmutableArray<IMethodSymbol> notificationHandlers)
     {
-        // 获取语法接收器
-        if (context.SyntaxContextReceiver is not ReceiverImplementationSyntaxReceiver receiver)
+        try
         {
-            return;
+            var source = GenerateImplementation(receiverType, notificationHandlers);
+            context.AddSource($"{receiverType.Name}Implementation.g.cs", source);
         }
-
-        // 生成接收器实现类
-        foreach (var receiverType in receiver.ReceiverTypes)
+        catch (Exception ex)
         {
-            try
-            {
-                GenerateReceiverImplementation(context, receiverType, receiver.NotificationHandlers);
-            }
-            catch (Exception ex)
-            {
-                var diagnostic = Diagnostic.Create(
-                    new DiagnosticDescriptor(
-                        id: "PRPC701",
-                        title: "接收器实现类生成出错",
-                        messageFormat: "生成接收器 {0} 的实现类时出错: {1}",
-                        category: "PulseRPC.Generator",
-                        defaultSeverity: DiagnosticSeverity.Error,
-                        isEnabledByDefault: true),
-                    Location.None,
-                    receiverType.Name,
-                    ex.Message);
-
-                context.ReportDiagnostic(diagnostic);
-            }
+            context.ReportDiagnostic(Diagnostic.Create(
+                new DiagnosticDescriptor(
+                    id: "PRPC701",
+                    title: "接收器实现类生成出错",
+                    messageFormat: "生成接收器 {0} 的实现类时出错: {1}",
+                    category: "PulseRPC.Generator",
+                    defaultSeverity: DiagnosticSeverity.Error,
+                    isEnabledByDefault: true),
+                Location.None,
+                receiverType.Name,
+                ex.Message));
         }
     }
 
-    private void GenerateReceiverImplementation(
-        GeneratorExecutionContext context,
-        INamedTypeSymbol receiverType,
-        List<NotificationHandlerInfo> handlers)
+    private static string GenerateImplementation(INamedTypeSymbol receiverType,
+        ImmutableArray<IMethodSymbol> notificationHandlers)
     {
-        // 获取接收器名称和命名空间
-        var receiverName = receiverType.Name;
-        var receiverNamespace = receiverType.ContainingNamespace.ToDisplayString();
-        var implClassName = $"{receiverName}Impl";
-
-        var receiverFullName = receiverType.ToDisplayString();
-
-        // 构建实现类代码
         var sb = new StringBuilder();
 
-        // 添加命名空间
+        sb.AppendLine("// <auto-generated>");
+        sb.AppendLine("// 此代码由 PulseRPC.Generators 自动生成，请勿手动修改");
+        sb.AppendLine("// </auto-generated>");
+        sb.AppendLine();
+
         sb.AppendLine("using System;");
-        sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC;");
-        sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
         sb.AppendLine();
 
-        // 打开命名空间
-        sb.AppendLine($"namespace {receiverNamespace}.Generated");
+        sb.AppendLine($"namespace {receiverType.ContainingNamespace}");
         sb.AppendLine("{");
 
-        // 实现类定义
-        sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// {receiverName} 接收器的自动生成实现类");
-        sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public class {implClassName} : {receiverFullName}");
+        // 生成接收器实现类
+        sb.AppendLine($"    public class {receiverType.Name}Implementation : {receiverType.Name}");
         sb.AppendLine("    {");
 
-        // 字段
-        sb.AppendLine("        private readonly IServiceProvider _serviceProvider;");
-        sb.AppendLine();
-
-        // 构造函数
-        sb.AppendLine($"        public {implClassName}(IServiceProvider serviceProvider)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            _serviceProvider = serviceProvider;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        // 实现接收器接口的所有方法
-        foreach (var member in receiverType.GetMembers())
+        // 生成事件处理方法
+        foreach (var method in receiverType.GetMembers().OfType<IMethodSymbol>())
         {
-            if (member is not IMethodSymbol method || method.MethodKind != MethodKind.Ordinary)
+            if (method.IsStatic || !method.ReturnsVoid || method.Parameters.Length != 1)
                 continue;
 
-            // 获取对应的通知处理器
-            var methodName = method.Name;
-            var paramType = method.Parameters.FirstOrDefault()?.Type;
+            var paramType = method.Parameters[0].Type;
+            var handlers = notificationHandlers.Where(h =>
+                h.Parameters.Length == 1 &&
+                h.Parameters[0].Type.Equals(paramType, SymbolEqualityComparer.Default)).ToList();
 
-            var matchingHandler = handlers.FirstOrDefault(h =>
-                h.HandlerType.AllInterfaces.Any(i =>
-                    i.IsGenericType &&
-                    i.ConstructedFrom.ToDisplayString() == "PulseRPC.INotificationHandler<T>" &&
-                    i.TypeArguments[0].Equals(paramType, SymbolEqualityComparer.Default)));
+            if (!handlers.Any())
+                continue;
 
-            // 方法签名
-            sb.AppendLine($"        public {method.ReturnType} {methodName}({string.Join(", ", method.Parameters.Select(p => $"{p.Type} {p.Name}"))})");
+            sb.AppendLine($"        public override void {method.Name}({paramType} notification)");
             sb.AppendLine("        {");
 
-            if (matchingHandler != null)
+            foreach (var handler in handlers)
             {
-                var handlerTypeName = matchingHandler.HandlerType.ToDisplayString();
-                sb.AppendLine($"            // 使用INotificationHandler处理通知");
-                sb.AppendLine($"            var handler = _serviceProvider.GetRequiredService<{handlerTypeName}>();");
-
-                var paramName = method.Parameters.FirstOrDefault()?.Name ?? "notification";
-                if (method.ReturnsVoid)
-                {
-                    sb.AppendLine($"            handler.Handle({paramName});");
-                }
-                else if (method.ReturnType.Name == "Task")
-                {
-                    sb.AppendLine($"            return handler.Handle({paramName});");
-                }
-                else if (method.ReturnType.Name == "Task`1")
-                {
-                    sb.AppendLine($"            // 注意：INotificationHandler返回Task，需要适配成Task<T>");
-                    sb.AppendLine($"            throw new NotImplementedException(\"需要适配INotificationHandler返回类型\");");
-                }
-                else
-                {
-                    sb.AppendLine($"            // 不支持的返回类型");
-                    sb.AppendLine($"            throw new NotImplementedException(\"不支持的返回类型\");");
-                }
-            }
-            else
-            {
-                // 没有匹配的Handler，提供默认实现
-                if (method.ReturnsVoid)
-                {
-                    sb.AppendLine($"            // 未找到匹配的INotificationHandler<{paramType}>");
-                    sb.AppendLine($"            Console.WriteLine($\"接收到通知: {{({paramType}){method.Parameters.FirstOrDefault()?.Name}}}\");");
-                }
-                else if (method.ReturnType.Name == "Task")
-                {
-                    sb.AppendLine($"            // 未找到匹配的INotificationHandler<{paramType}>");
-                    sb.AppendLine($"            Console.WriteLine($\"接收到通知: {{({paramType}){method.Parameters.FirstOrDefault()?.Name}}}\");");
-                    sb.AppendLine($"            return Task.CompletedTask;");
-                }
-                else if (method.ReturnType.Name == "Task`1")
-                {
-                    var returnTypeArg = ((INamedTypeSymbol)method.ReturnType).TypeArguments[0];
-                    sb.AppendLine($"            // 未找到匹配的INotificationHandler<{paramType}>");
-                    sb.AppendLine($"            Console.WriteLine($\"接收到通知: {{({paramType}){method.Parameters.FirstOrDefault()?.Name}}}\");");
-                    sb.AppendLine($"            return Task.FromResult<{returnTypeArg}>(default);");
-                }
-                else
-                {
-                    sb.AppendLine($"            // 不支持的返回类型");
-                    sb.AppendLine($"            throw new NotImplementedException(\"不支持的返回类型\");");
-                }
+                sb.AppendLine($"            {handler.ContainingType.Name}.{handler.Name}(notification);");
             }
 
             sb.AppendLine("        }");
             sb.AppendLine();
         }
 
-        // 类结束
         sb.AppendLine("    }");
-
-        // 扩展方法类，用于注册接收器
-        sb.AppendLine();
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 接收器注册扩展方法");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    public static class ReceiverExtensions");
-        sb.AppendLine("    {");
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 注册接收器实现");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static IServiceCollection AddGeneratedReceiver(this IServiceCollection services)");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            services.AddTransient<{receiverFullName}, {implClassName}>();");
-
-        // 注册所有Handler
-        foreach (var handler in handlers)
-        {
-            sb.AppendLine($"            services.AddTransient<{handler.HandlerType.ToDisplayString()}>();");
-        }
-
-        sb.AppendLine("            return services;");
-        sb.AppendLine("        }");
-        sb.AppendLine("    }");
-
-        // 命名空间结束
         sb.AppendLine("}");
 
-        // 添加生成的代码
-        context.AddSource($"{implClassName}.g.cs", SourceText.From(sb.ToString(), Encoding.UTF8));
+        return sb.ToString();
     }
+}
+
+/// <summary>
+/// 接收器语法接收器
+/// </summary>
+public class ReceiverImplementationSyntaxReceiver : ISyntaxContextReceiver
+{
+    /// <summary>
+    /// 接收器类型列表
+    /// </summary>
+    public List<INamedTypeSymbol> ReceiverTypes { get; } = new List<INamedTypeSymbol>();
 
     /// <summary>
-    /// 接收器接口和通知处理器语法接收器
+    /// 通知处理方法列表
     /// </summary>
-    private class ReceiverImplementationSyntaxReceiver : ISyntaxContextReceiver
+    public List<IMethodSymbol> NotificationHandlers { get; } = new List<IMethodSymbol>();
+
+    /// <summary>
+    /// 访问语法节点
+    /// </summary>
+    public void OnVisitSyntaxNode(GeneratorSyntaxContext context)
     {
-        /// <summary>
-        /// 发现的接收器类型
-        /// </summary>
-        public List<INamedTypeSymbol> ReceiverTypes { get; } = new();
-
-        /// <summary>
-        /// 发现的通知处理器
-        /// </summary>
-        public List<NotificationHandlerInfo> NotificationHandlers { get; } = new();
-
-        /// <summary>
-        /// 访问语法节点
-        /// </summary>
-        public void OnVisitSyntaxNode(GeneratorSyntaxContext context)
+        // 查找接收器接口
+        if (context.Node is InterfaceDeclarationSyntax interfaceDeclaration)
         {
-            if (context.Node is InterfaceDeclarationSyntax interfaceDeclaration)
+            var symbol = context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
+            if (symbol != null &&
+                symbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == "ReceiverInterfaceAttribute"))
             {
-                var symbol = context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
-                if (symbol == null) return;
-
-                // 检查是否为IStreamingReceiver接口
-                foreach (var intf in symbol.AllInterfaces)
-                {
-                    if (intf.ToDisplayString() == "PulseRPC.IStreamingReceiver")
-                    {
-                        ReceiverTypes.Add(symbol);
-                        break;
-                    }
-                }
-            }
-            else if (context.Node is ClassDeclarationSyntax classDeclaration)
-            {
-                var symbol = context.SemanticModel.GetDeclaredSymbol(classDeclaration) as INamedTypeSymbol;
-                if (symbol == null) return;
-
-                // 检查是否实现了INotificationHandler<T>
-                foreach (var intf in symbol.AllInterfaces)
-                {
-                    if (intf.IsGenericType && intf.ConstructedFrom.ToDisplayString() == "PulseRPC.INotificationHandler<T>")
-                    {
-                        NotificationHandlers.Add(new NotificationHandlerInfo(symbol, intf.TypeArguments[0]));
-                        break;
-                    }
-                }
+                ReceiverTypes.Add(symbol);
             }
         }
-    }
 
-    /// <summary>
-    /// 通知处理器信息
-    /// </summary>
-    private class NotificationHandlerInfo(INamedTypeSymbol handlerType, ITypeSymbol notificationType)
-    {
-        /// <summary>
-        /// 处理器类型
-        /// </summary>
-        public INamedTypeSymbol HandlerType { get; set; } = handlerType;
-
-        /// <summary>
-        /// 通知类型
-        /// </summary>
-        public ITypeSymbol NotificationType { get; set; } = notificationType;
+        // 查找通知处理方法
+        if (context.Node is MethodDeclarationSyntax methodDeclaration &&
+            methodDeclaration.AttributeLists.Count > 0)
+        {
+            var symbol = context.SemanticModel.GetDeclaredSymbol(methodDeclaration) as IMethodSymbol;
+            if (symbol != null &&
+                symbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == "NotificationHandlerAttribute"))
+            {
+                NotificationHandlers.Add(symbol);
+            }
+        }
     }
 }

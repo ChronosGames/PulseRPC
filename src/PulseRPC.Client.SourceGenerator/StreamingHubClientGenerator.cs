@@ -5,50 +5,84 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using MemoryPack;
 
 namespace PulseRPC.Client.SourceGenerator;
 
 [Generator]
-public class StreamingHubClientGenerator : ISourceGenerator
+public class StreamingHubClientGenerator : IIncrementalGenerator
 {
     private const string IStreamingHubFullName = "PulseRPC.IStreamingHub";
     private const string PulseClientGenerationAttributeName = "PulseClientGenerationAttribute";
 
-    public void Initialize(GeneratorInitializationContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        context.RegisterForSyntaxNotifications(() => new StreamingHubSyntaxReceiver());
+        // 注册语法节点提供器
+        IncrementalValuesProvider<INamedTypeSymbol> serviceTypes = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (s, _) => s is InterfaceDeclarationSyntax { AttributeLists.Count: > 0 },
+                transform: static (ctx, _) => GetServiceTypeFromContext(ctx))
+            .Where(static m => m is not null)!;
+
+        // 注册源代码输出
+        context.RegisterSourceOutput(serviceTypes, static (spc, serviceType) =>
+            GenerateServiceClient(spc, serviceType));
     }
 
-    public void Execute(GeneratorExecutionContext context)
+    private static INamedTypeSymbol? GetServiceTypeFromContext(GeneratorSyntaxContext context)
     {
-        if (context.SyntaxContextReceiver is not StreamingHubSyntaxReceiver receiver || !receiver.StreamingHubs.Any())
+        var typeDeclaration = (TypeDeclarationSyntax)context.Node;
+
+        // 添加更多的验证
+        if (!typeDeclaration.AttributeLists.Any())
+            return null;
+
+        var symbol = context.SemanticModel.GetDeclaredSymbol(typeDeclaration);
+        if (symbol is not INamedTypeSymbol typeSymbol)
+            return null;
+
+        // 验证是否实现了正确的接口
+        if (!IsStreamingHub(typeSymbol))
+            return null;
+
+        return typeSymbol;
+    }
+
+    private static bool IsStreamingHub(INamedTypeSymbol symbol)
+    {
+        foreach (var intf in symbol.AllInterfaces)
         {
-            return;
+            if (intf.IsGenericType && intf.ConstructedFrom.ToDisplayString().StartsWith("PulseRPC.IStreamingHub<"))
+            {
+                return true;
+            }
         }
 
-        foreach (var hubType in receiver.StreamingHubs)
+        return false;
+    }
+
+    private static void GenerateServiceClient(SourceProductionContext context, INamedTypeSymbol serviceType)
+    {
+        try
         {
-            try
-            {
-                var source = GenerateStreamingHubClient(hubType);
-                context.AddSource($"{hubType.Name}Client.g.cs", source);
-            }
-            catch (Exception ex)
-            {
-                context.ReportDiagnostic(Diagnostic.Create(
-                    new DiagnosticDescriptor(
-                        "PRPC100",
-                        "生成StreamingHub客户端代理失败",
-                        $"生成类型 {hubType.Name} 的代理时发生错误: {ex.Message}",
-                        "PulseRPC",
-                        DiagnosticSeverity.Error,
-                        true),
-                    Location.None));
-            }
+            var source = GenerateStreamingHubClient(serviceType);
+            context.AddSource($"{serviceType.Name}Client.g.cs", source);
+        }
+        catch (Exception ex)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                new DiagnosticDescriptor(
+                    "PRPC100",
+                    "生成StreamingHub客户端代理失败",
+                    $"生成类型 {serviceType.Name} 的代理时发生错误: {ex.Message}",
+                    "PulseRPC",
+                    DiagnosticSeverity.Error,
+                    true),
+                Location.None));
         }
     }
 
-    private string GenerateStreamingHubClient(INamedTypeSymbol hubType)
+    private static string GenerateStreamingHubClient(INamedTypeSymbol hubType)
     {
         var namespaceName = hubType.ContainingNamespace.ToDisplayString();
         var hubName = hubType.Name;
@@ -68,6 +102,7 @@ public class StreamingHubClientGenerator : ISourceGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
+        sb.AppendLine("using MemoryPack;");
         sb.AppendLine();
 
         sb.AppendLine($"namespace {namespaceName}");
@@ -94,6 +129,9 @@ public class StreamingHubClientGenerator : ISourceGenerator
         sb.AppendLine("        }");
         sb.AppendLine();
 
+        // 为每个方法生成空请求和单参数请求类的声明
+        var requestClassDefinitions = new HashSet<string>();
+
         // 实现接口方法
         foreach (var method in hubType.GetMembers().OfType<IMethodSymbol>())
         {
@@ -106,6 +144,10 @@ public class StreamingHubClientGenerator : ISourceGenerator
             var returnType = method.ReturnType.ToString();
             var parameters = string.Join(", ", method.Parameters.Select(p => $"{p.Type} {p.Name}"));
             var parameterNames = string.Join(", ", method.Parameters.Select(p => p.Name));
+
+            // 为0或1个参数的方法准备请求类名
+            string requestClassName = $"{method.ContainingType.Name}_{method.Name}_Request";
+            requestClassDefinitions.Add(requestClassName);
 
             sb.AppendLine($"        public {returnType} {method.Name}({parameters})");
             sb.AppendLine("        {");
@@ -124,7 +166,7 @@ public class StreamingHubClientGenerator : ISourceGenerator
                     ?.Replace("System.Threading.Tasks.Task<", "")
                     .Replace(">", "");
                 sb.AppendLine($"            // 创建请求参数包装");
-                sb.AppendLine($"            var request = new {method.ContainingType.Name}_{method.Name}_Request");
+                sb.AppendLine($"            var request = new {requestClassName}");
                 sb.AppendLine("            {");
 
                 foreach (var param in method.Parameters)
@@ -135,7 +177,7 @@ public class StreamingHubClientGenerator : ISourceGenerator
                 sb.AppendLine("            };");
                 sb.AppendLine();
                 sb.AppendLine(
-                    $"            return _client.SendRequestAsync<{method.ContainingType.Name}_{method.Name}_Request, {responseType}>(");
+                    $"            return _client.SendRequestAsync<{requestClassName}, {responseType}>(");
                 sb.AppendLine("                request, _defaultCancellationToken);");
             }
             else
@@ -145,10 +187,10 @@ public class StreamingHubClientGenerator : ISourceGenerator
                     ?.Replace("System.Threading.Tasks.Task<", "")
                     .Replace(">", "");
                 sb.AppendLine($"            // 创建空请求");
-                sb.AppendLine($"            var request = new {method.ContainingType.Name}_{method.Name}_Request();");
+                sb.AppendLine($"            var request = new {requestClassName}();");
                 sb.AppendLine();
                 sb.AppendLine(
-                    $"            return _client.SendRequestAsync<{method.ContainingType.Name}_{method.Name}_Request, {responseType}>(");
+                    $"            return _client.SendRequestAsync<{requestClassName}, {responseType}>(");
                 sb.AppendLine("                request, _defaultCancellationToken);");
             }
 
@@ -186,11 +228,53 @@ public class StreamingHubClientGenerator : ISourceGenerator
             if (method.Name == "WithDeadline" || method.Name == "WithCancellationToken" || method.Name == "WithHost")
                 continue;
 
-            if (method.Parameters.Length > 0 && method.Parameters.Length != 1)
+            var requestClassName = $"{method.ContainingType.Name}_{method.Name}_Request";
+
+            if (method.Parameters.Length == 0)
             {
+                // 生成空请求类
                 sb.AppendLine();
-                sb.AppendLine($"    [MemoryPack.MemoryPackable]");
-                sb.AppendLine($"    public partial class {method.ContainingType.Name}_{method.Name}_Request");
+                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    public partial class {requestClassName} : IMemoryPackable<{requestClassName}>");
+                sb.AppendLine("    {");
+                sb.AppendLine("        // 空请求");
+                sb.AppendLine("    }");
+            }
+            else if (method.Parameters.Length == 1 && method.Parameters[0].Type.GetMembers().OfType<IPropertySymbol>().Any())
+            {
+                // 对于单参数方法，如果原始参数类型不是IMemoryPackable，生成封装类
+                var paramType = method.Parameters[0].Type;
+                var isMemoryPackable = false;
+                
+                // 检查参数类型是否实现IMemoryPackable
+                foreach (var iface in paramType.AllInterfaces)
+                {
+                    if (iface.IsGenericType && 
+                        iface.ConstructedFrom.ToDisplayString() == "MemoryPack.IMemoryPackable<T>" && 
+                        iface.TypeArguments[0].Equals(paramType))
+                    {
+                        isMemoryPackable = true;
+                        break;
+                    }
+                }
+                
+                if (!isMemoryPackable)
+                {
+                    // 生成包装类
+                    sb.AppendLine();
+                    sb.AppendLine($"    [MemoryPackable]");
+                    sb.AppendLine($"    public partial class {requestClassName} : IMemoryPackable<{requestClassName}>");
+                    sb.AppendLine("    {");
+                    sb.AppendLine($"        public {paramType} Value {{ get; set; }}");
+                    sb.AppendLine("    }");
+                }
+            }
+            else if (method.Parameters.Length > 1)
+            {
+                // 多参数方法的请求类
+                sb.AppendLine();
+                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    public partial class {requestClassName} : IMemoryPackable<{requestClassName}>");
                 sb.AppendLine("    {");
 
                 foreach (var param in method.Parameters)
@@ -206,36 +290,6 @@ public class StreamingHubClientGenerator : ISourceGenerator
         sb.AppendLine("}");
 
         return sb.ToString();
-    }
-}
-
-public class StreamingHubSyntaxReceiver : ISyntaxContextReceiver
-{
-    public List<INamedTypeSymbol> StreamingHubs { get; } = new List<INamedTypeSymbol>();
-
-    public void OnVisitSyntaxNode(GeneratorSyntaxContext context)
-    {
-        if (context.Node is InterfaceDeclarationSyntax interfaceDeclaration)
-        {
-            var symbol = context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
-            if (symbol != null && IsStreamingHub(symbol))
-            {
-                StreamingHubs.Add(symbol);
-            }
-        }
-    }
-
-    private bool IsStreamingHub(INamedTypeSymbol symbol)
-    {
-        foreach (var intf in symbol.AllInterfaces)
-        {
-            if (intf.IsGenericType && intf.ConstructedFrom.ToDisplayString().StartsWith("PulseRPC.IStreamingHub<"))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
 
