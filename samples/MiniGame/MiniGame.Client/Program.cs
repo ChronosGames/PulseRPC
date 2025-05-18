@@ -19,6 +19,14 @@ class Program
 
         try
         {
+            var factory = LoggerFactory.Create(builder =>
+            {
+                builder.AddConsole();
+                builder.SetMinimumLevel(LogLevel.Debug);
+            });
+
+            NetworkManager.SetLogger(factory.CreateLogger("PulseRPC"));
+
             // 注册主服务节点
             NetworkManager.RegisterNode(MainNodeName, "127.0.0.1", 8888, new NodeOptions
             {
