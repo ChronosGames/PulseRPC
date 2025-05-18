@@ -41,6 +41,11 @@ namespace MiniGame.Client
 
                 // 使用DefaultPulseService (源生成器生成)
                 var pulseService = new DefaultPulseService();
+                
+                // 输出消息通知用户源生成器正在工作
+                Console.WriteLine("使用PulseRPC自动生成的序列化器...");
+                Console.WriteLine("所有临时请求/响应对象将使用生成的MemoryPack格式化器");
+                
                 _client = new NetworkClient(logger, host, port, pulseService, options);
 
                 // 连接到服务器
@@ -86,7 +91,7 @@ namespace MiniGame.Client
             {
                 if (_client != null)
                 {
-                    _client.Close();
+                    await Task.Run(() => _client.Close());
                     Console.WriteLine("已断开连接");
                 }
             }
