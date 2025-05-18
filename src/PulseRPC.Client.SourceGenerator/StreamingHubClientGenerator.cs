@@ -316,9 +316,9 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             {
                 var paramType = methodSymbol.Parameters[0].Type;
                 bool needsWrapper = !IsMemoryPackableType(paramType);
-                
+
                 bool responseNeedsWrapper = !IsMemoryPackableType(returnTypeSymbol);
-                
+
                 if (needsWrapper)
                 {
                     // 有一个参数，使用包装类发送
@@ -328,7 +328,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                     sb.AppendLine($"                Value = {methodSymbol.Parameters[0].Name}");
                     sb.AppendLine("            };");
                     sb.AppendLine();
-                    
+
                     if (responseNeedsWrapper)
                     {
                         // 生成结果解包逻辑
@@ -336,7 +336,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                         sb.AppendLine("                request, _cancellationToken);");
                         sb.AppendLine($"            return response.Value;");
                     }
-                    else 
+                    else
                     {
                         sb.AppendLine($"            return await _client.SendRequestAsync<{requestClassName}, {returnTypeSymbol.ToDisplayString()}>(");
                         sb.AppendLine("                request, _cancellationToken);");
@@ -456,8 +456,8 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             {
                 // 生成空请求类
                 sb.AppendLine();
-                sb.AppendLine($"    [MemoryPackable(VersionTolerant)]");
-                sb.AppendLine($"    public partial class {requestClassName}");
+                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    public partial class {requestClassName} : IMemoryPackable<{requestClassName}>");
                 sb.AppendLine("    {");
                 sb.AppendLine("        // 空请求");
                 sb.AppendLine("    }");
@@ -465,14 +465,14 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             else if (methodSymbol.Parameters.Length == 1)
             {
                 var paramType = methodSymbol.Parameters[0].Type;
-                bool needsWrapper = !IsMemoryPackableType(paramType);
-                
+                var needsWrapper = !IsMemoryPackableType(paramType);
+
                 if (needsWrapper)
                 {
                     // 生成包装类
                     sb.AppendLine();
-                    sb.AppendLine($"    [MemoryPackable(VersionTolerant)]");
-                    sb.AppendLine($"    public partial class {requestClassName}");
+                    sb.AppendLine($"    [MemoryPackable]");
+                    sb.AppendLine($"    public partial class {requestClassName} : IMemoryPackable<{requestClassName}>");
                     sb.AppendLine("    {");
                     sb.AppendLine($"        public {paramType.ToDisplayString()} Value {{ get; set; }}");
                     sb.AppendLine("    }");
@@ -482,8 +482,8 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             {
                 // 多参数方法的请求类
                 sb.AppendLine();
-                sb.AppendLine($"    [MemoryPackable(VersionTolerant)]");
-                sb.AppendLine($"    public partial class {requestClassName}");
+                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    public partial class {requestClassName} : IMemoryPackable<{requestClassName}>");
                 sb.AppendLine("    {");
 
                 foreach (var param in methodSymbol.Parameters)
@@ -494,17 +494,18 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
                 sb.AppendLine("    }");
             }
-            
+
             // 2. 生成响应类（如果需要）
             var returnTypeSymbol = ExtractTaskResultTypeSymbol(methodSymbol.ReturnType);
-            if (!IsMemoryPackableType(returnTypeSymbol) && 
+            var extractedReturnType = ExtractTaskResultType(methodSymbol.ReturnType);
+            if (!IsMemoryPackableType(returnTypeSymbol) &&
                 responseClassDefinitions.Contains(responseClassName))
             {
                 sb.AppendLine();
-                sb.AppendLine($"    [MemoryPackable(VersionTolerant)]");
-                sb.AppendLine($"    public partial class {responseClassName}");
+                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    public partial class {responseClassName} : IMemoryPackable<{responseClassName}>");
                 sb.AppendLine("    {");
-                sb.AppendLine($"        public {returnTypeSymbol.ToDisplayString()} Value {{ get; set; }}");
+                sb.AppendLine($"        public {extractedReturnType} Value {{ get; set; }}");
                 sb.AppendLine("    }");
             }
         }
@@ -542,20 +543,20 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         return returnType;
     }
 
-    private static bool IsMemoryPackableType(ITypeSymbol type)
+    private static bool IsMemoryPackableType(ITypeSymbol? type)
     {
         // 空值不能作为MemoryPackable类型
         if (type == null)
         {
             return false;
         }
-        
+
         // 任务类型不能直接作为MemoryPackable类型
         if (type.ToString() == "System.Threading.Tasks.Task")
         {
             return false;
         }
-        
+
         if (type is INamedTypeSymbol namedReturnType &&
             namedReturnType.IsGenericType &&
             namedReturnType.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<T>")
@@ -565,8 +566,8 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
         // 查找是否有MemoryPackable特性名称，而不是检查特定接口实现
         // 这样可以避免时序问题，因为特性名称在编译时就已确定
-        bool hasMemoryPackableAttribute = type.GetAttributes().Any(attr => 
-            attr.AttributeClass?.Name == "MemoryPackableAttribute" || 
+        bool hasMemoryPackableAttribute = type.GetAttributes().Any(attr =>
+            attr.AttributeClass?.Name == "MemoryPackableAttribute" ||
             attr.AttributeClass?.ToDisplayString().Contains("MemoryPack.MemoryPackableAttribute") == true);
 
         if (hasMemoryPackableAttribute)
@@ -575,7 +576,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         }
 
         // 以下类型需要包装
-        if (type.SpecialType == SpecialType.System_Object || 
+        if (type.SpecialType == SpecialType.System_Object ||
             type.SpecialType == SpecialType.System_String ||
             type.TypeKind == TypeKind.Enum ||
             IsSimpleValueType(type))
@@ -585,12 +586,12 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
         // 查看类型名称，适用于基本类型和常见.NET类型
         string typeName = type.ToDisplayString();
-        
+
         // 数组、元组和集合类型需要包装
-        if (type is IArrayTypeSymbol || 
+        if (type is IArrayTypeSymbol ||
             (type is INamedTypeSymbol nt && nt.IsTupleType) ||
             typeName.Contains("List<") ||
-            typeName.Contains("Dictionary<") || 
+            typeName.Contains("Dictionary<") ||
             typeName.Contains("IEnumerable<") ||
             typeName.Contains("ICollection<") ||
             typeName.Contains("HashSet<") ||
@@ -606,21 +607,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
     private static bool IsSimpleValueType(ITypeSymbol type)
     {
-        return type.IsValueType && (
-            type.SpecialType == SpecialType.System_Boolean ||
-            type.SpecialType == SpecialType.System_Byte ||
-            type.SpecialType == SpecialType.System_SByte ||
-            type.SpecialType == SpecialType.System_Int16 ||
-            type.SpecialType == SpecialType.System_UInt16 ||
-            type.SpecialType == SpecialType.System_Int32 ||
-            type.SpecialType == SpecialType.System_UInt32 ||
-            type.SpecialType == SpecialType.System_Int64 ||
-            type.SpecialType == SpecialType.System_UInt64 ||
-            type.SpecialType == SpecialType.System_Single ||
-            type.SpecialType == SpecialType.System_Double ||
-            type.SpecialType == SpecialType.System_Decimal ||
-            type.SpecialType == SpecialType.System_DateTime
-        );
+        return type.IsValueType && type.SpecialType is SpecialType.System_Boolean or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double or SpecialType.System_Decimal or SpecialType.System_DateTime;
     }
 
     private static bool ImplementsInterface(INamedTypeSymbol type, string interfaceName)
