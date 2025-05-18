@@ -7,6 +7,9 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
+using MemoryPack;
+using MemoryPack.Formatters;
+using MemoryPack.Internal;
 
 namespace PulseRPC.Client.SourceGenerator;
 
@@ -224,8 +227,15 @@ public class TemporaryObjectMemoryPackFormatter : IIncrementalGenerator
         sb.AppendLine("{");
 
         // 生成格式化器类
-        sb.AppendLine($"    public sealed class {typeName}Formatter : MemoryPackFormatter<{fullTypeName}>");
+        sb.AppendLine($"    public sealed class {typeName}Formatter : MemoryPackFormatter<{fullTypeName}>, IMemoryPackFormatterRegister");
         sb.AppendLine("    {");
+
+        // 注册格式化器的方法
+        sb.AppendLine("        public void RegisterFormatter()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            MemoryPackFormatterProvider.Register(this);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
 
         // Serialize方法
         sb.AppendLine($"        public override void Serialize<TBufferWriter>(ref MemoryPackWriter<TBufferWriter> writer, scoped ref {fullTypeName}? value)");
@@ -307,6 +317,29 @@ public class TemporaryObjectMemoryPackFormatter : IIncrementalGenerator
             sb.AppendLine("            value = result;");
         }
 
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
+
+        // 添加静态注册器类
+        sb.AppendLine();
+        sb.AppendLine("namespace MemoryPack");
+        sb.AppendLine("{");
+        sb.AppendLine($"    // {typeName} 的静态注册器");
+        sb.AppendLine($"    public static partial class {typeName}FormatterRegistration");
+        sb.AppendLine("    {");
+        sb.AppendLine("        // 防止多次注册");
+        sb.AppendLine("        private static bool _isRegistered = false;");
+        sb.AppendLine();
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine($"        /// 注册 {typeName} 的序列化器");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public static void Register()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (_isRegistered) return;");
+        sb.AppendLine("            _isRegistered = true;");
+        sb.AppendLine();
+        sb.AppendLine($"            MemoryPackFormatterProvider.Register(new Formatters.{typeName}Formatter());");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine("}");
