@@ -1,112 +1,80 @@
-using Microsoft.Extensions.Logging;
-using PulseRPC.Client;
-using PulseRPC.Samples.Shared;
+using System;
+using System.Threading.Tasks;
+using MiniGame.Shared;
 using PulseRPC.Samples.Shared.Messages;
 
-namespace PulseRPC.Samples.Client;
-
-/// <summary>
-/// 客户端示例程序
-/// </summary>
-class Program
+namespace MiniGame.Client
 {
-    private const string MainNodeName = "MainServer";
-
-    static async Task Main(string[] args)
+    /// <summary>
+    /// 小游戏客户端程序
+    /// </summary>
+    class Program
     {
-        Console.WriteLine("PulseRPC 客户端示例");
-        Console.WriteLine("===================");
-
-        try
+        static async Task Main(string[] args)
         {
-            var factory = LoggerFactory.Create(builder =>
+            Console.WriteLine("小游戏客户端启动中...");
+
+            try
             {
-                builder.AddConsole();
-                builder.SetMinimumLevel(LogLevel.Debug);
-            });
+                // 初始化网络服务
+                await GameNetworkService.Instance.InitializeAsync("localhost", 7000);
 
-            NetworkManager.SetLogger(factory.CreateLogger("PulseRPC"));
+                // 获取AuthHub并登录
+                var authHub = GameNetworkService.Instance.GetAuthHub();
 
-            // 注册主服务节点
-            NetworkManager.RegisterNode(MainNodeName, "127.0.0.1", 8888, new NodeOptions
-            {
-                AutoReconnect = true,
-                MaxReconnectAttempts = 3,
-                ReconnectInterval = TimeSpan.FromSeconds(3),
-                ConnectionTimeout = TimeSpan.FromSeconds(10)
-            });
+                Console.Write("请输入用户名: ");
+                var username = Console.ReadLine() ?? "Guest";
 
-            // 连接所有节点
-            await NetworkManager.ConnectAllAsync();
-            Console.WriteLine("已连接到服务器");
+                Console.Write("请输入密码: ");
+                var password = Console.ReadLine() ?? "password";
 
-            // 获取StreamingHub客户端
-            var authHub = NetworkManager.CreateServiceClient<IAuthStreamingHub>(MainNodeName);
-            var userHub = NetworkManager.CreateServiceClient<IUserStreamingHub>(MainNodeName);
-
-            // 登录
-            Console.WriteLine("正在登录...");
-            var loginRequest = new LoginRequest
-            {
-                Username = "admin",
-                Password = "password",
-                ClientVersion = 1001
-            };
-
-            var loginResponse = await authHub.Login(loginRequest);
-
-            if (loginResponse.Success)
-            {
-                Console.WriteLine($"登录成功，用户ID={loginResponse.UserId}, 用户名={loginResponse.Username}");
-
-                // 获取用户信息
-                Console.WriteLine("正在获取用户信息...");
-                var userInfoResponse = await userHub.GetUserInfoAsync(loginResponse.UserId);
-
-                if (userInfoResponse.Status == ResponseStatus.Success)
+                var loginResponse = await authHub.Login(new LoginRequest
                 {
-                    Console.WriteLine($"用户信息: 昵称={userInfoResponse.Nickname}, 头像={userInfoResponse.AvatarUrl}");
+                    Username = username,
+                    Password = password,
+                    ClientVersion = 1
+                });
 
-                    // 更新用户信息
-                    Console.WriteLine("正在更新用户信息...");
-                    var updateResponse = await userHub.UpdateUserInfoAsync(new UpdateUserInfoRequest
-                    {
-                        UserId = loginResponse.UserId,
-                        Nickname = "超级管理员",
-                        AvatarUrl = "https://example.com/avatar.png"
-                    });
+                if (loginResponse.Success)
+                {
+                    Console.WriteLine($"登录成功！欢迎 {loginResponse.Username}");
+                    Console.WriteLine($"用户ID: {loginResponse.UserId}");
+                    Console.WriteLine($"令牌: {loginResponse.Token}");
 
-                    if (updateResponse.Item1 == ResponseStatus.Success)
-                    {
-                        Console.WriteLine("用户信息更新成功");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"用户信息更新失败: {updateResponse.Item2}");
-                    }
+                    // 获取游戏Hub
+                    var gameHub = GameNetworkService.Instance.GetGameHub();
+
+                    // 获取游戏状态
+                    var gameStatus = await gameHub.GetGameStatusAsync();
+                    Console.WriteLine($"游戏状态: {gameStatus.Status}");
+                    Console.WriteLine($"在线玩家: {gameStatus.OnlinePlayers}");
+                    Console.WriteLine($"服务器时间: {gameStatus.ServerTime}");
+
+                    // 订阅通知频道
+                    await gameHub.SubscribeNotificationsAsync(new[] { "global", "system" });
+
+                    Console.WriteLine("已连接到游戏服务器并订阅通知频道");
+                    Console.WriteLine("按任意键退出...");
+                    Console.ReadKey();
+
+                    // 取消订阅通知
+                    await gameHub.UnsubscribeNotificationsAsync(new[] { "global", "system" });
                 }
                 else
                 {
-                    Console.WriteLine($"获取用户信息失败: {userInfoResponse.ErrorMessage}");
+                    Console.WriteLine($"登录失败: {loginResponse.ErrorMessage} (错误代码: {loginResponse.ErrorCode})");
                 }
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine($"登录失败: {loginResponse.ErrorMessage}");
+                Console.WriteLine($"发生错误: {ex.Message}");
+            }
+            finally
+            {
+                // 断开连接
+                await GameNetworkService.Instance.DisconnectAsync();
+                Console.WriteLine("已断开连接");
             }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"发生错误: {ex.Message}");
-        }
-        finally
-        {
-            // 断开所有连接
-            await NetworkManager.DisconnectAllAsync();
-            Console.WriteLine("已断开连接");
-        }
-
-        Console.WriteLine("按任意键退出...");
-        Console.ReadKey();
     }
 }

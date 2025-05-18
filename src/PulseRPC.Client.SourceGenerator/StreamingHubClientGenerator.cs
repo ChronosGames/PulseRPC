@@ -544,7 +544,18 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
     private static bool IsMemoryPackableType(ITypeSymbol type)
     {
+        // 空值不能作为MemoryPackable类型
+        if (type == null)
+        {
+            return false;
+        }
+        
         // 任务类型不能直接作为MemoryPackable类型
+        if (type.ToString() == "System.Threading.Tasks.Task")
+        {
+            return false;
+        }
+        
         if (type is INamedTypeSymbol namedReturnType &&
             namedReturnType.IsGenericType &&
             namedReturnType.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<T>")
@@ -552,70 +563,69 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             return false;
         }
 
-        // 检查是否已经实现IMemoryPackable<T>
-        foreach (var iface in type.AllInterfaces)
-        {
-            if (iface.IsGenericType && 
-                iface.ConstructedFrom.ToDisplayString() == "MemoryPack.IMemoryPackable<T>" &&
-                iface.TypeArguments[0].Equals(type))
-            {
-                return true;
-            }
-        }
-        
-        // 是否有[MemoryPackable]特性
-        if (type.GetAttributes().Any(attr => 
+        // 查找是否有MemoryPackable特性名称，而不是检查特定接口实现
+        // 这样可以避免时序问题，因为特性名称在编译时就已确定
+        bool hasMemoryPackableAttribute = type.GetAttributes().Any(attr => 
             attr.AttributeClass?.Name == "MemoryPackableAttribute" || 
-            attr.AttributeClass?.ToDisplayString() == "MemoryPack.MemoryPackableAttribute"))
+            attr.AttributeClass?.ToDisplayString().Contains("MemoryPack.MemoryPackableAttribute") == true);
+
+        if (hasMemoryPackableAttribute)
         {
             return true;
         }
 
-        // 基本类型需要包装
-        if (type.IsValueType || type.SpecialType == SpecialType.System_String)
+        // 以下类型需要包装
+        if (type.SpecialType == SpecialType.System_Object || 
+            type.SpecialType == SpecialType.System_String ||
+            type.TypeKind == TypeKind.Enum ||
+            IsSimpleValueType(type))
         {
             return false;
         }
 
-        // 是否是元组（需要包装）
-        if (type is INamedTypeSymbol namedType && namedType.IsTupleType)
+        // 查看类型名称，适用于基本类型和常见.NET类型
+        string typeName = type.ToDisplayString();
+        
+        // 数组、元组和集合类型需要包装
+        if (type is IArrayTypeSymbol || 
+            (type is INamedTypeSymbol nt && nt.IsTupleType) ||
+            typeName.Contains("List<") ||
+            typeName.Contains("Dictionary<") || 
+            typeName.Contains("IEnumerable<") ||
+            typeName.Contains("ICollection<") ||
+            typeName.Contains("HashSet<") ||
+            typeName.Contains("ConcurrentDictionary<"))
         {
             return false;
         }
 
-        // 集合类型需要包装
-        if (type is IArrayTypeSymbol ||
-            (type is INamedTypeSymbol collectionType &&
-             (ImplementsInterface(collectionType, "System.Collections.Generic.IEnumerable`1") ||
-              ImplementsInterface(collectionType, "System.Collections.Generic.ICollection`1") ||
-              ImplementsInterface(collectionType, "System.Collections.Generic.IList`1") ||
-              ImplementsInterface(collectionType, "System.Collections.Generic.IDictionary`2"))))
-        {
-            return false;
-        }
-
-        // 默认假设其他复杂类型需要包装
+        // 假设复杂引用类型可能会添加[MemoryPackable]特性
+        // 对于这类型，在代码生成时生成包装器以确保安全
         return false;
+    }
+
+    private static bool IsSimpleValueType(ITypeSymbol type)
+    {
+        return type.IsValueType && (
+            type.SpecialType == SpecialType.System_Boolean ||
+            type.SpecialType == SpecialType.System_Byte ||
+            type.SpecialType == SpecialType.System_SByte ||
+            type.SpecialType == SpecialType.System_Int16 ||
+            type.SpecialType == SpecialType.System_UInt16 ||
+            type.SpecialType == SpecialType.System_Int32 ||
+            type.SpecialType == SpecialType.System_UInt32 ||
+            type.SpecialType == SpecialType.System_Int64 ||
+            type.SpecialType == SpecialType.System_UInt64 ||
+            type.SpecialType == SpecialType.System_Single ||
+            type.SpecialType == SpecialType.System_Double ||
+            type.SpecialType == SpecialType.System_Decimal ||
+            type.SpecialType == SpecialType.System_DateTime
+        );
     }
 
     private static bool ImplementsInterface(INamedTypeSymbol type, string interfaceName)
     {
         return type.AllInterfaces.Any(i => i.IsGenericType && i.ConstructedFrom.ToDisplayString() == interfaceName);
-    }
-
-    private static bool IsMemoryPackableType(string typeName)
-    {
-        // 这个简化版本是为了在我们只有类型名而没有ITypeSymbol时使用
-        return !(
-            typeName == "int" ||
-            typeName == "long" ||
-            typeName == "float" ||
-            typeName == "double" ||
-            typeName == "bool" ||
-            typeName == "string" ||
-            typeName.Contains("ValueTuple<") ||
-            (typeName.StartsWith("(") && typeName.Contains(","))
-        );
     }
 }
 
