@@ -151,7 +151,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         }
 
         // 检查接口名称是否以 StreamingHub 结尾
-        if (symbol.TypeKind == TypeKind.Interface && 
+        if (symbol.TypeKind == TypeKind.Interface &&
             (symbol.Name.EndsWith("StreamingHub") || symbol.Name.EndsWith("Hub")))
         {
             return true;
@@ -242,17 +242,18 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
         // 为每个方法生成空请求和单参数请求类的声明
         var requestClassDefinitions = new HashSet<string>();
+        var responseClassDefinitions = new HashSet<string>();
 
         // 收集所有需要实现的方法（包括接口中定义的方法）
         var methodsToImplement = new List<IMethodSymbol>();
-        
+
         // 如果本身是接口，收集所有方法
         if (hubType.TypeKind == TypeKind.Interface)
         {
             // 直接在接口上定义的方法
             methodsToImplement.AddRange(hubType.GetMembers().OfType<IMethodSymbol>()
                 .Where(m => m.Name != "WithDeadline" && m.Name != "WithCancellationToken" && m.Name != "WithHost"));
-            
+
             // 包括所有继承接口的方法
             foreach (var baseInterface in hubType.AllInterfaces)
             {
@@ -278,31 +279,78 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             // 确保是方法符号
             if (method is not IMethodSymbol methodSymbol)
                 continue;
-                
+
             var returnType = methodSymbol.ReturnType.ToString();
             var parameters = string.Join(", ", methodSymbol.Parameters.Select(p => $"{p.Type} {p.Name}"));
             var parameterNames = string.Join(", ", methodSymbol.Parameters.Select(p => p.Name));
 
-            // 为0或1个参数的方法准备请求类名
+            // 为不同类型的参数和返回值准备请求和响应类名
             string requestClassName = $"{methodSymbol.ContainingType.Name}_{methodSymbol.Name}_Request";
+            string responseClassName = $"{methodSymbol.ContainingType.Name}_{methodSymbol.Name}_Response";
             requestClassDefinitions.Add(requestClassName);
 
+            // 如果返回值类型需要包装器，添加响应类定义
+            var returnTypeSymbol = ExtractTaskResultTypeSymbol(methodSymbol.ReturnType);
+            if (!IsMemoryPackableType(returnTypeSymbol))
+            {
+                responseClassDefinitions.Add(responseClassName);
+            }
+
+            // 为0或1个参数的方法准备请求类名
             sb.AppendLine($"        public {returnType} {methodSymbol.Name}({parameters})");
             sb.AppendLine("        {");
 
-            if (methodSymbol.Parameters.Length == 1 && methodSymbol.Parameters[0].Type.GetMembers().OfType<IPropertySymbol>().Any())
+            if (methodSymbol.Parameters.Length == 1)
             {
-                // 有一个参数，直接用SendRequestAsync
-                sb.AppendLine(
-                    $"            return _client.SendRequestAsync<{methodSymbol.Parameters[0].Type}, {methodSymbol.ReturnType.ToString()?.Replace("System.Threading.Tasks.Task<", "").Replace(">", "")}>(");
-                sb.AppendLine($"                {methodSymbol.Parameters[0].Name}, _defaultCancellationToken);");
+                var paramType = methodSymbol.Parameters[0].Type;
+                bool needsWrapper = !IsMemoryPackableType(paramType);
+
+                bool responseNeedsWrapper = !IsMemoryPackableType(returnTypeSymbol);
+
+                if (needsWrapper)
+                {
+                    // 有一个参数，使用包装类发送
+                    sb.AppendLine($"            // 创建包装请求");
+                    sb.AppendLine($"            var request = new {requestClassName}");
+                    sb.AppendLine("            {");
+                    sb.AppendLine($"                Value = {methodSymbol.Parameters[0].Name}");
+                    sb.AppendLine("            };");
+                    sb.AppendLine();
+
+                    if (responseNeedsWrapper)
+                    {
+                        // 生成结果解包逻辑
+                        sb.AppendLine($"            var response = await _client.SendRequestAsync<{requestClassName}, {responseClassName}>(");
+                        sb.AppendLine("                request, _defaultCancellationToken);");
+                        sb.AppendLine($"            return response.Value;");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"            return await _client.SendRequestAsync<{requestClassName}, {returnTypeSymbol.ToDisplayString()}>(");
+                        sb.AppendLine("                request, _defaultCancellationToken);");
+                    }
+                }
+                else
+                {
+                    // 有一个MemoryPackable参数，直接用SendRequestAsync
+                    if (responseNeedsWrapper)
+                    {
+                        sb.AppendLine($"            var response = await _client.SendRequestAsync<{paramType.ToDisplayString()}, {responseClassName}>(");
+                        sb.AppendLine($"                {methodSymbol.Parameters[0].Name}, _defaultCancellationToken);");
+                        sb.AppendLine($"            return response.Value;");
+                    }
+                    else
+                    {
+                        sb.AppendLine($"            return await _client.SendRequestAsync<{paramType.ToDisplayString()}, {returnTypeSymbol.ToDisplayString()}>(");
+                        sb.AppendLine($"                {methodSymbol.Parameters[0].Name}, _defaultCancellationToken);");
+                    }
+                }
             }
             else if (methodSymbol.Parameters.Length > 0)
             {
                 // 多个参数，先创建请求对象
-                var responseType = methodSymbol.ReturnType.ToString()
-                    ?.Replace("System.Threading.Tasks.Task<", "")
-                    .Replace(">", "");
+                bool responseNeedsWrapper = !IsMemoryPackableType(returnTypeSymbol);
+
                 sb.AppendLine($"            // 创建请求参数包装");
                 sb.AppendLine($"            var request = new {requestClassName}");
                 sb.AppendLine("            {");
@@ -314,22 +362,39 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
                 sb.AppendLine("            };");
                 sb.AppendLine();
-                sb.AppendLine(
-                    $"            return _client.SendRequestAsync<{requestClassName}, {responseType}>(");
-                sb.AppendLine("                request, _defaultCancellationToken);");
+
+                if (!responseNeedsWrapper)
+                {
+                    sb.AppendLine($"            return await _client.SendRequestAsync<{requestClassName}, {returnTypeSymbol.ToDisplayString()}>(");
+                    sb.AppendLine("                request, _defaultCancellationToken);");
+                }
+                else
+                {
+                    sb.AppendLine($"            var response = await _client.SendRequestAsync<{requestClassName}, {responseClassName}>(");
+                    sb.AppendLine("                request, _defaultCancellationToken);");
+                    sb.AppendLine($"            return response.Value;");
+                }
             }
             else
             {
                 // 没有参数，创建空请求
-                var responseType = methodSymbol.ReturnType.ToString()
-                    ?.Replace("System.Threading.Tasks.Task<", "")
-                    .Replace(">", "");
+                bool responseNeedsWrapper = !IsMemoryPackableType(returnTypeSymbol);
+
                 sb.AppendLine($"            // 创建空请求");
                 sb.AppendLine($"            var request = new {requestClassName}();");
                 sb.AppendLine();
-                sb.AppendLine(
-                    $"            return _client.SendRequestAsync<{requestClassName}, {responseType}>(");
-                sb.AppendLine("                request, _defaultCancellationToken);");
+
+                if (!responseNeedsWrapper)
+                {
+                    sb.AppendLine($"            return await _client.SendRequestAsync<{requestClassName}, {returnTypeSymbol.ToDisplayString()}>(");
+                    sb.AppendLine("                request, _defaultCancellationToken);");
+                }
+                else
+                {
+                    sb.AppendLine($"            var response = await _client.SendRequestAsync<{requestClassName}, {responseClassName}>(");
+                    sb.AppendLine("                request, _defaultCancellationToken);");
+                    sb.AppendLine($"            return response.Value;");
+                }
             }
 
             sb.AppendLine("        }");
@@ -357,18 +422,20 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
         sb.AppendLine("    }");
 
-        // 为每个方法生成请求类
+        // 为每个方法生成请求和响应类
         foreach (var method in distinctMethods)
         {
             // 确保是方法符号
             if (method is not IMethodSymbol methodSymbol)
                 continue;
-                
+
             if (methodSymbol.Name == "WithDeadline" || methodSymbol.Name == "WithCancellationToken" || methodSymbol.Name == "WithHost")
                 continue;
 
             var requestClassName = $"{methodSymbol.ContainingType.Name}_{methodSymbol.Name}_Request";
+            var responseClassName = $"{methodSymbol.ContainingType.Name}_{methodSymbol.Name}_Response";
 
+            // 1. 生成请求类
             if (methodSymbol.Parameters.Length == 0)
             {
                 // 生成空请求类
@@ -379,32 +446,19 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                 sb.AppendLine("        // 空请求");
                 sb.AppendLine("    }");
             }
-            else if (methodSymbol.Parameters.Length == 1 && methodSymbol.Parameters[0].Type.GetMembers().OfType<IPropertySymbol>().Any())
+            else if (methodSymbol.Parameters.Length == 1)
             {
-                // 对于单参数方法，如果原始参数类型不是IMemoryPackable，生成封装类
                 var paramType = methodSymbol.Parameters[0].Type;
-                var isMemoryPackable = false;
+                bool needsWrapper = !IsMemoryPackableType(paramType);
 
-                // 检查参数类型是否实现IMemoryPackable
-                foreach (var iface in paramType.AllInterfaces)
-                {
-                    if (iface.IsGenericType &&
-                        iface.ConstructedFrom.ToDisplayString() == "MemoryPack.IMemoryPackable<T>" &&
-                        iface.TypeArguments[0].Equals(paramType))
-                    {
-                        isMemoryPackable = true;
-                        break;
-                    }
-                }
-
-                if (!isMemoryPackable)
+                if (needsWrapper)
                 {
                     // 生成包装类
                     sb.AppendLine();
                     sb.AppendLine($"    [MemoryPackable]");
                     sb.AppendLine($"    public partial class {requestClassName}");
                     sb.AppendLine("    {");
-                    sb.AppendLine($"        public {paramType} Value {{ get; set; }}");
+                    sb.AppendLine($"        public {paramType.ToDisplayString()} Value {{ get; set; }}");
                     sb.AppendLine("    }");
                 }
             }
@@ -424,11 +478,89 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
                 sb.AppendLine("    }");
             }
+
+            // 2. 生成响应类（如果需要）
+            var returnTypeSymbol = ExtractTaskResultTypeSymbol(methodSymbol.ReturnType);
+            if (!IsMemoryPackableType(returnTypeSymbol) &&
+                responseClassDefinitions.Contains(responseClassName))
+            {
+                sb.AppendLine();
+                sb.AppendLine($"    [MemoryPackable]");
+                sb.AppendLine($"    public partial class {responseClassName}");
+                sb.AppendLine("    {");
+                sb.AppendLine($"        public {returnTypeSymbol.ToDisplayString()} Value {{ get; set; }}");
+                sb.AppendLine("    }");
+            }
         }
 
         sb.AppendLine("}");
 
         return sb.ToString();
+    }
+
+    private static string ExtractTaskResultType(ITypeSymbol returnType)
+    {
+        if (returnType is INamedTypeSymbol namedType &&
+            namedType.IsGenericType &&
+            namedType.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<T>")
+        {
+            return namedType.TypeArguments[0].ToDisplayString();
+        }
+        return returnType.ToDisplayString();
+    }
+
+    private static ITypeSymbol ExtractTaskResultTypeSymbol(ITypeSymbol returnType)
+    {
+        if (returnType is INamedTypeSymbol namedType &&
+            namedType.IsGenericType &&
+            namedType.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<T>")
+        {
+            return namedType.TypeArguments[0];
+        }
+        return returnType;
+    }
+
+    private static bool IsMemoryPackableType(ITypeSymbol type)
+    {
+        // 检查是否已经实现IMemoryPackable<T>
+        foreach (var iface in type.AllInterfaces)
+        {
+            if (iface.IsGenericType &&
+                iface.ConstructedFrom.ToDisplayString() == "MemoryPack.IMemoryPackable<T>" &&
+                iface.TypeArguments[0].Equals(type))
+            {
+                return true;
+            }
+        }
+
+        // 是否是基本类型（需要包装）
+        if (type.IsValueType || type.SpecialType == SpecialType.System_String)
+        {
+            return false;
+        }
+
+        // 是否是元组（需要包装）
+        if (type is INamedTypeSymbol namedType && namedType.IsTupleType)
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsMemoryPackableType(string typeName)
+    {
+        // 这个简化版本是为了在我们只有类型名而没有ITypeSymbol时使用
+        return !(
+            typeName == "int" ||
+            typeName == "long" ||
+            typeName == "float" ||
+            typeName == "double" ||
+            typeName == "bool" ||
+            typeName == "string" ||
+            typeName.Contains("ValueTuple<") ||
+            (typeName.StartsWith("(") && typeName.Contains(","))
+        );
     }
 }
 
