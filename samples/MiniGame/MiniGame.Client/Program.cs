@@ -23,16 +23,22 @@ namespace MiniGame.Client
             {
                 // 初始化网络服务
                 InitializeNetworkManager();
-                
+
                 // 注册所有序列化器 - 这一步很重要，解决序列化问题
-                SerializerRegistration.RegisterAll();
+                // SerializerRegistration.RegisterAll();
+
+                // 注册由TemporaryObjectMemoryPackFormatter生成的格式化器
+                PulseRPC.Serialization.TemporaryObjectFormatterRegistration.RegisterAll();
+
+                // 注册由StreamingHubClientGenerator生成的格式化器
+                PulseRPC.Client.StreamingHubFormatterRegistration.RegisterAll();
 
                 // 连接服务器
                 await NetworkManager.ConnectAllAsync();
                 Console.WriteLine($"已连接到服务器: localhost:7000");
 
                 // 获取AuthHub并登录
-                var authHub = NetworkManager.CreateServiceClient<AuthStreamingHub>(NodeName);
+                var authHub = NetworkManager.CreateServiceClient<IAuthStreamingHub>(NodeName);
 
                 Console.Write("请输入用户名: ");
                 var username = Console.ReadLine() ?? "Guest";
@@ -54,14 +60,14 @@ namespace MiniGame.Client
                     Console.WriteLine($"令牌: {loginResponse.Token}");
 
                     // 获取游戏Hub
-                    var gameHub = NetworkManager.CreateServiceClient<GameStreamingHub>(NodeName);
+                    var gameHub = NetworkManager.CreateServiceClient<IUserStreamingHub>(NodeName);
 
                     // 获取用户信息
                     var userInfo = await gameHub.GetUserInfoAsync(loginResponse.UserId);
                     Console.WriteLine($"用户状态: {userInfo.UserStatus}");
                     Console.WriteLine($"用户昵称: {userInfo.Nickname}");
                     Console.WriteLine($"头像URL: {userInfo.AvatarUrl}");
-                    
+
                     // 获取游戏状态
                     var gameStatus = await gameHub.GetGameStatusAsync();
                     Console.WriteLine($"游戏状态: {gameStatus.Status}");
