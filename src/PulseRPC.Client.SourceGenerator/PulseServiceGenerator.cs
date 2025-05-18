@@ -28,6 +28,8 @@ using PulseRPC.Network;
 
 namespace PulseRPC.Client;
 
+#nullable enable
+
 /// <summary>
 /// 默认的PulseService实现，用于客户端
 /// </summary>
