@@ -23,6 +23,9 @@ namespace MiniGame.Client
             {
                 // 初始化网络服务
                 InitializeNetworkManager();
+                
+                // 注册所有序列化器 - 这一步很重要，解决序列化问题
+                SerializerRegistration.RegisterAll();
 
                 // 连接服务器
                 await NetworkManager.ConnectAllAsync();

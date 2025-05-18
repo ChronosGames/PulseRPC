@@ -19,4 +19,9 @@ public sealed class PulseClientGenerationAttribute : Attribute
     {
         MarkerType = markerType;
     }
+    
+    /// <summary>
+    /// 获取或设置方法返回类型，用于指定WithDeadline等方法的返回类型
+    /// </summary>
+    public Type? WithResultType { get; set; }
 }
