@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -9,58 +10,72 @@ using System.Text;
 namespace PulseRPC.Client.SourceGenerator;
 
 [Generator]
-public class MessageRegistrationGenerator : ISourceGenerator
+public class MessageRegistrationGenerator : IIncrementalGenerator
 {
     private const string MessageAttributeFullName = "PulseRPC.PacketAttribute";
     private const string IMessageFullName = "PulseRPC.IPacket";
     private const string PulseClientGenerationAttributeName = "PulseClientGenerationAttribute";
 
-    public void Initialize(GeneratorInitializationContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        context.RegisterForSyntaxNotifications(() => new MessageSyntaxReceiver() as ISyntaxContextReceiver);
+        // 注册语法提供器：查找所有带有特性的类
+        IncrementalValuesProvider<ClassDeclarationSyntax> classDeclarations = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (s, _) => s is ClassDeclarationSyntax { AttributeLists.Count: > 0 },
+                transform: static (ctx, _) => (ClassDeclarationSyntax)ctx.Node)
+            .Where(static m => m is not null);
+
+        // 创建编译供应商
+        IncrementalValueProvider<Compilation> compilationProvider = context.CompilationProvider;
+
+        // 结合语法和编译信息
+        IncrementalValuesProvider<(ClassDeclarationSyntax Syntax, Compilation Compilation)> syntaxWithCompilation =
+            classDeclarations.Combine(compilationProvider);
+
+        // 为每个类型创建符号信息
+        IncrementalValuesProvider<INamedTypeSymbol> clientTypes = syntaxWithCompilation
+            .Select((pair, ct) => GetClientType(pair.Syntax, pair.Compilation, ct))
+            .Where(static symbol => symbol is not null)!;
+
+        // 注册源代码输出
+        context.RegisterSourceOutput(clientTypes,
+            static (spc, clientType) => GenerateMessageRegistration(spc, clientType));
     }
 
-    public void Execute(GeneratorExecutionContext context)
+    private static INamedTypeSymbol? GetClientType(
+        ClassDeclarationSyntax syntax,
+        Compilation compilation,
+        CancellationToken cancellationToken)
     {
-        if (context.SyntaxContextReceiver is not MessageSyntaxReceiver receiver)
+        if (cancellationToken.IsCancellationRequested)
+            return null;
+
+        var model = compilation.GetSemanticModel(syntax.SyntaxTree);
+        var symbol = model.GetDeclaredSymbol(syntax, cancellationToken) as INamedTypeSymbol;
+
+        if (symbol is null)
+            return null;
+
+        // 检查是否有PulseClientGenerationAttribute
+        if (!symbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == PulseClientGenerationAttributeName))
+            return null;
+
+        return symbol;
+    }
+
+    private static void GenerateMessageRegistration(
+        SourceProductionContext context,
+        INamedTypeSymbol clientType)
+    {
+        try
         {
-            return;
-        }
-
-        // 查找所有带有 PulseClientGenerationAttribute 的类型
-        var clientGenerationTypes = context.Compilation.SyntaxTrees
-            .SelectMany(tree => tree.GetRoot().DescendantNodes())
-            .OfType<ClassDeclarationSyntax>()
-            .Select(c => context.Compilation.GetSemanticModel(c.SyntaxTree).GetDeclaredSymbol(c))
-            .Where(symbol => symbol is INamedTypeSymbol &&
-                             symbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == PulseClientGenerationAttributeName))
-            .Cast<INamedTypeSymbol>()
-            .ToList();
-
-        if (!clientGenerationTypes.Any())
-        {
-            context.ReportDiagnostic(Diagnostic.Create(
-                new DiagnosticDescriptor(
-                    "PRPC003",
-                    "未找到标记了 PulseClientGenerationAttribute 的类型",
-                    "请确保在客户端项目中至少有一个类型标记了 PulseClientGenerationAttribute",
-                    "PulseRPC",
-                    DiagnosticSeverity.Warning,
-                    true),
-                Location.None));
-            return;
-        }
-
-        foreach (var clientType in clientGenerationTypes)
-        {
-            if (clientType == null) continue;
-
             var markerTypeAttr = clientType.GetAttributes()
                 .FirstOrDefault(attr => attr.AttributeClass?.Name == PulseClientGenerationAttributeName);
 
-            if (markerTypeAttr == null) continue;
+            if (markerTypeAttr == null) return;
 
-            if (markerTypeAttr.ConstructorArguments[0].Value is not INamedTypeSymbol markerType)
+            if (markerTypeAttr.ConstructorArguments.Length == 0 || 
+                markerTypeAttr.ConstructorArguments[0].Value is not INamedTypeSymbol markerType)
             {
                 context.ReportDiagnostic(Diagnostic.Create(
                     new DiagnosticDescriptor(
@@ -71,7 +86,7 @@ public class MessageRegistrationGenerator : ISourceGenerator
                         DiagnosticSeverity.Error,
                         true),
                     Location.None));
-                continue;
+                return;
             }
 
             // 获取标记类型所在程序集中的所有类型
@@ -106,31 +121,11 @@ public class MessageRegistrationGenerator : ISourceGenerator
                 // 检查当前命名空间中的类型
                 foreach (var type in ns.GetTypeMembers())
                 {
-                    // 输出类型信息
-                    context.ReportDiagnostic(Diagnostic.Create(
-                        new DiagnosticDescriptor(
-                            "PRPC006",
-                            "扫描类型",
-                            $"正在扫描类型: {type.ToDisplayString()}",
-                            "PulseRPC",
-                            DiagnosticSeverity.Info,
-                            true),
-                        Location.None));
-
                     // 检查是否实现了 IMessage 接口
                     var hasMessageInterface = type.AllInterfaces.Any(i =>
                         i.ToDisplayString() == IMessageFullName);
                     if (!hasMessageInterface)
                     {
-                        context.ReportDiagnostic(Diagnostic.Create(
-                            new DiagnosticDescriptor(
-                                "PRPC008",
-                                "跳过类型",
-                                $"类型 {type.ToDisplayString()} 未实现 IMessage 接口",
-                                "PulseRPC",
-                                DiagnosticSeverity.Info,
-                                true),
-                            Location.None));
                         continue;
                     }
 
@@ -139,30 +134,10 @@ public class MessageRegistrationGenerator : ISourceGenerator
                         .FirstOrDefault(attr => attr.AttributeClass?.ToDisplayString() == MessageAttributeFullName);
                     if (messageAttr == null)
                     {
-                        context.ReportDiagnostic(Diagnostic.Create(
-                            new DiagnosticDescriptor(
-                                "PRPC009",
-                                "跳过类型",
-                                $"类型 {type.ToDisplayString()} 未标记 MessageAttribute 特性",
-                                "PulseRPC",
-                                DiagnosticSeverity.Info,
-                                true),
-                            Location.None));
                         continue;
                     }
 
                     messageTypes.Add(type);
-
-                    // 输出找到的消息类型
-                    context.ReportDiagnostic(Diagnostic.Create(
-                        new DiagnosticDescriptor(
-                            "PRPC007",
-                            "找到消息类型",
-                            $"找到消息类型: {type.ToDisplayString()}, MessageId: {messageAttr.ConstructorArguments[0].Value}",
-                            "PulseRPC",
-                            DiagnosticSeverity.Info,
-                            true),
-                        Location.None));
                 }
             }
 
@@ -177,16 +152,28 @@ public class MessageRegistrationGenerator : ISourceGenerator
                         DiagnosticSeverity.Warning,
                         true),
                     Location.None));
-                continue;
+                return;
             }
 
             // 生成消息注册代码
-            var source = GenerateMessageRegistration(clientType, messageTypes);
+            var source = GenerateMessageRegistrationCode(clientType, messageTypes);
             context.AddSource($"{clientType.Name}.PacketRegistration.g.cs", source);
+        }
+        catch (Exception ex)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                new DiagnosticDescriptor(
+                    "PRPC001",
+                    "生成消息注册代码异常",
+                    $"生成消息注册代码时发生异常: {ex.Message}",
+                    "PulseRPC",
+                    DiagnosticSeverity.Error,
+                    true),
+                Location.None));
         }
     }
 
-    private string GenerateMessageRegistration(INamedTypeSymbol clientType, List<INamedTypeSymbol> messageTypes)
+    private static string GenerateMessageRegistrationCode(INamedTypeSymbol clientType, List<INamedTypeSymbol> messageTypes)
     {
         var registrations1 = messageTypes
             .Select(type =>
@@ -238,7 +225,8 @@ namespace {clientType.ContainingNamespace}
         public void Serialize<T>(IBufferWriter<byte> writer, in T message) where T : IPacket
         {{
             // 1. 获取消息ID
-            var messageId = _packet2id.GetValueOrDefault(typeof(T));
+            ushort messageId = 0;
+            _packet2id.TryGetValue(typeof(T), out messageId);
 
             // 2. 为消息ID获取可写入的Span
             var idSpan = writer.GetSpan(2);
@@ -249,15 +237,14 @@ namespace {clientType.ContainingNamespace}
             MemoryPackSerializer.Serialize(writer, message, serializerOptions);
         }}
 
-        public IPacket Deserialize(in ReadOnlySpan<byte> bytes)
+        public IPacket Deserialize(ReadOnlySpan<byte> bytes)
         {{
             var messageId = BinaryPrimitives.ReadUInt16LittleEndian(bytes);
-            switch (messageId)
+            return messageId switch
             {{
                 {string.Join("\n                ", registrations2)}
-                default:
-                    throw new NotSupportedException($""MessageId 0x{{messageId:X4}} is not supported."");
-            }}
+                _ => throw new NotImplementedException($""未知的消息类型: 0x{{messageId:X4}}"")
+            }};
         }}
     }}
 }}

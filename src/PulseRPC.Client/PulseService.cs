@@ -65,7 +65,7 @@ namespace PulseRPC.Client
         {
             try
             {
-                return MemoryPackSerializer.Deserialize<T>(bytes);
+                return MemoryPackSerializer.Deserialize<T>(bytes)!;
             }
             catch (Exception ex)
             {
@@ -100,7 +100,7 @@ namespace PulseRPC.Client
         /// <param name="data">消息数据</param>
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>是否处理成功</returns>
-        public ValueTask<bool> HandleMessageAsync(NetworkSession session, Memory<byte> data, CancellationToken cancellationToken = default)
+        public Task<bool> HandleMessageAsync(NetworkSession session, Memory<byte> data, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -110,12 +110,12 @@ namespace PulseRPC.Client
                 // 这里是简化实现，实际项目中需要根据协议解析消息并调用相应处理器
                 _logger?.LogTrace("收到消息: {Length} 字节", data.Length);
 
-                return ValueTask.FromResult(true);
+                return Task.FromResult(true);
             }
             catch (Exception ex)
             {
                 _logger?.LogError(ex, "处理消息时出错");
-                return ValueTask.FromResult(false);
+                return Task.FromResult(false);
             }
         }
 

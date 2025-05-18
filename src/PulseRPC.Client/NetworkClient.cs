@@ -16,7 +16,7 @@ public class NetworkClient : IDisposable
     private readonly string _host;
     private readonly int _port;
     private readonly IPulseService _pulseService;
-    private readonly NetworkOptions _options;
+    private readonly NodeOptions _options;
     private NetworkSession? _session;
     private TcpClient? _tcpClient;
     private bool _isDisposed;
@@ -34,6 +34,10 @@ public class NetworkClient : IDisposable
     /// 连接超时时间
     /// </summary>
     public TimeSpan ConnectionTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromSeconds(6);
+
+    public TimeSpan SendTimeout { get; set; } = TimeSpan.FromSeconds(6);
 
     /// <summary>
     /// 是否已连接
@@ -58,13 +62,13 @@ public class NetworkClient : IDisposable
         string host,
         int port,
         IPulseService pulseService,
-        NetworkOptions? options = null)
+        NodeOptions? options = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _port = port;
         _pulseService = pulseService ?? throw new ArgumentNullException(nameof(pulseService));
-        _options = options ?? new NetworkOptions();
+        _options = options ?? new NodeOptions();
         _requestResponseManager = new RequestResponseManager(_logger);
     }
 
@@ -117,7 +121,7 @@ public class NetworkClient : IDisposable
                 _logger,
                 socket,
                 _pulseService,
-                _options);
+                _options.ToNetworkOptions());
 
             // 订阅断开连接事件
             _session.Disconnected += OnSessionDisconnected;
@@ -327,7 +331,7 @@ public class NetworkClient : IDisposable
         try
         {
             // 根据选项设置心跳间隔
-            var heartbeatInterval = TimeSpan.FromMilliseconds(_options.HeartbeatInterval);
+            var heartbeatInterval = _options.HeartbeatInterval;
 
             while (IsConnected && !_isDisposed && !_cts.IsCancellationRequested)
             {

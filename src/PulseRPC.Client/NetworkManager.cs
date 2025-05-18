@@ -1,8 +1,11 @@
 ﻿using System.Collections.Concurrent;
 using System.Reflection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Console;
 using System.Buffers;
 using MemoryPack;
+using PulseRPC.Network;
 
 namespace PulseRPC.Client;
 
@@ -41,10 +44,56 @@ public class NodeOptions
     /// </summary>
     public TimeSpan SendTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
+    public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(6);
+
     /// <summary>
     /// 序列化器工厂
     /// </summary>
     public Func<IPulseRPCSerializer> SerializerFactory { get; set; } = () => new MemoryPackRpcSerializer();
+    
+    /// <summary>
+    /// 发送缓冲区大小
+    /// </summary>
+    public int SendBufferSize { get; set; } = 262144; // 256KB
+    
+    /// <summary>
+    /// 接收缓冲区大小
+    /// </summary>
+    public int RecvBufferSize { get; set; } = 262144; // 256KB
+    
+    /// <summary>
+    /// 最大数据包大小
+    /// </summary>
+    public int MaxPacketSize { get; set; } = 65535; // 64KB - 1
+    
+    /// <summary>
+    /// 压缩阈值
+    /// </summary>
+    public int CompressionThreshold { get; set; } = 1024; // 1KB
+    
+    /// <summary>
+    /// 请求超时时间(毫秒)
+    /// </summary>
+    public int RequestTimeout { get; set; } = 10000;
+    
+    /// <summary>
+    /// 转换为NetworkOptions
+    /// </summary>
+    /// <returns>NetworkOptions对象</returns>
+    public NetworkOptions ToNetworkOptions()
+    {
+        return new NetworkOptions
+        {
+            CompressionThreshold = CompressionThreshold,
+            MaxPacketSize = MaxPacketSize,
+            SendBufferSize = SendBufferSize,
+            RecvBufferSize = RecvBufferSize,
+            RequestTimeout = RequestTimeout,
+            SendTimeout = (int)SendTimeout.TotalMilliseconds,
+            ReceiveTimeout = (int)IdleTimeout.TotalMilliseconds,
+            HeartbeatInterval = (int)HeartbeatInterval.TotalMilliseconds
+        };
+    }
 }
 
 /// <summary>
@@ -88,7 +137,7 @@ public class NodeInfo
 /// </summary>
 public static class NetworkManager
 {
-    private static readonly ILogger _logger;
+    private static readonly ILogger? _logger;
     private static readonly object _syncLock = new object();
 
     private static readonly ConcurrentDictionary<string, NodeInfo> _nodes = new();
@@ -102,12 +151,8 @@ public static class NetworkManager
     static NetworkManager()
     {
         // 创建日志工厂和日志记录器
-        // var loggerFactory = LoggerFactory.Create(builder =>
-        // {
-        //     builder.AddConsole();
-        //     builder.SetMinimumLevel(LogLevel.Debug);
-        // });
-        //
+        // _logger = LoggerFactory.CreateLogger(nameof(NetworkManager));
+
         // _logger = loggerFactory.CreateLogger(nameof(NetworkManager));
 
         // 扫描程序集，查找服务客户端和接收器处理器
@@ -194,17 +239,17 @@ public static class NetworkManager
 
         // 创建新的网络客户端
         var client = new NetworkClient(
-            _logger,
+            _logger!,
             nodeInfo.Host,
             nodeInfo.Port,
             pulseService,
             nodeInfo.Options);
 
         // 配置客户端选项
-        ConfigureClient(client, nodeInfo.Options);
+        ConfigureClient(client, nodeInfo.Options!);
 
         // 创建序列化器
-        nodeInfo.Serializer = nodeInfo.Options.SerializerFactory();
+        nodeInfo.Serializer = nodeInfo.Options!.SerializerFactory();
 
         // 更新节点信息
         nodeInfo.Client = client;
@@ -348,7 +393,7 @@ public static class NetworkManager
         var client = GetOrCreateClient(nodeName);
 
         // 注册接收器处理器
-        return RegisterReceiverHandler(client, nodeInfo.Serializer, receiver);
+        return RegisterReceiverHandler(client, nodeInfo.Serializer!, receiver);
     }
 
     private static TService CreateServiceClient<TService>(NetworkClient client)
@@ -364,7 +409,7 @@ public static class NetworkManager
         // 创建客户端实例
         try
         {
-            return (TService)Activator.CreateInstance(clientType, client);
+            return (TService)Activator.CreateInstance(clientType, client)!;
         }
         catch (Exception ex)
         {
@@ -526,7 +571,7 @@ public static class NetworkManager
                         _logger?.LogInformation("正在重新连接到服务节点 {NodeName} ({Host}:{Port})，第 {Attempt} 次尝试",
                             nodeInfo.Name, nodeInfo.Host, nodeInfo.Port, attemptCount);
 
-                        await nodeInfo.Client?.ConnectAsync();
+                        await nodeInfo.Client?.ConnectAsync()!;
 
                         _logger?.LogInformation("已重新连接到服务节点 {NodeName} ({Host}:{Port})",
                             nodeInfo.Name, nodeInfo.Host, nodeInfo.Port);
