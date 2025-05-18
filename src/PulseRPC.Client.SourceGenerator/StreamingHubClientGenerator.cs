@@ -213,7 +213,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
         sb.AppendLine("using MemoryPack;");
-        sb.AppendLine("using static MemoryPack.MemoryPackSerializerOptions;");
+        sb.AppendLine("using static MemoryPack.MemoryPackFormatterProvider;");
         sb.AppendLine();
 
         sb.AppendLine($"namespace {namespaceName}");
@@ -296,8 +296,8 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                 responseClassDefinitions.Add(responseClassName);
             }
 
-            // 为0或1个参数的方法准备请求类名
-            sb.AppendLine($"        public {returnType} {methodSymbol.Name}({parameters})");
+            // 生成方法实现
+            sb.AppendLine($"        public async {returnType} {methodSymbol.Name}({parameters})");
             sb.AppendLine("        {");
 
             if (methodSymbol.Parameters.Length == 1)
@@ -404,21 +404,31 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
         // 实现IStreamingHub接口方法
         sb.AppendLine($"        public {hubType.ToDisplayString()} WithDeadline(DateTime deadline)");
         sb.AppendLine("        {");
-        sb.AppendLine("            return this;");
+        sb.AppendLine("            // 保存新的截止时间");
+        sb.AppendLine("            var client = new " + clientClassName + "(_client);");
+        sb.AppendLine("            client._defaultDeadline = deadline;");
+        sb.AppendLine("            return client;");
         sb.AppendLine("        }");
         sb.AppendLine();
 
         sb.AppendLine(
             $"        public {hubType.ToDisplayString()} WithCancellationToken(CancellationToken cancellationToken)");
         sb.AppendLine("        {");
-        sb.AppendLine("            return this;");
+        sb.AppendLine("            // 保存新的取消令牌");
+        sb.AppendLine("            var client = new " + clientClassName + "(_client);");
+        sb.AppendLine("            client._defaultCancellationToken = cancellationToken;");
+        sb.AppendLine("            return client;");
         sb.AppendLine("        }");
         sb.AppendLine();
 
         sb.AppendLine($"        public {hubType.ToDisplayString()} WithHost(string host)");
         sb.AppendLine("        {");
-        sb.AppendLine("            return this;");
+        sb.AppendLine("            // 保存新的主机名");
+        sb.AppendLine("            var client = new " + clientClassName + "(_client);");
+        sb.AppendLine("            client._host = host;");
+        sb.AppendLine("            return client;");
         sb.AppendLine("        }");
+        sb.AppendLine();
 
         sb.AppendLine("    }");
 
@@ -473,7 +483,7 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
                 foreach (var param in methodSymbol.Parameters)
                 {
                     var propertyName = param.Name.ToPascalCase();
-                    sb.AppendLine($"        public {param.Type} {propertyName} {{ get; set; }}");
+                    sb.AppendLine($"        public {param.Type.ToDisplayString()} {propertyName} {{ get; set; }}");
                 }
 
                 sb.AppendLine("    }");
@@ -500,28 +510,42 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
 
     private static string ExtractTaskResultType(ITypeSymbol returnType)
     {
+        // 从Task<T>中提取T的类型
         if (returnType is INamedTypeSymbol namedType &&
             namedType.IsGenericType &&
             namedType.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<T>")
         {
             return namedType.TypeArguments[0].ToDisplayString();
         }
+
+        // 对于非Task类型，直接返回类型名
         return returnType.ToDisplayString();
     }
 
     private static ITypeSymbol ExtractTaskResultTypeSymbol(ITypeSymbol returnType)
     {
+        // 从Task<T>中提取T的类型
         if (returnType is INamedTypeSymbol namedType &&
             namedType.IsGenericType &&
             namedType.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<T>")
         {
             return namedType.TypeArguments[0];
         }
+
+        // 对于非Task类型，直接返回类型
         return returnType;
     }
 
     private static bool IsMemoryPackableType(ITypeSymbol type)
     {
+        // 任务类型不能直接作为MemoryPackable类型
+        if (type is INamedTypeSymbol namedReturnType &&
+            namedReturnType.IsGenericType &&
+            namedReturnType.ConstructedFrom.ToDisplayString() == "System.Threading.Tasks.Task<T>")
+        {
+            return false;
+        }
+
         // 检查是否已经实现IMemoryPackable<T>
         foreach (var iface in type.AllInterfaces)
         {
@@ -533,7 +557,13 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             }
         }
 
-        // 是否是基本类型（需要包装）
+        // 是否有[MemoryPackable]特性
+        if (type.GetAttributes().Any(attr => attr.AttributeClass?.Name == "MemoryPackableAttribute"))
+        {
+            return true;
+        }
+
+        // 基本类型需要包装
         if (type.IsValueType || type.SpecialType == SpecialType.System_String)
         {
             return false;
@@ -545,7 +575,24 @@ public class StreamingHubClientGenerator : IIncrementalGenerator
             return false;
         }
 
-        return true;
+        // 集合类型需要包装
+        if (type is IArrayTypeSymbol ||
+            (type is INamedTypeSymbol collectionType &&
+             (ImplementsInterface(collectionType, "System.Collections.Generic.IEnumerable`1") ||
+              ImplementsInterface(collectionType, "System.Collections.Generic.ICollection`1") ||
+              ImplementsInterface(collectionType, "System.Collections.Generic.IList`1") ||
+              ImplementsInterface(collectionType, "System.Collections.Generic.IDictionary`2"))))
+        {
+            return false;
+        }
+
+        // 默认假设其他复杂类型需要包装
+        return false;
+    }
+
+    private static bool ImplementsInterface(INamedTypeSymbol type, string interfaceName)
+    {
+        return type.AllInterfaces.Any(i => i.IsGenericType && i.ConstructedFrom.ToDisplayString() == interfaceName);
     }
 
     private static bool IsMemoryPackableType(string typeName)
