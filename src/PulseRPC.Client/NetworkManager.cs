@@ -50,32 +50,32 @@ public class NodeOptions
     /// 序列化器工厂
     /// </summary>
     public Func<IPulseRPCSerializer> SerializerFactory { get; set; } = () => new MemoryPackRpcSerializer();
-    
+
     /// <summary>
     /// 发送缓冲区大小
     /// </summary>
     public int SendBufferSize { get; set; } = 262144; // 256KB
-    
+
     /// <summary>
     /// 接收缓冲区大小
     /// </summary>
     public int RecvBufferSize { get; set; } = 262144; // 256KB
-    
+
     /// <summary>
     /// 最大数据包大小
     /// </summary>
     public int MaxPacketSize { get; set; } = 65535; // 64KB - 1
-    
+
     /// <summary>
     /// 压缩阈值
     /// </summary>
     public int CompressionThreshold { get; set; } = 1024; // 1KB
-    
+
     /// <summary>
     /// 请求超时时间(毫秒)
     /// </summary>
     public int RequestTimeout { get; set; } = 10000;
-    
+
     /// <summary>
     /// 转换为NetworkOptions
     /// </summary>
@@ -137,7 +137,7 @@ public class NodeInfo
 /// </summary>
 public static class NetworkManager
 {
-    private static readonly ILogger? _logger;
+    private static ILogger? _logger;
     private static readonly object _syncLock = new object();
 
     private static readonly ConcurrentDictionary<string, NodeInfo> _nodes = new();
@@ -157,6 +157,11 @@ public static class NetworkManager
 
         // 扫描程序集，查找服务客户端和接收器处理器
         ScanAssemblies();
+    }
+
+    public static void SetLogger(ILogger logger)
+    {
+        _logger = logger;
     }
 
     /// <summary>

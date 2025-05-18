@@ -3,7 +3,7 @@
 /// <summary>
 /// 标记用于生成PulseRPC客户端代码的类
 /// </summary>
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+[AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
 public sealed class PulseClientGenerationAttribute : Attribute
 {
     /// <summary>

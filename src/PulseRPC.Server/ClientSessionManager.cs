@@ -514,7 +514,7 @@ private readonly ILogger<ClientSessionManager> _logger;
     /// <summary>
     /// 向所有客户端发送通知
     /// </summary>
-    internal async Task SendToAllAsync<T>(T message) where T : IMemoryPackable<T>
+    public async Task SendToAllAsync<T>(T message) where T : IMemoryPackable<T>
     {
         if (message == null)
             throw new ArgumentNullException(nameof(message));

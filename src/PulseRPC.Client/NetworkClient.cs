@@ -318,9 +318,7 @@ public class NetworkClient : IDisposable
     /// <returns>是否为连接异常</returns>
     private bool IsConnectionException(Exception ex)
     {
-        return ex is SocketException ||
-               ex is IOException ||
-               ex is ObjectDisposedException;
+        return ex is SocketException or IOException;
     }
 
     /// <summary>
@@ -401,6 +399,51 @@ public class NetworkClient : IDisposable
         CleanupConnection();
 
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// 创建服务客户端
+    /// </summary>
+    /// <typeparam name="T">服务接口类型</typeparam>
+    /// <returns>服务客户端代理</returns>
+    public T CreateServiceClient<T>() where T : class
+    {
+        _logger.LogDebug("创建服务客户端: {ServiceType}", typeof(T).Name);
+
+        // 查找生成的客户端类
+        var clientTypeName = $"{typeof(T).FullName}Client";
+        var clientType = typeof(T).Assembly.GetType(clientTypeName);
+        
+        if (clientType == null)
+        {
+            clientType = Type.GetType(clientTypeName);
+        }
+        
+        if (clientType == null)
+        {
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                clientType = assembly.GetType(clientTypeName);
+                if (clientType != null)
+                    break;
+            }
+        }
+        
+        if (clientType == null)
+        {
+            throw new InvalidOperationException($"未找到服务类型 {typeof(T).FullName} 的客户端实现");
+        }
+        
+        _logger.LogDebug("找到客户端类型: {ClientType}", clientType.FullName);
+
+        // 创建客户端实例
+        var client = Activator.CreateInstance(clientType, this);
+        if (client == null)
+        {
+            throw new InvalidOperationException($"无法创建 {clientType.FullName} 的实例");
+        }
+        
+        return (T)client;
     }
 }
 

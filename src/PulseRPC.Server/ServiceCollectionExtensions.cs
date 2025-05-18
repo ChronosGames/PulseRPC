@@ -33,6 +33,9 @@ public static class ServiceCollectionExtensions
         // 处理器扫描和注册
         services.AddSingleton<HandlerScanner>();
 
+        // 注册自定义 ClientSessionManager
+        services.AddSingleton<IClientSessionManager, ClientSessionManager>();
+
         // 服务注册
         services.AddSingleton<IPulseService, PulseService>();
 
