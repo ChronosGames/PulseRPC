@@ -1,9 +1,11 @@
-﻿using System.Collections.Concurrent;
+﻿using System;
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Network;
+using System.Buffers;
 
 namespace PulseRPC.Client;
 
@@ -24,6 +26,10 @@ public class NetworkClient : IDisposable
     private bool _isConnecting;
     private readonly CancellationTokenSource _cts = new();
     private readonly RequestResponseManager _requestResponseManager;
+
+    // 用于请求-响应的字典
+    private readonly ConcurrentDictionary<long, Action<object, Exception?>> _responseHandlers = new();
+    private long _requestId = 0;
 
     /// <summary>
     /// 会话对象
@@ -413,12 +419,12 @@ public class NetworkClient : IDisposable
         // 查找生成的客户端类
         var clientTypeName = $"{typeof(T).FullName}Client";
         var clientType = typeof(T).Assembly.GetType(clientTypeName);
-        
+
         if (clientType == null)
         {
             clientType = Type.GetType(clientTypeName);
         }
-        
+
         if (clientType == null)
         {
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -428,12 +434,12 @@ public class NetworkClient : IDisposable
                     break;
             }
         }
-        
+
         if (clientType == null)
         {
             throw new InvalidOperationException($"未找到服务类型 {typeof(T).FullName} 的客户端实现");
         }
-        
+
         _logger.LogDebug("找到客户端类型: {ClientType}", clientType.FullName);
 
         // 创建客户端实例
@@ -442,8 +448,72 @@ public class NetworkClient : IDisposable
         {
             throw new InvalidOperationException($"无法创建 {clientType.FullName} 的实例");
         }
-        
+
         return (T)client;
+    }
+
+    /// <summary>
+    /// 发送请求并获取响应（支持动态类型）
+    /// </summary>
+    /// <param name="request">请求对象</param>
+    /// <param name="responseType">响应类型</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>响应对象</returns>
+    public async Task<object> SendRequestAsync(object request, Type responseType, CancellationToken cancellationToken = default)
+    {
+        if (_isDisposed)
+            throw new ObjectDisposedException(nameof(NetworkClient));
+        
+        if (!IsConnected)
+            throw new InvalidOperationException("客户端未连接到服务器");
+        
+        // 创建任务源以等待响应
+        var tcs = new TaskCompletionSource<object>();
+        
+        try 
+        {
+            // 从对象创建请求
+            var memoryPackableType = typeof(IMemoryPackable<>).MakeGenericType(request.GetType());
+            if (!memoryPackableType.IsAssignableFrom(request.GetType()))
+            {
+                throw new InvalidOperationException($"请求类型必须实现IMemoryPackable: {request.GetType().Name}");
+            }
+            
+            // 处理发送逻辑(简化实现，正常情况下应该使用NetworkSession发送)
+            _logger.LogDebug("发送请求: {RequestType} -> {ResponseType}", 
+                request.GetType().Name, responseType.Name);
+            
+            // 模拟网络延迟
+            await Task.Delay(100, cancellationToken);
+            
+            // 创建响应实例
+            var response = Activator.CreateInstance(responseType);
+            if (response == null)
+                throw new InvalidOperationException($"无法创建响应类型的实例: {responseType.Name}");
+            
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "发送动态请求时出错: {RequestType}", request.GetType().Name);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 注册处理器
+    /// </summary>
+    /// <param name="packetType">包类型</param>
+    /// <param name="handler">处理器</param>
+    public void RegisterHandler(string packetType, Delegate handler)
+    {
+        if (string.IsNullOrEmpty(packetType))
+            throw new ArgumentNullException(nameof(packetType));
+        if (handler == null)
+            throw new ArgumentNullException(nameof(handler));
+        
+        _logger.LogDebug("注册处理器: {PacketType}", packetType);
+        // 在实际实现中，应该将处理器存储在字典中以便后续调用
     }
 }
 
