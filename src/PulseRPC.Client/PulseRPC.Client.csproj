@@ -4,12 +4,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
-    <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\PulseRPC.Core\PulseRPC.Core.csproj" />
+    <ProjectReference Include="..\PulseRPC.Shared\PulseRPC.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>

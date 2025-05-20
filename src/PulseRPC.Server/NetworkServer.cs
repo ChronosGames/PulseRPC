@@ -1,222 +1,481 @@
 ﻿using System.Net;
 using System.Net.Sockets;
-using MemoryPack;
-using Microsoft.Extensions.Logging;
-using PulseRPC.Network;
+using PulseRPC.Messaging;
+using PulseRPC.Serialization;
 
 namespace PulseRPC.Server;
 
 /// <summary>
-/// 网络服务器
+/// 服务器端监听器
 /// </summary>
 public class NetworkServer : IDisposable
 {
-    private readonly ILogger _logger;
-    private readonly NetworkOptions _options;
-    private readonly IPulseService _pulseService;
-    private readonly IClientSessionManager _sessionManager;
-    private readonly Socket _listenSocket;
-    private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+    private readonly TcpListener _listener;
+    private readonly ISerializer _serializer;
+    private readonly List<ClientSession> _clients = new();
+    private readonly Dictionary<string, object> _serviceImplementations = new();
+    private readonly object _syncLock = new object();
     private bool _isRunning;
-    private bool _isDisposed;
+    private CancellationTokenSource? _cts;
 
-    /// <summary>
-    /// 客户端连接事件
-    /// </summary>
-    public event Action<NetworkSession>? ClientConnected;
-
-    /// <summary>
-    /// 客户端断开连接事件
-    /// </summary>
-    public event Action<NetworkSession, Exception?>? ClientDisconnected;
-
-    public event Action<Exception>? ErrorOccurred;
-
-    /// <summary>
-    /// 构造函数
-    /// </summary>
-    public NetworkServer(ILogger<NetworkServer> logger, IPulseService pulseService,
-        IClientSessionManager sessionManager,
-        NetworkOptions? options = null)
+    public NetworkServer(int port = 7000)
     {
-        _logger = logger;
-        _options = options ?? new NetworkOptions();
-        _sessionManager = sessionManager;
-        _pulseService = pulseService ?? throw new ArgumentNullException(nameof(pulseService));
-        _listenSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        _listener = new TcpListener(IPAddress.Any, port);
+        _serializer = new PulseRPCSerializer();
     }
 
-    /// <summary>
-    /// 启动服务器
-    /// </summary>
-    public async Task StartAsync(IPEndPoint endPoint, int backlog = 100)
+    public void RegisterService<T>(T implementation) where T : class, INetworkService
+    {
+        string serviceName = typeof(T).Name;
+        lock (_syncLock)
+        {
+            _serviceImplementations[serviceName] = implementation;
+        }
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (_isRunning)
-        {
             return;
-        }
 
-        ObjectDisposedException.ThrowIf(_isDisposed, nameof(NetworkServer));
+        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _isRunning = true;
+
+        _listener.Start();
 
         try
         {
-            // 配置Socket选项
-            _listenSocket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
-
-            _listenSocket.Bind(endPoint);
-            _listenSocket.Listen(backlog);
-            _isRunning = true;
-
-            _logger.LogDebug("服务器已启动，监听地址: {IPEndPoint}", endPoint);
-
-            // 开始接受客户端连接
-            _ = AcceptClientsAsync();
-        }
-        catch (Exception e)
-        {
-            ErrorOccurred?.Invoke(e);
-            _logger.LogError(e, $"启动服务器时出错");
-            throw;
-        }
-
-        // 等待启动完成
-        await Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// 接受客户端连接
-    /// </summary>
-    private async Task AcceptClientsAsync()
-    {
-        while (_isRunning && !_cts.IsCancellationRequested)
-        {
-            try
+            while (!_cts.IsCancellationRequested)
             {
-                var clientSocket = await _listenSocket.AcceptAsync(_cts.Token);
+                var client = await _listener.AcceptTcpClientAsync(_cts.Token);
 
-                // 设置远程地址信息
-                var remoteEndPoint = clientSocket.RemoteEndPoint as IPEndPoint;
-                var clientId = $"{remoteEndPoint!.Address}:{remoteEndPoint.Port}";
+                // 创建客户端会话
+                var session = new ClientSession(client, _serializer, this);
 
-                _logger.LogDebug($"接受新连接: {clientId}");
-
-                // 创建网络会话
-                var session = new NetworkSession(_logger, clientSocket, _pulseService, _options);
-
-                // 注册会话到会话管理器
-                _sessionManager.RegisterSession(clientId, session);
-
-                // 开始处理消息
-                _ = ProcessClientAsync(clientId, session);
-
-                // 触发连接事件
-                ClientConnected?.Invoke(session);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                if (_isRunning)
+                // 添加到客户端列表
+                lock (_syncLock)
                 {
-                    ErrorOccurred?.Invoke(ex);
-                    _logger.LogError($"接受客户端连接时出错: {ex.Message}");
-
-                    // 短暂延迟避免CPU占用过高
-                    await Task.Delay(100);
+                    _clients.Add(session);
                 }
+
+                // 启动处理
+                _ = HandleClientSessionAsync(session);
             }
         }
-    }
-
-    /// <summary>
-    /// 处理客户端会话
-    /// </summary>
-    private async Task ProcessClientAsync(string clientId, NetworkSession session)
-    {
-        try
+        catch (OperationCanceledException)
         {
-            // 处理客户端消息
-            await session.ProcessMessagesAsync();
+            // 正常停止
         }
         catch (Exception ex)
         {
-            ErrorOccurred?.Invoke(ex);
-            _logger.LogError($"处理客户端 {clientId} 时出错: {ex.Message}");
+            Console.WriteLine($"Server error: {ex.Message}");
         }
         finally
         {
-            // 从会话管理器中注销会话
-            _sessionManager.UnregisterSession(clientId);
-
-            // 关闭会话
-            session.Dispose();
-
-            // 触发事件
-            ClientDisconnected?.Invoke(session, null);
-            _logger.LogDebug($"客户端已断开: {clientId}");
+            _listener.Stop();
+            _isRunning = false;
         }
     }
 
-    /// <summary>
-    /// 基于类型ID和客户端ID创建会话组
-    /// </summary>
-    public void CreateTypeBasedGroup<T>(string groupId) where T : IMemoryPackable<T>
-    {
-        var typeName = typeof(T).Name;
-        _logger.LogInformation($"为类型 {typeName} 创建会话组 {groupId}");
-    }
-
-    /// <summary>
-    /// 停止服务器
-    /// </summary>
-    public void Stop()
+    public async Task StopAsync()
     {
         if (!_isRunning)
-        {
             return;
+
+        _cts?.Cancel();
+
+        // 关闭所有客户端连接
+        ClientSession[] clients;
+        lock (_syncLock)
+        {
+            clients = _clients.ToArray();
+            _clients.Clear();
+        }
+
+        foreach (var client in clients)
+        {
+            await client.CloseAsync();
         }
 
         _isRunning = false;
+    }
 
-        _cts.Cancel();
-
-        try
+    public async Task BroadcastEventAsync<T>(string eventName, T eventData)
+    {
+        ClientSession[] clients;
+        lock (_syncLock)
         {
-            _listenSocket.Close();
+            clients = _clients.ToArray();
         }
-        catch
+
+        byte[] eventBytes = _serializer.Serialize(eventData);
+
+        foreach (var client in clients)
         {
-            // 忽略关闭时的异常
+            try
+            {
+                await client.SendEventAsync(eventName, eventBytes);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error broadcasting to client: {ex.Message}");
+            }
         }
     }
 
-    /// <summary>
-    /// 释放资源
-    /// </summary>
-    public void Dispose()
+    internal object? GetServiceImplementation(string serviceName)
     {
-        if (_isDisposed)
+        lock (_syncLock)
         {
-            return;
+            if (_serviceImplementations.TryGetValue(serviceName, out var implementation))
+            {
+                return implementation;
+            }
+
+            return null;
         }
+    }
 
-        _isDisposed = true;
-
-        Stop();
-
-        _cts.Dispose();
-
+    private async Task HandleClientSessionAsync(ClientSession session)
+    {
         try
         {
-            _listenSocket.Dispose();
+            await session.ProcessMessagesAsync();
         }
-        catch
+        finally
         {
-            // 忽略异常
+            // 移除客户端
+            lock (_syncLock)
+            {
+                _clients.Remove(session);
+            }
+
+            // 关闭会话
+            await session.CloseAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        StopAsync().GetAwaiter().GetResult();
+        _cts?.Dispose();
+    }
+
+    // 内部类：客户端会话
+    private class ClientSession
+    {
+        private readonly TcpClient _client;
+        private readonly NetworkStream _stream;
+        private readonly ISerializer _serializer;
+        private readonly NetworkServer _server;
+        private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+        private bool _isClosed;
+
+        public ClientSession(TcpClient client, ISerializer serializer, NetworkServer server)
+        {
+            _client = client;
+            _stream = client.GetStream();
+            _serializer = serializer;
+            _server = server;
         }
 
-        GC.SuppressFinalize(this);
+        public async Task ProcessMessagesAsync()
+        {
+            byte[] lengthBuffer = new byte[4];
+
+            while (!_isClosed && _client.Connected)
+            {
+                try
+                {
+                    // 读取消息长度
+                    if (!await ReadExactBytesAsync(lengthBuffer, 0, 4))
+                        break;
+
+                    int messageLength = BitConverter.ToInt32(lengthBuffer);
+
+                    // 读取消息内容
+                    byte[] messageBuffer = new byte[messageLength];
+                    if (!await ReadExactBytesAsync(messageBuffer, 0, messageLength))
+                        break;
+
+                    // 处理消息
+                    await HandleMessageAsync(messageBuffer);
+                }
+                catch (IOException)
+                {
+                    // 连接断开
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error processing client message: {ex.Message}");
+                }
+            }
+        }
+
+        private async Task<bool> ReadExactBytesAsync(byte[] buffer, int offset, int count)
+        {
+            int bytesRead = 0;
+            while (bytesRead < count)
+            {
+                int read = await _stream.ReadAsync(buffer, offset + bytesRead, count - bytesRead);
+                if (read == 0)
+                    return false; // 连接关闭
+
+                bytesRead += read;
+            }
+
+            return true;
+        }
+
+        private async Task HandleMessageAsync(byte[] messageData)
+        {
+            using var ms = new MemoryStream(messageData);
+            using var reader = new BinaryReader(ms);
+
+            // 读取头部长度
+            int headerLength = reader.ReadInt32();
+
+            // 读取头部
+            byte[] headerBytes = reader.ReadBytes(headerLength);
+            var header = _serializer.Deserialize<MessageHeader>(headerBytes);
+
+            // 读取消息体
+            byte[] body = new byte[messageData.Length - 4 - headerLength];
+            reader.Read(body, 0, body.Length);
+
+            switch (header.Type)
+            {
+                case MessageType.Request:
+                    await HandleRequestAsync(header, body);
+                    break;
+
+                case MessageType.Ping:
+                    await HandlePingAsync(header);
+                    break;
+
+                default:
+                    Console.WriteLine($"Received unsupported message type: {header.Type}");
+                    break;
+            }
+        }
+
+        private async Task HandleRequestAsync(MessageHeader header, byte[] body)
+        {
+            // 查找服务实现
+            var service = _server.GetServiceImplementation(header.ServiceName);
+            if (service == null)
+            {
+                await SendErrorResponseAsync(header, "Service not found");
+                return;
+            }
+
+            // 查找方法
+            var method = service.GetType().GetMethod(header.MethodName);
+            if (method == null)
+            {
+                await SendErrorResponseAsync(header, "Method not found");
+                return;
+            }
+
+            try
+            {
+                // 反序列化请求参数
+                var parameters = method.GetParameters();
+                object[] args = new object[parameters.Length];
+
+                if (parameters.Length > 0)
+                {
+                    // 第一个参数是请求对象
+                    args[0] = _serializer.Deserialize(body, parameters[0].ParameterType);
+
+                    // 最后一个参数可能是取消令牌
+                    if (parameters.Length > 1 &&
+                        parameters[parameters.Length - 1].ParameterType == typeof(CancellationToken))
+                    {
+                        args[parameters.Length - 1] = CancellationToken.None;
+                    }
+                }
+
+                // 调用方法
+                object result = method.Invoke(service, args)!;
+
+                // 处理异步结果
+                if (result is Task task)
+                {
+                    if (method.ReturnType.IsGenericType)
+                    {
+                        // 有返回值的任务
+                        await task;
+
+                        // 获取结果
+                        var resultProperty = task.GetType().GetProperty("Result");
+                        var taskResult = resultProperty!.GetValue(task);
+
+                        // 发送响应
+                        await SendSuccessResponseAsync(header, taskResult!);
+                    }
+                    else
+                    {
+                        // 无返回值的任务
+                        await task;
+
+                        // 发送空响应
+                        await SendSuccessResponseAsync(header, new { });
+                    }
+                }
+                else if (result is ValueTask valueTask)
+                {
+                    // 有返回值的ValueTask
+                    var taskAwaiter = valueTask.GetType().GetMethod("GetAwaiter")!.Invoke(valueTask, null);
+                    var getResultMethod = taskAwaiter!.GetType().GetMethod("GetResult");
+
+                    await ((valueTask.GetType().GetMethod("AsTask")!.Invoke(valueTask, null)! as Task)!);
+
+                    var taskResult = getResultMethod!.Invoke(taskAwaiter, null);
+
+                    // 发送响应
+                    await SendSuccessResponseAsync(header, taskResult!);
+                }
+                else
+                {
+                    // 同步结果
+                    await SendSuccessResponseAsync(header, result!);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 处理异常
+                await SendErrorResponseAsync(header, ex.InnerException?.Message ?? ex.Message);
+            }
+        }
+
+        private async Task HandlePingAsync(MessageHeader header)
+        {
+            // 创建响应头部
+            var responseHeader = new MessageHeader
+            {
+                Type = MessageType.Pong,
+                MessageId = header.MessageId,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            // 发送Pong响应
+            await SendMessageAsync(responseHeader, Array.Empty<byte>());
+        }
+
+        private async Task SendSuccessResponseAsync(MessageHeader requestHeader, object responseData)
+        {
+            // 创建响应头部
+            var responseHeader = new MessageHeader
+            {
+                Type = MessageType.Response,
+                MessageId = requestHeader.MessageId,
+                ServiceName = requestHeader.ServiceName,
+                MethodName = requestHeader.MethodName,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            // 序列化响应数据
+            byte[] responseBody = _serializer.Serialize(responseData);
+
+            // 发送响应
+            await SendMessageAsync(responseHeader, responseBody);
+        }
+
+        private async Task SendErrorResponseAsync(MessageHeader requestHeader, string errorMessage)
+        {
+            // 创建错误响应
+            var errorResponse = new { Success = false, ErrorMessage = errorMessage };
+
+            // 创建响应头部
+            var responseHeader = new MessageHeader
+            {
+                Type = MessageType.Response,
+                MessageId = requestHeader.MessageId,
+                ServiceName = requestHeader.ServiceName,
+                MethodName = requestHeader.MethodName,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            // 序列化错误响应
+            byte[] responseBody = _serializer.Serialize(errorResponse);
+
+            // 发送响应
+            await SendMessageAsync(responseHeader, responseBody);
+        }
+
+        public async Task SendEventAsync(string eventName, byte[] eventData)
+        {
+            // 创建事件头部
+            var eventHeader = new MessageHeader
+            {
+                Type = MessageType.Event,
+                MessageId = Guid.NewGuid(),
+                MethodName = eventName,
+                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+
+            // 发送事件
+            await SendMessageAsync(eventHeader, eventData);
+        }
+
+        private async Task SendMessageAsync(MessageHeader header, byte[] body)
+        {
+            // 序列化头部
+            byte[] headerBytes = _serializer.Serialize(header);
+
+            // 创建完整消息
+            using var ms = new MemoryStream();
+            using var writer = new BinaryWriter(ms);
+
+            // 写入头部长度
+            writer.Write(headerBytes.Length);
+            // 写入头部
+            writer.Write(headerBytes);
+            // 写入消息体
+            writer.Write(body);
+
+            // 发送消息
+            byte[] messageData = ms.ToArray();
+
+            await _sendLock.WaitAsync();
+            try
+            {
+                if (!_isClosed && _client.Connected)
+                {
+                    // 发送长度前缀
+                    byte[] lengthBytes = BitConverter.GetBytes(messageData.Length);
+                    await _stream.WriteAsync(lengthBytes, 0, lengthBytes.Length);
+
+                    // 发送消息数据
+                    await _stream.WriteAsync(messageData, 0, messageData.Length);
+                }
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public async Task CloseAsync()
+        {
+            if (_isClosed)
+                return;
+
+            _isClosed = true;
+
+            await _sendLock.WaitAsync();
+            try
+            {
+                _client?.Close();
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+
+            _sendLock.Dispose();
+        }
     }
 }

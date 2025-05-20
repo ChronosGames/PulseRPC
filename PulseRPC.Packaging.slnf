@@ -2,8 +2,9 @@
   "solution": {
     "path": "PulseRPC.sln",
     "projects": [
+      "src\\PulseRPC.Abstractions\\PulseRPC.Abstractions.csproj",
+      "src\\PulseRPC.Shared\\PulseRPC.Shared.csproj",
       "src\\PulseRPC.Client\\PulseRPC.Client.csproj",
-      "src\\PulseRPC.Core\\PulseRPC.Core.csproj",
       "src\\PulseRPC.Server\\PulseRPC.Server.csproj"
     ]
   }
