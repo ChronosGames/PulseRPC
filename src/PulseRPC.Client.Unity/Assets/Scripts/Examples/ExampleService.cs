@@ -5,6 +5,24 @@ using PulseRPC.Protocol.Attributes;
 
 namespace PulseRPC.Examples
 {
+    [GameService]
+    public interface IPlayerService : INetworkService
+    {
+        Task<LoginResponse> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default);
+
+        Task MoveAsync(MoveRequest request, CancellationToken cancellationToken = default);
+
+        // 使用SubscriptionMethod特性标记订阅方法，避免仅靠命名约定
+        [SubscriptionMethod("PlayerJoined")]
+        ISubscriptionToken SubscribeToPlayerJoined(NetworkEventHandler<PlayerJoinedEvent> handler);
+
+        [SubscriptionMethod("PlayerLeft")]
+        ISubscriptionToken SubscribeToPlayerLeft(NetworkEventHandler<PlayerLeftEvent> handler);
+
+        [SubscriptionMethod("PlayerMoved")]
+        ISubscriptionToken SubscribeToPlayerMoved(NetworkEventHandler<PlayerMovedEvent> handler);
+    }
+
     /// <summary>
     /// 问候请求消息
     /// </summary>
