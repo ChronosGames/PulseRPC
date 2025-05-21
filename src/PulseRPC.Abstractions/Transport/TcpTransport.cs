@@ -53,11 +53,10 @@ namespace PulseRPC.Transport.Tcp
                 _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
 
                 // 设置保活选项
-                byte[] keepAliveValues = new byte[12];
+                var keepAliveValues = new byte[12];
                 Buffer.BlockCopy(BitConverter.GetBytes(1), 0, keepAliveValues, 0, 4);  // 启用保活
                 Buffer.BlockCopy(BitConverter.GetBytes(_options.KeepAliveInterval), 0, keepAliveValues, 4, 4);  // 保活间隔
                 Buffer.BlockCopy(BitConverter.GetBytes(1000), 0, keepAliveValues, 8, 4);  // 保活探测间隔
-
                 _socket.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
             }
         }

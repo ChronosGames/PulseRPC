@@ -34,88 +34,88 @@ public interface IChannelManager : IDisposable
 }
 
 /// <summary>
-    /// 通道管理器实现
-    /// </summary>
-    public class ChannelManager : IChannelManager
+/// 通道管理器实现
+/// </summary>
+public class ChannelManager : IChannelManager
+{
+    private readonly Dictionary<string, IMessageChannel> _channels = new();
+    private string? _defaultChannelName;
+    private readonly object _syncLock = new object();
+
+    public IMessageChannel GetChannel(string channelName)
     {
-        private readonly Dictionary<string, IMessageChannel> _channels = new();
-        private string? _defaultChannelName;
-        private readonly object _syncLock = new object();
-
-        public IMessageChannel GetChannel(string channelName)
+        lock (_syncLock)
         {
-            lock (_syncLock)
+            if (_channels.TryGetValue(channelName, out var channel))
             {
-                if (_channels.TryGetValue(channelName, out var channel))
-                {
-                    return channel;
-                }
-
-                throw new ArgumentException($"Channel not found: {channelName}");
+                return channel;
             }
+
+            throw new ArgumentException($"Channel not found: {channelName}");
         }
+    }
 
-        public IMessageChannel GetDefaultChannel()
+    public IMessageChannel GetDefaultChannel()
+    {
+        lock (_syncLock)
         {
-            lock (_syncLock)
+            if (string.IsNullOrEmpty(_defaultChannelName))
             {
-                if (string.IsNullOrEmpty(_defaultChannelName))
-                {
-                    throw new InvalidOperationException("No default channel registered");
-                }
-
-                return GetChannel(_defaultChannelName);
+                throw new InvalidOperationException("No default channel registered");
             }
+
+            return GetChannel(_defaultChannelName);
         }
+    }
 
-        public void RegisterChannel(string channelName, IMessageChannel channel, bool isDefault = false)
+    public void RegisterChannel(string channelName, IMessageChannel channel, bool isDefault = false)
+    {
+        lock (_syncLock)
         {
-            lock (_syncLock)
+            if (_channels.ContainsKey(channelName))
             {
-                if (_channels.ContainsKey(channelName))
-                {
-                    throw new ArgumentException($"Channel already registered: {channelName}");
-                }
-
-                _channels[channelName] = channel;
-
-                if (isDefault || string.IsNullOrEmpty(_defaultChannelName))
-                {
-                    _defaultChannelName = channelName;
-                }
+                throw new ArgumentException($"Channel already registered: {channelName}");
             }
-        }
 
-        public void UnregisterChannel(string channelName)
-        {
-            lock (_syncLock)
+            _channels[channelName] = channel;
+
+            if (isDefault || string.IsNullOrEmpty(_defaultChannelName))
             {
-                if (_channels.Remove(channelName) && channelName == _defaultChannelName)
-                {
-                    _defaultChannelName = _channels.Keys.FirstOrDefault();
-                }
-            }
-        }
-
-        public bool HasChannel(string channelName)
-        {
-            lock (_syncLock)
-            {
-                return _channels.ContainsKey(channelName);
-            }
-        }
-
-        public void Dispose()
-        {
-            lock (_syncLock)
-            {
-                foreach (var channel in _channels.Values)
-                {
-                    channel.Dispose();
-                }
-
-                _channels.Clear();
-                _defaultChannelName = null;
+                _defaultChannelName = channelName;
             }
         }
     }
+
+    public void UnregisterChannel(string channelName)
+    {
+        lock (_syncLock)
+        {
+            if (_channels.Remove(channelName) && channelName == _defaultChannelName)
+            {
+                _defaultChannelName = _channels.Keys.FirstOrDefault();
+            }
+        }
+    }
+
+    public bool HasChannel(string channelName)
+    {
+        lock (_syncLock)
+        {
+            return _channels.ContainsKey(channelName);
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_syncLock)
+        {
+            foreach (var channel in _channels.Values)
+            {
+                channel.Dispose();
+            }
+
+            _channels.Clear();
+            _defaultChannelName = null;
+        }
+    }
+}
