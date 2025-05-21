@@ -9,7 +9,7 @@
     <!-- https://learn.microsoft.com/en-us/dotnet/core/sdk/artifacts-output -->
     <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
     <!-- Using .NET 7 and ealier, use BaseIntermediateOutputPath and BaseOutputPath property instead. -->
-    <!-- NOTE: Currently, even if .NET 8 SDK is installed, MessagePack.Generator still requires these properties to be set. -->
+    <!-- NOTE: Currently, even if .NET 8 SDK is installed, PulseRPC.Generator still requires these properties to be set. -->
     <BaseIntermediateOutputPath>.artifacts\obj\</BaseIntermediateOutputPath>
     <BaseOutputPath>.artifacts\bin\</BaseOutputPath>
   </PropertyGroup>
