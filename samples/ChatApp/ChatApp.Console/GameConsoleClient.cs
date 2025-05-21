@@ -6,19 +6,25 @@ using PulseRPC.Client.Channels;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
+using PulseRPC.Client;
+// using PulseRPC.Events;
 
 namespace ChatApp.Console;
 
 /// <summary>
 /// 游戏控制台客户端
 /// </summary>
+[PulseClientGeneration(typeof(IPlayerService))]
+[PulseClientGeneration(typeof(IPlayerLoginEvents))]
+[PulseClientGeneration(typeof(IPlayerMovementEvents))]
 public class GameConsoleClient
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<GameConsoleClient> _logger;
     private IChannelManager? _channelManager;
     private IPlayerService? _playerService;
-    private IPlayerEventsHandler? _eventsHandler;
+    private IPlayerLoginEventsHandler? _loginEventsHandler;
+    private IPlayerMovementEventsHandler? _movementEventsHandler;
     private ISubscriptionToken? _eventsSubscription;
     private CancellationTokenSource? _cts;
     private bool _isLoggedIn;
@@ -84,13 +90,21 @@ public class GameConsoleClient
         _channelManager.RegisterChannel("KcpChannel", kcpChannel);
 
         // 获取服务代理
-        _playerService = _channelManager.GetIPlayerService();
+        _playerService = _channelManager.GetPlayerService();
+
+        // 创建事件处理器实例
+        var eventsHandler = new PlayerEventsHandler(this);
 
         // 获取事件处理器
-        _eventsHandler = _channelManager.GetIPlayerEventsHandler();
+        _loginEventsHandler = _channelManager.GetPlayerLoginEventsHandler();
+        _movementEventsHandler = _channelManager.GetPlayerMovementEventsHandler();
 
         // 注册事件处理器
-        _eventsSubscription = _eventsHandler.Subscribe(new PlayerEventsHandler(this));
+        var loginSubscription = _loginEventsHandler.Subscribe(eventsHandler);
+        var movementSubscription = _movementEventsHandler.Subscribe(eventsHandler);
+
+        // 保存订阅令牌
+        _eventsSubscription = new CompositeSubscriptionToken(new ISubscriptionToken[] { loginSubscription, movementSubscription });
 
         _logger.LogInformation("客户端初始化完成");
     }
@@ -403,7 +417,7 @@ public class GameConsoleClient
     /// <summary>
     /// 玩家事件处理器
     /// </summary>
-    private class PlayerEventsHandler : IPlayerLoginEvents
+    private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents
     {
         private readonly GameConsoleClient _client;
 
@@ -433,6 +447,61 @@ public class GameConsoleClient
             _client.UpdatePlayerPosition(
                 eventData.PlayerId,
                 new Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
+        }
+
+        public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
+        {
+            // 批量更新玩家位置
+            foreach (var update in eventData)
+            {
+                OnPlayerMoved(update);
+            }
+        }
+
+        public void OnPlayersMovedBatch(PlayersBatchMovedEvent eventData)
+        {
+            // 批量更新玩家位置
+            foreach (var update in eventData.Updates)
+            {
+                OnPlayerMoved(update);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 组合订阅令牌
+    /// </summary>
+    private class CompositeSubscriptionToken : ISubscriptionToken
+    {
+        private readonly ISubscriptionToken[] _tokens;
+        private bool _isDisposed;
+
+        public CompositeSubscriptionToken(ISubscriptionToken[] tokens)
+        {
+            _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));
+        }
+
+        public Guid Id { get; } = Guid.NewGuid();
+
+        public bool IsActive => !_isDisposed;
+
+        public void Unsubscribe()
+        {
+            if (_isDisposed)
+                return;
+
+            foreach (var token in _tokens)
+            {
+                token.Unsubscribe();
+            }
+
+            _isDisposed = true;
+        }
+
+        public void Dispose()
+        {
+            Unsubscribe();
+            GC.SuppressFinalize(this);
         }
     }
 }
