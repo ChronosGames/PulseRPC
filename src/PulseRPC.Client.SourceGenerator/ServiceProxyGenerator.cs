@@ -14,6 +14,14 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
+        // 方法一：查找带有 ServiceContract 特性的接口
+        var serviceInterfaces =
+            context.SyntaxProvider
+                .CreateSyntaxProvider(
+                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "ServiceContract"),
+                    transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
+                .Where(static m => m.Type is not null);
+
         // 方法二：查找带有 PulseClientGeneration 特性的类
         var classDeclarations = context.SyntaxProvider
             .CreateSyntaxProvider(
@@ -21,113 +29,143 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 transform: (ctx, _) => GetServiceTypesFromClass(ctx))
             .Where(m => m.Length > 0);
 
-        // 方法一：查找带有 ServiceContract 特性的接口
-        // var serviceInterfaces =
-        //     context.SyntaxProvider
-        //         .CreateSyntaxProvider(
-        //             predicate: static (s, _) => IsInterfaceWithAttribute(s, "ServiceContract"),
-        //             transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
-        //         .Where(static m => m.Type is not null);
-
-
         // 方法三：查找带有 EventContract 特性的接口
-        // var eventInterfaces =
-        //     context.SyntaxProvider
-        //         .CreateSyntaxProvider(
-        //             predicate: static (s, _) => IsInterfaceWithAttribute(s, "EventContract"),
-        //             transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
-        //         .Where(static m => m.Type is not null);
+        var eventInterfaces =
+            context.SyntaxProvider
+                .CreateSyntaxProvider(
+                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "EventContract"),
+                    transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
+                .Where(static m => m.Type is not null);
 
-        // 合并所有服务类型
-        // var allServiceTypes = serviceInterfaces.Collect()
-        //     .Combine(classDeclarations.Collect())
-        //     .Select((tuple, _) =>
-        //     {
-        //         var result = new List<ServiceTypeInfo>();
-        //         result.AddRange(tuple.Left);
-        //
-        //         foreach (var classTypes in tuple.Right)
-        //         {
-        //             result.AddRange(classTypes);
-        //         }
-        //         return result.ToImmutableArray();
-        //     });
+        // 合并服务类型 - 从ServiceContract接口和PulseClientGeneration特性
+        var allServiceTypes = serviceInterfaces.Collect()
+            .Combine(classDeclarations.Collect())
+            .Select((tuple, _) =>
+            {
+                var result = new List<ServiceTypeInfo>();
+
+                foreach (var serviceInterface in tuple.Left)
+                {
+                    result.Add(serviceInterface);
+                }
+
+                foreach (var classDeclaration in tuple.Right)
+                {
+                    foreach (var serviceType in classDeclaration)
+                    {
+                        // 仅添加服务接口，不添加事件接口
+                        var typeName = serviceType.Type?.Name ?? string.Empty;
+                        if (!typeName.EndsWith("Events"))
+                        {
+                            result.Add(serviceType);
+                        }
+                    }
+                }
+
+                return result.ToImmutableArray();
+            });
+
+        // 合并事件类型 - 从EventContract接口和PulseClientGeneration特性
+        var allEventTypes = eventInterfaces.Collect()
+            .Combine(classDeclarations.Collect())
+            .Select((tuple, _) =>
+            {
+                var result = new List<ServiceTypeInfo>();
+
+                foreach (var eventInterface in tuple.Left)
+                {
+                    result.Add(eventInterface);
+                }
+
+                foreach (var classDeclaration in tuple.Right)
+                {
+                    foreach (var serviceType in classDeclaration)
+                    {
+                        // 仅添加事件接口
+                        var typeName = serviceType.Type?.Name ?? string.Empty;
+                        if (typeName.EndsWith("Events"))
+                        {
+                            result.Add(serviceType);
+                        }
+                    }
+                }
+
+                return result.ToImmutableArray();
+            });
 
         // 注册服务代理源代码输出
-        context.RegisterSourceOutput(classDeclarations.Collect(), (spc, serviceTypes) =>
+        context.RegisterSourceOutput(allServiceTypes, (spc, serviceTypes) =>
         {
             // 生成服务代理
-            foreach (var serviceTypeInfos in serviceTypes)
+            foreach (var serviceTypeInfo in serviceTypes)
             {
-                foreach (var serviceTypeInfo in serviceTypeInfos)
+                if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
                 {
-                    if (serviceTypeInfo.Type is INamedTypeSymbol namedType && namedType.Name.EndsWith("Service"))
-                    {
-                        var proxyCode = GenerateServiceProxy(namedType);
-                        spc.AddSource($"{namedType.Name}Proxy.g.cs", SourceText.From(proxyCode, Encoding.UTF8));
-                    }
-                    else if (serviceTypeInfo.Type is INamedTypeSymbol namedType2 && namedType2.Name.EndsWith("Events"))
-                    {
-                        var handlerCode = GenerateEventHandler(namedType2);
-                        spc.AddSource($"{namedType2.Name}Handler.g.cs", SourceText.From(handlerCode, Encoding.UTF8));
-                    }
-                    else
-                    {
-                        spc.ReportDiagnostic(Diagnostic.Create(
-                            new DiagnosticDescriptor(
-                                "PRPC101",
-                                "无效的服务类型",
-                                $"无法为类型 {serviceTypeInfo.Type} 生成代理，因为它不是 INamedTypeSymbol",
-                                "PulseRPC",
-                                DiagnosticSeverity.Error,
-                                true),
-                            Location.None));
-                    }
+                    var proxyCode = GenerateServiceProxy(namedType);
+                    spc.AddSource($"{namedType.Name}Proxy.g.cs", SourceText.From(proxyCode, Encoding.UTF8));
+                }
+                else
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        new DiagnosticDescriptor(
+                            "PRPC101",
+                            "无效的服务类型",
+                            $"无法为类型 {serviceTypeInfo.Type} 生成代理，因为它不是 INamedTypeSymbol",
+                            "PulseRPC",
+                            DiagnosticSeverity.Error,
+                            true),
+                        Location.None));
                 }
             }
 
             // 生成扩展方法
-            var extensionsCode = GenerateChannelManagerExtensions(
-                serviceTypes.SelectMany(t => t).Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray(),
-                ImmutableArray<INamedTypeSymbol>.Empty);
-            spc.AddSource("ServiceChannelManagerExtensions.g.cs", SourceText.From(extensionsCode, Encoding.UTF8));
+            var namedTypes = serviceTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+            if (namedTypes.Length > 0)
+            {
+                var extensionsCode = GenerateChannelManagerExtensions(namedTypes, ImmutableArray<INamedTypeSymbol>.Empty);
+                spc.AddSource("ServiceChannelManagerExtensions.g.cs", SourceText.From(extensionsCode, Encoding.UTF8));
+            }
         });
 
         // 注册事件处理器源代码输出
-        // context.RegisterSourceOutput(eventInterfaces.Collect(), (spc, eventTypes) =>
-        // {
-        //     // 生成事件处理器
-        //     foreach (var eventTypeInfo in eventTypes)
-        //     {
-        //         if (eventTypeInfo.Type is INamedTypeSymbol namedType)
-        //         {
-        //             var handlerCode = GenerateEventHandler(namedType);
-        //             spc.AddSource($"{namedType.Name}Handler.g.cs", SourceText.From(handlerCode, Encoding.UTF8));
-        //
-        //             // 生成事件处理器接口
-        //             var handlerInterfaceCode = GenerateEventHandlerInterface(namedType);
-        //             spc.AddSource($"I{namedType.Name}Handler.g.cs", SourceText.From(handlerInterfaceCode, Encoding.UTF8));
-        //         }
-        //         else
-        //         {
-        //             spc.ReportDiagnostic(Diagnostic.Create(
-        //                 new DiagnosticDescriptor(
-        //                     "PRPC102",
-        //                     "无效的事件类型",
-        //                     $"无法为类型 {eventTypeInfo.Type} 生成事件处理器，因为它不是 INamedTypeSymbol",
-        //                     "PulseRPC",
-        //                     DiagnosticSeverity.Error,
-        //                     true),
-        //                 Location.None));
-        //         }
-        //     }
-        //
-        //     // 生成事件扩展方法
-        //     // var eventExtensionsCode = GenerateChannelManagerExtensions(
-        //     //     ImmutableArray<INamedTypeSymbol>.Empty,
-        //     //     eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray());
-        //     // spc.AddSource("EventChannelManagerExtensions.g.cs", SourceText.From(eventExtensionsCode, Encoding.UTF8));
-        // });
+        context.RegisterSourceOutput(allEventTypes, (spc, eventTypes) =>
+        {
+            // 生成事件处理器
+            foreach (var eventTypeInfo in eventTypes)
+            {
+                if (eventTypeInfo.Type is INamedTypeSymbol namedType)
+                {
+                    var handlerCode = GenerateEventHandler(namedType);
+                    spc.AddSource($"{namedType.Name}Handler.g.cs", SourceText.From(handlerCode, Encoding.UTF8));
+
+                    // 生成事件处理器接口
+                    var handlerInterfaceCode = GenerateEventHandlerInterface(namedType);
+                    spc.AddSource($"I{namedType.Name}Handler.g.cs", SourceText.From(handlerInterfaceCode, Encoding.UTF8));
+                }
+                else
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        new DiagnosticDescriptor(
+                            "PRPC102",
+                            "无效的事件类型",
+                            $"无法为类型 {eventTypeInfo.Type} 生成事件处理器，因为它不是 INamedTypeSymbol",
+                            "PulseRPC",
+                            DiagnosticSeverity.Error,
+                            true),
+                        Location.None));
+                }
+            }
+
+            // 生成事件扩展方法
+            var namedTypes = eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+            if (namedTypes.Length > 0)
+            {
+                var eventExtensionsCode = GenerateChannelManagerExtensions(
+                    ImmutableArray<INamedTypeSymbol>.Empty,
+                    namedTypes);
+                spc.AddSource("EventChannelManagerExtensions.g.cs", SourceText.From(eventExtensionsCode, Encoding.UTF8));
+            }
+        });
     }
 
     private static ServiceTypeInfo GetServiceTypeFromInterface(GeneratorSyntaxContext context)
@@ -379,6 +417,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         var isVoid = returnType is "System.Threading.Tasks.Task" or "Task";
         var isValueTask = returnType.StartsWith("System.Threading.Tasks.ValueTask<") || returnType.StartsWith("ValueTask<");
         var isTask = returnType.StartsWith("System.Threading.Tasks.Task<") || returnType.StartsWith("Task<");
+        var isValueTaskVoid = returnType is "System.Threading.Tasks.ValueTask" or "ValueTask";
 
         // 获取返回值类型
         var responseType = "EmptyResponse";
@@ -388,9 +427,9 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         }
 
         // 生成方法调用
-        if (isVoid)
+        if (isVoid || isValueTaskVoid)
         {
-            sb.AppendLine($"            await channel.SendRequestAsync<{requestType}, EmptyResponse>(");
+            sb.AppendLine($"            await channel.SendRequestAsync<{requestType}, {responseType}>(");
             sb.AppendLine($"                \"{namespaceName}.{interfaceName}\", ");
             sb.AppendLine($"                \"{methodName}\", ");
             sb.AppendLine($"                {requestName}, ");
@@ -415,6 +454,15 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         var interfaceName = interfaceSymbol.Name;
         var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
 
+        // 确保生成的接口名称不重复I前缀
+        var handlerInterfaceName = "I" + (interfaceName.StartsWith("I")
+            ? interfaceName.Substring(1) + "Handler"
+            : interfaceName + "Handler");
+
+        var handlerClassName = interfaceName.StartsWith("I")
+            ? interfaceName.Substring(1) + "Handler"
+            : interfaceName + "Handler";
+
         // 获取通道特性
         var channelName = GetChannelAttributeValue(interfaceSymbol) ?? "default";
 
@@ -436,29 +484,11 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine("{");
 
-        // 生成处理器接口
-        sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// {interfaceName} 事件处理器接口");
-        sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public interface I{interfaceName}Handler");
-        sb.AppendLine("    {");
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 订阅事件");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        ISubscriptionToken Subscribe({interfaceName} subscriber);");
-        sb.AppendLine();
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 取消订阅事件");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        void Unsubscribe({interfaceName} subscriber);");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
         // 生成实现类
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// {interfaceName} 事件处理器实现");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public class {interfaceName}Handler : I{interfaceName}Handler");
+        sb.AppendLine($"    public class {handlerClassName} : {handlerInterfaceName}");
         sb.AppendLine("    {");
         sb.AppendLine("        private readonly IMessageChannel _channel;");
         sb.AppendLine($"        private readonly Dictionary<{interfaceName}, List<ISubscriptionToken>> _subscriptions = new Dictionary<{interfaceName}, List<ISubscriptionToken>>();");
@@ -466,7 +496,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"        /// <summary>");
         sb.AppendLine($"        /// 初始化 {interfaceName} 事件处理器");
         sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        public {interfaceName}Handler(IMessageChannel channel)");
+        sb.AppendLine($"        public {handlerClassName}(IMessageChannel channel)");
         sb.AppendLine("        {");
         sb.AppendLine("            _channel = channel ?? throw new ArgumentNullException(nameof(channel));");
         sb.AppendLine("        }");
@@ -484,6 +514,10 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
         // 处理每个事件方法
         var hasEvents = false;
+
+        // 用于跟踪已处理的方法名，防止重复
+        var processedMethods = new HashSet<string>();
+
         foreach (var member in interfaceSymbol.GetMembers())
         {
             if (member is not IMethodSymbol methodSymbol)
@@ -501,10 +535,21 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             var eventMethod = methodSymbol.Name;
             var eventType = methodSymbol.Parameters[0].Type.ToDisplayString();
 
+            // 如果方法名已经处理过，则修改变量名以避免冲突
+            var tokenVarName = eventMethod + "Token";
+            if (processedMethods.Contains(eventMethod))
+            {
+                tokenVarName = eventMethod + "_" + eventType.Replace(".", "_") + "Token";
+            }
+            else
+            {
+                processedMethods.Add(eventMethod);
+            }
+
             sb.AppendLine($"            // 订阅 {eventMethod} 事件");
-            sb.AppendLine($"            var {eventMethod}Token = _channel.SubscribeToEvent<{eventType}>(\"{eventMethod}\",");
+            sb.AppendLine($"            var {tokenVarName} = _channel.SubscribeToEvent<{eventType}>(\"{eventMethod}\",");
             sb.AppendLine($"                (sender, eventData) => subscriber.{eventMethod}(eventData));");
-            sb.AppendLine($"            tokens.Add({eventMethod}Token);");
+            sb.AppendLine($"            tokens.Add({tokenVarName});");
             sb.AppendLine();
         }
 
@@ -593,22 +638,36 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("using System;");
         sb.AppendLine("using PulseRPC.Transport;");
+        sb.AppendLine("using PulseRPC;");
         sb.AppendLine();
 
         // 生成命名空间
         sb.AppendLine("namespace PulseRPC.Client");
         sb.AppendLine("{");
 
+        // 为每种类型生成不同的扩展类，避免冲突
+        var extensionClassName = "ChannelManagerExtensions";
+        if (serviceTypes.Length > 0 && eventTypes.Length == 0)
+        {
+            extensionClassName = "ServiceChannelManagerExtensions";
+        }
+        else if (serviceTypes.Length == 0 && eventTypes.Length > 0)
+        {
+            extensionClassName = "EventChannelManagerExtensions";
+        }
+
         // 生成扩展类
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// 通道管理器扩展方法");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    public static class ChannelManagerExtensions");
+        sb.AppendLine($"    public static class {extensionClassName}");
         sb.AppendLine("    {");
 
         // 为每个服务接口生成扩展方法
         foreach (var interfaceSymbol in serviceTypes)
         {
+            if (interfaceSymbol == null) continue;
+
             var interfaceName = interfaceSymbol.Name;
             var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
 
@@ -631,22 +690,33 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         // 为每个事件接口生成扩展方法
         foreach (var interfaceSymbol in eventTypes)
         {
+            if (interfaceSymbol == null) continue;
+
             var interfaceName = interfaceSymbol.Name;
             var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
 
-            // 去掉I前缀
+            // 去掉I前缀获取服务名
             var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
+
+            // 确保生成的接口名称不重复I前缀
+            var handlerInterfaceName = "I" + (interfaceName.StartsWith("I")
+                ? interfaceName.Substring(1) + "Handler"
+                : interfaceName + "Handler");
+
+            var handlerClassName = interfaceName.StartsWith("I")
+                ? interfaceName.Substring(1) + "Handler"
+                : interfaceName + "Handler";
 
             sb.AppendLine($"        /// <summary>");
             sb.AppendLine($"        /// 获取 {interfaceName} 事件处理器");
             sb.AppendLine($"        /// </summary>");
-            sb.AppendLine($"        public static {namespaceName}.I{serviceName}Handler Get{serviceName}Handler(this IChannelManager channelManager)");
+            sb.AppendLine($"        public static {namespaceName}.{handlerInterfaceName} Get{serviceName}Handler(this IChannelManager channelManager)");
             sb.AppendLine("        {");
             sb.AppendLine($"            if (channelManager == null)");
             sb.AppendLine($"                throw new ArgumentNullException(nameof(channelManager));");
             sb.AppendLine();
             sb.AppendLine($"            var channel = channelManager.GetChannel(\"{GetChannelAttributeValue(interfaceSymbol) ?? "default"}\");");
-            sb.AppendLine($"            return new {namespaceName}.{serviceName}Handler(channel);");
+            sb.AppendLine($"            return new {namespaceName}.{handlerClassName}(channel);");
             sb.AppendLine("        }");
             sb.AppendLine();
         }
@@ -674,7 +744,8 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             }
         }
 
-        return string.Empty;
+        // 返回默认通道名称而不是空字符串
+        return "default";
     }
 
     private static bool HasAttribute(ISymbol symbol, string attributeName)
@@ -706,6 +777,11 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         var interfaceName = interfaceSymbol.Name;
         var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
 
+        // 确保生成的接口名称不重复I前缀
+        var handlerInterfaceName = "I" + (interfaceName.StartsWith("I")
+            ? interfaceName.Substring(1) + "Handler"
+            : interfaceName + "Handler");
+
         var sb = new StringBuilder();
 
         // 生成文件头
@@ -714,7 +790,6 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("using System;");
         sb.AppendLine("using PulseRPC;");
-        sb.AppendLine("using PulseRPC.Events;");
         sb.AppendLine();
 
         // 生成命名空间
@@ -725,7 +800,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// {interfaceName} 事件处理器接口");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public interface I{interfaceName}Handler");
+        sb.AppendLine($"    public interface {handlerInterfaceName}");
         sb.AppendLine("    {");
         sb.AppendLine($"        /// <summary>");
         sb.AppendLine($"        /// 订阅事件");
