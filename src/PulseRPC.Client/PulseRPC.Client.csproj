@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\PulseRPC.Shared\PulseRPC.Shared.csproj" />
+    <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
   </ItemGroup>
 
   <ItemGroup>
