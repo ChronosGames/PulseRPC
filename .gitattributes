@@ -1,6 +1,54 @@
-src/PulseRPC.HttpGateway/Swagger/SwaggerUI/* linguist-vendored
-*.csproj	text
-*.props		text
-*.targets	text
-*.cs		text
-*.xml		text
+# 自动处理文本文件换行符（跨平台兼容）
+*              text=auto
+
+# 明确声明常用文本文件类型
+*.cs           text diff=csharp eol=lf working-tree-encoding=UTF-8
+*.csproj       text
+*.sln          text
+*.config       text
+*.xml          text
+*.xaml         text
+*.json         text
+*.md           text
+*.yml          text
+*.yaml         text
+
+# 常见的二进制文件类型（不会被Git处理换行符）
+*.dll          binary
+*.exe          binary
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.ico          binary
+*.pdf          binary
+*.zip          binary
+*.tar          binary
+*.gz           binary
+*.7z           binary
+
+# NuGet 包文件
+*.nupkg        binary
+*.snupkg       binary
+
+# Visual Studio 用户及临时文件
+*.suo          binary
+*.user         text
+*.userosscache text
+*.sdf          binary
+*.cache        binary
+
+# Rider/JetBrains 临时文件
+*.DotSettings  text
+
+# 资源文件
+*.resx         text
+*.resources    binary
+
+# .NET lock 文件合并策略（可选）
+packages.lock.json merge=union
+
+# 禁止自动合并某些文件（根据团队需要添加）
+# *.designer.cs  merge=ours
+
+# 其他自定义规则可根据项目实际需求补充
