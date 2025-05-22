@@ -1,7 +1,8 @@
 {
   "dependencies": {
+    "com.chronosgames.pulserpc.client.unity": "file:../../../../src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity",
     "com.cysharp.csprojmodifier": "https://github.com/Cysharp/CsprojModifier.git?path=src/CsprojModifier/Assets/CsprojModifier",
-    "com.cysharp.magiconion.samples.chatapp.shared.unity": "file:../../ChatApp.Shared",
+    "com.chronosgames.pulserpc.samples.chatapp.shared.unity": "file:../../ChatApp.Shared",
     "com.cysharp.memorypack": "https://github.com/Cysharp/MemoryPack.git?path=src/MemoryPack.Unity/Assets/MemoryPack.Unity",
     "com.github-glitchenzo.nugetforunity": "https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity",
     "com.unity.2d.sprite": "1.0.0",

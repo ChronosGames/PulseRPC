@@ -1,7 +1,6 @@
 {
     "name": "ChatApp.Shared.Unity",
     "references": [
-        "MessagePack.Annotations",
         "PulseRPC.Abstractions"
     ],
     "optionalUnityReferences": [],
