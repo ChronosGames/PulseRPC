@@ -40,9 +40,9 @@ public static class UnityCloudBuildConfiguration
         // libz.tbd for grpc ios build
         project.AddFrameworkToProject(targetGuid, "libz.tbd", false);
 
-        // // libgrpc_csharp_ext missing bitcode. as BITCODE expand binary size to 250MB.
+        // libgrpc_csharp_ext missing bitcode. as BITCODE expand binary size to 250MB.
         project.SetBuildProperty(targetGuid, "ENABLE_BITCODE", "NO");
-        
+
         File.WriteAllText(projectPath, project.WriteToString());
 #endif
     }

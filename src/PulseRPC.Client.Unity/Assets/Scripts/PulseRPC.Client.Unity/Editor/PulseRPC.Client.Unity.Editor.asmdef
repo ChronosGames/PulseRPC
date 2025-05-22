@@ -1,10 +1,8 @@
 {
-    "name": "PulseRPC.Unity.Editor",
+    "name": "PulseRPC.Client.Unity.Editor",
+    "rootNamespace": "PulseRPC.Editor",
     "references": [
-        "PulseRPC.Abstractions",
-        "PulseRPC.Client",
-        "PulseRPC.Unity",
-        "UniTask"
+        "PulseRPC.Client.Unity"
     ],
     "includePlatforms": [
         "Editor"
