@@ -448,7 +448,6 @@ namespace PulseRPC.Client.Channels
         /// </summary>
         private void LogError(string message)
         {
-            _logger?.LogError($"[{_name}] {message}");
             Debug.LogError($"[{_name}] {message}");
         }
 
