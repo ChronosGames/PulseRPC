@@ -1,6 +1,4 @@
-﻿// PulseRPC.Server/ServerChannelManager.cs
-
-using PulseRPC.Messaging;
+﻿using PulseRPC.Messaging;
 
 namespace PulseRPC.Server;
 

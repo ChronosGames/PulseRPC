@@ -19,11 +19,13 @@ public class ServiceRegistry
         where TInterface : class, INetworkService
         where TImplementation : class, TInterface
     {
-        Type interfaceType = typeof(TInterface);
-        string serviceName = interfaceType.FullName!;
+        var interfaceType = typeof(TInterface);
+        var serviceName = interfaceType.FullName!;
 
         if (_services.ContainsKey(serviceName))
+        {
             throw new InvalidOperationException($"Service already registered: {serviceName}");
+        }
 
         // 创建服务信息
         var serviceInfo = CreateServiceInfo(interfaceType, implementation);
@@ -48,8 +50,8 @@ public class ServiceRegistry
 
         try
         {
-            // 准备参数
-            var parameters = new object[] { request, cancellationToken };
+            // 准备参数 - 根据方法参数数量调整
+            var parameters = PrepareParameters(methodInfo.MethodInfo, request, cancellationToken);
 
             // 调用方法
             var result = methodInfo.MethodInfo.Invoke(serviceInfo.Implementation, parameters);
@@ -61,14 +63,10 @@ public class ServiceRegistry
 
                 // 检查是否有返回值
                 var resultProperty = task.GetType().GetProperty("Result");
-                if (resultProperty != null)
-                {
-                    return resultProperty.GetValue(task);
-                }
-
-                return null;
+                return resultProperty != null ? resultProperty.GetValue(task) : null;
             }
-            else if (result is ValueTask valueTask)
+
+            if (result is ValueTask valueTask)
             {
                 await valueTask;
 
@@ -76,7 +74,6 @@ public class ServiceRegistry
                 var taskType = valueTask.GetType();
                 var taskAwaiter = taskType.GetMethod("GetAwaiter")!.Invoke(valueTask, null);
                 var taskResult = taskAwaiter!.GetType().GetMethod("GetResult")!.Invoke(taskAwaiter, null);
-
                 return taskResult;
             }
 
@@ -90,17 +87,54 @@ public class ServiceRegistry
     }
 
     /// <summary>
+    /// 根据方法参数准备参数数组
+    /// </summary>
+    private static object[] PrepareParameters(MethodInfo methodInfo, object request, CancellationToken cancellationToken)
+    {
+        var parameters = methodInfo.GetParameters();
+
+        // 根据方法定义的参数数量来传递正确数量的参数
+        if (parameters.Length == 1)
+        {
+            return [request];
+        }
+
+        if (parameters.Length == 2 && parameters[1].ParameterType == typeof(CancellationToken))
+        {
+            return [request, cancellationToken];
+        }
+
+        // 默认情况，尽量匹配参数
+        var result = new object[parameters.Length];
+        for (int i = 0; i < parameters.Length; i++)
+        {
+            if (i == 0)
+                result[i] = request;
+            else if (parameters[i].ParameterType == typeof(CancellationToken))
+                result[i] = cancellationToken;
+            else
+                result[i] = Type.Missing;
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// 获取服务执行通道
     /// </summary>
     public string GetServiceChannel(string serviceName, string methodName)
     {
         // 查找服务
         if (!_services.TryGetValue(serviceName, out var serviceInfo))
+        {
             return "default";
+        }
 
         // 查找方法
         if (!serviceInfo.Methods.TryGetValue(methodName, out var methodInfo))
+        {
             return serviceInfo.DefaultChannel;
+        }
 
         return methodInfo.Channel ?? serviceInfo.DefaultChannel;
     }
@@ -135,7 +169,7 @@ public class ServiceRegistry
                 continue;
 
             // 获取方法通道
-            string channelName = GetChannelName(method) ?? serviceInfo.DefaultChannel;
+            var channelName = GetChannelName(method) ?? serviceInfo.DefaultChannel;
 
             // 创建方法信息
             serviceInfo.Methods[method.Name] = new MethodInfo2
@@ -176,7 +210,7 @@ public class ServiceRegistry
 
     private class MethodInfo2
     {
-        public required System.Reflection.MethodInfo MethodInfo { get; init; }
-        public required string Channel { get; init; }
+        public required MethodInfo MethodInfo { get; init; }
+        public required string? Channel { get; init; }
     }
 }

@@ -19,7 +19,7 @@ public class PulseRPCSerializer : ISerializer
 {
     public byte[] Serialize<T>(T obj)
     {
-        return MemoryPackSerializer.Serialize<T>(obj);
+        return MemoryPackSerializer.Serialize(obj);
     }
 
     public T Deserialize<T>(byte[] data)
