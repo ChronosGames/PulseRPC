@@ -14,179 +14,120 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        // 注册编译器可见的特性
-        context.RegisterPostInitializationOutput(ctx =>
-        {
-            // 注册 ServiceContract 特性
-            ctx.AddSource("ServiceContractAttribute.g.cs", SourceText.From(@"
-namespace PulseRPC
-{
-    [System.AttributeUsage(System.AttributeTargets.Interface, AllowMultiple = false)]
-    public class ServiceContractAttribute : System.Attribute
-    {
-    }
-}", Encoding.UTF8));
-
-            // 注册 EventContract 特性
-            ctx.AddSource("EventContractAttribute.g.cs", SourceText.From(@"
-namespace PulseRPC
-{
-    [System.AttributeUsage(System.AttributeTargets.Interface, AllowMultiple = false)]
-    public class EventContractAttribute : System.Attribute
-    {
-    }
-}", Encoding.UTF8));
-
-            // 注册 Channel 特性
-            ctx.AddSource("ChannelAttribute.g.cs", SourceText.From(@"
-namespace PulseRPC
-{
-    [System.AttributeUsage(System.AttributeTargets.Interface | System.AttributeTargets.Method, AllowMultiple = false)]
-    public class ChannelAttribute : System.Attribute
-    {
-        public string Name { get; }
-
-        public ChannelAttribute(string name)
-        {
-            Name = name;
-        }
-    }
-}", Encoding.UTF8));
-
-            // 注册 Operation 特性
-            ctx.AddSource("OperationAttribute.g.cs", SourceText.From(@"
-namespace PulseRPC
-{
-    [System.AttributeUsage(System.AttributeTargets.Method, AllowMultiple = false)]
-    public class OperationAttribute : System.Attribute
-    {
-    }
-}", Encoding.UTF8));
-
-            // 注册 Event 特性
-            ctx.AddSource("EventAttribute.g.cs", SourceText.From(@"
-namespace PulseRPC
-{
-    [System.AttributeUsage(System.AttributeTargets.Method, AllowMultiple = false)]
-    public class EventAttribute : System.Attribute
-    {
-    }
-}", Encoding.UTF8));
-
-            // 注册 PulseClientGeneration 特性
-//             ctx.AddSource("PulseClientGenerationAttribute.g.cs", SourceText.From(@"
-// namespace PulseRPC
-// {
-//     [System.AttributeUsage(System.AttributeTargets.Class, AllowMultiple = true)]
-//     public class PulseClientGenerationAttribute : System.Attribute
-//     {
-//         public System.Type ServiceType { get; }
-//
-//         public PulseClientGenerationAttribute(System.Type serviceType)
-//         {
-//             ServiceType = serviceType;
-//         }
-//     }
-// }", Encoding.UTF8));
-        });
-
-        // 方法一：查找带有 ServiceContract 特性的接口
-        var serviceInterfaces =
-            context.SyntaxProvider
-                .CreateSyntaxProvider(
-                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "ServiceContract"),
-                    transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
-                .Where(static m => m.Type is not null)!;
-
         // 方法二：查找带有 PulseClientGeneration 特性的类
         var classDeclarations = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (s, _) => s is ClassDeclarationSyntax { AttributeLists.Count: > 0 },
                 transform: (ctx, _) => GetServiceTypesFromClass(ctx))
-            .Where(m => m.Length > 0)!;
+            .Where(m => m.Length > 0);
+
+        // 方法一：查找带有 ServiceContract 特性的接口
+        // var serviceInterfaces =
+        //     context.SyntaxProvider
+        //         .CreateSyntaxProvider(
+        //             predicate: static (s, _) => IsInterfaceWithAttribute(s, "ServiceContract"),
+        //             transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
+        //         .Where(static m => m.Type is not null);
+
 
         // 方法三：查找带有 EventContract 特性的接口
-        var eventInterfaces =
-            context.SyntaxProvider
-                .CreateSyntaxProvider(
-                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "EventContract"),
-                    transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
-                .Where(static m => m.Type is not null)!;
+        // var eventInterfaces =
+        //     context.SyntaxProvider
+        //         .CreateSyntaxProvider(
+        //             predicate: static (s, _) => IsInterfaceWithAttribute(s, "EventContract"),
+        //             transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
+        //         .Where(static m => m.Type is not null);
 
         // 合并所有服务类型
-        var allServiceTypes = serviceInterfaces.Collect()
-            .Combine(classDeclarations.Collect())
-            .Select((tuple, _) =>
-            {
-                var result = new List<ServiceTypeInfo>();
-                result.AddRange(tuple.Left);
-                foreach (var classTypes in tuple.Right)
-                {
-                    result.AddRange(classTypes.Select(t => t));
-                }
-                return result.ToImmutableArray();
-            });
+        // var allServiceTypes = serviceInterfaces.Collect()
+        //     .Combine(classDeclarations.Collect())
+        //     .Select((tuple, _) =>
+        //     {
+        //         var result = new List<ServiceTypeInfo>();
+        //         result.AddRange(tuple.Left);
+        //
+        //         foreach (var classTypes in tuple.Right)
+        //         {
+        //             result.AddRange(classTypes);
+        //         }
+        //         return result.ToImmutableArray();
+        //     });
 
-        // 注册源代码输出
-        context.RegisterSourceOutput(allServiceTypes.Combine(eventInterfaces.Collect()), (spc, tuple) =>
+        // 注册服务代理源代码输出
+        context.RegisterSourceOutput(classDeclarations.Collect(), (spc, serviceTypes) =>
         {
-            var serviceTypes = tuple.Left;
-            var eventTypes = tuple.Right;
-
             // 生成服务代理
-            foreach (var serviceTypeInfo in serviceTypes)
+            foreach (var serviceTypeInfos in serviceTypes)
             {
-                if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
+                foreach (var serviceTypeInfo in serviceTypeInfos)
                 {
-                    var proxyCode = GenerateServiceProxy(namedType);
-                    spc.AddSource($"{namedType.Name}Proxy.g.cs", SourceText.From(proxyCode, Encoding.UTF8));
-                }
-                else
-                {
-                    spc.ReportDiagnostic(Diagnostic.Create(
-                        new DiagnosticDescriptor(
-                            "PRPC101",
-                            "无效的服务类型",
-                            $"无法为类型 {serviceTypeInfo.Type} 生成代理，因为它不是 INamedTypeSymbol",
-                            "PulseRPC",
-                            DiagnosticSeverity.Error,
-                            true),
-                        Location.None));
-                }
-            }
-
-            // 生成事件处理器
-            foreach (var eventTypeInfo in eventTypes)
-            {
-                if (eventTypeInfo.Type is INamedTypeSymbol namedType)
-                {
-                    var handlerCode = GenerateEventHandler(namedType);
-                    spc.AddSource($"{namedType.Name}Handler.g.cs", SourceText.From(handlerCode, Encoding.UTF8));
-
-                    // 生成事件处理器接口
-                    var handlerInterfaceCode = GenerateEventHandlerInterface(namedType);
-                    spc.AddSource($"I{namedType.Name}Handler.g.cs", SourceText.From(handlerInterfaceCode, Encoding.UTF8));
-                }
-                else
-                {
-                    spc.ReportDiagnostic(Diagnostic.Create(
-                        new DiagnosticDescriptor(
-                            "PRPC102",
-                            "无效的事件类型",
-                            $"无法为类型 {eventTypeInfo.Type} 生成事件处理器，因为它不是 INamedTypeSymbol",
-                            "PulseRPC",
-                            DiagnosticSeverity.Error,
-                            true),
-                        Location.None));
+                    if (serviceTypeInfo.Type is INamedTypeSymbol namedType && namedType.Name.EndsWith("Service"))
+                    {
+                        var proxyCode = GenerateServiceProxy(namedType);
+                        spc.AddSource($"{namedType.Name}Proxy.g.cs", SourceText.From(proxyCode, Encoding.UTF8));
+                    }
+                    else if (serviceTypeInfo.Type is INamedTypeSymbol namedType2 && namedType2.Name.EndsWith("Events"))
+                    {
+                        var handlerCode = GenerateEventHandler(namedType2);
+                        spc.AddSource($"{namedType2.Name}Handler.g.cs", SourceText.From(handlerCode, Encoding.UTF8));
+                    }
+                    else
+                    {
+                        spc.ReportDiagnostic(Diagnostic.Create(
+                            new DiagnosticDescriptor(
+                                "PRPC101",
+                                "无效的服务类型",
+                                $"无法为类型 {serviceTypeInfo.Type} 生成代理，因为它不是 INamedTypeSymbol",
+                                "PulseRPC",
+                                DiagnosticSeverity.Error,
+                                true),
+                            Location.None));
+                    }
                 }
             }
 
             // 生成扩展方法
             var extensionsCode = GenerateChannelManagerExtensions(
-                serviceTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray(),
-                eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray());
-            spc.AddSource("ChannelManagerExtensions.g.cs", SourceText.From(extensionsCode, Encoding.UTF8));
+                serviceTypes.SelectMany(t => t).Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray(),
+                ImmutableArray<INamedTypeSymbol>.Empty);
+            spc.AddSource("ServiceChannelManagerExtensions.g.cs", SourceText.From(extensionsCode, Encoding.UTF8));
         });
+
+        // 注册事件处理器源代码输出
+        // context.RegisterSourceOutput(eventInterfaces.Collect(), (spc, eventTypes) =>
+        // {
+        //     // 生成事件处理器
+        //     foreach (var eventTypeInfo in eventTypes)
+        //     {
+        //         if (eventTypeInfo.Type is INamedTypeSymbol namedType)
+        //         {
+        //             var handlerCode = GenerateEventHandler(namedType);
+        //             spc.AddSource($"{namedType.Name}Handler.g.cs", SourceText.From(handlerCode, Encoding.UTF8));
+        //
+        //             // 生成事件处理器接口
+        //             var handlerInterfaceCode = GenerateEventHandlerInterface(namedType);
+        //             spc.AddSource($"I{namedType.Name}Handler.g.cs", SourceText.From(handlerInterfaceCode, Encoding.UTF8));
+        //         }
+        //         else
+        //         {
+        //             spc.ReportDiagnostic(Diagnostic.Create(
+        //                 new DiagnosticDescriptor(
+        //                     "PRPC102",
+        //                     "无效的事件类型",
+        //                     $"无法为类型 {eventTypeInfo.Type} 生成事件处理器，因为它不是 INamedTypeSymbol",
+        //                     "PulseRPC",
+        //                     DiagnosticSeverity.Error,
+        //                     true),
+        //                 Location.None));
+        //         }
+        //     }
+        //
+        //     // 生成事件扩展方法
+        //     // var eventExtensionsCode = GenerateChannelManagerExtensions(
+        //     //     ImmutableArray<INamedTypeSymbol>.Empty,
+        //     //     eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray());
+        //     // spc.AddSource("EventChannelManagerExtensions.g.cs", SourceText.From(eventExtensionsCode, Encoding.UTF8));
+        // });
     }
 
     private static ServiceTypeInfo GetServiceTypeFromInterface(GeneratorSyntaxContext context)
@@ -488,7 +429,6 @@ namespace PulseRPC
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC;");
-        sb.AppendLine("using PulseRPC.Events;");
         sb.AppendLine("using PulseRPC.Messaging;");
         sb.AppendLine();
 
