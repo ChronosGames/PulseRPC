@@ -132,7 +132,7 @@ public interface IServerChannelManager : IDisposable
 /// <summary>
 /// 服务器通道管理器实现
 /// </summary>
-public class ServerChannelManager : IServerChannelManager
+internal class ServerChannelManager : IServerChannelManager
 {
     private readonly Dictionary<string, IServerChannel> _channels = new();
     private string _defaultChannelName = string.Empty;
