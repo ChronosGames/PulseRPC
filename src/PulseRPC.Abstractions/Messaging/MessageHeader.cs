@@ -1,4 +1,5 @@
 ﻿using System;
+using MemoryPack;
 
 namespace PulseRPC.Messaging;
 
@@ -26,7 +27,8 @@ public interface IMessageChannel : IDisposable
 /// <summary>
 /// 消息头部
 /// </summary>
-public class MessageHeader
+[MemoryPackable]
+public partial class MessageHeader
 {
     public MessageType Type { get; set; }
     public Guid MessageId { get; set; }
@@ -50,7 +52,8 @@ public enum MessageType : byte
 /// <summary>
 /// 网络消息
 /// </summary>
-public class NetworkMessage
+[MemoryPackable]
+public partial class NetworkMessage
 {
     public MessageHeader Header { get; set; }
     public byte[] Body { get; set; }
