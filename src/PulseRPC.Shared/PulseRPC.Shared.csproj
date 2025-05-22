@@ -24,8 +24,4 @@
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Proxy\" />
-  </ItemGroup>
-
 </Project>

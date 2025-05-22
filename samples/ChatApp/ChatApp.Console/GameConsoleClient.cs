@@ -22,8 +22,6 @@ public class GameConsoleClient
     private readonly ILogger<GameConsoleClient> _logger;
     private IChannelManager? _channelManager;
     private IPlayerService? _playerService;
-    private IPlayerLoginEventsHandler? _loginEventsHandler;
-    private IPlayerMovementEventsHandler? _movementEventsHandler;
     private ISubscriptionToken? _eventsSubscription;
     private CancellationTokenSource? _cts;
     private bool _isLoggedIn;
@@ -117,9 +115,9 @@ public class GameConsoleClient
                     (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
 
                 // 保存订阅令牌
-                _eventsSubscription = new CompositeSubscriptionToken(new[] {
+                _eventsSubscription = new CompositeSubscriptionToken([
                     loginJoinedToken, loginLeftToken, moveToken, moveBatchToken, moveBatchToken2
-                });
+                ]);
             }
             catch (Exception ex)
             {
