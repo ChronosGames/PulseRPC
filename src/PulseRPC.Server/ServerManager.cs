@@ -47,7 +47,7 @@ public class ServerManager : IServerManager
     private readonly ISerializer _serializer;
     private readonly ILogger<ServerManager> _logger;
     private readonly Dictionary<string, TransportInfo> _transports = new();
-    private readonly ServerChannelManager _channelManager;
+    private readonly IServerChannelManager _channelManager;
     private bool _isRunning;
 
     // 性能统计
@@ -67,13 +67,14 @@ public class ServerManager : IServerManager
     public ServerManager(
         ServiceRegistry serviceRegistry,
         ISerializer serializer,
+        IServerChannelManager serverChannelManager,
         ILoggerFactory loggerFactory)
     {
         _serviceRegistry = serviceRegistry;
         _serializer = serializer;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ServerManager>();
-        _channelManager = new ServerChannelManager();
+        _channelManager = serverChannelManager;
 
         // 初始化对象池
         _headerPool = new ObjectPool<MessageHeader>(() => new MessageHeader(), 100);

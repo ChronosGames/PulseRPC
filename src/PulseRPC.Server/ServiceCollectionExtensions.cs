@@ -1,18 +1,28 @@
-// using System.Reflection;
-// using MemoryPack;
-// using Microsoft.Extensions.DependencyInjection;
-// using Microsoft.Extensions.DependencyInjection.Extensions;
-// using PulseRPC.Network;
-//
-// namespace PulseRPC.Server;
-//
-// /// <summary>
-// /// 消息处理器扩展方法
-// /// </summary>
-// public static class ServiceCollectionExtensions
-// {
-//     public static IServiceCollection AddPulseServerServices(this IServiceCollection services)
-//     {
+using System.Reflection;
+using MemoryPack;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using PulseRPC.Network;
+using PulseRPC.Serialization;
+
+namespace PulseRPC.Server;
+
+/// <summary>
+/// 消息处理器扩展方法
+/// </summary>
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddPulseServerServices(this IServiceCollection services)
+     {
+         // 添加序列化器
+         services.AddSingleton<ISerializer, PulseRPCSerializer>();
+
+         // 添加事件发布器
+         services.AddSingleton<IEventPublisher, EventPublisher>();
+
+         // 添加服务
+         services.AddSingleton<IServerChannelManager, ServerChannelManager>();
+
 //         // 基础设施服务
 //         services.AddSingleton<HandlerRegistry>();
 //
@@ -45,16 +55,16 @@
 //         // 游戏服务器启动
 //         services.AddSingleton<PulseServerStartup>();
 //
-//         // 游戏系统服务
-//         // services.AddSingleton<IGameWorld, GameWorld>();
-//         // services.AddSingleton<IBattleSystem, BattleSystem>();
-//         // services.AddSingleton<IItemDatabase, ItemDatabase>();
-//
-//         // 注册所有消息处理器
-//         RegisterMessageHandlers(services);
-//
-//         return services;
-//     }
+         // 游戏系统服务
+         // services.AddSingleton<IGameWorld, GameWorld>();
+         // services.AddSingleton<IBattleSystem, BattleSystem>();
+         // services.AddSingleton<IItemDatabase, ItemDatabase>();
+
+         // 注册所有消息处理器
+         // RegisterMessageHandlers(services);
+
+         return services;
+     }
 //
 //     private static void RegisterMessageHandlers(IServiceCollection services)
 //     {
@@ -78,5 +88,5 @@
 //                 services.AddSingleton(handlerType);
 //             }
 //         }
-//     }
-// }
+     // }
+}

@@ -195,14 +195,8 @@ namespace GameServer
             services.AddSingleton<IGameWorld, GameWorld>();
             services.AddSingleton<IPlayerManager, PlayerManager>();
 
-            // 添加序列化器
-            services.AddSingleton<ISerializer, PulseRPCSerializer>();
-
-            // 添加事件发布器
-            services.AddSingleton<IEventPublisher, EventPublisher>();
-
-            // 添加服务
-            services.AddSingleton<IServerChannelManager, ServerChannelManager>();
+            // 添加PulseRPC服务器的相关服务
+            services.AddPulseServerServices();
 
             // 添加服务实现
             services.AddTransient<IPlayerService, PlayerService>();
@@ -229,11 +223,13 @@ namespace GameServer
                 var serializer = sp.GetRequiredService<ISerializer>();
                 var serviceRegistry = sp.GetRequiredService<ServiceRegistry>();
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+                var serverChannelManager = sp.GetRequiredService<IServerChannelManager>();
 
                 // 创建高性能服务器管理器
                 var serverManager = new ServerManager(
                     serviceRegistry,
                     serializer,
+                    serverChannelManager,
                     loggerFactory);
 
                 // 添加TCP传输 (端口7000)

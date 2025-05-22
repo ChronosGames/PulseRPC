@@ -14,7 +14,7 @@ public interface IEventPublisher
 /// <summary>
 /// 事件发布器实现
 /// </summary>
-public class EventPublisher(IServerChannelManager channelManager) : IEventPublisher
+internal class EventPublisher(IServerChannelManager channelManager) : IEventPublisher
 {
     private readonly Dictionary<Type, EventInfo> _eventCache = new();
 
