@@ -1,6 +1,4 @@
-﻿// PulseRPC.Transport/TransportFactory.cs
-
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Transport.Kcp;
 using PulseRPC.Transport.Tcp;
