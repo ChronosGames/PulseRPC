@@ -1,5 +1,6 @@
 ﻿using System.Collections.Concurrent;
 using System.Net.Sockets;
+using MemoryPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Messaging;
@@ -65,7 +66,7 @@ public class ServerTransportChannel : IServerChannel
 
             // 创建完整消息
             using var ms = new MemoryStream();
-            using var writer = new BinaryWriter(ms);
+            await using var writer = new BinaryWriter(ms);
 
             // 写入头部长度
             writer.Write(headerBytes.Length);
@@ -75,7 +76,7 @@ public class ServerTransportChannel : IServerChannel
             writer.Write(bodyBytes);
 
             // 发送消息
-            byte[] messageData = ms.ToArray();
+            var messageData = ms.ToArray();
             await connection.SendAsync(messageData);
         }
         catch (Exception ex)
@@ -83,7 +84,7 @@ public class ServerTransportChannel : IServerChannel
             _logger.LogError(ex, "向客户端 {ClientId} 发送消息失败", clientId);
 
             // 如果发送失败，可能是连接已断开
-            if (ex is IOException || ex is SocketException)
+            if (ex is IOException or SocketException)
             {
                 await CloseClientConnectionAsync(clientId, "发送失败");
             }
@@ -209,6 +210,71 @@ public class ServerTransportChannel : IServerChannel
     }
 
     /// <summary>
+    /// 将NetworkMessage中的Body反序列化为指定类型的对象
+    /// </summary>
+    /// <typeparam name="T">要反序列化成的目标类型</typeparam>
+    /// <param name="message">网络消息</param>
+    /// <returns>反序列化后的对象</returns>
+    public T DeserializeMessageBody<T>(NetworkMessage message)
+    {
+        if (message.Body == null || message.Body.Length == 0)
+        {
+            if (typeof(T).IsValueType)
+            {
+                return default!;
+            }
+            throw new InvalidOperationException("消息体为空，无法反序列化为指定类型");
+        }
+
+        return _serializer.Deserialize<T>(message.Body);
+    }
+
+    /// <summary>
+    /// 高性能方式将NetworkMessage中的Body反序列化为指定类型的对象
+    /// 直接使用MemoryPack进行反序列化，避免中间层调用
+    /// </summary>
+    /// <typeparam name="T">要反序列化成的目标类型</typeparam>
+    /// <param name="message">网络消息</param>
+    /// <returns>反序列化后的对象</returns>
+    public T DeserializeBodyDirect<T>(NetworkMessage message)
+    {
+        if (message.Body == null || message.Body.Length == 0)
+        {
+            if (typeof(T).IsValueType)
+            {
+                return default!;
+            }
+            throw new InvalidOperationException("消息体为空，无法反序列化为指定类型");
+        }
+
+        // 直接使用MemoryPack反序列化，跳过ISerializer接口
+        return MemoryPackSerializer.Deserialize<T>(message.Body)!;
+    }
+
+    /// <summary>
+    /// 零拷贝方式将NetworkMessage中的Body反序列化为指定类型的对象
+    /// 使用ReadOnlyMemory<byte>避免不必要的内存复制
+    /// </summary>
+    /// <typeparam name="T">要反序列化成的目标类型</typeparam>
+    /// <param name="message">网络消息</param>
+    /// <returns>反序列化后的对象</returns>
+    public T DeserializeBodyZeroCopy<T>(NetworkMessage message)
+    {
+        if (message.Body == null || message.Body.Length == 0)
+        {
+            if (typeof(T).IsValueType)
+            {
+                return default!;
+            }
+            throw new InvalidOperationException("消息体为空，无法反序列化为指定类型");
+        }
+
+        // 使用ReadOnlySpan<byte>避免复制整个数组
+        ReadOnlySpan<byte> span = message.Body;
+        return MemoryPackSerializer.Deserialize<T>(span)!;
+    }
+
+    /// <summary>
     /// 处理客户端连接接受
     /// </summary>
     private void OnConnectionAccepted(object? sender, ServerConnectionEventArgs e)
@@ -244,7 +310,7 @@ public class ServerTransportChannel : IServerChannel
             using var reader = new BinaryReader(ms);
 
             // 读取头部长度
-            int headerLength = reader.ReadInt32();
+            var headerLength = reader.ReadInt32();
 
             // 验证头部长度
             if (headerLength <= 0 || headerLength > e.Data.Length - 4)
@@ -254,11 +320,11 @@ public class ServerTransportChannel : IServerChannel
             }
 
             // 读取头部
-            byte[] headerBytes = reader.ReadBytes(headerLength);
+            var headerBytes = reader.ReadBytes(headerLength);
             var header = _serializer.Deserialize<MessageHeader>(headerBytes);
 
             // 读取消息体
-            byte[] bodyBytes = reader.ReadBytes((int)(ms.Length - ms.Position));
+            var bodyBytes = reader.ReadBytes((int)(ms.Length - ms.Position));
 
             // 创建网络消息
             var message = new NetworkMessage
@@ -284,24 +350,28 @@ public class ServerTransportChannel : IServerChannel
         var connection = (IServerConnection)sender!;
 
         // 如果连接断开，清理资源
-        if (e.CurrentState == ConnectionState.Disconnected)
+        if (e.CurrentState != ConnectionState.Disconnected)
         {
-            // 移除连接
-            if (_connections.TryRemove(connection.ConnectionId, out _))
-            {
-                // 取消事件订阅
-                connection.DataReceived -= OnConnectionDataReceived;
-                connection.StateChanged -= OnConnectionStateChanged;
-
-                // 触发客户端断开连接事件
-                ClientDisconnected?.Invoke(this, new ClientDisconnectedEventArgs(
-                    connection.ConnectionId,
-                    e.Reason ?? "连接断开"));
-
-                _logger.LogInformation("客户端 {ClientId} 已断开与通道 {ChannelName} 的连接",
-                    connection.ConnectionId, _name);
-            }
+            return;
         }
+
+        // 移除连接
+        if (!_connections.TryRemove(connection.ConnectionId, out _))
+        {
+            return;
+        }
+
+        // 取消事件订阅
+        connection.DataReceived -= OnConnectionDataReceived;
+        connection.StateChanged -= OnConnectionStateChanged;
+
+        // 触发客户端断开连接事件
+        ClientDisconnected?.Invoke(this, new ClientDisconnectedEventArgs(
+            connection.ConnectionId,
+            e.Reason ?? "连接断开"));
+
+        _logger.LogInformation("客户端 {ClientId} 已断开与通道 {ChannelName} 的连接",
+            connection.ConnectionId, _name);
     }
 
     /// <summary>
@@ -349,5 +419,113 @@ public class ServerTransportChannel : IServerChannel
         }
 
         _connections.Clear();
+    }
+
+    /// <summary>
+    /// 注册指定类型的消息处理器
+    /// </summary>
+    /// <typeparam name="T">消息体类型</typeparam>
+    /// <param name="handler">消息处理器</param>
+    public void RegisterTypeHandler<T>(Action<string, MessageHeader, T> handler)
+    {
+        // 注册事件处理器
+        MessageReceived += (sender, args) =>
+        {
+            var message = args.Message;
+
+            // 仅处理匹配的消息类型
+            try
+            {
+                // 使用零拷贝方式反序列化消息体
+                var body = DeserializeBodyZeroCopy<T>(message);
+
+                // 调用处理器
+                handler(args.ClientId, message.Header, body);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "处理消息时发生错误，客户端: {ClientId}, 消息ID: {MessageId}",
+                    args.ClientId, message.Header.MessageId);
+            }
+        };
+    }
+
+    /// <summary>
+    /// 注册指定方法名的消息处理器
+    /// </summary>
+    /// <typeparam name="T">消息体类型</typeparam>
+    /// <param name="methodName">方法名</param>
+    /// <param name="handler">消息处理器</param>
+    public void RegisterMethodHandler<T>(string methodName, Action<string, MessageHeader, T> handler)
+    {
+        // 注册事件处理器
+        MessageReceived += (sender, args) =>
+        {
+            var message = args.Message;
+
+            // 仅处理匹配的方法名
+            if (message.Header.MethodName != methodName)
+                return;
+
+            try
+            {
+                // 使用零拷贝方式反序列化消息体
+                var body = DeserializeBodyZeroCopy<T>(message);
+
+                // 调用处理器
+                handler(args.ClientId, message.Header, body);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "处理消息时发生错误，客户端: {ClientId}, 方法: {MethodName}, 消息ID: {MessageId}",
+                    args.ClientId, methodName, message.Header.MessageId);
+            }
+        };
+    }
+
+    /// <summary>
+    /// 静态工具方法：高性能将字节数组反序列化为指定类型
+    /// </summary>
+    /// <typeparam name="T">目标类型</typeparam>
+    /// <param name="data">字节数组</param>
+    /// <returns>反序列化后的对象</returns>
+    public static T DeserializeBytes<T>(byte[] data)
+    {
+        if (data == null || data.Length == 0)
+        {
+            if (typeof(T).IsValueType)
+            {
+                return default!;
+            }
+            throw new InvalidOperationException("数据为空，无法反序列化为指定类型");
+        }
+
+        // 使用ReadOnlySpan<byte>避免复制
+        ReadOnlySpan<byte> span = data;
+        return MemoryPackSerializer.Deserialize<T>(span)!;
+    }
+
+    /// <summary>
+    /// 静态工具方法：高性能将字节数组反序列化为指定类型
+    /// </summary>
+    /// <typeparam name="T">目标类型</typeparam>
+    /// <param name="data">字节数组</param>
+    /// <param name="offset">偏移量</param>
+    /// <param name="length">长度</param>
+    /// <returns>反序列化后的对象</returns>
+    public static T DeserializeBytes<T>(byte[] data, int offset, int length)
+    {
+        if (data == null || length == 0)
+        {
+            if (typeof(T).IsValueType)
+            {
+                return default!;
+            }
+            throw new InvalidOperationException("数据为空，无法反序列化为指定类型");
+        }
+
+        // 使用ReadOnlySpan<byte>指定区域
+        var span = new ReadOnlySpan<byte>(data, offset, length);
+        return MemoryPackSerializer.Deserialize<T>(span)!;
     }
 }
