@@ -228,7 +228,8 @@ namespace PulseRPC.Server
                 };
 
                 // 发送响应
-                await channel.SendMessageAsync(clientId, responseHeader, result);
+                dynamic response = result;
+                await channel.SendMessageAsync(clientId, responseHeader, response);
             }
             catch (Exception ex)
             {

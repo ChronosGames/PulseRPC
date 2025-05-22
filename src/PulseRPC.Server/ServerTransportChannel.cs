@@ -39,7 +39,7 @@ public class ServerTransportChannel : IServerChannel
     /// <summary>
     /// 发送消息到客户端
     /// </summary>
-    public async Task SendMessageAsync(string clientId, MessageHeader header, object body)
+    public async Task SendMessageAsync(string clientId, MessageHeader header, object? body)
     {
         if (!_connections.TryGetValue(clientId, out var connection))
         {
@@ -49,10 +49,19 @@ public class ServerTransportChannel : IServerChannel
         try
         {
             // 序列化头部
-            byte[] headerBytes = _serializer.Serialize(header);
+            var headerBytes = _serializer.Serialize(header);
 
             // 序列化消息体
-            byte[] bodyBytes = body != null ? _serializer.Serialize(body) : Array.Empty<byte>();
+            byte[] bodyBytes;
+            if (body != null)
+            {
+                dynamic prototype = body;
+                bodyBytes = _serializer.Serialize(prototype);
+            }
+            else
+            {
+                bodyBytes = Array.Empty<byte>();
+            }
 
             // 创建完整消息
             using var ms = new MemoryStream();
@@ -98,14 +107,14 @@ public class ServerTransportChannel : IServerChannel
         };
 
         // 序列化头部
-        byte[] headerBytes = _serializer.Serialize(header);
+        var headerBytes = _serializer.Serialize(header);
 
         // 序列化消息体
-        byte[] bodyBytes = _serializer.Serialize(eventData);
+        var bodyBytes = _serializer.Serialize(eventData);
 
         // 创建完整消息
         using var ms = new MemoryStream();
-        using var writer = new BinaryWriter(ms);
+        await using var writer = new BinaryWriter(ms);
 
         // 写入头部长度
         writer.Write(headerBytes.Length);
@@ -115,7 +124,7 @@ public class ServerTransportChannel : IServerChannel
         writer.Write(bodyBytes);
 
         // 获取完整消息数据
-        byte[] messageData = ms.ToArray();
+        var messageData = ms.ToArray();
 
         // 获取所有客户端连接
         var connections = _connections.Values.ToArray();
@@ -157,14 +166,14 @@ public class ServerTransportChannel : IServerChannel
         };
 
         // 序列化头部
-        byte[] headerBytes = _serializer.Serialize(header);
+        var headerBytes = _serializer.Serialize(header);
 
         // 序列化消息体
-        byte[] bodyBytes = _serializer.Serialize(eventData);
+        var bodyBytes = _serializer.Serialize(eventData);
 
         // 创建完整消息
         using var ms = new MemoryStream();
-        using var writer = new BinaryWriter(ms);
+        await using var writer = new BinaryWriter(ms);
 
         // 写入头部长度
         writer.Write(headerBytes.Length);
@@ -174,7 +183,7 @@ public class ServerTransportChannel : IServerChannel
         writer.Write(bodyBytes);
 
         // 获取完整消息数据
-        byte[] messageData = ms.ToArray();
+        var messageData = ms.ToArray();
 
         // 创建发送任务列表
         var tasks = new List<Task>();
