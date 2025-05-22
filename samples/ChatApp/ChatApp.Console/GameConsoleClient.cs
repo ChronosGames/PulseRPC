@@ -7,7 +7,6 @@ using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 using PulseRPC.Client;
-// using PulseRPC.Events;
 
 namespace ChatApp.Console;
 
@@ -89,22 +88,50 @@ public class GameConsoleClient
 
         _channelManager.RegisterChannel("KcpChannel", kcpChannel);
 
-        // 获取服务代理
-        _playerService = _channelManager.GetPlayerService();
+        try
+        {
+            // 获取服务代理
+            _playerService = _channelManager.GetPlayerService();
 
-        // 创建事件处理器实例
-        var eventsHandler = new PlayerEventsHandler(this);
+            // 创建事件处理器实例
+            var eventsHandler = new PlayerEventsHandler(this);
 
-        // 获取事件处理器
-        _loginEventsHandler = _channelManager.GetPlayerLoginEventsHandler();
-        _movementEventsHandler = _channelManager.GetPlayerMovementEventsHandler();
+            try
+            {
+                // 获取事件处理器 - 直接在通道上注册事件处理程序
+                var tcpMessageChannel = _channelManager.GetChannel("TcpChannel");
+                var kcpMessageChannel = _channelManager.GetChannel("KcpChannel");
 
-        // 注册事件处理器
-        var loginSubscription = _loginEventsHandler.Subscribe(eventsHandler);
-        var movementSubscription = _movementEventsHandler.Subscribe(eventsHandler);
+                // 登录事件 (TCP通道)
+                var loginJoinedToken = tcpMessageChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined",
+                    (sender, eventData) => eventsHandler.OnPlayerJoined(eventData));
+                var loginLeftToken = tcpMessageChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft",
+                    (sender, eventData) => eventsHandler.OnPlayerLeft(eventData));
 
-        // 保存订阅令牌
-        _eventsSubscription = new CompositeSubscriptionToken(new ISubscriptionToken[] { loginSubscription, movementSubscription });
+                // 移动事件 (KCP通道)
+                var moveToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
+                    (sender, eventData) => eventsHandler.OnPlayerMoved(eventData));
+                var moveBatchToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch",
+                    (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
+                var moveBatchToken2 = kcpMessageChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
+                    (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
+
+                // 保存订阅令牌
+                _eventsSubscription = new CompositeSubscriptionToken(new[] {
+                    loginJoinedToken, loginLeftToken, moveToken, moveBatchToken, moveBatchToken2
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "事件处理器初始化失败: {Message}", ex.Message);
+                throw;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "服务代理或事件处理器初始化失败: {Message}", ex.Message);
+            throw;
+        }
 
         _logger.LogInformation("客户端初始化完成");
     }
@@ -140,12 +167,17 @@ public class GameConsoleClient
     /// </summary>
     public async Task LoginAsync(string username, string password)
     {
-        _logger.LogInformation("正在登录...");
+        _logger.LogInformation("正在登录，用户名: {Username}, 密码: {Password}", username, password);
 
         try
         {
-            var response =
-                await _playerService!.LoginAsync(new LoginRequest { Username = username, Password = password });
+            _logger.LogDebug("创建登录请求...");
+            var request = new LoginRequest { Username = username, Password = password };
+            _logger.LogDebug("发送登录请求...");
+
+            var response = await _playerService!.LoginAsync(request);
+            _logger.LogDebug("收到登录响应: Success={Success}, ErrorMessage={ErrorMessage}",
+                response.Success, response.ErrorMessage);
 
             if (response.Success)
             {
@@ -162,7 +194,11 @@ public class GameConsoleClient
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "登录过程中发生错误");
+            _logger.LogError(ex, "登录过程中发生错误: {ErrorMessage}", ex.Message);
+            if (ex.InnerException != null)
+            {
+                _logger.LogError("内部错误: {InnerError}", ex.InnerException.Message);
+            }
             throw;
         }
     }
@@ -428,30 +464,23 @@ public class GameConsoleClient
 
         public void OnPlayerJoined(PlayerJoinedEvent eventData)
         {
-            // 添加玩家
-            _client.AddPlayer(
-                eventData.PlayerId,
-                eventData.PlayerName,
+            _client.AddPlayer(eventData.PlayerId, eventData.PlayerName,
                 new Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
         }
 
         public void OnPlayerLeft(PlayerLeftEvent eventData)
         {
-            // 移除玩家
             _client.RemovePlayer(eventData.PlayerId, eventData.Reason);
         }
 
         public void OnPlayerMoved(PlayerMovedEvent eventData)
         {
-            // 更新玩家位置
-            _client.UpdatePlayerPosition(
-                eventData.PlayerId,
+            _client.UpdatePlayerPosition(eventData.PlayerId,
                 new Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
         }
 
         public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
         {
-            // 批量更新玩家位置
             foreach (var update in eventData)
             {
                 OnPlayerMoved(update);
@@ -460,10 +489,12 @@ public class GameConsoleClient
 
         public void OnPlayersMovedBatch(PlayersBatchMovedEvent eventData)
         {
-            // 批量更新玩家位置
-            foreach (var update in eventData.Updates)
+            if (eventData.Updates != null)
             {
-                OnPlayerMoved(update);
+                foreach (var update in eventData.Updates)
+                {
+                    OnPlayerMoved(update);
+                }
             }
         }
     }
