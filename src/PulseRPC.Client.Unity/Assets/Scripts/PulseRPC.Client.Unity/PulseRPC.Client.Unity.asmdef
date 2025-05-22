@@ -1,15 +1,15 @@
 {
-    "name": "PulseRPC.Unity",
-    "rootNamespace": "PulseRPC.Unity",
-    "references": [
-        "PulseRPC.Client",
-        "UniTask"
-    ],
+    "name": "PulseRPC.Client.Unity",
+    "rootNamespace": "PulseRPC",
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
-    "overrideReferences": false,
+    "overrideReferences": true,
     "precompiledReferences": [
+        "System.Threading.Tasks.dll",
+        "System.Runtime.dll",
+        "System.Core.dll"
     ],
     "autoReferenced": true,
     "defineConstraints": [],

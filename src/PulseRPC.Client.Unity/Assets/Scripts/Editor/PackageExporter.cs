@@ -14,9 +14,9 @@ public static class PackageExporter
         // configure
         var roots = new[]
         {
-            "Scripts/MagicOnion",
+            "Scripts/PulseRPC",
         };
-        var fileName = string.IsNullOrEmpty(version) ? "MagicOnion.Client.Unity.unitypackage" : $"MagicOnion.Client.Unity.{version}.unitypackage";
+        var fileName = string.IsNullOrEmpty(version) ? "PulseRPC.Client.Unity.unitypackage" : $"PulseRPC.Client.Unity.{version}.unitypackage";
         var exportPath = "./" + fileName;
 
         var packageTargetAssets = roots
