@@ -1,17 +1,23 @@
 {
   "dependencies": {
+    "com.chronosgames.pulserpc.client.unity": {
+      "version": "file:../../../../src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
+    "com.chronosgames.pulserpc.samples.chatapp.shared.unity": {
+      "version": "file:../../ChatApp.Shared",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
+    },
     "com.cysharp.csprojmodifier": {
       "version": "https://github.com/Cysharp/CsprojModifier.git?path=src/CsprojModifier/Assets/CsprojModifier",
       "depth": 0,
       "source": "git",
       "dependencies": {},
       "hash": "9e70e22b3a2187733c1feb56d0c58f6c082ffde7"
-    },
-    "com.cysharp.magiconion.samples.chatapp.shared.unity": {
-      "version": "file:../../ChatApp.Shared",
-      "depth": 0,
-      "source": "local",
-      "dependencies": {}
     },
     "com.cysharp.memorypack": {
       "version": "https://github.com/Cysharp/MemoryPack.git?path=src/MemoryPack.Unity/Assets/MemoryPack.Unity",
