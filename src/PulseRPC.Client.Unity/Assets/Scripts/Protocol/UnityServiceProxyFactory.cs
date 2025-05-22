@@ -1,4 +1,4 @@
-﻿namespace PulseRPC.Client.Unity;
+﻿namespace PulseRPC.Client.Unity
 {
     /// <summary>
     /// Unity专用服务代理工厂
