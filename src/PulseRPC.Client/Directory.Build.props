@@ -4,12 +4,12 @@
   <!-- Unity环境检测 -->
   <PropertyGroup>
     <!-- 检测是否在Unity包管理器环境中 -->
-    <IsUnityPackage Condition="'$(IsUnityPackage)' == '' AND '$(MSBuildProjectDirectory)' != '' AND Exists('$(MSBuildProjectDirectory)\package.json')">true</IsUnityPackage>
     <IsUnityPackage Condition="'$(IsUnityPackage)' == ''">false</IsUnityPackage>
+    <IsUnityPackage Condition="'$(IsUnityPackage)' == '' AND '$(MSBuildProjectDirectory)' != '' AND Exists('$(MSBuildProjectDirectory)\package.json')">true</IsUnityPackage>
 
     <!-- 设置Unity标志 -->
-    <Unity Condition="'$(Unity)' == '' AND '$(IsUnityPackage)' == 'true'">true</Unity>
     <Unity Condition="'$(Unity)' == ''">false</Unity>
+    <Unity Condition="'$(Unity)' == '' AND '$(IsUnityPackage)' == 'true'">true</Unity>
   </PropertyGroup>
 
   <!-- Unity构建时的特殊配置 -->

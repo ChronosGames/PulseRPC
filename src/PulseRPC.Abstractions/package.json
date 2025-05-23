@@ -1,5 +1,5 @@
 {
-  "name": "com.pulse.pulserpc.abstractions",
+  "name": "com.chronosgames.pulserpc.abstractions",
   "displayName": "PulseRPC Abstractions",
   "author": { "name": "ChronosGames, Inc.", "url": "https://chronosgames.cn/en/" },
   "version": "1.0.0",

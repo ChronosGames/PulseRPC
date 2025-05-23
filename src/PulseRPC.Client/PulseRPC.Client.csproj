@@ -38,4 +38,14 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="'$(Unity)' != 'true'" />
   </ItemGroup>
 
+  <!-- Unity Package Manager 支持：复制 package.json 和 .asmdef 到输出目录 -->
+  <ItemGroup>
+    <Content Include="package.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Include="*.asmdef">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
