@@ -2651,7 +2651,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.02, y: 0.02}
   m_AnchorMax: {x: 0.98, y: 0.98}
-  m_AnchoredPosition: {x: 0, y: 5.533294}
+  m_AnchoredPosition: {x: 0, y: 3.8751826}
   m_SizeDelta: {x: 0, y: 0}
   m_Pivot: {x: 0.5, y: 1}
 --- !u!114 &1522127879
@@ -2724,6 +2724,7 @@ GameObject:
   - component: {fileID: 1634534315}
   - component: {fileID: 1634534319}
   - component: {fileID: 1634534320}
+  - component: {fileID: 1634534321}
   m_Layer: 5
   m_Name: Canvas
   m_TagString: Untagged
@@ -2828,7 +2829,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1634534314}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 7ea9e77872213814ea60ab05d1064578, type: 3}
   m_Name: 
@@ -2840,10 +2841,22 @@ MonoBehaviour:
   Input: {fileID: 330057074}
   ReportInput: {fileID: 1671399963}
   SendReportButton: {fileID: 190778108}
-  DisconnectButon: {fileID: 1096149281}
+  DisconnectButton: {fileID: 0}
   ExceptionButton: {fileID: 1868729447}
   UnaryExceptionButton: {fileID: 2120537443}
   LabelRtt: {fileID: 934640858}
+  MoveForwardButton: {fileID: 0}
+  MoveBackwardButton: {fileID: 0}
+  MoveLeftButton: {fileID: 0}
+  MoveRightButton: {fileID: 0}
+  PlayerInfoText: {fileID: 0}
+  PositionText: {fileID: 0}
+  _host: localhost
+  _tcpPort: 7000
+  _kcpPort: 7001
+  _username: Player
+  _password: password
+  _moveDistance: 1
 --- !u!114 &1634534320
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2851,7 +2864,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1634534314}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 961b3579fc364d8dbb177ee89e25c236, type: 3}
   m_Name: 
@@ -2862,6 +2875,24 @@ MonoBehaviour:
   isServer: 1
   playerPrefab: {fileID: 0}
   sendRate: 10
+--- !u!114 &1634534321
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1634534314}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 93f709804059f854f9522f0b6d76e74b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  autoSetupOnStart: 1
+  defaultFont: {fileID: 10102, guid: 0000000000000000e000000000000000, type: 0}
+  backgroundColor: {r: 0.1, g: 0.1, b: 0.1, a: 0.9}
+  panelColor: {r: 0.2, g: 0.2, b: 0.2, a: 0.8}
+  buttonColor: {r: 0.3, g: 0.6, b: 0.9, a: 1}
+  textColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!1 &1671399961
 GameObject:
   m_ObjectHideFlags: 0
@@ -3090,7 +3121,7 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 817501239}
   m_HandleRect: {fileID: 817501238}
   m_Direction: 3
-  m_Value: 1
+  m_Value: 0
   m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
