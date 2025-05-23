@@ -1,15 +1,16 @@
 {
-    "name": "ChatApp.Shared.Unity",
-    "rootNamespace": "ChatApp",
+    "name": "ChatApp.Unity",
+    "rootNamespace": "ChatApp.Unity",
     "references": [
+        "ChatApp.Shared.Unity",
         "PulseRPC.Client.Unity"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
-    "allowUnsafeCode": true,
+    "allowUnsafeCode": false,
     "overrideReferences": false,
     "precompiledReferences": [],
-    "autoReferenced": false,
+    "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],
     "noEngineReferences": false
