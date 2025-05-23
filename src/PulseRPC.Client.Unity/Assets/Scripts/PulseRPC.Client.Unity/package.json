@@ -1,17 +1,30 @@
 {
-  "name": "com.pulse.pulserpc",
-  "displayName": "PulseRPC for Unity",
+  "name": "com.pulse.pulserpc.client.unity",
+  "displayName": "PulseRPC Client for Unity",
   "author": { "name": "ChronosGames, Inc.", "url": "https://chronosgames.cn/en/" },
   "version": "1.0.0",
   "unity": "2019.4",
-  "description": "PulseRPC client library for Unity",
+  "unityRelease": "0f1",
+  "description": "PulseRPC client library for Unity, provides Unity-specific implementations and optimizations",
   "keywords": [
     "rpc",
     "networking",
     "pulserpc",
-    "realtime"
+    "realtime",
+    "unity",
+    "client"
   ],
   "license": "MIT",
   "category": "Libraries",
-  "dependencies": {}
+  "dependencies": {
+    "com.pulse.pulserpc.abstractions": "1.0.0",
+    "com.pulse.pulserpc.client": "1.0.0"
+  },
+  "samples": [
+    {
+      "displayName": "Basic RPC Example",
+      "description": "Shows basic RPC usage in Unity",
+      "path": "Samples~/BasicExample"
+    }
+  ]
 }

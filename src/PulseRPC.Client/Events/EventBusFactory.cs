@@ -2,6 +2,7 @@
 
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Events;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 

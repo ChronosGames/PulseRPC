@@ -1,6 +1,7 @@
-﻿// PulseRPC.Transport/ITransport.cs
-
+﻿using System;
 using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace PulseRPC.Transport
 {

@@ -4,6 +4,8 @@ using System.Reflection;
 using PulseRPC.Client.Channels;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
+using PulseRPC.Transport.Tcp;
+using PulseRPC.Transport.Kcp;
 using UnityEngine;
 
 namespace PulseRPC.AOT
@@ -96,9 +98,8 @@ namespace PulseRPC.AOT
             RegisterType<TransportChannel>();
             RegisterType<TcpTransport>();
             RegisterType<KcpTransport>();
-            RegisterType<WebSocketTransport>();
             RegisterType<PulseRPCSerializer>();
-            RegisterType<JsonSerializer>();
+            RegisterType<ISerializer>();
         }
 
         /// <summary>
@@ -127,11 +128,11 @@ namespace PulseRPC.AOT
             PreserveGenericMethod<ISerializer, byte[]>("Deserialize");
             PreserveGenericMethod<ISerializer, Dictionary<string, object>>("Deserialize");
 
-            // 通道方法
-            PreserveGenericMethod<IMessageChannel, byte[]>("SubscribeToEvent");
-            PreserveGenericMethod<IMessageChannel, string>("SubscribeToEvent");
-            PreserveGenericMethod<IMessageChannel, int>("SubscribeToEvent");
-            PreserveGenericMethod<IMessageChannel, Dictionary<string, object>>("SubscribeToEvent");
+            // 通道方法 - 注释掉因为可能不需要
+            // PreserveGenericMethod<IMessageChannel, byte[]>("SubscribeToEvent");
+            // PreserveGenericMethod<IMessageChannel, string>("SubscribeToEvent");
+            // PreserveGenericMethod<IMessageChannel, int>("SubscribeToEvent");
+            // PreserveGenericMethod<IMessageChannel, Dictionary<string, object>>("SubscribeToEvent");
         }
 
         /// <summary>

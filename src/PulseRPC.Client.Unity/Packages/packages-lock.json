@@ -1,5 +1,12 @@
 {
   "dependencies": {
+    "com.cysharp.csprojmodifier": {
+      "version": "https://github.com/Cysharp/CsprojModifier.git?path=src/CsprojModifier/Assets/CsprojModifier",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "e82080dac67f22fa0ef0b7c0aceadda92df76ec3"
+    },
     "com.cysharp.memorypack": {
       "version": "https://github.com/Cysharp/MemoryPack.git?path=src/MemoryPack.Unity/Assets/MemoryPack.Unity",
       "depth": 0,
@@ -13,6 +20,12 @@
       "source": "git",
       "dependencies": {},
       "hash": "f8f1902ebec77284fd4ac83d043e0ef664d31831"
+    },
+    "com.pulse.pulserpc.abstractions": {
+      "version": "file:../../PulseRPC.Abstractions",
+      "depth": 0,
+      "source": "local",
+      "dependencies": {}
     },
     "com.unity.editorcoroutines": {
       "version": "1.0.0",

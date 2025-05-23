@@ -1,34 +1,36 @@
-﻿using MemoryPack;
+﻿using System;
+using MemoryPack;
 
-namespace PulseRPC.Serialization;
-
-/// <summary>
-/// 序列化接口
-/// </summary>
-public interface ISerializer
+namespace PulseRPC.Serialization
 {
-    byte[] Serialize<T>(T obj);
-    T Deserialize<T>(byte[] data);
-    object Deserialize(byte[] data, Type type);
-}
-
-/// <summary>
-/// 高性能二进制序列化实现
-/// </summary>
-public class PulseRPCSerializer : ISerializer
-{
-    public byte[] Serialize<T>(T obj)
+    /// <summary>
+    /// 序列化接口
+    /// </summary>
+    public interface ISerializer
     {
-        return MemoryPackSerializer.Serialize(obj);
+        byte[] Serialize<T>(T obj);
+        T Deserialize<T>(byte[] data);
+        object Deserialize(byte[] data, Type type);
     }
 
-    public T Deserialize<T>(byte[] data)
+    /// <summary>
+    /// 高性能二进制序列化实现
+    /// </summary>
+    public class PulseRPCSerializer : ISerializer
     {
-        return MemoryPackSerializer.Deserialize<T>(data)!;
-    }
+        public byte[] Serialize<T>(T obj)
+        {
+            return MemoryPackSerializer.Serialize(obj);
+        }
 
-    public object Deserialize(byte[] data, Type type)
-    {
-        return MemoryPackSerializer.Deserialize(type, data)!;
+        public T Deserialize<T>(byte[] data)
+        {
+            return MemoryPackSerializer.Deserialize<T>(data)!;
+        }
+
+        public object Deserialize(byte[] data, Type type)
+        {
+            return MemoryPackSerializer.Deserialize(type, data)!;
+        }
     }
 }

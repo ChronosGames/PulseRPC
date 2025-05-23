@@ -1,0 +1,21 @@
+{
+  "name": "com.pulse.pulserpc.client",
+  "displayName": "PulseRPC Client",
+  "author": { "name": "ChronosGames, Inc.", "url": "https://chronosgames.cn/en/" },
+  "version": "1.0.0",
+  "unity": "2019.4",
+  "unityRelease": "0f1",
+  "description": "PulseRPC client library with cross-platform support for .NET and Unity",
+  "keywords": [
+    "rpc",
+    "networking",
+    "pulserpc",
+    "client",
+    "cross-platform"
+  ],
+  "license": "MIT",
+  "category": "Libraries",
+  "dependencies": {
+    "com.pulse.pulserpc.abstractions": "1.0.0"
+  }
+}
