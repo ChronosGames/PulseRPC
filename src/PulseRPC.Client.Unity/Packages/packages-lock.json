@@ -5,7 +5,6 @@
       "depth": 0,
       "source": "local",
       "dependencies": {
-        "com.pulse.pulserpc.abstractions": "1.0.0",
         "com.cysharp.memorypack": "1.21.4"
       }
     },

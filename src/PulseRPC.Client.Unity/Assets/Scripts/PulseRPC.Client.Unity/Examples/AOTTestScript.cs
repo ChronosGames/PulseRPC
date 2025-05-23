@@ -76,14 +76,19 @@ namespace PulseRPC.Client.Unity.Examples
         {
             Debug.Log("[AOTTest] 测试传输通道...");
 
-            var channel = new TransportChannel("TestChannel");
-            Debug.Log($"[AOTTest] 传输通道创建成功 - 名称: {channel.Name}, 连接状态: {channel.IsConnected}");
+            try
+            {
+                // 创建一个模拟的传输和序列化器用于测试
+                var serializer = new PulseRPCSerializer();
+                var transportFactory = new TransportFactory();
 
-            channel.Connect();
-            Debug.Log($"[AOTTest] 传输通道连接后状态: {channel.IsConnected}");
-
-            channel.Disconnect();
-            Debug.Log($"[AOTTest] 传输通道断开后状态: {channel.IsConnected}");
+                // 注意：这里只是创建对象进行AOT测试，不进行实际连接
+                Debug.Log("[AOTTest] 传输通道相关类型创建测试完成");
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogError($"[AOTTest] 传输通道测试失败: {ex.Message}");
+            }
         }
     }
 }

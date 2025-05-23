@@ -6,7 +6,6 @@
   "unity": "2022.3",
   "unityRelease": "20f1",
   "dependencies": {
-    "com.pulse.pulserpc.abstractions": "1.0.0",
     "com.cysharp.memorypack": "1.21.4"
   },
   "keywords": [

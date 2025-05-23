@@ -1,10 +1,11 @@
 using System;
 using System.Threading.Tasks;
-using PulseRPC.Client;
-using PulseRPC.Client.Channels;
-using PulseRPC.Serialization;
-using PulseRPC.Transport;
 using UnityEngine;
+using PulseRPC.Client;
+using PulseRPC.Transport;
+using PulseRPC.Messaging;
+using PulseRPC.Serialization;
+using PulseRPC.Client.Channels;
 
 namespace PulseRPC.Examples
 {
