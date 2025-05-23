@@ -11,7 +11,7 @@
     "defineConstraints": [],
     "versionDefines": [
         {
-            "name": "com.pulse.pulserpc.client",
+            "name": "com.chronosgames.pulserpc.client.unity",
             "expression": "1.0.0",
             "define": "PULSERPC_CLIENT_AVAILABLE"
         }
