@@ -16,10 +16,6 @@
   ],
   "license": "MIT",
   "category": "Libraries",
-  "dependencies": {
-    "com.chronosgames.pulserpc.abstractions": "1.0.0",
-    "com.chronosgames.pulserpc.client": "1.0.0"
-  },
   "samples": [
     {
       "displayName": "Basic RPC Example",
