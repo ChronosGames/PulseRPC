@@ -1,27 +1,19 @@
 using System;
-using ChatApp.Shared.Hubs;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
+using ChatApp.Unity;
+using ChatApp.Shared;
 
 namespace Assets.Scripts
 {
-    public class ChatComponent : MonoBehaviour, IChatHubReceiver
+    /// <summary>
+    /// 聊天组件 - 简化版本，专注于UI显示
+    /// </summary>
+    public class ChatComponent : MonoBehaviour
     {
-        private CancellationTokenSource shutdownCancellation = new CancellationTokenSource();
-        // 注释掉不存在的类型，等待实现
-        // private TCPNetworkManager networkManager;
-        // private ChatHubClient streamingClient;
-        // private ChatServiceClient client;
-
-        private bool isJoin;
-        private bool isSelfDisConnected;
-
-        // 服务器地址配置
-        public string ServerIP = "localhost";
-        public int ServerPort = 12345;
-
+        [Header("UI组件")]
         public Text ChatText;
         public Button JoinOrLeaveButton;
         public Text JoinOrLeaveButtonText;
@@ -29,18 +21,37 @@ namespace Assets.Scripts
         public InputField Input;
         public InputField ReportInput;
         public Button SendReportButton;
-        public Button DisconnectButon;
+        public Button DisconnectButton;
         public Button ExceptionButton;
         public Button UnaryExceptionButton;
         public Text LabelRtt;
 
+        [Header("游戏客户端")]
+        public UnityGameClient gameClient;
+
+        private CancellationTokenSource shutdownCancellation = new CancellationTokenSource();
+        private bool isJoin;
+
         async void Start()
         {
-            // 初始化网络管理器
-            // networkManager = gameObject.AddComponent<TCPNetworkManager>();
+            // 如果没有指定游戏客户端，尝试查找
+            if (gameClient == null)
+            {
+                gameClient = FindObjectOfType<UnityGameClient>();
+            }
 
-            await this.InitializeClientAsync();
             this.InitializeUi();
+
+            // 订阅游戏客户端事件
+            if (gameClient != null)
+            {
+                gameClient.OnStatusUpdate += OnStatusUpdate;
+                gameClient.OnLoginSuccess += OnLoginSuccess;
+                gameClient.OnLoginFailed += OnLoginFailed;
+                gameClient.OnPlayerJoined += OnPlayerJoined;
+                gameClient.OnPlayerLeft += OnPlayerLeft;
+                gameClient.OnPlayerMoved += OnPlayerMoved;
+            }
         }
 
         async void OnDestroy()
@@ -48,237 +59,181 @@ namespace Assets.Scripts
             // 清理资源
             shutdownCancellation.Cancel();
 
-            // if (this.streamingClient != null)
-            // {
-            //     this.streamingClient.Dispose();
-            // }
-
-            // if (networkManager != null)
-            // {
-            //     networkManager.DisconnectClient();
-            //     Destroy(networkManager);
-            // }
-        }
-
-        private async Task InitializeClientAsync()
-        {
-            // 初始化Hub客户端
-            while (!shutdownCancellation.IsCancellationRequested)
+            // 取消订阅事件
+            if (gameClient != null)
             {
-                try
-                {
-                    Debug.Log($"Connecting to the server...");
-
-                    // 连接到服务器
-                    // await networkManager.ConnectToServer(ServerIP, ServerPort);
-
-                    // 创建ChatHub客户端
-                    // this.streamingClient = new ChatHubClient(networkManager, this);
-
-                    // 注册断开连接事件
-                    // this.streamingClient.Disconnected += OnStreamingClientDisconnected;
-                    // this.streamingClient.HeartbeatReceived += rtt => LabelRtt.text = $"RTT: {rtt.TotalMilliseconds:#,0}ms";
-
-                    Debug.Log($"Connection is established.");
-                    break;
-                }
-                catch (Exception e)
-                {
-                    Debug.LogError(e);
-                }
-
-                Debug.Log($"Failed to connect to the server. Retry after 5 seconds...");
-                await Task.Delay(5 * 1000);
+                gameClient.OnStatusUpdate -= OnStatusUpdate;
+                gameClient.OnLoginSuccess -= OnLoginSuccess;
+                gameClient.OnLoginFailed -= OnLoginFailed;
+                gameClient.OnPlayerJoined -= OnPlayerJoined;
+                gameClient.OnPlayerLeft -= OnPlayerLeft;
+                gameClient.OnPlayerMoved -= OnPlayerMoved;
             }
-
-            // 创建服务客户端
-            // this.client = new ChatServiceClient(networkManager);
         }
 
         private void InitializeUi()
         {
             this.isJoin = false;
 
-            this.SendMessageButton.interactable = false;
-            this.ChatText.text = string.Empty;
-            this.Input.text = string.Empty;
-            this.Input.placeholder.GetComponent<Text>().text = "Please enter your name.";
-            this.JoinOrLeaveButtonText.text = "Enter the room";
-            this.ExceptionButton.interactable = false;
-        }
-
-        private void OnStreamingClientDisconnected()
-        {
-            try
-            {
-                Debug.Log($"Disconnected from the server.");
-
-                if (this.isSelfDisConnected)
-                {
-                    // 设置重连延迟
-                    _ = Task.Delay(2000).ContinueWith(_ => ReconnectServerAsync());
-                }
-            }
-            catch (Exception e)
-            {
-                Debug.LogError(e);
-            }
-        }
-
-        public void DisconnectServer()
-        {
-            this.isSelfDisConnected = true;
-
-            this.JoinOrLeaveButton.interactable = false;
-            this.SendMessageButton.interactable = false;
-            this.SendReportButton.interactable = false;
-            this.DisconnectButon.interactable = false;
-            this.ExceptionButton.interactable = false;
-            this.UnaryExceptionButton.interactable = false;
-
-            if (this.isJoin)
-                this.JoinOrLeave();
-
-            // if (this.streamingClient != null)
-            // {
-            //     this.streamingClient.Dispose();
-            // }
-            // if (networkManager != null)
-            // {
-            //     networkManager.DisconnectClient();
-            // }
-        }
-
-        public async void ReconnectInitializedServer()
-        {
-            // if (networkManager != null)
-            // {
-            //     networkManager.DisconnectClient();
-            // }
-
-            // if (streamingClient != null)
-            // {
-            //     streamingClient.Dispose();
-            //     streamingClient = null;
-            // }
-
-            await this.InitializeClientAsync();
-            this.InitializeUi();
-        }
-
-        private async Task ReconnectServerAsync()
-        {
-            Debug.Log($"Reconnecting to the server...");
-
-            try
-            {
-                // 重新连接
-                // await networkManager.ConnectToServer(ServerIP, ServerPort);
-
-                // 创建新的客户端
-                // this.streamingClient = new ChatHubClient(networkManager, this);
-                // this.streamingClient.Disconnected += OnStreamingClientDisconnected;
-
-                // 创建新的服务客户端
-                // this.client = new ChatServiceClient(networkManager);
-
-                Debug.Log("Reconnected.");
-
-                this.JoinOrLeaveButton.interactable = true;
+            if (SendMessageButton != null)
                 this.SendMessageButton.interactable = false;
-                this.SendReportButton.interactable = true;
-                this.DisconnectButon.interactable = true;
-                this.ExceptionButton.interactable = true;
-                this.UnaryExceptionButton.interactable = true;
 
-                this.isSelfDisConnected = false;
-            }
-            catch (Exception ex)
+            if (ChatText != null)
+                this.ChatText.text = string.Empty;
+
+            if (Input != null)
             {
-                Debug.LogError($"Reconnection failed: {ex.Message}");
-                // 尝试再次重连
-                await Task.Delay(5000);
-                _ = ReconnectServerAsync();
+                this.Input.text = string.Empty;
+                if (Input.placeholder != null)
+                    this.Input.placeholder.GetComponent<Text>().text = "等待连接...";
+            }
+
+            if (JoinOrLeaveButtonText != null)
+                this.JoinOrLeaveButtonText.text = "等待连接";
+
+            if (ExceptionButton != null)
+                this.ExceptionButton.interactable = false;
+        }
+
+        #region 游戏客户端事件处理
+
+        private void OnStatusUpdate(string status)
+        {
+            if (ChatText != null)
+            {
+                ChatText.text += $"[系统] {status}\n";
             }
         }
 
-        #region Client -> Server (Streaming)
+        private void OnLoginSuccess(PlayerInfo playerInfo)
+        {
+            if (ChatText != null)
+            {
+                ChatText.text += $"[系统] 登录成功: {playerInfo.Username}\n";
+            }
+
+            if (JoinOrLeaveButtonText != null)
+            {
+                JoinOrLeaveButtonText.text = "已连接";
+            }
+
+            if (SendMessageButton != null)
+            {
+                SendMessageButton.interactable = true;
+            }
+
+            if (Input != null && Input.placeholder != null)
+            {
+                Input.placeholder.GetComponent<Text>().text = "输入移动坐标 (x,z)...";
+            }
+        }
+
+        private void OnLoginFailed(string error)
+        {
+            if (ChatText != null)
+            {
+                ChatText.text += $"[系统] 登录失败: {error}\n";
+            }
+        }
+
+        private void OnPlayerJoined(Guid playerId, string playerName, System.Numerics.Vector3 position)
+        {
+            if (ChatText != null)
+            {
+                ChatText.text += $"[玩家] {playerName} 加入了游戏\n";
+            }
+        }
+
+        private void OnPlayerLeft(Guid playerId, string reason)
+        {
+            if (ChatText != null)
+            {
+                ChatText.text += $"[玩家] 玩家离开: {reason}\n";
+            }
+        }
+
+        private void OnPlayerMoved(Guid playerId, System.Numerics.Vector3 position)
+        {
+            if (ChatText != null)
+            {
+                ChatText.text += $"[移动] 玩家移动到: ({position.X:F1}, {position.Y:F1}, {position.Z:F1})\n";
+            }
+        }
+
+        #endregion
+
+        #region UI按钮处理
+
         public async void JoinOrLeave()
         {
-            if (this.isJoin)
+            // 简单的占位符功能
+            if (ChatText != null)
             {
-                // await this.streamingClient.LeaveAsync();
-                this.InitializeUi();
-            }
-            else
-            {
-                var request = new JoinRequest { RoomName = "SampleRoom", UserName = this.Input.text };
-                // await this.streamingClient.JoinAsync(request);
-
-                this.isJoin = true;
-                this.SendMessageButton.interactable = true;
-                this.JoinOrLeaveButtonText.text = "Leave the room";
-                this.Input.text = string.Empty;
-                this.Input.placeholder.GetComponent<Text>().text = "Please enter a comment.";
-                this.ExceptionButton.interactable = true;
+                ChatText.text += "[系统] 按钮功能待实现\n";
             }
         }
 
         public async void SendMessage()
         {
-            if (!this.isJoin)
-                return;
+            if (!string.IsNullOrEmpty(Input?.text) && gameClient != null)
+            {
+                // 尝试解析输入为移动坐标
+                var parts = Input.text.Split(',');
+                if (parts.Length >= 2 &&
+                    float.TryParse(parts[0].Trim(), out float x) &&
+                    float.TryParse(parts[1].Trim(), out float z))
+                {
+                    await gameClient.MoveAsync(x, 0, z);
 
-            // await this.streamingClient.SendMessageAsync(this.Input.text);
-            this.Input.text = string.Empty;
+                    if (ChatText != null)
+                    {
+                        ChatText.text += $"[移动] 移动到: ({x:F1}, 0, {z:F1})\n";
+                    }
+                }
+                else
+                {
+                    if (ChatText != null)
+                    {
+                        ChatText.text += $"[消息] {Input.text}\n";
+                    }
+                }
+
+                Input.text = string.Empty;
+            }
+        }
+
+        public void DisconnectServer()
+        {
+            if (ChatText != null)
+            {
+                ChatText.text += "[系统] 断开连接功能待实现\n";
+            }
         }
 
         public async void GenerateException()
         {
-            if (!this.isJoin) return;
-            // await this.streamingClient.GenerateException("client exception(streaminghub)!");
+            if (ChatText != null)
+            {
+                ChatText.text += "[系统] 异常测试功能待实现\n";
+            }
         }
-        #endregion
-
-        #region Server -> Client (Streaming)
-        public void OnJoin(string name)
-        {
-            this.ChatText.text += $"{name} entered the room.\n";
-        }
-
-        public void OnLeave(string name)
-        {
-            this.ChatText.text += $"{name} left the room.\n";
-        }
-
-        public void OnSendMessage(MessageResponse message)
-        {
-            this.ChatText.text += $"{message.UserName}: {message.Message}\n";
-        }
-
-        public Task<string> HelloAsync(string name, int age)
-        {
-            Debug.Log($"HelloAsync is called with {name}, {age}");
-            return Task.FromResult($"Hello {name}, you are {age} years old!");
-        }
-        #endregion
 
         public async void SendReport()
         {
-            // await this.client.SendReportAsync(this.ReportInput.text);
-            ReportInput.text = string.Empty;
+            if (ChatText != null)
+            {
+                ChatText.text += "[系统] 报告功能待实现\n";
+            }
         }
 
         public async void UnaryGenerateException()
         {
-            try
+            if (ChatText != null)
             {
-                // await this.client.GenerateException("client exception(unary)!");
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"UnaryGenerateException: {e.Message}");
+                ChatText.text += "[系统] 异常测试功能待实现\n";
             }
         }
+
+        #endregion
     }
 }
