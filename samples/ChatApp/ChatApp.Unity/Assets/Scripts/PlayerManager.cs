@@ -12,7 +12,7 @@ namespace ChatApp
     public class PlayerManager : MonoBehaviour
     {
         [Header("游戏客户端")]
-        [SerializeField] private GameClient _gameClient;
+        [SerializeField] private UnityGameClient _gameClient;
 
         [Header("玩家预制体")]
         [SerializeField] private GameObject _playerPrefab;
@@ -29,13 +29,13 @@ namespace ChatApp
 
         private void Awake()
         {
-            // 确保GameClient已初始化
+            // 确保UnityGameClient已初始化
             if (_gameClient == null)
             {
-                _gameClient = FindObjectOfType<GameClient>();
+                _gameClient = FindObjectOfType<UnityGameClient>();
                 if (_gameClient == null)
                 {
-                    Debug.LogError("找不到GameClient组件，请确保场景中有GameClient组件");
+                    Debug.LogError("找不到UnityGameClient组件，请确保场景中有UnityGameClient组件");
                     return;
                 }
             }
@@ -150,6 +150,37 @@ namespace ChatApp
             {
                 _localPlayerObject.transform.position = position;
             }
+
+            // 同时发送移动请求到服务器
+            if (_gameClient != null)
+            {
+                _ = _gameClient.MoveAsync(position.x, position.y, position.z);
+            }
+        }
+
+        /// <summary>
+        /// 获取本地玩家对象
+        /// </summary>
+        public GameObject GetLocalPlayerObject()
+        {
+            return _localPlayerObject;
+        }
+
+        /// <summary>
+        /// 获取指定玩家对象
+        /// </summary>
+        public GameObject GetPlayerObject(Guid playerId)
+        {
+            _playerObjects.TryGetValue(playerId, out var playerObject);
+            return playerObject;
+        }
+
+        /// <summary>
+        /// 获取所有玩家对象
+        /// </summary>
+        public Dictionary<Guid, GameObject> GetAllPlayerObjects()
+        {
+            return new Dictionary<Guid, GameObject>(_playerObjects);
         }
     }
 }

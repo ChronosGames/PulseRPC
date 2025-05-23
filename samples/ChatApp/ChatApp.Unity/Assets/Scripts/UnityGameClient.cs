@@ -1,21 +1,31 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using ChatApp.Shared;
-using PulseRPC.Client.Unity;
+using Microsoft.Extensions.Logging;
+using PulseRPC;
 using PulseRPC.Client;
+using PulseRPC.Client.Channels;
+using PulseRPC.Messaging;
+using PulseRPC.Serialization;
 using PulseRPC.Transport;
 using UnityEngine;
 
 namespace ChatApp.Unity
 {
     /// <summary>
-    /// Unity 游戏客户端 - 使用新的 PulseRPC.Client.Unity 包装器
+    /// Unity 游戏客户端 - 基于Console客户端的完整实现
     /// </summary>
+    [PulseClientGeneration(typeof(IPlayerService))]
+    [PulseClientGeneration(typeof(IPlayerLoginEvents))]
+    [PulseClientGeneration(typeof(IPlayerMovementEvents))]
     public class UnityGameClient : MonoBehaviour
     {
         [Header("服务器配置")]
         [SerializeField] private string _host = "localhost";
-        [SerializeField] private int _port = 7000;
+        [SerializeField] private int _tcpPort = 7000;
+        [SerializeField] private int _kcpPort = 7001;
 
         [Header("游戏设置")]
         [SerializeField] private string _username = "Player";
@@ -32,16 +42,20 @@ namespace ChatApp.Unity
         public event Action<Guid, string> OnPlayerLeft;
         public event Action<Guid, System.Numerics.Vector3> OnPlayerMoved;
 
-        // PulseRPC 客户端组件
-        private UnityPulseRPCClientComponent _clientComponent;
-        private IPulseRPCClient _client;
-
-        // 服务代理
+        // 核心组件
+        private IChannelManager _channelManager;
+        private TransportFactory _transportFactory;
         private IPlayerService _playerService;
+        private ISubscriptionToken _eventsSubscription;
+        private CancellationTokenSource _cts;
 
         // 玩家状态
         private bool _isLoggedIn;
         private PlayerInfo _playerInfo;
+        private System.Numerics.Vector3 _position = new System.Numerics.Vector3();
+
+        // 其他玩家信息
+        private readonly Dictionary<Guid, PlayerData> _otherPlayers = new Dictionary<Guid, PlayerData>();
 
         private void Awake()
         {
@@ -55,13 +69,19 @@ namespace ChatApp.Unity
         private async void Start()
         {
             UpdateStatus("正在初始化游戏客户端...");
-            await InitializeAsync();
-
-            UpdateStatus("正在连接到服务器...");
-            await ConnectAsync();
-
-            UpdateStatus("正在登录...");
-            await LoginAsync();
+            try
+            {
+                await InitializeAsync();
+                UpdateStatus("正在连接到服务器...");
+                await ConnectAsync();
+                UpdateStatus("正在登录...");
+                await LoginAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[UnityGameClient] 初始化失败: {ex.Message}");
+                UpdateStatus($"初始化失败: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -71,39 +91,97 @@ namespace ChatApp.Unity
         {
             Debug.Log("[UnityGameClient] 正在初始化游戏客户端...");
 
+            _cts = new CancellationTokenSource();
+
+            // 创建序列化器
+            var serializer = new PulseRPCSerializer();
+
+            // 创建传输工厂 - Unity环境中不传递LoggerFactory
+            _transportFactory = new TransportFactory();
+
+            // 创建通道管理器
+            _channelManager = new ChannelManager();
+
+            // 创建TCP通道
+            var tcpOptions = new TransportOptions { NoDelay = true, KeepAlive = true, AutoReconnect = true };
+
+            var tcpTransport = await _transportFactory.CreateClientTransportAsync(
+                TransportType.Tcp, tcpOptions);
+
+            var tcpChannel = new TransportChannel(
+                "TcpChannel",
+                tcpTransport,
+                serializer,
+                null); // Unity环境中不需要传递Logger
+
+            _channelManager.RegisterChannel("TcpChannel", tcpChannel, true);
+
+            // 创建KCP通道
+            var kcpOptions = new TransportOptions
+            {
+                Kcp = new KcpOptions { NoDelay = 1, Interval = 10, Resend = 2, DisableFlowControl = false }
+            };
+
+            var kcpTransport = await _transportFactory.CreateClientTransportAsync(
+                TransportType.Kcp, kcpOptions);
+
+            var kcpChannel = new TransportChannel(
+                "KcpChannel",
+                kcpTransport,
+                serializer,
+                null); // Unity环境中不需要传递Logger
+
+            _channelManager.RegisterChannel("KcpChannel", kcpChannel);
+
             try
             {
-                // 创建 Unity 客户端组件
-                var clientGameObject = new GameObject("PulseRPC_Client");
-                clientGameObject.transform.SetParent(transform);
-                _clientComponent = clientGameObject.AddComponent<UnityPulseRPCClientComponent>();
+                // 获取服务代理
+                _playerService = _channelManager.GetPlayerService<IPlayerService>();
 
-                // 配置客户端选项
-                var options = new PulseRPCClientOptions
+                // 创建事件处理器实例
+                var eventsHandler = new PlayerEventsHandler(this);
+
+                try
                 {
-                    ServerAddress = _host,
-                    ServerPort = _port,
-                    ConnectionTimeoutMs = 30000,
-                    ReconnectIntervalMs = 5000,
-                    MaxReconnectAttempts = 5
-                };
+                    // 获取事件处理器 - 直接在通道上注册事件处理程序
+                    var tcpMessageChannel = _channelManager.GetChannel("TcpChannel");
+                    var kcpMessageChannel = _channelManager.GetChannel("KcpChannel");
 
-                // 初始化客户端
-                _client = await UnityPulseRPCClientFactory.CreateClientAsync(_host, _port);
+                    // 登录事件 (TCP通道)
+                    var loginJoinedToken = tcpMessageChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined",
+                        (sender, eventData) => eventsHandler.OnPlayerJoined(eventData));
+                    var loginLeftToken = tcpMessageChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft",
+                        (sender, eventData) => eventsHandler.OnPlayerLeft(eventData));
 
-                // 设置事件处理器
-                _client.ConnectionStateChanged += OnConnectionStateChanged;
-                _client.ErrorOccurred += OnClientError;
+                    // 移动事件 (KCP通道)
+                    var moveToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
+                        (sender, eventData) => eventsHandler.OnPlayerMoved(eventData));
+                    var moveBatchToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch",
+                        (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
+                    var moveBatchToken2 = kcpMessageChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
+                        (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
 
-                Debug.Log("[UnityGameClient] 客户端初始化完成");
-                UpdateStatus("客户端初始化完成");
+                    // 保存订阅令牌
+                    _eventsSubscription = new CompositeSubscriptionToken(new[] {
+                        loginJoinedToken, loginLeftToken, moveToken, moveBatchToken, moveBatchToken2
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[UnityGameClient] 事件处理器初始化失败: {ex.Message}");
+                    UpdateStatus($"事件处理器初始化失败: {ex.Message}");
+                    throw;
+                }
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[UnityGameClient] 客户端初始化失败: {ex.Message}");
-                UpdateStatus($"客户端初始化失败: {ex.Message}");
+                Debug.LogError($"[UnityGameClient] 服务代理或事件处理器初始化失败: {ex.Message}");
+                UpdateStatus($"初始化失败: {ex.Message}");
                 throw;
             }
+
+            Debug.Log("[UnityGameClient] 客户端初始化完成");
+            UpdateStatus("客户端初始化完成");
         }
 
         /// <summary>
@@ -111,15 +189,17 @@ namespace ChatApp.Unity
         /// </summary>
         private async Task ConnectAsync()
         {
-            Debug.Log($"[UnityGameClient] 正在连接到服务器 {_host}:{_port}...");
+            Debug.Log($"[UnityGameClient] 正在连接到服务器 {_host}...");
 
             try
             {
-                await _client.ConnectAsync();
+                // 连接TCP通道
+                var tcpChannel = _channelManager.GetChannel("TcpChannel") as IHasTransport;
+                await tcpChannel.ConnectAsync(_host, _tcpPort);
 
-                // 连接成功后创建服务代理
-                // 注释掉不存在的方法，等待实现
-                // _playerService = _client.CreateService<IPlayerService>();
+                // 连接KCP通道
+                var kcpChannel = _channelManager.GetChannel("KcpChannel") as IHasTransport;
+                await kcpChannel.ConnectAsync(_host, _kcpPort);
 
                 Debug.Log("[UnityGameClient] 已连接到服务器");
                 UpdateStatus("已连接到服务器");
@@ -159,9 +239,6 @@ namespace ChatApp.Unity
                     }
 
                     OnLoginSuccess?.Invoke(_playerInfo);
-
-                    // 订阅服务器事件
-                    await SubscribeToEventsAsync();
                 }
                 else
                 {
@@ -184,32 +261,6 @@ namespace ChatApp.Unity
         }
 
         /// <summary>
-        /// 订阅服务器事件
-        /// </summary>
-        private async Task SubscribeToEventsAsync()
-        {
-            try
-            {
-                // 创建事件处理器
-                var eventsHandler = new PlayerEventsHandler(this);
-
-                // 订阅玩家登录事件
-                // 注释掉不存在的方法，等待实现
-                // await _client.SubscribeAsync<IPlayerLoginEvents>(eventsHandler);
-
-                // 订阅玩家移动事件
-                // await _client.SubscribeAsync<IPlayerMovementEvents>(eventsHandler);
-
-                Debug.Log("[UnityGameClient] 事件订阅完成");
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[UnityGameClient] 事件订阅失败: {ex.Message}");
-                UpdateStatus($"事件订阅失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>
         /// 移动角色
         /// </summary>
         public async Task MoveAsync(float x, float y, float z)
@@ -219,12 +270,18 @@ namespace ChatApp.Unity
 
             try
             {
+                // 更新本地位置
+                _position = new System.Numerics.Vector3 { X = x, Y = y, Z = z };
+
+                // 发送移动请求
                 await _playerService.MoveAsync(new MoveRequest
                 {
                     X = x,
                     Y = y,
                     Z = z
                 });
+
+                Debug.Log($"[UnityGameClient] 已移动到 ({x}, {y}, {z})");
             }
             catch (Exception ex)
             {
@@ -233,39 +290,30 @@ namespace ChatApp.Unity
             }
         }
 
-        private void OnConnectionStateChanged(object sender, ConnectionStateChangedEventArgs args)
-        {
-            Debug.Log($"[UnityGameClient] 连接状态变更: {args.IsConnected}");
-
-            if (args.IsConnected)
-            {
-                UpdateStatus("已连接");
-            }
-            else
-            {
-                UpdateStatus($"已断开连接: {args.DisconnectReason}");
-            }
-        }
-
-        private void OnClientError(object sender, ErrorEventArgs args)
-        {
-            Debug.LogError($"[UnityGameClient] 客户端错误: {args.Exception.Message}");
-            UpdateStatus($"客户端错误: {args.Exception.Message}");
-        }
-
         /// <summary>
         /// 添加新玩家
         /// </summary>
         internal void AddPlayer(Guid playerId, string playerName, System.Numerics.Vector3 position)
         {
-            Debug.Log($"[UnityGameClient] 玩家加入: {playerName} (ID: {playerId})");
+            if (_playerInfo != null && playerId == _playerInfo.Id)
+                return; // 忽略自己
+
+            if (_otherPlayers.ContainsKey(playerId))
+                return;
+
+            var playerData = new PlayerData
+            {
+                Id = playerId,
+                Name = playerName,
+                Position = position
+            };
+
+            _otherPlayers[playerId] = playerData;
+
+            // 触发事件
             OnPlayerJoined?.Invoke(playerId, playerName, position);
 
-            // 更新场景控制器
-            // if (_sceneController != null)
-            // {
-            //     _sceneController.OnPlayerJoined(playerId, playerName);
-            // }
+            Debug.Log($"[UnityGameClient] 玩家加入: {playerName} ({playerId})");
         }
 
         /// <summary>
@@ -273,14 +321,16 @@ namespace ChatApp.Unity
         /// </summary>
         internal void RemovePlayer(Guid playerId, string reason)
         {
-            Debug.Log($"[UnityGameClient] 玩家离开: {playerId}, 原因: {reason}");
+            if (!_otherPlayers.TryGetValue(playerId, out var player))
+                return;
+
+            Debug.Log($"[UnityGameClient] 玩家 {player.Name} (ID: {playerId}) 已离开游戏，原因: {reason}");
+            UpdateStatus($"玩家 {player.Name} 已离开游戏，原因: {reason}");
+
+            // 触发玩家离开事件
             OnPlayerLeft?.Invoke(playerId, reason);
 
-            // 更新场景控制器
-            // if (_sceneController != null)
-            // {
-            //     _sceneController.OnPlayerLeft(playerId);
-            // }
+            _otherPlayers.Remove(playerId);
         }
 
         /// <summary>
@@ -288,31 +338,73 @@ namespace ChatApp.Unity
         /// </summary>
         internal void UpdatePlayerPosition(Guid playerId, System.Numerics.Vector3 position)
         {
-            OnPlayerMoved?.Invoke(playerId, position);
+            if (_playerInfo != null && playerId == _playerInfo.Id)
+                return; // 忽略自己
 
-            // 更新场景控制器
-            // if (_sceneController != null)
-            // {
-            //     _sceneController.OnPlayerMoved(playerId, new Vector3(position.X, position.Y, position.Z));
-            // }
+            if (_otherPlayers.TryGetValue(playerId, out var playerData))
+            {
+                playerData.Position = position;
+
+                // 触发事件
+                OnPlayerMoved?.Invoke(playerId, position);
+            }
         }
 
         private void OnDestroy()
         {
-            _client?.DisconnectAsync();
+            ShutdownAsync().GetAwaiter().GetResult();
         }
 
         /// <summary>
-        /// 更新状态显示
+        /// 关闭客户端
+        /// </summary>
+        private async Task ShutdownAsync()
+        {
+            Debug.Log("[UnityGameClient] 正在关闭客户端...");
+            UpdateStatus("正在关闭客户端...");
+
+            // 取消所有任务
+            _cts?.Cancel();
+
+            // 清理事件订阅
+            _eventsSubscription?.Dispose();
+            _eventsSubscription = null;
+
+            // 关闭通道
+            if (_channelManager != null)
+            {
+                // 释放通道资源
+                _channelManager.Dispose();
+                _channelManager = null;
+            }
+
+            Debug.Log("[UnityGameClient] 客户端已关闭");
+            UpdateStatus("客户端已关闭");
+        }
+
+        /// <summary>
+        /// 更新状态并触发事件
         /// </summary>
         private void UpdateStatus(string status)
         {
+            // 触发状态更新事件
             OnStatusUpdate?.Invoke(status);
 
+            // 更新场景控制器
             if (_sceneController != null)
             {
                 _sceneController.UpdateStatus(status);
             }
+        }
+
+        /// <summary>
+        /// 玩家数据
+        /// </summary>
+        internal class PlayerData
+        {
+            public Guid Id { get; set; }
+            public string Name { get; set; } = string.Empty;
+            public System.Numerics.Vector3 Position { get; set; } = new System.Numerics.Vector3();
         }
 
         /// <summary>
@@ -329,8 +421,7 @@ namespace ChatApp.Unity
 
             public void OnPlayerJoined(PlayerJoinedEvent eventData)
             {
-                _client.AddPlayer(eventData.PlayerId, eventData.PlayerName,
-                    new System.Numerics.Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
+                _client.AddPlayer(eventData.PlayerId, eventData.PlayerName, eventData.Position);
             }
 
             public void OnPlayerLeft(PlayerLeftEvent eventData)
@@ -346,10 +437,9 @@ namespace ChatApp.Unity
 
             public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
             {
-                foreach (var moveEvent in eventData)
+                foreach (var evt in eventData)
                 {
-                    _client.UpdatePlayerPosition(moveEvent.PlayerId,
-                        new System.Numerics.Vector3 { X = moveEvent.X, Y = moveEvent.Y, Z = moveEvent.Z });
+                    OnPlayerMoved(evt);
                 }
             }
 
@@ -357,9 +447,45 @@ namespace ChatApp.Unity
             {
                 foreach (var moveEvent in eventData.Updates)
                 {
-                    _client.UpdatePlayerPosition(moveEvent.PlayerId,
-                        new System.Numerics.Vector3 { X = moveEvent.X, Y = moveEvent.Y, Z = moveEvent.Z });
+                    OnPlayerMoved(moveEvent);
                 }
+            }
+        }
+
+        /// <summary>
+        /// 组合订阅令牌
+        /// </summary>
+        private class CompositeSubscriptionToken : ISubscriptionToken
+        {
+            private readonly ISubscriptionToken[] _tokens;
+            private bool _isDisposed;
+
+            public CompositeSubscriptionToken(ISubscriptionToken[] tokens)
+            {
+                _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));
+            }
+
+            public Guid Id { get; } = Guid.NewGuid();
+
+            public bool IsActive => !_isDisposed;
+
+            public void Unsubscribe()
+            {
+                if (_isDisposed)
+                    return;
+
+                foreach (var token in _tokens)
+                {
+                    token.Unsubscribe();
+                }
+
+                _isDisposed = true;
+            }
+
+            public void Dispose()
+            {
+                Unsubscribe();
+                GC.SuppressFinalize(this);
             }
         }
 
@@ -369,15 +495,14 @@ namespace ChatApp.Unity
         [ContextMenu("测试连接")]
         private async void TestConnection()
         {
-            if (_client != null)
+            if (_channelManager != null)
             {
                 Debug.Log("[UnityGameClient] 正在测试连接...");
                 UpdateStatus("正在测试连接...");
 
                 try
                 {
-                    await _client.DisconnectAsync();
-                    await _client.ConnectAsync();
+                    await ConnectAsync();
                     Debug.Log("[UnityGameClient] 连接测试成功");
                     UpdateStatus("连接测试成功");
                 }
@@ -403,6 +528,27 @@ namespace ChatApp.Unity
                     0,
                     random.Next(-10, 10)
                 );
+            }
+        }
+
+        /// <summary>
+        /// Unity Inspector 上下文菜单 - 显示在线玩家
+        /// </summary>
+        [ContextMenu("显示在线玩家")]
+        private void DisplayPlayers()
+        {
+            if (!_isLoggedIn)
+            {
+                Debug.Log("[UnityGameClient] 请先登录");
+                return;
+            }
+
+            Debug.Log($"[UnityGameClient] 在线玩家列表:");
+            Debug.Log($"* {_playerInfo.Username} (你) - 位置: ({_position.X}, {_position.Y}, {_position.Z})");
+
+            foreach (var player in _otherPlayers.Values)
+            {
+                Debug.Log($"* {player.Name} - 位置: ({player.Position.X}, {player.Position.Y}, {player.Position.Z})");
             }
         }
     }

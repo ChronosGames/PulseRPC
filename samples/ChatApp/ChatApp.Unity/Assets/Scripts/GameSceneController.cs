@@ -12,7 +12,7 @@ namespace ChatApp
     public class GameSceneController : MonoBehaviour
     {
         [Header("游戏客户端")]
-        [SerializeField] private GameClient _gameClient;
+        [SerializeField] private UnityGameClient _gameClient;
 
         [Header("玩家管理器")]
         [SerializeField] private PlayerManager _playerManager;
@@ -38,13 +38,13 @@ namespace ChatApp
             // 初始化UI组件
             InitializeUI();
 
-            // 确保GameClient已初始化
+            // 确保UnityGameClient已初始化
             if (_gameClient == null)
             {
-                _gameClient = FindObjectOfType<GameClient>();
+                _gameClient = FindObjectOfType<UnityGameClient>();
                 if (_gameClient == null)
                 {
-                    Debug.LogError("找不到GameClient组件，请确保场景中有GameClient组件");
+                    Debug.LogError("找不到UnityGameClient组件，请确保场景中有UnityGameClient组件");
                     return;
                 }
             }
