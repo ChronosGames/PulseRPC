@@ -2,7 +2,7 @@
     "name": "PulseRPC.Client",
     "rootNamespace": "PulseRPC.Client",
     "references": [
-        "PulseRPC.Abstractions"
+        "com.pulse.pulserpc.abstractions"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

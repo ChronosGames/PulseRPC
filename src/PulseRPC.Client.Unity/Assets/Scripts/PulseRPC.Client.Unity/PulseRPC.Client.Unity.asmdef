@@ -2,7 +2,7 @@
     "name": "PulseRPC.Client.Unity",
     "rootNamespace": "PulseRPC.Client.Unity",
     "references": [
-        "PulseRPC.Abstractions"
+        "com.chronosgames.pulserpc.client"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
