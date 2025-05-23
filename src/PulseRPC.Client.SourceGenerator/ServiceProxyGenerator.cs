@@ -330,7 +330,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 continue;
 
             // 检查是否有 Operation 特性
-            if (!HasAttribute(methodSymbol, nameof(OperationAttribute)))
+            if (!HasAttribute(methodSymbol, "OperationAttribute"))
                 continue;
 
             // 生成方法实现
@@ -521,7 +521,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 continue;
 
             // 检查是否有 Event 特性
-            if (!HasAttribute(methodSymbol, nameof(EventAttribute)))
+            if (!HasAttribute(methodSymbol, "EventAttribute"))
                 continue;
 
             // 需要确保有一个参数
@@ -669,7 +669,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
 
             // 去掉I前缀
-            var serviceName = interfaceName.StartsWith("I") ? interfaceName[1..] : interfaceName;
+            var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
 
             sb.AppendLine($"        /// <summary>");
             sb.AppendLine($"        /// 获取 {interfaceName} 服务");
@@ -697,11 +697,11 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
             // 确保生成的接口名称不重复I前缀
             var handlerInterfaceName = "I" + (interfaceName.StartsWith("I")
-                ? interfaceName[1..] + "Handler"
+                ? interfaceName.Substring(1) + "Handler"
                 : interfaceName + "Handler");
 
             var handlerClassName = interfaceName.StartsWith("I")
-                ? interfaceName[1..] + "Handler"
+                ? interfaceName.Substring(1) + "Handler"
                 : interfaceName + "Handler";
 
             sb.AppendLine($"        /// <summary>");
@@ -748,7 +748,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     private static bool HasAttribute(ISymbol symbol, string attributeName)
     {
         var shortName = attributeName.EndsWith("Attribute", StringComparison.Ordinal)
-            ? attributeName[..^9]
+            ? attributeName.Substring(0, attributeName.Length - "Attribute".Length)
             : attributeName;
 
         var longName = shortName + "Attribute";
