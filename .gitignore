@@ -117,12 +117,19 @@ artifacts/
 
 # Unity
 
+# Unity项目文件
 src/PulseRPC.Client.Unity/bin/*
 src/PulseRPC.Client.Unity/Library/*
 src/PulseRPC.Client.Unity/obj/*
 src/PulseRPC.Client.Unity/Temp/*
 
+# Unity 相关文件
+src/PulseRPC.Abstractions/**/*.meta
+src/PulseRPC.Client/**/*.meta
 **/UserSettings/*
+
+# MSBuild 构建输出（隐藏的artifacts文件夹）
+**/.artifacts/
 
 nuget/tools/*
 nuget/*.nupkg

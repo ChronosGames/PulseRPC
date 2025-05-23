@@ -1,11 +1,27 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup> <!-- Target netstandard for broader compatibility -->
+  <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
+    <LangVersion>11.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
+
+    <!-- 根据Unity环境动态设置目标框架 -->
+    <TargetFrameworks Condition="'$(Unity)' == 'true'">netstandard2.1</TargetFrameworks>
+    <TargetFrameworks Condition="'$(Unity)' != 'true'">net8.0;netstandard2.1</TargetFrameworks>
+
+    <!-- Unity 兼容性设置 -->
+    <IsPackable>true</IsPackable>
+    <PackageId>PulseRPC.Client</PackageId>
+    <PackageVersion>1.0.0</PackageVersion>
+    <Authors>ChronosGames, Inc.</Authors>
+    <Description>PulseRPC client library for .NET and Unity</Description>
+    <PackageLicense>MIT</PackageLicense>
+  </PropertyGroup>
+
+  <!-- Unity 特定的条件编译 -->
+  <PropertyGroup Condition="'$(Unity)' == 'true'">
+    <DefineConstants>$(DefineConstants);UNITY</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -13,11 +29,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Logging" />
-    <PackageReference Include="System.IO.Pipelines" />
-    <!-- Add logging if needed for client-side debugging -->
+    <!-- 核心依赖，Unity 和 .NET 通用 -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="System.IO.Pipelines" />
+
+    <!-- 条件依赖 - 仅 .NET 环境 -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Condition="'$(Unity)' != 'true'" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="'$(Unity)' != 'true'" />
   </ItemGroup>
 
 </Project>

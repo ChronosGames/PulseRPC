@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <!-- Unity环境检测 -->
+  <PropertyGroup>
+    <!-- 检测是否在Unity包管理器环境中 -->
+    <IsUnityPackage Condition="'$(IsUnityPackage)' == '' AND '$(MSBuildProjectDirectory)' != '' AND Exists('$(MSBuildProjectDirectory)\package.json')">true</IsUnityPackage>
+    <IsUnityPackage Condition="'$(IsUnityPackage)' == ''">false</IsUnityPackage>
+
+    <!-- 设置Unity标志 -->
+    <Unity Condition="'$(Unity)' == '' AND '$(IsUnityPackage)' == 'true'">true</Unity>
+    <Unity Condition="'$(Unity)' == ''">false</Unity>
+  </PropertyGroup>
+
+  <!-- Unity构建时的特殊配置 -->
+  <PropertyGroup Condition="'$(Unity)' == 'true'">
+    <!-- 仅构建Unity兼容的目标框架 -->
+    <TargetFrameworks>netstandard2.1</TargetFrameworks>
+
+    <!-- Unity特定的编译常量 -->
+    <DefineConstants>$(DefineConstants);UNITY_PACKAGE</DefineConstants>
+  </PropertyGroup>
+
+  <!--
+    Override the output path of build artifacts.
+    This is necessary to change the path to one with a dot(.) prefix to hide generated items from Unity.
+  -->
+  <PropertyGroup>
+    <!-- Using .NET 8 and later, use ArtifactsPath property. -->
+    <!-- https://learn.microsoft.com/en-us/dotnet/core/sdk/artifacts-output -->
+    <ArtifactsPath>$(MSBuildThisFileDirectory).artifacts</ArtifactsPath>
+    <!-- Using .NET 7 and ealier, use BaseIntermediateOutputPath and BaseOutputPath property instead. -->
+    <!-- NOTE: Currently, even if .NET 8 SDK is installed, MessagePack.Generator still requires these properties to be set. -->
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory).artifacts\obj\$(MSBuildProjectName.ToLowerInvariant())\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(MSBuildThisFileDirectory).artifacts\bin\$(MSBuildProjectName.ToLowerInvariant())\</BaseOutputPath>
+  </PropertyGroup>
+
+</Project>

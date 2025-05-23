@@ -1,4 +1,8 @@
 ﻿// PulseRPC.Transport/TransportOptions.cs
+
+using System.Collections.Generic;
+using System.Threading.Tasks;
+
 namespace PulseRPC.Transport
 {
     /// <summary>

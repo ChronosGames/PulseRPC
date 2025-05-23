@@ -1,18 +1,22 @@
 {
     "name": "PulseRPC.Client.Unity",
-    "rootNamespace": "PulseRPC",
-    "references": [],
+    "rootNamespace": "PulseRPC.Client.Unity",
+    "references": [
+        "PulseRPC.Abstractions"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
-    "allowUnsafeCode": false,
-    "overrideReferences": true,
-    "precompiledReferences": [
-        "System.Threading.Tasks.dll",
-        "System.Runtime.dll",
-        "System.Core.dll"
-    ],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.pulse.pulserpc.client",
+            "expression": "1.0.0",
+            "define": "PULSERPC_CLIENT_AVAILABLE"
+        }
+    ],
     "noEngineReferences": false
 }

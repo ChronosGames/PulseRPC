@@ -1,176 +1,116 @@
-# PulseRPC Unity 客户端
+# PulseRPC.Client.Unity
 
-PulseRPC Unity 客户端是一个专为Unity环境优化的RPC客户端库，特别支持IL2CPP和AOT环境。
+PulseRPC Unity 客户端是一个适用于 Unity 环境的 RPC（远程过程调用）框架，提供了高效、可靠的网络通信功能。
 
-## 特性
+## 项目结构
 
-- 支持Unity IL2CPP和AOT编译环境
-- 提供值类型的零拷贝序列化
-- 基于消息和消息处理器的模式
-- 简单易用的Unity组件接口
-- 支持异步RPC调用
-- 高性能TcpClient通信
+重构后的项目结构如下：
 
-## 安装
-
-1. 在Unity项目中导入此包
-2. 确保项目中已安装MemoryPack序列化库
+```
+PulseRPC.Client.Unity/
+├── Channels/                 - 通道相关实现
+│   ├── ChannelManager.cs     - 通道管理器
+│   ├── IMessageChannel.cs    - 消息通道接口
+│   └── TransportChannel.cs   - 传输通道实现
+├── Transport/                - 传输层实现
+│   └── TransportFactory.cs   - 传输工厂和各种传输实现
+├── Serialization/            - 序列化相关实现
+│   ├── ISerializer.cs        - 序列化器接口
+│   └── PulseRPCSerializer.cs - 序列化器实现
+├── Messaging/                - 消息传递相关实现
+│   └── IEventHandler.cs      - 事件处理器接口
+├── Generated/                - 生成的代理代码
+├── Examples/                 - 示例代码
+└── UnityClient.cs            - Unity客户端主类
+```
 
 ## 使用方法
 
-### 1. 添加UnityClient组件
-
-在场景中创建一个GameObject，并添加`UnityClient`组件：
+### 1. 初始化客户端
 
 ```csharp
-// 在Inspector中设置服务器地址和端口
-UnityClient client = gameObject.AddComponent<UnityClient>();
-client.serverAddress = "127.0.0.1";
-client.serverPort = 5000;
+// 创建序列化器
+var serializer = new PulseRPCSerializer();
+
+// 创建传输工厂
+var transportFactory = new TransportFactory();
+
+// 创建通道管理器
+var channelManager = new ChannelManager();
+
+// 创建TCP通道
+var tcpOptions = new TransportOptions { NoDelay = true, KeepAlive = true };
+var tcpTransport = await transportFactory.CreateClientTransportAsync(TransportType.Tcp, tcpOptions);
+var tcpChannel = new TransportChannel("TcpChannel", tcpTransport, serializer);
+channelManager.RegisterChannel("TcpChannel", tcpChannel, true);
+
+// 连接到服务器
+await tcpChannel.ConnectAsync("localhost", 7000);
 ```
 
-### 2. 定义消息类型
-
-定义你的请求和响应消息类型，使用`[MemoryPackable]`特性标记：
+### 2. 调用远程服务
 
 ```csharp
-// 请求消息
-[MemoryPackable]
-public partial class GreetingRequest
-{
-    public string Name { get; set; }
-}
+// 获取服务代理
+var playerService = channelManager.GetService<IPlayerService>();
 
-// 响应消息
-[MemoryPackable]
-public partial class GreetingResponse
+// 调用远程方法
+var response = await playerService.LoginAsync(new LoginRequest
 {
-    public string Message { get; set; }
-    public DateTime Timestamp { get; set; }
-}
+    Username = "Player123",
+    Password = "password"
+});
 
-// 值类型消息（使用结构体获得更好的性能）
-[MemoryPackable]
-public partial struct CalculationRequest
+if (response.Success)
 {
-    public int A { get; set; }
-    public int B { get; set; }
+    Debug.Log($"登录成功: {response.Player.Username}");
 }
-
-[MemoryPackable]
-public partial struct CalculationResponse
+else
 {
-    public int Sum { get; set; }
-    public int Product { get; set; }
-    public float Division { get; set; }
+    Debug.LogError($"登录失败: {response.ErrorMessage}");
 }
 ```
 
-### 3. 发送请求和处理响应
+### 3. 订阅事件
 
 ```csharp
-// 创建请求消息
-var request = new GreetingRequest { Name = "Unity" };
+// 订阅事件
+var loginEventsHandler = new PlayerLoginEventsImpl();
+var tcpChannel = channelManager.GetChannel("TcpChannel");
+var token = tcpChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined",
+    (sender, eventData) => loginEventsHandler.OnPlayerJoined(eventData));
 
-// 发送请求并等待响应
-try
+// 处理事件的实现
+private class PlayerLoginEventsImpl : IPlayerLoginEvents
 {
-    var response = await client.SendRequest<GreetingRequest, GreetingResponse>(request);
-    Debug.Log($"服务器回应: {response.Message}");
-}
-catch (Exception ex)
-{
-    Debug.LogError($"RPC调用失败: {ex.Message}");
-}
-```
-
-### 4. 处理服务器推送的消息（可选）
-
-如果需要处理服务器主动推送的消息，可以注册消息处理器：
-
-```csharp
-// 定义消息处理器
-public class NotificationHandler : MessageHandler<ServerNotification>
-{
-    public override void Handle(ServerNotification message)
+    public void OnPlayerJoined(PlayerJoinedEvent eventData)
     {
-        Debug.Log($"收到服务器通知: {message.Content}");
+        Debug.Log($"玩家加入: {eventData.PlayerName} (ID: {eventData.PlayerId})");
+    }
+
+    public void OnPlayerLeft(PlayerLeftEvent eventData)
+    {
+        Debug.Log($"玩家离开: {eventData.PlayerId}, 原因: {eventData.Reason}");
     }
 }
-
-// 在启动时注册处理器
-private void Start()
-{
-    // 注册消息处理器
-    client.RegisterHandler(new NotificationHandler());
-
-    // 连接服务器
-    client.Connect();
-}
 ```
 
-## AOT支持
-
-对于IL2CPP环境，库会自动注册所有必要的类型，以确保序列化和反序列化正常工作。这是通过以下方式实现的：
-
-1. 在编译时自动生成AOT注册代码
-2. 使用`AOTSupport`类预先注册基本类型
-3. 提供特殊的序列化器，支持值类型的零拷贝序列化
-
-## 值类型优化
-
-对于值类型（结构体），PulseRPC Unity客户端使用零拷贝序列化技术，可以显著提高性能：
+### 4. 清理资源
 
 ```csharp
-// 定义值类型消息
-[MemoryPackable]
-public partial struct Vector3Message
-{
-    public float X;
-    public float Y;
-    public float Z;
-}
+// 取消订阅
+token.Dispose();
 
-// 使用时自动应用零拷贝序列化
-var vector = new Vector3Message { X = 1, Y = 2, Z = 3 };
-var data = UnityMessageSerializer.Serialize(vector); // 使用零拷贝
+// 断开连接并释放资源
+channelManager.Dispose();
 ```
 
-## 消息与处理器模式
+## 注意事项
 
-PulseRPC使用消息和消息处理器模式，具有以下优势：
+1. 在实际项目中，您需要为特定的服务和事件生成代理代码。可以使用 PulseRPC.Client.SourceGenerator 来自动生成。
 
-1. **解耦**：消息发送者和接收者之间完全解耦
-2. **可扩展**：轻松添加新的消息类型和处理器
-3. **类型安全**：基于强类型的消息处理
-4. **AOT友好**：适合IL2CPP环境
+2. 本框架提供了多种传输实现，包括 TCP、KCP 和 WebSocket。您可以根据需求选择合适的传输方式。
 
-基本流程：
+3. 默认序列化器使用 BinaryFormatter，但建议在生产环境中使用更高效、安全的序列化方案，如 MemoryPack 或 MessagePack。
 
-1. 客户端发送消息到服务器
-2. 服务器处理消息并返回响应
-3. 客户端接收响应并处理
-4. 服务器也可以主动推送消息到客户端
-
-## 故障排除
-
-### IL2CPP编译错误
-
-如果在IL2CPP环境中遇到序列化相关的错误，请确保：
-
-1. 所有消息类型都使用了`[MemoryPackable]`特性
-2. 检查是否有需要手动注册的特殊类型
-3. 在`AOTSupport.cs`中添加这些特殊类型的注册
-
-### 连接问题
-
-如果无法连接到服务器：
-
-1. 检查服务器地址和端口是否正确
-2. 确认服务器是否正在运行
-3. 检查是否有防火墙阻止连接
-4. 在移动设备上，确保有适当的网络权限
-
-## 示例
-
-请参考`Examples`目录中的示例代码，了解如何使用PulseRPC Unity客户端。
+4. 异步操作需要在 Unity 中正确处理，建议使用协程或专门的异步库（如 UniTask）来避免线程问题。

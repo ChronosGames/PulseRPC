@@ -1,21 +1,27 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.1;net8.0</TargetFrameworks>
+    <!-- 根据Unity环境动态设置目标框架 -->
+    <TargetFrameworks Condition="'$(Unity)' == 'true'">netstandard2.1</TargetFrameworks>
+    <TargetFrameworks Condition="'$(Unity)' != 'true'">net8.0;netstandard2.1</TargetFrameworks>
 
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <IsTrimmable Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">true</IsTrimmable>
+    <LangVersion>11.0</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
+    <!-- Unity 兼容性设置 -->
+    <IsPackable>true</IsPackable>
     <PackageId>PulseRPC.Abstractions</PackageId>
-    <Description>PulseRPC interfaces and abstractions for server and client.
-      Commonly used types:
-      PulseRPC.IPulseService
-      PulseRPC.IService&lt;TSelf&gt;
-      PulseRPC.IStreamingHub&lt;TSelf, TReceiver&gt;
-      PulseRPC.UnaryResult&lt;TResult&gt;
-      PulseRPC.IgnoreAttribute</Description>
-    <RootNamespace>PulseRPC</RootNamespace>
+    <PackageVersion>1.0.0</PackageVersion>
+    <Authors>ChronosGames, Inc.</Authors>
+    <Description>PulseRPC abstractions and interfaces shared between client and server</Description>
+    <PackageLicense>MIT</PackageLicense>
+  </PropertyGroup>
+
+  <!-- Unity 特定的条件编译 -->
+  <PropertyGroup Condition="'$(Unity)' == 'true'">
+    <DefineConstants>$(DefineConstants);UNITY</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
