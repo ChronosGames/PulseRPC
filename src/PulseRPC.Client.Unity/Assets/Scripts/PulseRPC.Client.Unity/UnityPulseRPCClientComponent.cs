@@ -13,6 +13,7 @@ namespace PulseRPC.Client.Unity
     /// </summary>
     public class UnityPulseRPCClientComponent : MonoBehaviour
     {
+        [Header("服务器配置")]
         [SerializeField] private string serverAddress = "localhost";
         [SerializeField] private int serverPort = 12345;
         [SerializeField] private bool autoConnectOnStart = true;
