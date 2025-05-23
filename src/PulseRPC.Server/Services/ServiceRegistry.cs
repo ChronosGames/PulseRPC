@@ -112,7 +112,7 @@ public class ServiceRegistry
                 var returnType = methodInfo.ReturnType.GetGenericArguments()[0];
                 Console.WriteLine($"  - ValueTask<T>返回类型: ValueTask<{returnType.Name}>");
 
-                // 创建泛型委托类型
+                // 创建泛型委托类型 - 修复泛型参数数量
                 var delegateType = typeof(Func<,,,>).MakeGenericType(
                     implementationType, typeof(byte[]), typeof(CancellationToken), methodInfo.ReturnType);
 
@@ -130,12 +130,12 @@ public class ServiceRegistry
                         return;
                     }
 
-                    // 创建泛型方法
+                    // 创建泛型方法 - 确保泛型参数正确
                     var genericWrapperMethod = wrapperMethod.MakeGenericMethod(
                         implementationType, parameterType, returnType);
 
-                    // 创建委托
-                    var directDelegate = Delegate.CreateDelegate(delegateType, null, genericWrapperMethod);
+                    // 创建委托 - 使用正确的方法创建委托
+                    var directDelegate = Delegate.CreateDelegate(delegateType, genericWrapperMethod);
 
                     // 添加到缓存
                     _directMethodCache.TryAdd(cacheKey, directDelegate);
@@ -144,15 +144,15 @@ public class ServiceRegistry
                 catch (Exception ex)
                 {
                     Console.WriteLine($"  - 创建ValueTask<T>委托失败: {ex.Message}");
-                    throw;
+                    Console.WriteLine($"  - 详细错误: {ex}");
                 }
             }
             else if (methodInfo.ReturnType == typeof(ValueTask))
             {
                 Console.WriteLine("  - 无返回值ValueTask类型");
 
-                // 针对无返回值ValueTask类型
-                var delegateType = typeof(Func<,,>).MakeGenericType(
+                // 针对无返回值ValueTask类型 - 修复泛型参数数量
+                var delegateType = typeof(Func<,,,>).MakeGenericType(
                     implementationType, typeof(byte[]), typeof(CancellationToken), typeof(ValueTask));
 
                 try
@@ -171,7 +171,7 @@ public class ServiceRegistry
                     var genericWrapperMethod = wrapperMethod.MakeGenericMethod(implementationType, parameterType);
 
                     // 创建委托
-                    var directDelegate = Delegate.CreateDelegate(delegateType, null, genericWrapperMethod);
+                    var directDelegate = Delegate.CreateDelegate(delegateType, genericWrapperMethod);
 
                     // 添加到缓存
                     _directMethodCache.TryAdd(cacheKey, directDelegate);
@@ -180,7 +180,7 @@ public class ServiceRegistry
                 catch (Exception ex)
                 {
                     Console.WriteLine($"  - 创建ValueTask委托失败: {ex.Message}");
-                    throw;
+                    Console.WriteLine($"  - 详细错误: {ex}");
                 }
             }
         }
@@ -188,7 +188,7 @@ public class ServiceRegistry
         {
             // 如果创建直接委托失败，记录错误但继续执行
             Console.WriteLine($"无法为 {cacheKey} 创建直接调用委托: {ex.Message}");
-            Console.WriteLine(ex.StackTrace);
+            Console.WriteLine($"详细堆栈信息: {ex.StackTrace}");
         }
     }
 
@@ -376,28 +376,19 @@ public class ServiceRegistry
             // 创建参数表达式
             var dataParam = Expression.Parameter(typeof(byte[]), "data");
 
-            // 获取MemoryPackSerializer.Deserialize<T>方法
+            // 获取MemoryPackSerializer.Deserialize<T>(byte[])方法 - 使用byte[]重载
             var deserializeMethod = typeof(MemoryPackSerializer)
                 .GetMethod(nameof(MemoryPackSerializer.Deserialize),
-                    new Type[] { typeof(ReadOnlySpan<byte>) })!
+                    new Type[] { typeof(byte[]) })!
                 .MakeGenericMethod(type);
 
             if (deserializeMethod == null)
             {
-                throw new InvalidOperationException($"无法获取MemoryPackSerializer.Deserialize<{type.Name}>方法");
-            }
-
-            // 创建ReadOnlySpan<byte>构造函数调用
-            var readOnlySpanCtor = typeof(ReadOnlySpan<byte>).GetConstructor(new[] { typeof(byte[]) });
-            if (readOnlySpanCtor == null)
-            {
-                throw new InvalidOperationException("无法获取ReadOnlySpan<byte>构造函数");
+                throw new InvalidOperationException($"无法获取MemoryPackSerializer.Deserialize<{type.Name}>(byte[])方法");
             }
 
             // 创建方法调用表达式
-            var spanExpr = Expression.New(readOnlySpanCtor, dataParam);
-
-            var call = Expression.Call(null, deserializeMethod, spanExpr);
+            var call = Expression.Call(null, deserializeMethod, dataParam);
 
             // 将结果转换为object
             var resultExpr = Expression.Convert(call, typeof(object));
@@ -425,8 +416,9 @@ public class ServiceRegistry
 
                     return method.Invoke(null, new object[] { data })!;
                 }
-                catch
+                catch (Exception fallbackEx)
                 {
+                    Console.WriteLine($"回退反序列化也失败: {fallbackEx.Message}");
                     // 如果反序列化失败，返回该类型的默认值
                     return type.IsValueType ? Activator.CreateInstance(type)! : null!;
                 }
