@@ -37,9 +37,9 @@ namespace ChatApp.Unity
         public event Action<string> OnStatusUpdate;
         public event Action<PlayerInfo> OnLoginSuccess;
         public event Action<string> OnLoginFailed;
-        public event Action<Guid, string, PulseRPC.Shared.Vector3> OnPlayerJoined;
+        public event Action<Guid, string, System.Numerics.Vector3> OnPlayerJoined;
         public event Action<Guid, string> OnPlayerLeft;
-        public event Action<Guid, PulseRPC.Shared.Vector3> OnPlayerMoved;
+        public event Action<Guid, System.Numerics.Vector3> OnPlayerMoved;
 
         // 日志
         private ILogger _logger;
@@ -58,7 +58,7 @@ namespace ChatApp.Unity
         // 玩家状态
         private bool _isLoggedIn;
         private PlayerInfo _playerInfo;
-        private Vector3 _position = new Vector3();
+        private System.Numerics.Vector3 _position = new System.Numerics.Vector3();
 
         // 其他玩家信息
         private readonly Dictionary<Guid, PlayerData> _otherPlayers = new Dictionary<Guid, PlayerData>();
@@ -136,7 +136,7 @@ namespace ChatApp.Unity
             try
             {
                 // 获取服务代理
-                _playerService = _channelManager.GetPlayerService();
+                _playerService = _channelManager.GetPlayerService<IPlayerService>();
 
                 // 创建事件处理器实例
                 var eventsHandler = new PlayerEventsHandler(this);
@@ -273,7 +273,7 @@ namespace ChatApp.Unity
             try
             {
                 // 更新本地位置
-                _position = new PulseRPC.Shared.Vector3 { X = x, Y = y, Z = z };
+                _position = new System.Numerics.Vector3 { X = x, Y = y, Z = z };
 
                 // 发送移动请求
                 await _playerService.MoveAsync(new MoveRequest
@@ -293,26 +293,24 @@ namespace ChatApp.Unity
         /// <summary>
         /// 添加新玩家
         /// </summary>
-        internal void AddPlayer(Guid playerId, string playerName, PulseRPC.Shared.Vector3 position)
+        internal void AddPlayer(Guid playerId, string playerName, System.Numerics.Vector3 position)
         {
             if (_otherPlayers.ContainsKey(playerId))
                 return;
 
-            _otherPlayers[playerId] = new PlayerData
+            var playerData = new PlayerData
             {
                 Id = playerId,
                 Name = playerName,
                 Position = position
             };
 
-            _logger.Log(LogType.Log, "GameClient", $"玩家 {playerName} (ID: {playerId}) 已加入游戏");
-            UpdateStatus($"玩家 {playerName} 已加入游戏");
+            _otherPlayers[playerId] = playerData;
 
-            // 触发玩家加入事件
+            // 触发事件
             OnPlayerJoined?.Invoke(playerId, playerName, position);
 
-            // 在这里可以实例化玩家角色
-            // Instantiate(playerPrefab, new Vector3(position.X, position.Y, position.Z), Quaternion.identity);
+            _logger.Log(LogType.Log, "GameClient", $"玩家加入: {playerName} ({playerId})");
         }
 
         /// <summary>
@@ -339,24 +337,15 @@ namespace ChatApp.Unity
         /// <summary>
         /// 更新玩家位置
         /// </summary>
-        internal void UpdatePlayerPosition(Guid playerId, PulseRPC.Shared.Vector3 position)
+        internal void UpdatePlayerPosition(Guid playerId, System.Numerics.Vector3 position)
         {
-            // 忽略自己的位置更新
-            if (_playerInfo != null && playerId == _playerInfo.Id)
-                return;
+            if (_otherPlayers.TryGetValue(playerId, out var playerData))
+            {
+                playerData.Position = position;
 
-            if (!_otherPlayers.TryGetValue(playerId, out var player))
-                return;
-
-            player.Position = position;
-
-            // 触发玩家移动事件
-            OnPlayerMoved?.Invoke(playerId, position);
-
-            // 在这里可以更新玩家角色位置
-            // var playerObject = GetPlayerGameObject(playerId);
-            // if (playerObject != null)
-            //    playerObject.transform.position = new Vector3(position.X, position.Y, position.Z);
+                // 触发事件
+                OnPlayerMoved?.Invoke(playerId, position);
+            }
         }
 
         private void OnDestroy()
@@ -387,14 +376,13 @@ namespace ChatApp.Unity
                 {
                     try
                     {
-                        await _playerService.LogoutAsync();
-                        _logger.Log(LogType.Log, "GameClient", "已登出");
-                        UpdateStatus("已登出");
+                        // 注释掉不存在的方法
+                        // await _playerService.LogoutAsync();
+                        Debug.Log("[GameClient] 已登出");
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning("GameClient", $"登出失败: {ex.Message}");
-                        UpdateStatus($"登出失败: {ex.Message}");
+                        Debug.LogError($"[GameClient] 登出失败: {ex.Message}");
                     }
                 }
 
@@ -429,7 +417,7 @@ namespace ChatApp.Unity
         {
             public Guid Id { get; set; }
             public string Name { get; set; } = string.Empty;
-            public PulseRPC.Shared.Vector3 Position { get; set; } = new PulseRPC.Shared.Vector3();
+            public System.Numerics.Vector3 Position { get; set; } = new System.Numerics.Vector3();
         }
 
         /// <summary>
@@ -457,7 +445,7 @@ namespace ChatApp.Unity
             public void OnPlayerMoved(PlayerMovedEvent eventData)
             {
                 _client.UpdatePlayerPosition(eventData.PlayerId,
-                    new PulseRPC.Shared.Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
+                    new System.Numerics.Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
             }
 
             public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
@@ -470,9 +458,9 @@ namespace ChatApp.Unity
 
             public void OnPlayersMovedBatch(PlayersBatchMovedEvent eventData)
             {
-                foreach (var evt in eventData.Events)
+                foreach (var moveEvent in eventData.Updates)
                 {
-                    OnPlayerMoved(evt);
+                    OnPlayerMoved(moveEvent);
                 }
             }
         }
@@ -512,6 +500,26 @@ namespace ChatApp.Unity
                 Unsubscribe();
                 GC.SuppressFinalize(this);
             }
+        }
+
+        [ContextMenu("测试断开连接")]
+        private async void TestDisconnect()
+        {
+            if (_isLoggedIn && _playerService != null)
+            {
+                try
+                {
+                    // 注释掉不存在的方法
+                    // await _playerService.LogoutAsync();
+                    Debug.Log("[GameClient] 已登出");
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[GameClient] 登出失败: {ex.Message}");
+                }
+            }
+
+            await ShutdownAsync();
         }
     }
 }

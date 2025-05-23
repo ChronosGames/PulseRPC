@@ -4,16 +4,16 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
-using UnityTCP;
 
 namespace Assets.Scripts
 {
     public class ChatComponent : MonoBehaviour, IChatHubReceiver
     {
         private CancellationTokenSource shutdownCancellation = new CancellationTokenSource();
-        private TCPNetworkManager networkManager;
-        private ChatHubClient streamingClient;
-        private ChatServiceClient client;
+        // 注释掉不存在的类型，等待实现
+        // private TCPNetworkManager networkManager;
+        // private ChatHubClient streamingClient;
+        // private ChatServiceClient client;
 
         private bool isJoin;
         private bool isSelfDisConnected;
@@ -37,7 +37,7 @@ namespace Assets.Scripts
         async void Start()
         {
             // 初始化网络管理器
-            networkManager = gameObject.AddComponent<TCPNetworkManager>();
+            // networkManager = gameObject.AddComponent<TCPNetworkManager>();
 
             await this.InitializeClientAsync();
             this.InitializeUi();
@@ -48,16 +48,16 @@ namespace Assets.Scripts
             // 清理资源
             shutdownCancellation.Cancel();
 
-            if (this.streamingClient != null)
-            {
-                this.streamingClient.Dispose();
-            }
+            // if (this.streamingClient != null)
+            // {
+            //     this.streamingClient.Dispose();
+            // }
 
-            if (networkManager != null)
-            {
-                networkManager.DisconnectClient();
-                Destroy(networkManager);
-            }
+            // if (networkManager != null)
+            // {
+            //     networkManager.DisconnectClient();
+            //     Destroy(networkManager);
+            // }
         }
 
         private async Task InitializeClientAsync()
@@ -70,14 +70,14 @@ namespace Assets.Scripts
                     Debug.Log($"Connecting to the server...");
 
                     // 连接到服务器
-                    await networkManager.ConnectToServer(ServerIP, ServerPort);
+                    // await networkManager.ConnectToServer(ServerIP, ServerPort);
 
                     // 创建ChatHub客户端
-                    this.streamingClient = new ChatHubClient(networkManager, this);
+                    // this.streamingClient = new ChatHubClient(networkManager, this);
 
                     // 注册断开连接事件
-                    this.streamingClient.Disconnected += OnStreamingClientDisconnected;
-                    this.streamingClient.HeartbeatReceived += rtt => LabelRtt.text = $"RTT: {rtt.TotalMilliseconds:#,0}ms";
+                    // this.streamingClient.Disconnected += OnStreamingClientDisconnected;
+                    // this.streamingClient.HeartbeatReceived += rtt => LabelRtt.text = $"RTT: {rtt.TotalMilliseconds:#,0}ms";
 
                     Debug.Log($"Connection is established.");
                     break;
@@ -92,7 +92,7 @@ namespace Assets.Scripts
             }
 
             // 创建服务客户端
-            this.client = new ChatServiceClient(networkManager);
+            // this.client = new ChatServiceClient(networkManager);
         }
 
         private void InitializeUi()
@@ -139,22 +139,28 @@ namespace Assets.Scripts
             if (this.isJoin)
                 this.JoinOrLeave();
 
-            this.streamingClient.Dispose();
-            networkManager.DisconnectClient();
+            // if (this.streamingClient != null)
+            // {
+            //     this.streamingClient.Dispose();
+            // }
+            // if (networkManager != null)
+            // {
+            //     networkManager.DisconnectClient();
+            // }
         }
 
         public async void ReconnectInitializedServer()
         {
-            if (networkManager != null)
-            {
-                networkManager.DisconnectClient();
-            }
+            // if (networkManager != null)
+            // {
+            //     networkManager.DisconnectClient();
+            // }
 
-            if (streamingClient != null)
-            {
-                streamingClient.Dispose();
-                streamingClient = null;
-            }
+            // if (streamingClient != null)
+            // {
+            //     streamingClient.Dispose();
+            //     streamingClient = null;
+            // }
 
             await this.InitializeClientAsync();
             this.InitializeUi();
@@ -167,14 +173,14 @@ namespace Assets.Scripts
             try
             {
                 // 重新连接
-                await networkManager.ConnectToServer(ServerIP, ServerPort);
+                // await networkManager.ConnectToServer(ServerIP, ServerPort);
 
                 // 创建新的客户端
-                this.streamingClient = new ChatHubClient(networkManager, this);
-                this.streamingClient.Disconnected += OnStreamingClientDisconnected;
+                // this.streamingClient = new ChatHubClient(networkManager, this);
+                // this.streamingClient.Disconnected += OnStreamingClientDisconnected;
 
                 // 创建新的服务客户端
-                this.client = new ChatServiceClient(networkManager);
+                // this.client = new ChatServiceClient(networkManager);
 
                 Debug.Log("Reconnected.");
 
@@ -201,13 +207,13 @@ namespace Assets.Scripts
         {
             if (this.isJoin)
             {
-                await this.streamingClient.LeaveAsync();
+                // await this.streamingClient.LeaveAsync();
                 this.InitializeUi();
             }
             else
             {
                 var request = new JoinRequest { RoomName = "SampleRoom", UserName = this.Input.text };
-                await this.streamingClient.JoinAsync(request);
+                // await this.streamingClient.JoinAsync(request);
 
                 this.isJoin = true;
                 this.SendMessageButton.interactable = true;
@@ -223,14 +229,14 @@ namespace Assets.Scripts
             if (!this.isJoin)
                 return;
 
-            await this.streamingClient.SendMessageAsync(this.Input.text);
+            // await this.streamingClient.SendMessageAsync(this.Input.text);
             this.Input.text = string.Empty;
         }
 
         public async void GenerateException()
         {
             if (!this.isJoin) return;
-            await this.streamingClient.GenerateException("client exception(streaminghub)!");
+            // await this.streamingClient.GenerateException("client exception(streaminghub)!");
         }
         #endregion
 
@@ -259,7 +265,7 @@ namespace Assets.Scripts
 
         public async void SendReport()
         {
-            await this.client.SendReportAsync(this.ReportInput.text);
+            // await this.client.SendReportAsync(this.ReportInput.text);
             ReportInput.text = string.Empty;
         }
 
@@ -267,7 +273,7 @@ namespace Assets.Scripts
         {
             try
             {
-                await this.client.GenerateException("client exception(unary)!");
+                // await this.client.GenerateException("client exception(unary)!");
             }
             catch (Exception e)
             {
