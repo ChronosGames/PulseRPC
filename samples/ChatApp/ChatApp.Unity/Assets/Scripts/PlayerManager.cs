@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using ChatApp.Unity;
+using ChatApp.Shared;
 using UnityEngine;
 
 namespace ChatApp
@@ -92,7 +93,7 @@ namespace ChatApp
         /// <summary>
         /// 当远程玩家加入时
         /// </summary>
-        private void OnRemotePlayerJoined(Guid playerId, string playerName, PulseRPC.Shared.Vector3 position)
+        private void OnRemotePlayerJoined(Guid playerId, string playerName, System.Numerics.Vector3 position)
         {
             if (_playerPrefab != null && !_playerObjects.ContainsKey(playerId))
             {
@@ -131,7 +132,7 @@ namespace ChatApp
         /// <summary>
         /// 当远程玩家移动时
         /// </summary>
-        private void OnRemotePlayerMoved(Guid playerId, PulseRPC.Shared.Vector3 position)
+        private void OnRemotePlayerMoved(Guid playerId, System.Numerics.Vector3 position)
         {
             if (_playerObjects.TryGetValue(playerId, out var playerObject))
             {

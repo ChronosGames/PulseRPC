@@ -1,4 +1,17 @@
-﻿namespace ChatApp
+﻿using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using ChatApp.Shared;
+using PulseRPC;
+using PulseRPC.Transport;
+using PulseRPC.Client.Channels;
+using PulseRPC.Messaging;
+using PulseRPC.Serialization;
+using PulseRPC.Client;
+using UnityEngine;
+
+namespace ChatApp
 {
     public class NetworkManager : MonoBehaviour
     {
@@ -7,15 +20,11 @@
         [SerializeField] private int _kcpPort = 7001;
 
         // 通道管理器
-        private ChannelManager _channelManager;
-        private ChannelFactory _channelFactory;
+        private IChannelManager _channelManager;
+        private TransportFactory _transportFactory;
 
         // 游戏服务
         private IPlayerService _playerService;
-
-        // 事件处理器
-        private IEventHandler<IPlayerLoginEvents> _loginEventsHandler;
-        private IEventHandler<IPlayerMovementEvents> _movementEventsHandler;
 
         // 事件订阅
         private List<ISubscriptionToken> _subscriptions = new List<ISubscriptionToken>();
@@ -23,7 +32,7 @@
         private void Awake()
         {
             // 创建通道工厂和管理器
-            _channelFactory = new ChannelFactory();
+            _transportFactory = new TransportFactory();
             _channelManager = new ChannelManager();
 
             // 初始化网络系统
@@ -36,11 +45,7 @@
             await InitializeChannelsAsync();
 
             // 获取服务代理
-            _playerService = new PlayerServiceProxy(_channelManager);
-
-            // 获取事件处理器
-            _loginEventsHandler = new PlayerLoginEventsHandler(_channelManager.GetChannel("TcpChannel"));
-            _movementEventsHandler = new PlayerMovementEventsHandler(_channelManager.GetChannel("KcpChannel"));
+            _playerService = _channelManager.GetPlayerService<IPlayerService>();
 
             // 连接到服务器
             await ConnectAsync();
@@ -50,13 +55,20 @@
         {
             try
             {
+                // 创建序列化器
+                var serializer = new PulseRPCSerializer();
+
                 // 创建TCP通道
                 var tcpOptions = new TransportOptions
                 {
-                    ReadBufferSize = 8192, WriteBufferSize = 8192, ConnectionTimeout = 5000, UseCompression = true
+                    ReadBufferSize = 8192,
+                    WriteBufferSize = 8192,
+                    ConnectionTimeout = 5000,
+                    UseCompression = true
                 };
 
-                var tcpChannel = await _channelFactory.CreateChannelAsync("TcpChannel", TransportType.Tcp, tcpOptions);
+                var tcpTransport = await _transportFactory.CreateClientTransportAsync(TransportType.Tcp, tcpOptions);
+                var tcpChannel = new TransportChannel("TcpChannel", tcpTransport, serializer, null);
                 _channelManager.RegisterChannel("TcpChannel", tcpChannel, true);
 
                 // 创建KCP通道
@@ -66,10 +78,11 @@
                     WriteBufferSize = 8192,
                     ConnectionTimeout = 5000,
                     UseCompression = false,
-                    CustomOptions = { { "KcpNoDelay", 1 } }
+                    Kcp = new KcpOptions { NoDelay = 1 }
                 };
 
-                var kcpChannel = await _channelFactory.CreateChannelAsync("KcpChannel", TransportType.Kcp, kcpOptions);
+                var kcpTransport = await _transportFactory.CreateClientTransportAsync(TransportType.Kcp, kcpOptions);
+                var kcpChannel = new TransportChannel("KcpChannel", kcpTransport, serializer, null);
                 _channelManager.RegisterChannel("KcpChannel", kcpChannel);
 
                 Debug.Log("通道初始化完成");
@@ -85,11 +98,11 @@
             try
             {
                 // 连接TCP通道
-                var tcpChannel = _channelManager.GetChannel("TcpChannel") as MessageChannel;
+                var tcpChannel = _channelManager.GetChannel("TcpChannel") as IHasTransport;
                 await tcpChannel.ConnectAsync(_host, _tcpPort, CancellationToken.None);
 
                 // 连接KCP通道
-                var kcpChannel = _channelManager.GetChannel("KcpChannel") as MessageChannel;
+                var kcpChannel = _channelManager.GetChannel("KcpChannel") as IHasTransport;
                 await kcpChannel.ConnectAsync(_host, _kcpPort, CancellationToken.None);
 
                 Debug.Log("已连接到服务器");
@@ -132,17 +145,61 @@
 
         private void SubscribeToEvents()
         {
-            // 登录事件处理器
-            var loginHandler = new PlayerLoginEventsImpl();
-            var loginToken = _loginEventsHandler.Subscribe(loginHandler);
-            _subscriptions.Add(loginToken);
+            // 订阅登录事件 (TCP)
+            var tcpChannel = _channelManager.GetChannel("TcpChannel");
+            var loginJoinedToken = tcpChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined", OnPlayerJoined);
+            var loginLeftToken = tcpChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft", OnPlayerLeft);
+            _subscriptions.Add(loginJoinedToken);
+            _subscriptions.Add(loginLeftToken);
 
-            // 移动事件处理器
-            var movementHandler = new PlayerMovementEventsImpl();
-            var movementToken = _movementEventsHandler.Subscribe(movementHandler);
-            _subscriptions.Add(movementToken);
+            // 订阅移动事件 (KCP)
+            var kcpChannel = _channelManager.GetChannel("KcpChannel");
+            var moveToken = kcpChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved", OnPlayerMoved);
+            var moveBatchToken = kcpChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch", OnPlayersMovedBatch);
+            _subscriptions.Add(moveToken);
+            _subscriptions.Add(moveBatchToken);
 
             Debug.Log("已订阅游戏事件");
+        }
+
+        private void OnPlayerJoined(object sender, PlayerJoinedEvent eventData)
+        {
+            Debug.Log($"玩家加入: {eventData.PlayerName} (ID: {eventData.PlayerId})");
+            // 处理玩家加入...
+        }
+
+        private void OnPlayerLeft(object sender, PlayerLeftEvent eventData)
+        {
+            Debug.Log($"玩家离开: {eventData.PlayerId}, 原因: {eventData.Reason}");
+            // 处理玩家离开...
+        }
+
+        private void OnPlayerMoved(object sender, PlayerMovedEvent eventData)
+        {
+            // 更新玩家位置
+            var playerObject = GetPlayerObject(eventData.PlayerId);
+            if (playerObject != null)
+            {
+                var position = new Vector3(eventData.X, eventData.Y, eventData.Z);
+                playerObject.transform.position = position;
+                playerObject.transform.rotation = Quaternion.Euler(0, eventData.RotationY, 0);
+            }
+        }
+
+        private void OnPlayersMovedBatch(object sender, PlayerMovedEvent[] eventData)
+        {
+            // 批量更新玩家位置
+            foreach (var moveEvent in eventData)
+            {
+                OnPlayerMoved(sender, moveEvent);
+            }
+        }
+
+        private GameObject GetPlayerObject(Guid playerId)
+        {
+            // 查找玩家对象的实现
+            // 这里应该连接到 PlayerManager 或其他玩家管理系统
+            return null;
         }
 
         private void OnDestroy()
@@ -155,52 +212,6 @@
 
             // 断开连接
             _channelManager?.Dispose();
-        }
-
-        // 实现事件接口
-        private class PlayerLoginEventsImpl : IPlayerLoginEvents
-        {
-            public void OnPlayerJoined(PlayerJoinedEvent eventData)
-            {
-                Debug.Log($"玩家加入: {eventData.PlayerName} (ID: {eventData.PlayerId})");
-                // 处理玩家加入...
-            }
-
-            public void OnPlayerLeft(PlayerLeftEvent eventData)
-            {
-                Debug.Log($"玩家离开: {eventData.PlayerId}, 原因: {eventData.Reason}");
-                // 处理玩家离开...
-            }
-        }
-
-        private class PlayerMovementEventsImpl : IPlayerMovementEvents
-        {
-            public void OnPlayerMoved(PlayerMovedEvent eventData)
-            {
-                // 更新玩家位置
-                var playerObject = GetPlayerObject(eventData.PlayerId);
-                if (playerObject != null)
-                {
-                    var position = new Vector3(eventData.X, eventData.Y, eventData.Z);
-                    playerObject.transform.position = position;
-                    playerObject.transform.rotation = Quaternion.Euler(0, eventData.RotationY, 0);
-                }
-            }
-
-            public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
-            {
-                // 批量更新玩家位置
-                foreach (var evt in eventData)
-                {
-                    OnPlayerMoved(evt);
-                }
-            }
-
-            private GameObject GetPlayerObject(Guid playerId)
-            {
-                // 查找玩家游戏对象...
-                return null;
-            }
         }
     }
 }
