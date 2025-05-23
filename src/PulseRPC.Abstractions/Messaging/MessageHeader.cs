@@ -1,9 +1,10 @@
 ﻿using System;
+using System.Buffers;
 using System.Threading;
 using System.Threading.Tasks;
 using MemoryPack;
 
-#nullable disable
+#nullable enable
 
 namespace PulseRPC.Messaging
 {
@@ -28,19 +29,19 @@ namespace PulseRPC.Messaging
     }
 
     /// <summary>
-    /// 消息头部
+    /// 消息头部 - 使用简化的MemoryPack序列化
     /// </summary>
     [MemoryPackable]
     public partial class MessageHeader
     {
         public MessageType Type { get; set; }
         public Guid MessageId { get; set; }
-        public string ServiceName { get; set; }
-        public string MethodName { get; set; }
+        public string ServiceName { get; set; } = string.Empty;
+        public string MethodName { get; set; } = string.Empty;
         public long Timestamp { get; set; }
     }
 
-// 消息类型枚举
+    // 消息类型枚举
     public enum MessageType : byte
     {
         Request = 1, // 上行请求(需响应)
@@ -53,12 +54,12 @@ namespace PulseRPC.Messaging
     }
 
     /// <summary>
-    /// 网络消息
+    /// 网络消息 - 使用简化的MemoryPack序列化
     /// </summary>
     [MemoryPackable]
     public partial class NetworkMessage
     {
-        public MessageHeader Header { get; set; }
-        public byte[] Body { get; set; }
+        public MessageHeader Header { get; set; } = new MessageHeader();
+        public byte[] Body { get; set; } = Array.Empty<byte>();
     }
 }
