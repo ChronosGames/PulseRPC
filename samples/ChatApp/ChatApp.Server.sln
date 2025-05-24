@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ChatApp.Server", "ChatApp.S
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ChatApp.Shared", "ChatApp.Shared\ChatApp.Shared.csproj", "{C71FCFFD-1FB9-4FD8-9DC3-6A60B2F3D848}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatApp.Console", "ChatApp.Console\ChatApp.Console.csproj", "{84116529-9670-4005-8002-206BD3E01274}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -21,6 +23,10 @@ Global
 		{C71FCFFD-1FB9-4FD8-9DC3-6A60B2F3D848}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{C71FCFFD-1FB9-4FD8-9DC3-6A60B2F3D848}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{C71FCFFD-1FB9-4FD8-9DC3-6A60B2F3D848}.Release|Any CPU.Build.0 = Release|Any CPU
+		{84116529-9670-4005-8002-206BD3E01274}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{84116529-9670-4005-8002-206BD3E01274}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{84116529-9670-4005-8002-206BD3E01274}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{84116529-9670-4005-8002-206BD3E01274}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
