@@ -7,4 +7,4 @@ on:
 
 jobs:
   detect:
-    uses: Cysharp/Actions/.github/workflows/prevent-github-change.yaml@main
+    uses: ChronosGames/Actions/.github/workflows/prevent-github-change.yaml@main
