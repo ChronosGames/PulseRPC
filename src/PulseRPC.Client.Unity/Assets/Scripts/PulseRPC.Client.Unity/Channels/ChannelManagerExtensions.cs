@@ -11,22 +11,6 @@ namespace PulseRPC.Client
     public static class ChannelManagerExtensions
     {
         /// <summary>
-        /// 获取 PlayerService 代理实例
-        /// </summary>
-        public static T GetPlayerService<T>(this IChannelManager channelManager) where T : class
-        {
-            return GetService<T>(channelManager, "PlayerService");
-        }
-
-        /// <summary>
-        /// 获取 ChatService 代理实例
-        /// </summary>
-        public static T GetChatService<T>(this IChannelManager channelManager) where T : class
-        {
-            return GetService<T>(channelManager, "ChatService");
-        }
-
-        /// <summary>
         /// 获取泛型服务代理实例
         /// </summary>
         public static T GetService<T>(this IChannelManager channelManager, string serviceName = null) where T : class
