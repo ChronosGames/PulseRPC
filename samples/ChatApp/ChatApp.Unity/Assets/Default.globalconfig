@@ -1,0 +1,16 @@
+is_global = true
+
+# 启用编译器生成文件输出
+build_property.EmitCompilerGeneratedFiles = true
+
+# PulseRPC SourceGenerator 配置
+build_property.PulseRPC_WriteFilesToDisk = true
+build_property.PulseRPC_OutputFolder = Assets/Scripts/Generated
+build_property.PulseRPC_LoggingLevel = debug
+
+# Unity NetCode 配置（保留现有配置）
+build_property.unity.netcode.sourcegenerator.write_files_to_disk = true
+build_property.unity.netcode.sourcegenerator.write_logs_to_disk = true
+build_property.unity.netcode.sourcegenerator.emit_timing = true
+build_property.unity.netcode.sourcegenerator.logging_level = debug
+build_property.unity.netcode.sourcegenerator.outputfolder = Temp/NetCodeGenerated 

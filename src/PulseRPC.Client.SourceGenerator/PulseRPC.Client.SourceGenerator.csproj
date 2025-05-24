@@ -14,6 +14,12 @@
 
     <!-- We don't need to publish the package to NuGet. PulseRPC.Client.SourceGenerator.dll is bundled with PulseRPC.Client  -->
     <IsPackable>false</IsPackable>
+
+    <!-- 确保生成单一文件 -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IlcInvariantGlobalization>true</IlcInvariantGlobalization>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
   </PropertyGroup>
 
   <ItemGroup>
