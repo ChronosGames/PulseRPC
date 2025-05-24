@@ -9,13 +9,10 @@
     <LangVersion>11.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 
-    <!-- Unity 兼容性设置 -->
+    <!-- 包配置 -->
     <IsPackable>true</IsPackable>
     <PackageId>PulseRPC.Abstractions</PackageId>
-    <PackageVersion>1.0.0</PackageVersion>
-    <Authors>ChronosGames, Inc.</Authors>
     <Description>PulseRPC abstractions and interfaces shared between client and server</Description>
-    <PackageLicense>MIT</PackageLicense>
   </PropertyGroup>
 
   <!-- Unity 特定的条件编译 -->

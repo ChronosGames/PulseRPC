@@ -8,13 +8,10 @@
 
     <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
 
-    <!-- Unity 兼容性设置 -->
+    <!-- 包配置 -->
     <IsPackable>true</IsPackable>
     <PackageId>PulseRPC.Client</PackageId>
-    <PackageVersion>1.0.0</PackageVersion>
-    <Authors>ChronosGames, Inc.</Authors>
     <Description>PulseRPC client library for .NET and Unity</Description>
-    <PackageLicense>MIT</PackageLicense>
   </PropertyGroup>
 
   <!-- Unity 特定的条件编译 -->
@@ -34,7 +31,6 @@
     <!-- 条件依赖 - 仅 .NET 环境 -->
     <PackageReference Include="Microsoft.Extensions.Logging" Condition="'$(Unity)' != 'true'" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="'$(Unity)' != 'true'" />
-
 
     <PackageReference Include="PolySharp">
       <PrivateAssets>all</PrivateAssets>

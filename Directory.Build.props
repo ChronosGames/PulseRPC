@@ -15,7 +15,7 @@
     <Company>ChronosGames</Company>
     <Authors>ChronosGames</Authors>
     <Copyright>© ChronosGames, Inc.</Copyright>
-    <PackageTags>game;network;tcp;kcp;memorypack</PackageTags>
+    <PackageTags>rpc;tcp;kcp;realtime;unity;dotnet;memorypack;network;game;client-server</PackageTags>
     <PackageProjectUrl>https://github.com/ChronosGames/PulseRPC</PackageProjectUrl>
     <RepositoryUrl>$(PackageProjectUrl)</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
