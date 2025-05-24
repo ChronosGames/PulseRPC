@@ -80,12 +80,12 @@ namespace UnityTCP.Optimization
         {
             if (Vector.IsHardwareAccelerated && byteCount >= Vector<byte>.Count)
             {
-                int vectorizedLength = byteCount - (byteCount % Vector<byte>.Count);
-                int i = 0;
+                var vectorizedLength = byteCount - (byteCount % Vector<byte>.Count);
+                var i = 0;
 
                 for (; i < vectorizedLength; i += Vector<byte>.Count)
                 {
-                    Vector<byte> sourceVector = Unsafe.ReadUnaligned<Vector<byte>>((byte*)source + i);
+                    var sourceVector = Unsafe.ReadUnaligned<Vector<byte>>((byte*)source + i);
                     Unsafe.WriteUnaligned((byte*)destination + i, sourceVector);
                 }
 
@@ -98,7 +98,7 @@ namespace UnityTCP.Optimization
             else
             {
                 // 回退到常规复制
-                for (int i = 0; i < byteCount; i++)
+                for (var i = 0; i < byteCount; i++)
                 {
                     ((byte*)destination)[i] = ((byte*)source)[i];
                 }
@@ -117,8 +117,8 @@ namespace UnityTCP.Optimization
 
                 for (; i < vectorizedLength; i += Vector<byte>.Count)
                 {
-                    Vector<byte> vectorA = Unsafe.ReadUnaligned<Vector<byte>>((byte*)a + i);
-                    Vector<byte> vectorB = Unsafe.ReadUnaligned<Vector<byte>>((byte*)b + i);
+                    var vectorA = Unsafe.ReadUnaligned<Vector<byte>>((byte*)a + i);
+                    var vectorB = Unsafe.ReadUnaligned<Vector<byte>>((byte*)b + i);
 
                     if (!Vector.EqualsAll(vectorA, vectorB))
                     {

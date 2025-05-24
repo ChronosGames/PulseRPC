@@ -10,8 +10,6 @@ using GameServer.World;
 using System;
 using System.Threading.Tasks;
 using ChatApp.Shared;
-using ChatApp.Server.PerfTest;
-using ChatApp.Server.Tests;
 using PulseRPC.Server.Services;
 
 namespace GameServer
@@ -36,21 +34,21 @@ namespace GameServer
                 .Build();
 
             // 检查命令行参数
-            bool runPerfTest = Array.Exists(args, arg => arg.Equals("--perf-test", StringComparison.OrdinalIgnoreCase));
-            bool runServiceTest = Array.Exists(args, arg => arg.Equals("--service-test", StringComparison.OrdinalIgnoreCase));
+            // bool runPerfTest = Array.Exists(args, arg => arg.Equals("--perf-test", StringComparison.OrdinalIgnoreCase));
+            // bool runServiceTest = Array.Exists(args, arg => arg.Equals("--service-test", StringComparison.OrdinalIgnoreCase));
 
-            if (runPerfTest)
-            {
-                // 运行性能测试
-                await RunPerformanceTests(host.Services);
-                return;
-            }
-            else if (runServiceTest)
-            {
-                // 运行服务测试
-                await RunServiceTests(host.Services);
-                return;
-            }
+            // if (runPerfTest)
+            // {
+            //     // 运行性能测试
+            //     // await RunPerformanceTests(host.Services);
+            //     return;
+            // }
+            // else if (runServiceTest)
+            // {
+            //     // 运行服务测试
+            //     await RunServiceTests(host.Services);
+            //     return;
+            // }
 
             // 获取服务器管理器
             var serverManager = host.Services.GetRequiredService<IServerManager>();
@@ -94,100 +92,100 @@ namespace GameServer
         /// <summary>
         /// 运行性能测试
         /// </summary>
-        private static async Task RunPerformanceTests(IServiceProvider serviceProvider)
-        {
-            Console.WriteLine("正在启动性能测试...");
-
-            try
-            {
-                var tester = serviceProvider.GetRequiredService<PerformanceTester>();
-                await tester.RunAsync();
-
-                Console.WriteLine("性能测试完成，按任意键退出...");
-                Console.ReadKey(true);
-            }
-            catch (Exception ex)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"性能测试运行失败: {ex.Message}");
-                Console.ResetColor();
-                Console.WriteLine(ex.StackTrace);
-                Console.WriteLine("按任意键退出...");
-                Console.ReadKey(true);
-            }
-        }
+        // private static async Task RunPerformanceTests(IServiceProvider serviceProvider)
+        // {
+        //     Console.WriteLine("正在启动性能测试...");
+        //
+        //     try
+        //     {
+        //         var tester = serviceProvider.GetRequiredService<PerformanceTester>();
+        //         await tester.RunAsync();
+        //
+        //         Console.WriteLine("性能测试完成，按任意键退出...");
+        //         Console.ReadKey(true);
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         Console.ForegroundColor = ConsoleColor.Red;
+        //         Console.WriteLine($"性能测试运行失败: {ex.Message}");
+        //         Console.ResetColor();
+        //         Console.WriteLine(ex.StackTrace);
+        //         Console.WriteLine("按任意键退出...");
+        //         Console.ReadKey(true);
+        //     }
+        // }
 
         /// <summary>
         /// 运行服务测试
         /// </summary>
-        private static async Task RunServiceTests(IServiceProvider serviceProvider)
-        {
-            Console.WriteLine("正在启动服务测试...");
-
-            try
-            {
-                // 获取日志记录器
-                var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-                var logger = loggerFactory.CreateLogger("ServiceTest");
-
-                logger.LogInformation("正在初始化测试环境...");
-
-                // 先检查服务是否已注册
-                try {
-                    var registry = serviceProvider.GetRequiredService<ServiceRegistry>();
-                    logger.LogInformation("成功获取HighPerformanceServiceRegistry");
-                }
-                catch (Exception ex) {
-                    logger.LogError(ex, "获取HighPerformanceServiceRegistry失败");
-                    throw;
-                }
-
-                try {
-                    var playerService = serviceProvider.GetRequiredService<IPlayerService>();
-                    logger.LogInformation("成功获取IPlayerService");
-                }
-                catch (Exception ex) {
-                    logger.LogError(ex, "获取IPlayerService失败");
-                    throw;
-                }
-
-                logger.LogInformation("尝试创建PlayerServiceTests实例...");
-
-                var tester = serviceProvider.GetRequiredService<PlayerServiceTests>();
-                logger.LogInformation("PlayerServiceTests实例创建成功");
-
-                // 运行登录流程测试
-                await tester.TestLoginAsync();
-
-                // 运行移动流程测试
-                await tester.TestMoveAsync();
-
-                // 运行基准测试 (使用较小的迭代次数)
-                await tester.RunBenchmarkAsync(iterations: 1000);
-
-                Console.WriteLine("服务测试完成，按任意键退出...");
-                Console.ReadKey(true);
-            }
-            catch (Exception ex)
-            {
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.WriteLine($"服务测试运行失败: {ex.Message}");
-                Console.ResetColor();
-
-                // 输出详细的异常信息
-                Console.WriteLine("详细错误:");
-                Console.WriteLine(ex.ToString());
-
-                if (ex.InnerException != null)
-                {
-                    Console.WriteLine("内部异常:");
-                    Console.WriteLine(ex.InnerException.ToString());
-                }
-
-                Console.WriteLine("按任意键退出...");
-                Console.ReadKey(true);
-            }
-        }
+        // private static async Task RunServiceTests(IServiceProvider serviceProvider)
+        // {
+        //     Console.WriteLine("正在启动服务测试...");
+        //
+        //     try
+        //     {
+        //         // 获取日志记录器
+        //         var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
+        //         var logger = loggerFactory.CreateLogger("ServiceTest");
+        //
+        //         logger.LogInformation("正在初始化测试环境...");
+        //
+        //         // 先检查服务是否已注册
+        //         try {
+        //             var registry = serviceProvider.GetRequiredService<ServiceRegistry>();
+        //             logger.LogInformation("成功获取HighPerformanceServiceRegistry");
+        //         }
+        //         catch (Exception ex) {
+        //             logger.LogError(ex, "获取HighPerformanceServiceRegistry失败");
+        //             throw;
+        //         }
+        //
+        //         try {
+        //             var playerService = serviceProvider.GetRequiredService<IPlayerService>();
+        //             logger.LogInformation("成功获取IPlayerService");
+        //         }
+        //         catch (Exception ex) {
+        //             logger.LogError(ex, "获取IPlayerService失败");
+        //             throw;
+        //         }
+        //
+        //         logger.LogInformation("尝试创建PlayerServiceTests实例...");
+        //
+        //         // var tester = serviceProvider.GetRequiredService<PlayerServiceTests>();
+        //         // logger.LogInformation("PlayerServiceTests实例创建成功");
+        //
+        //         // 运行登录流程测试
+        //         await tester.TestLoginAsync();
+        //
+        //         // 运行移动流程测试
+        //         await tester.TestMoveAsync();
+        //
+        //         // 运行基准测试 (使用较小的迭代次数)
+        //         await tester.RunBenchmarkAsync(iterations: 1000);
+        //
+        //         Console.WriteLine("服务测试完成，按任意键退出...");
+        //         Console.ReadKey(true);
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         Console.ForegroundColor = ConsoleColor.Red;
+        //         Console.WriteLine($"服务测试运行失败: {ex.Message}");
+        //         Console.ResetColor();
+        //
+        //         // 输出详细的异常信息
+        //         Console.WriteLine("详细错误:");
+        //         Console.WriteLine(ex.ToString());
+        //
+        //         if (ex.InnerException != null)
+        //         {
+        //             Console.WriteLine("内部异常:");
+        //             Console.WriteLine(ex.InnerException.ToString());
+        //         }
+        //
+        //         Console.WriteLine("按任意键退出...");
+        //         Console.ReadKey(true);
+        //     }
+        // }
 
         private static void ConfigureServices(HostBuilderContext context, IServiceCollection services)
         {
@@ -259,10 +257,10 @@ namespace GameServer
             });
 
             // 添加性能测试工具
-            services.AddTransient<PerformanceTester>();
+            // services.AddTransient<PerformanceTester>();
 
             // 添加服务测试工具
-            services.AddTransient<PlayerServiceTests>();
+            // services.AddTransient<PlayerServiceTests>();
         }
     }
 }

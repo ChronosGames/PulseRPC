@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using System.IO;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -14,6 +15,9 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
+        // 获取配置选项
+        var configProvider = context.AnalyzerConfigOptionsProvider;
+        
         // 方法一：查找带有 ServiceContract 特性的接口
         var serviceInterfaces =
             context.SyntaxProvider
@@ -94,15 +98,30 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             });
 
         // 注册服务代理源代码输出
-        context.RegisterSourceOutput(allServiceTypes, (spc, serviceTypes) =>
+        context.RegisterSourceOutput(allServiceTypes.Combine(configProvider), (spc, combined) =>
         {
+            var serviceTypes = combined.Left;
+            var config = combined.Right;
+            
+            // 检查配置选项
+            var writeFilesToDisk = config.GlobalOptions.TryGetValue("build_property.PulseRPC_WriteFilesToDisk", out var writeFiles) && 
+                                   (writeFiles.Equals("true", StringComparison.OrdinalIgnoreCase));
+            var outputFolder = config.GlobalOptions.TryGetValue("build_property.PulseRPC_OutputFolder", out var folder) ? folder : "Generated";
+            
             // 生成服务代理
             foreach (var serviceTypeInfo in serviceTypes)
             {
                 if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
                 {
                     var proxyCode = GenerateServiceProxy(namedType);
-                    spc.AddSource($"{namedType.Name}Proxy.g.cs", SourceText.From(proxyCode, Encoding.UTF8));
+                    var fileName = $"{namedType.Name}Proxy.g.cs";
+                    spc.AddSource(fileName, SourceText.From(proxyCode, Encoding.UTF8));
+                    
+                    // 如果配置为写入磁盘，则尝试写入文件
+                    if (writeFilesToDisk)
+                    {
+                        TryWriteFileToDisk(fileName, proxyCode, outputFolder);
+                    }
                 }
                 else
                 {
@@ -123,24 +142,51 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             if (namedTypes.Length > 0)
             {
                 var extensionsCode = GenerateChannelManagerExtensions(namedTypes, ImmutableArray<INamedTypeSymbol>.Empty);
-                spc.AddSource("ServiceChannelManagerExtensions.g.cs", SourceText.From(extensionsCode, Encoding.UTF8));
+                var fileName = "ServiceChannelManagerExtensions.g.cs";
+                spc.AddSource(fileName, SourceText.From(extensionsCode, Encoding.UTF8));
+                
+                // 如果配置为写入磁盘，则尝试写入文件
+                if (writeFilesToDisk)
+                {
+                    TryWriteFileToDisk(fileName, extensionsCode, outputFolder);
+                }
             }
         });
 
         // 注册事件处理器源代码输出
-        context.RegisterSourceOutput(allEventTypes, (spc, eventTypes) =>
+        context.RegisterSourceOutput(allEventTypes.Combine(configProvider), (spc, combined) =>
         {
+            var eventTypes = combined.Left;
+            var config = combined.Right;
+            
+            // 检查配置选项
+            var writeFilesToDisk = config.GlobalOptions.TryGetValue("build_property.PulseRPC_WriteFilesToDisk", out var writeFiles) && 
+                                   (writeFiles.Equals("true", StringComparison.OrdinalIgnoreCase));
+            var outputFolder = config.GlobalOptions.TryGetValue("build_property.PulseRPC_OutputFolder", out var folder) ? folder : "Generated";
+            
             // 生成事件处理器
             foreach (var eventTypeInfo in eventTypes)
             {
                 if (eventTypeInfo.Type is INamedTypeSymbol namedType)
                 {
                     var handlerCode = GenerateEventHandler(namedType);
-                    spc.AddSource($"{namedType.Name}Handler.g.cs", SourceText.From(handlerCode, Encoding.UTF8));
+                    var handlerFileName = $"{namedType.Name}Handler.g.cs";
+                    spc.AddSource(handlerFileName, SourceText.From(handlerCode, Encoding.UTF8));
+                    
+                    if (writeFilesToDisk)
+                    {
+                        TryWriteFileToDisk(handlerFileName, handlerCode, outputFolder);
+                    }
 
                     // 生成事件处理器接口
                     var handlerInterfaceCode = GenerateEventHandlerInterface(namedType);
-                    spc.AddSource($"I{namedType.Name}Handler.g.cs", SourceText.From(handlerInterfaceCode, Encoding.UTF8));
+                    var interfaceFileName = $"I{namedType.Name}Handler.g.cs";
+                    spc.AddSource(interfaceFileName, SourceText.From(handlerInterfaceCode, Encoding.UTF8));
+                    
+                    if (writeFilesToDisk)
+                    {
+                        TryWriteFileToDisk(interfaceFileName, handlerInterfaceCode, outputFolder);
+                    }
                 }
                 else
                 {
@@ -163,7 +209,13 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var eventExtensionsCode = GenerateChannelManagerExtensions(
                     ImmutableArray<INamedTypeSymbol>.Empty,
                     namedTypes);
-                spc.AddSource("EventChannelManagerExtensions.g.cs", SourceText.From(eventExtensionsCode, Encoding.UTF8));
+                var fileName = "EventChannelManagerExtensions.g.cs";
+                spc.AddSource(fileName, SourceText.From(eventExtensionsCode, Encoding.UTF8));
+                
+                if (writeFilesToDisk)
+                {
+                    TryWriteFileToDisk(fileName, eventExtensionsCode, outputFolder);
+                }
             }
         });
     }
@@ -821,6 +873,28 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         public ServiceTypeInfo(INamedTypeSymbol? type)
         {
             Type = type;
+        }
+    }
+
+    /// <summary>
+    /// 尝试将生成的代码写入到磁盘文件
+    /// </summary>
+    private static void TryWriteFileToDisk(string fileName, string content, string outputFolder)
+    {
+        try
+        {
+            // 确保输出目录存在
+            if (!Directory.Exists(outputFolder))
+            {
+                Directory.CreateDirectory(outputFolder);
+            }
+
+            var fullPath = Path.Combine(outputFolder, fileName);
+            File.WriteAllText(fullPath, content, Encoding.UTF8);
+        }
+        catch
+        {
+            // 忽略文件写入错误，因为 SourceGenerator 应该能够在没有文件输出的情况下工作
         }
     }
 }
