@@ -34,6 +34,16 @@
     <!-- 条件依赖 - 仅 .NET 环境 -->
     <PackageReference Include="Microsoft.Extensions.Logging" Condition="'$(Unity)' != 'true'" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="'$(Unity)' != 'true'" />
+
+
+    <PackageReference Include="PolySharp">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
   <!-- Unity Package Manager 支持：复制 package.json 到输出目录 -->
@@ -43,4 +53,7 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\roslyn4.3\cs" Pack="true" Visible="false" />
+  </ItemGroup>
 </Project>
