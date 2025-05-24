@@ -5,7 +5,6 @@ using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
 using ChatApp.Shared;
-using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Channels;
@@ -13,7 +12,7 @@ using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
-namespace Assets.Scripts
+namespace ChatApp
 {
     /// <summary>
     /// 整合的聊天游戏组件 - 包含完整的网络功能和UI交互
@@ -23,8 +22,7 @@ namespace Assets.Scripts
     [PulseClientGeneration(typeof(IPlayerMovementEvents))]
     public class ChatComponent : MonoBehaviour
     {
-        [Header("UI组件")]
-        public Text ChatText;
+        [Header("UI组件")] public Text ChatText;
         public Button JoinOrLeaveButton;
         public Text JoinOrLeaveButtonText;
         public Button SendMessageButton;
@@ -36,21 +34,18 @@ namespace Assets.Scripts
         public Button UnaryExceptionButton;
         public Text LabelRtt;
 
-        [Header("移动控制UI")]
-        public Button MoveForwardButton;
+        [Header("移动控制UI")] public Button MoveForwardButton;
         public Button MoveBackwardButton;
         public Button MoveLeftButton;
         public Button MoveRightButton;
         public Text PlayerInfoText;
         public Text PositionText;
 
-        [Header("服务器配置")]
-        [SerializeField] private string _host = "localhost";
+        [Header("服务器配置")] [SerializeField] private string _host = "localhost";
         [SerializeField] private int _tcpPort = 7000;
         [SerializeField] private int _kcpPort = 7001;
 
-        [Header("游戏设置")]
-        [SerializeField] private string _username = "Player";
+        [Header("游戏设置")] [SerializeField] private string _username = "Player";
         [SerializeField] private string _password = "password";
         [SerializeField] private float _moveDistance = 1.0f;
 
@@ -120,10 +115,10 @@ namespace Assets.Scripts
                 this.JoinOrLeaveButton.onClick.AddListener(JoinOrLeave);
             }
 
-            if (JoinOrLeaveButtonText != null)
+            if (JoinOrLeaveButtonText)
                 this.JoinOrLeaveButtonText.text = "连接服务器";
 
-            if (DisconnectButton != null)
+            if (DisconnectButton)
             {
                 this.DisconnectButton.onClick.AddListener(DisconnectServer);
                 this.DisconnectButton.interactable = false;
@@ -218,7 +213,8 @@ namespace Assets.Scripts
                 var moveBatchToken2 = kcpMessageChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
                     (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
 
-                _eventsSubscription = new CompositeSubscriptionToken(new[] {
+                _eventsSubscription = new CompositeSubscriptionToken(new[]
+                {
                     loginJoinedToken, loginLeftToken, moveToken, moveBatchToken, moveBatchToken2
                 });
 
@@ -276,11 +272,7 @@ namespace Assets.Scripts
 
             try
             {
-                var request = new LoginRequest
-                {
-                    Username = _username,
-                    Password = _password
-                };
+                var request = new LoginRequest { Username = _username, Password = _password };
 
                 var response = await _playerService.LoginAsync(request);
 
@@ -317,12 +309,7 @@ namespace Assets.Scripts
 
             try
             {
-                var request = new MoveRequest
-                {
-                    X = x,
-                    Y = y,
-                    Z = z
-                };
+                var request = new MoveRequest { X = x, Y = y, Z = z };
 
                 await _playerService.MoveAsync(request);
 
@@ -535,8 +522,7 @@ namespace Assets.Scripts
 
             if (Input != null && Input.placeholder != null)
             {
-                Input.placeholder.GetComponent<Text>().text = isLoggedIn ?
-                    "输入坐标 (x,z) 或消息..." : "等待连接...";
+                Input.placeholder.GetComponent<Text>().text = isLoggedIn ? "输入坐标 (x,z) 或消息..." : "等待连接...";
             }
 
             SetMoveButtonsEnabled(isLoggedIn);
@@ -579,12 +565,7 @@ namespace Assets.Scripts
 
         internal void AddPlayer(Guid playerId, string playerName, System.Numerics.Vector3 position)
         {
-            _otherPlayers[playerId] = new PlayerData
-            {
-                Id = playerId,
-                Name = playerName,
-                Position = position
-            };
+            _otherPlayers[playerId] = new PlayerData { Id = playerId, Name = playerName, Position = position };
 
             AppendChatMessage($"[玩家] {playerName} 加入了游戏");
         }
@@ -674,7 +655,8 @@ namespace Assets.Scripts
             AppendChatMessage($"[系统] 在线玩家数量: {_otherPlayers.Count}");
             foreach (var player in _otherPlayers.Values)
             {
-                AppendChatMessage($"  - {player.Name}: ({player.Position.X:F1}, {player.Position.Y:F1}, {player.Position.Z:F1})");
+                AppendChatMessage(
+                    $"  - {player.Name}: ({player.Position.X:F1}, {player.Position.Y:F1}, {player.Position.Z:F1})");
             }
         }
 
