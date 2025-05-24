@@ -14,7 +14,7 @@ on:
 
 jobs:
   update-packagejson:
-    uses: Cysharp/Actions/.github/workflows/update-packagejson.yaml@main
+    uses: ChronosGames/Actions/.github/workflows/update-packagejson.yaml@main
     with:
       file-path: |
         ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/package.json
@@ -30,14 +30,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - run: echo ${{ needs.update-packagejson.outputs.sha }}
-      - uses: Cysharp/Actions/.github/actions/checkout@main
+      - uses: ChronosGames/Actions/.github/actions/checkout@main
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
-      - uses: Cysharp/Actions/.github/actions/setup-dotnet@main
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
       - run: dotnet build -c Release ./PulseRPC.sln
       # pack nuget
       - run: dotnet pack -c Release ./PulseRPC.Packaging.slnf --no-build -o ./publish
-      - uses: Cysharp/Actions/.github/actions/upload-artifact@main
+      - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
         with:
           name: nuget
           path: ./publish/
@@ -94,7 +94,7 @@ jobs:
   # release
   create-release:
     needs: [update-packagejson, build-dotnet]
-    uses: Cysharp/Actions/.github/workflows/create-release.yaml@main
+    uses: ChronosGames/Actions/.github/workflows/create-release.yaml@main
     with:
       commit-id: ${{ needs.update-packagejson.outputs.sha }}
       dry-run: ${{ inputs.dry-run }}
@@ -106,6 +106,6 @@ jobs:
   cleanup:
     if: ${{ needs.update-packagejson.outputs.is-branch-created == 'true' }}
     needs: [build-dotnet, update-packagejson]
-    uses: Cysharp/Actions/.github/workflows/clean-packagejson-branch.yaml@main
+    uses: ChronosGames/Actions/.github/workflows/clean-packagejson-branch.yaml@main
     with:
       branch: ${{ needs.update-packagejson.outputs.branch-name }}

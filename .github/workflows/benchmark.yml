@@ -49,7 +49,7 @@ permissions:
 
 jobs:
   loader:
-    uses: Cysharp/Actions/.github/workflows/benchmark-loader.yaml@main
+    uses: ChronosGames/Actions/.github/workflows/benchmark-loader.yaml@main
     with:
       benchmark-name-prefix: "pulserpc-${{ github.event.issue.number || (inputs.reuse && inputs.reuse_runid || github.run_number) }}"
       benchmark-config-path: "perf/BenchmarkApp/configs/${{ inputs.benchmark-config-name || github.event_name }}.yaml"
@@ -62,7 +62,7 @@ jobs:
       max-parallel: 3 # 3 parallel max
       fail-fast: false # no care about other benchmark
       matrix: ${{ fromJson(needs.loader.outputs.matrix) }}
-    uses: Cysharp/Actions/.github/workflows/benchmark-execute.yaml@main
+    uses: ChronosGames/Actions/.github/workflows/benchmark-execute.yaml@main
     with:
       benchmark-name: "${{ matrix.benchmarkName }}"
       benchmark-config-path: "${{ matrix.config }}"
@@ -72,10 +72,10 @@ jobs:
   cleanup-failed:
     if: ${{ failure() || success() }}
     needs: [benchmark]
-    uses: Cysharp/Actions/.github/workflows/benchmark-cleanup.yaml@main
+    uses: ChronosGames/Actions/.github/workflows/benchmark-cleanup.yaml@main
     secrets: inherit
 
   actions-timeline:
     needs: [loader, benchmark, cleanup-failed]
-    uses: Cysharp/Actions/.github/workflows/actions-timeline.yaml@main
+    uses: ChronosGames/Actions/.github/workflows/actions-timeline.yaml@main
     secrets: inherit
