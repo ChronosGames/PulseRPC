@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Numerics;
 using ChatApp.Shared;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
@@ -26,7 +27,7 @@ public class GameConsoleClient
     private CancellationTokenSource? _cts;
     private bool _isLoggedIn;
     private PlayerInfo? _playerInfo;
-    private Vector3 _position = new Vector3();
+    private Vector3 _position = Vector3.Zero;
 
     // 用于存储其他玩家位置的字典
     private readonly Dictionary<Guid, PlayerData> _otherPlayers = new Dictionary<Guid, PlayerData>();
@@ -445,7 +446,7 @@ public class GameConsoleClient
     {
         public Guid Id { get; set; }
         public string Name { get; set; } = string.Empty;
-        public Vector3 Position { get; set; } = new Vector3();
+        public Vector3 Position { get; set; } = Vector3.Zero;
     }
 
     /// <summary>
@@ -462,8 +463,10 @@ public class GameConsoleClient
 
         public void OnPlayerJoined(PlayerJoinedEvent eventData)
         {
-            _client.AddPlayer(eventData.PlayerId, eventData.PlayerName,
-                new Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
+            var position = eventData.Position != Vector3.Zero 
+                ? eventData.Position 
+                : new Vector3(eventData.X, eventData.Y, eventData.Z);
+            _client.AddPlayer(eventData.PlayerId, eventData.PlayerName, position);
         }
 
         public void OnPlayerLeft(PlayerLeftEvent eventData)
@@ -474,7 +477,7 @@ public class GameConsoleClient
         public void OnPlayerMoved(PlayerMovedEvent eventData)
         {
             _client.UpdatePlayerPosition(eventData.PlayerId,
-                new Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
+                new Vector3(eventData.X, eventData.Y, eventData.Z));
         }
 
         public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
@@ -532,20 +535,5 @@ public class GameConsoleClient
             Unsubscribe();
             GC.SuppressFinalize(this);
         }
-    }
-}
-
-/// <summary>
-/// 3D向量
-/// </summary>
-public class Vector3
-{
-    public float X { get; set; }
-    public float Y { get; set; }
-    public float Z { get; set; }
-
-    public override string ToString()
-    {
-        return $"({X}, {Y}, {Z})";
     }
 }

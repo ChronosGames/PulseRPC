@@ -52,7 +52,7 @@ namespace ChatApp.Unity
         // 玩家状态
         private bool _isLoggedIn;
         private PlayerInfo _playerInfo;
-        private System.Numerics.Vector3 _position = new System.Numerics.Vector3();
+        private System.Numerics.Vector3 _position = System.Numerics.Vector3.Zero;
 
         // 其他玩家信息
         private readonly Dictionary<Guid, PlayerData> _otherPlayers = new Dictionary<Guid, PlayerData>();
@@ -271,7 +271,7 @@ namespace ChatApp.Unity
             try
             {
                 // 更新本地位置
-                _position = new System.Numerics.Vector3 { X = x, Y = y, Z = z };
+                _position = new System.Numerics.Vector3(x, y, z);
 
                 // 发送移动请求
                 await _playerService.MoveAsync(new MoveRequest
@@ -404,7 +404,7 @@ namespace ChatApp.Unity
         {
             public Guid Id { get; set; }
             public string Name { get; set; } = string.Empty;
-            public System.Numerics.Vector3 Position { get; set; } = new System.Numerics.Vector3();
+            public System.Numerics.Vector3 Position { get; set; } = System.Numerics.Vector3.Zero;
         }
 
         /// <summary>
@@ -421,7 +421,10 @@ namespace ChatApp.Unity
 
             public void OnPlayerJoined(PlayerJoinedEvent eventData)
             {
-                _client.AddPlayer(eventData.PlayerId, eventData.PlayerName, eventData.Position);
+                var position = eventData.Position != System.Numerics.Vector3.Zero
+                    ? eventData.Position
+                    : new System.Numerics.Vector3(eventData.X, eventData.Y, eventData.Z);
+                _client.AddPlayer(eventData.PlayerId, eventData.PlayerName, position);
             }
 
             public void OnPlayerLeft(PlayerLeftEvent eventData)
@@ -432,7 +435,7 @@ namespace ChatApp.Unity
             public void OnPlayerMoved(PlayerMovedEvent eventData)
             {
                 _client.UpdatePlayerPosition(eventData.PlayerId,
-                    new System.Numerics.Vector3 { X = eventData.X, Y = eventData.Y, Z = eventData.Z });
+                    new System.Numerics.Vector3(eventData.X, eventData.Y, eventData.Z));
             }
 
             public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
