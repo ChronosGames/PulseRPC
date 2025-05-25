@@ -21,8 +21,9 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageIcon>Icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
 
-    <PulseRPCPackageDescription>Unified Realtime/API framework for .NET platform and Unity.</PulseRPCPackageDescription>
+    <Description>Unified Realtime/API framework for .NET platform and Unity.</Description>
 
     <!--<IncludeSource>true</IncludeSource>-->
     <IncludeSymbols>true</IncludeSymbols>
