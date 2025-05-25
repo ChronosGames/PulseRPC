@@ -135,7 +135,7 @@ namespace ChatApp.Unity
             try
             {
                 // 获取服务代理
-                _playerService = _channelManager.GetPlayerService();
+                _playerService = new IPlayerServiceProxy(_channelManager);
 
                 // 创建事件处理器实例
                 var eventsHandler = new PlayerEventsHandler(this);

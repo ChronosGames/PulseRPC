@@ -367,63 +367,182 @@ public class ServiceRegistry
     }
 
     /// <summary>
-    /// 创建反序列化委托
+    /// 创建反序列化委托 - 修复版本
     /// </summary>
     private static Func<byte[], object> CreateDeserializerDelegate(Type type)
     {
         try
         {
-            // 创建参数表达式
-            var dataParam = Expression.Parameter(typeof(byte[]), "data");
-
-            // 获取MemoryPackSerializer.Deserialize<T>(byte[])方法 - 使用byte[]重载
-            var deserializeMethod = typeof(MemoryPackSerializer)
-                .GetMethod(nameof(MemoryPackSerializer.Deserialize),
-                    new Type[] { typeof(byte[]) })!
-                .MakeGenericMethod(type);
-
-            if (deserializeMethod == null)
+            // 添加全面的空值和有效性检查
+            if (type == null)
             {
-                throw new InvalidOperationException($"无法获取MemoryPackSerializer.Deserialize<{type.Name}>(byte[])方法");
+                throw new ArgumentNullException(nameof(type), "反序列化类型不能为 null");
             }
 
-            // 创建方法调用表达式
-            var call = Expression.Call(null, deserializeMethod, dataParam);
+            Console.WriteLine($"[ServiceRegistry] 正在为类型 {type.FullName} 创建反序列化委托...");
 
-            // 将结果转换为object
-            var resultExpr = Expression.Convert(call, typeof(object));
+            // 检查类型是否有 MemoryPackable 特性
+            var memoryPackableAttrs = type.GetCustomAttributes(typeof(MemoryPackableAttribute), false);
+            if (memoryPackableAttrs.Length == 0)
+            {
+                Console.WriteLine($"[ServiceRegistry] 警告: 类型 {type.Name} 没有 [MemoryPackable] 特性");
+            }
 
-            // 编译Lambda表达式
-            var lambda = Expression.Lambda<Func<byte[], object>>(resultExpr, dataParam);
+            // 首先尝试直接创建一个简单的委托来测试 MemoryPack 是否可用
+            try
+            {
+                // 测试序列化器是否可用
+                var testMethod = typeof(MemoryPackSerializer)
+                    .GetMethod(nameof(MemoryPackSerializer.Deserialize), new Type[] { typeof(byte[]) });
 
-            return lambda.Compile();
+                if (testMethod == null)
+                {
+                    throw new InvalidOperationException("无法找到 MemoryPackSerializer.Deserialize(byte[]) 方法");
+                }
+
+                var testGenericMethod = testMethod.MakeGenericMethod(type);
+                Console.WriteLine($"[ServiceRegistry] 成功创建测试泛型方法: {testGenericMethod}");
+
+                // 如果测试成功，使用表达式树创建高性能委托
+                return CreateExpressionTreeDelegate(type);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ServiceRegistry] 表达式树方法失败: {ex.Message}，使用反射回退方法");
+                return CreateReflectionDelegate(type);
+            }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"为类型 {type.Name} 创建反序列化委托失败: {ex.Message}");
-            Console.WriteLine(ex.StackTrace);
+            Console.WriteLine($"[ServiceRegistry] 为类型 {type?.Name ?? "null"} 创建反序列化委托完全失败: {ex.Message}");
+            Console.WriteLine($"[ServiceRegistry] 异常类型: {ex.GetType().Name}");
+            Console.WriteLine($"[ServiceRegistry] 堆栈跟踪: {ex.StackTrace}");
 
-            // 返回一个基本的反序列化函数，尽管不是最高效的
-            return (data) =>
+            // 最后的回退方案
+            return CreateFallbackDelegate(type);
+        }
+    }
+
+    /// <summary>
+    /// 使用表达式树创建高性能委托
+    /// </summary>
+    private static Func<byte[], object> CreateExpressionTreeDelegate(Type type)
+    {
+        // 创建参数表达式
+        var dataParam = Expression.Parameter(typeof(byte[]), "data");
+
+        // 获取 MemoryPackSerializer.Deserialize<T>(byte[]) 方法
+        var deserializeMethod = typeof(MemoryPackSerializer)
+            .GetMethod(nameof(MemoryPackSerializer.Deserialize), new Type[] { typeof(byte[]) })!
+            .MakeGenericMethod(type);
+
+        // 创建方法调用表达式
+        var call = Expression.Call(null, deserializeMethod, dataParam);
+
+        // 将结果转换为 object
+        var resultExpr = Expression.Convert(call, typeof(object));
+
+        // 编译 Lambda 表达式
+        var lambda = Expression.Lambda<Func<byte[], object>>(resultExpr, dataParam);
+        var compiledDelegate = lambda.Compile();
+
+        Console.WriteLine($"[ServiceRegistry] 成功为类型 {type.Name} 创建表达式树委托");
+        return compiledDelegate;
+    }
+
+    /// <summary>
+    /// 使用反射创建委托（性能较低但更稳定）
+    /// </summary>
+    private static Func<byte[], object> CreateReflectionDelegate(Type type)
+    {
+        Console.WriteLine($"[ServiceRegistry] 为类型 {type.Name} 创建反射委托");
+
+        return (data) =>
+        {
+            try
             {
-                try
+                if (data == null || data.Length == 0)
                 {
-                    // 使用直接调用方式
-                    var method = typeof(MemoryPackSerializer)
-                        .GetMethod(nameof(MemoryPackSerializer.Deserialize),
-                            new Type[] { typeof(byte[]) })!
-                        .MakeGenericMethod(type);
-
-                    return method.Invoke(null, new object[] { data })!;
-                }
-                catch (Exception fallbackEx)
-                {
-                    Console.WriteLine($"回退反序列化也失败: {fallbackEx.Message}");
-                    // 如果反序列化失败，返回该类型的默认值
+                    Console.WriteLine($"[ServiceRegistry] 警告: 尝试反序列化空数据，返回默认值，类型: {type.Name}");
                     return type.IsValueType ? Activator.CreateInstance(type)! : null!;
                 }
-            };
-        }
+
+                // 使用反射调用
+                var method = typeof(MemoryPackSerializer)
+                    .GetMethod(nameof(MemoryPackSerializer.Deserialize), new Type[] { typeof(byte[]) })!
+                    .MakeGenericMethod(type);
+
+                var result = method.Invoke(null, new object[] { data });
+                Console.WriteLine($"[ServiceRegistry] 反射反序列化成功，类型: {type.Name}，数据长度: {data.Length}");
+                return result!;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ServiceRegistry] 反射反序列化失败，类型: {type.Name}，错误: {ex.Message}");
+                throw;
+            }
+        };
+    }
+
+    /// <summary>
+    /// 最终回退方案
+    /// </summary>
+    private static Func<byte[], object> CreateFallbackDelegate(Type? type)
+    {
+        Console.WriteLine($"[ServiceRegistry] 为类型 {type?.Name ?? "null"} 创建回退委托");
+
+        return (data) =>
+        {
+            try
+            {
+                if (type == null)
+                {
+                    throw new ArgumentNullException(nameof(type), "类型不能为 null");
+                }
+
+                if (data == null || data.Length == 0)
+                {
+                    Console.WriteLine($"[ServiceRegistry] 回退: 空数据，返回默认值，类型: {type.Name}");
+                    return type.IsValueType ? Activator.CreateInstance(type)! : null!;
+                }
+
+                // 尝试使用反射
+                var method = typeof(MemoryPackSerializer)
+                    .GetMethod(nameof(MemoryPackSerializer.Deserialize), new Type[] { typeof(byte[]) });
+
+                if (method == null)
+                {
+                    throw new InvalidOperationException("MemoryPackSerializer.Deserialize 方法不可用");
+                }
+
+                var genericMethod = method.MakeGenericMethod(type);
+                var result = genericMethod.Invoke(null, new object[] { data });
+
+                Console.WriteLine($"[ServiceRegistry] 回退反序列化成功，类型: {type.Name}");
+                return result!;
+            }
+            catch (Exception fallbackEx)
+            {
+                Console.WriteLine($"[ServiceRegistry] 回退反序列化也失败: {fallbackEx.Message}");
+
+                // 返回默认值
+                try
+                {
+                    if (type != null)
+                    {
+                        var defaultValue = type.IsValueType ? Activator.CreateInstance(type)! : null!;
+                        Console.WriteLine($"[ServiceRegistry] 返回默认值，类型: {type.Name}");
+                        return defaultValue;
+                    }
+                    return null!;
+                }
+                catch (Exception createEx)
+                {
+                    Console.WriteLine($"[ServiceRegistry] 创建默认实例也失败: {createEx.Message}");
+                    return null!;
+                }
+            }
+        };
     }
 
     /// <summary>
