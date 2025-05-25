@@ -1,0 +1,4 @@
+#nullable enable
+PulseRPC.Client.PulseRPCClient
+PulseRPC.Client.PulseRPCClientOptions
+PulseRPC.Client.Channels.ConnectionStateChangedEventArgs

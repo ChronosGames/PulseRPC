@@ -1,6 +1,4 @@
-﻿// PulseRPC.Client/Channels/TransportChannel.cs
-
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
