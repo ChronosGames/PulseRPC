@@ -1,0 +1,92 @@
+#nullable enable
+PulseRPC.PulseClientGenerationAttribute
+PulseRPC.IEventBus
+PulseRPC.IEventSubscriber
+PulseRPC.IServiceProxyGenerator
+PulseRPC.ISubscriptionToken
+PulseRPC.Serialization.ISerializer
+PulseRPC.ServiceContractAttribute
+PulseRPC.RPCServiceAttribute
+PulseRPC.Messaging.IHasTransport
+PulseRPC.Messaging.NetworkMessage.Header.get -> PulseRPC.Messaging.MessageHeader
+PulseRPC.EventContractAttribute
+PulseRPC.EventSubscription
+PulseRPC.RPCServiceAttribute.RPCServiceAttribute() -> void
+PulseRPC.ServiceContractAttribute.ServiceContractAttribute() -> void
+PulseRPC.Serialization.PulseRPCSerializer
+PulseRPC.Messaging.IMessageChannel
+PulseRPC.CompositeSubscriptionToken
+PulseRPC.Transport.ChannelManager
+virtual PulseRPC.EventHandler<T>.Invoke(object! sender, T eventData) -> void
+PulseRPC.Transport.IChannelManager
+PulseRPC.Serialization.PulseRPCSerializer.PulseRPCSerializer() -> void
+PulseRPC.Events.MemoryChannelEventBus
+PulseRPC.RPCMethodAttribute
+PulseRPC.RPCMethodAttribute.RPCMethodAttribute() -> void
+PulseRPC.EventHandler<T>
+
+PulseRPC.Transport.TransportType.Kcp = 2 -> PulseRPC.Transport.TransportType
+PulseRPC.Transport.TransportType.Udp = 1 -> PulseRPC.Transport.TransportType
+PulseRPC.Transport.TransportType.Tcp = 0 -> PulseRPC.Transport.TransportType
+PulseRPC.Transport.TransportType.WebSocket = 3 -> PulseRPC.Transport.TransportType
+PulseRPC.Transport.TransportType.Custom = 4 -> PulseRPC.Transport.TransportType
+PulseRPC.Transport.TransportType
+PulseRPC.Transport.ITransport
+PulseRPC.Transport.ITransport.DataReceived -> System.EventHandler<PulseRPC.Transport.TransportDataEventArgs!>?
+PulseRPC.EventSubscription<T>
+PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.ConnectionState.Disconnected = 0 -> PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.ConnectionState.Connecting = 1 -> PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.ConnectionState.Connected = 2 -> PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.ConnectionState.Disconnecting = 3 -> PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.ConnectionState.Reconnecting = 4 -> PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.ConnectionState.Failed = 5 -> PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.IServerListener.ConnectionAccepted -> System.EventHandler<PulseRPC.Transport.ServerConnectionEventArgs!>!
+PulseRPC.Transport.IServerListener
+PulseRPC.Transport.TransportDataEventArgs
+PulseRPC.Transport.ServerConnectionEventArgs
+PulseRPC.Transport.TransportStateEventArgs
+PulseRPC.ChannelAttribute
+PulseRPC.Transport.ITransportFactory
+PulseRPC.Transport.KcpOptions
+PulseRPC.Transport.TransportOptions
+PulseRPC.Messaging.MessageType
+PulseRPC.Messaging.MessageType.Event = 7 -> PulseRPC.Messaging.MessageType
+PulseRPC.Messaging.MessageType.Pong = 6 -> PulseRPC.Messaging.MessageType
+PulseRPC.Messaging.MessageType.Ping = 5 -> PulseRPC.Messaging.MessageType
+PulseRPC.Messaging.MessageType.Notification = 4 -> PulseRPC.Messaging.MessageType
+PulseRPC.Messaging.MessageType.Command = 3 -> PulseRPC.Messaging.MessageType
+PulseRPC.Messaging.MessageType.Response = 2 -> PulseRPC.Messaging.MessageType
+PulseRPC.Messaging.MessageType.Request = 1 -> PulseRPC.Messaging.MessageType
+PulseRPC.Transport.Tcp.TcpTransport._state -> PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.Tcp.TcpServerListener
+PulseRPC.Transport.Tcp.TcpClientTransport
+PulseRPC.Transport.Tcp.TcpServerConnection
+PulseRPC.Transport.Tcp.TcpServerListener.ConnectionAccepted -> System.EventHandler<PulseRPC.Transport.ServerConnectionEventArgs!>?
+readonly PulseRPC.Transport.Tcp.TcpTransport._sendLock -> System.Threading.SemaphoreSlim!
+readonly PulseRPC.Transport.Tcp.TcpTransport._cts -> System.Threading.CancellationTokenSource!
+PulseRPC.EventContractAttribute.EventContractAttribute() -> void
+PulseRPC.INetworkService
+PulseRPC.IEventData
+PulseRPC.EventAttribute
+PulseRPC.EventDataAttribute
+PulseRPC.EventDataAttribute.EventDataAttribute() -> void
+PulseRPC.SubscriptionToken
+PulseRPC.OperationAttribute
+PulseRPC.EventAttribute.EventAttribute() -> void
+PulseRPC.Transport.ChannelManager.ChannelManager() -> void
+PulseRPC.Transport.ITransport.StateChanged -> System.EventHandler<PulseRPC.Transport.TransportStateEventArgs!>?
+PulseRPC.Transport.IServerConnection
+PulseRPC.Transport.Kcp.KcpServerListener.ConnectionAccepted -> System.EventHandler<PulseRPC.Transport.ServerConnectionEventArgs!>?
+PulseRPC.Transport.TransportOptions.TransportOptions() -> void
+PulseRPC.Transport.KcpOptions.KcpOptions() -> void
+PulseRPC.Transport.Kcp.KcpClientTransport
+PulseRPC.Transport.Kcp.KcpServerConnection
+PulseRPC.Transport.Kcp.KcpServerListener
+PulseRPC.Transport.Kcp.KcpTransport._receiveBuffer -> byte[]!
+PulseRPC.Messaging.NetworkMessage
+PulseRPC.Transport.Kcp.KcpTransport
+readonly PulseRPC.Transport.Tcp.TcpTransport._logger -> Microsoft.Extensions.Logging.ILogger!
+PulseRPC.Transport.IClientTransport
+PulseRPC.Messaging.MessageHeader
+PulseRPC.Messaging.MessageHeader.MessageHeader() -> void

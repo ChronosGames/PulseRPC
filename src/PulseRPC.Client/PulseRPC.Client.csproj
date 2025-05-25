@@ -49,7 +49,9 @@
     </Content>
   </ItemGroup>
 
+  <!-- 包含 Source Generator -->
   <ItemGroup>
     <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\roslyn4.3\cs" Pack="true" Visible="false" />
+    <None Include="..\..\artifacts\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\roslyn4.3\cs" Pack="true" Visible="false" />
   </ItemGroup>
 </Project>

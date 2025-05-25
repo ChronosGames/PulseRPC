@@ -20,15 +20,26 @@ PulseRPC 是一个基于 TCP 的现代 RPC 框架，专为 .NET 和 Unity 平台
 
 ### 安装
 
+#### .NET 项目
+
 通过 NuGet 安装：
 
 ```bash
-# 安装服务端包
-dotnet add package PulseRPC.Server
+# 安装核心抽象包（必需）
+dotnet add package PulseRPC.Abstractions
 
 # 安装客户端包
 dotnet add package PulseRPC.Client
 ```
+
+或在 PackageReference 中添加：
+
+```xml
+<PackageReference Include="PulseRPC.Abstractions" Version="1.0.0" />
+<PackageReference Include="PulseRPC.Client" Version="1.0.0" />
+```
+
+#### Unity 项目
 
 Unity项目安装请参考[Unity集成指南](docs/samples/unity-integration.md)。
 
@@ -107,7 +118,8 @@ src/
 - [更新日志](docs/CHANGELOG.md)
 - [版本规划](docs/ROADMAP.md)
 - [常见问题](docs/faq.md)
-- [故障排除](docs/troubleshooting.md)
+- [故障排除](docs/troubleshooting/)
+  - [Unity Source Generator 问题](docs/troubleshooting/unity-source-generator-issue.md)
 
 ## 贡献
 
