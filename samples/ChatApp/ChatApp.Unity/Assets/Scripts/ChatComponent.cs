@@ -630,25 +630,6 @@ namespace ChatApp
 
         #region 测试方法
 
-        public async void GenerateException()
-        {
-            AppendChatMessage("[系统] 异常测试功能待实现");
-        }
-
-        public async void SendReport()
-        {
-            if (!string.IsNullOrEmpty(ReportInput?.text))
-            {
-                AppendChatMessage($"[报告] {ReportInput.text}");
-                ReportInput.text = string.Empty;
-            }
-        }
-
-        public async void UnaryGenerateException()
-        {
-            AppendChatMessage("[系统] 一元异常测试功能待实现");
-        }
-
         [ContextMenu("显示在线玩家")]
         private void DisplayPlayers()
         {

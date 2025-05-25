@@ -145,7 +145,7 @@ namespace PulseRPC.Examples
         /// <summary>
         /// 订阅通知事件
         /// </summary>
-        private async Task SubscribeToNotifications()
+        private Task SubscribeToNotifications()
         {
             Debug.Log("正在订阅通知事件...");
 
@@ -162,6 +162,8 @@ namespace PulseRPC.Examples
 
             // 记录订阅成功
             Debug.Log($"通知事件订阅成功，令牌ID: {token.Id}");
+
+            return Task.CompletedTask;
         }
 
         private void OnDestroy()
