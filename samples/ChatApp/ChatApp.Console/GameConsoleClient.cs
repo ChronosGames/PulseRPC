@@ -17,10 +17,9 @@ namespace ChatApp.Console;
 [PulseClientGeneration(typeof(IPlayerService))]
 [PulseClientGeneration(typeof(IPlayerLoginEvents))]
 [PulseClientGeneration(typeof(IPlayerMovementEvents))]
-public class GameConsoleClient
+public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
-    private readonly ILoggerFactory _loggerFactory;
-    private readonly ILogger<GameConsoleClient> _logger;
+    private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
     private IChannelManager? _channelManager;
     private IPlayerService? _playerService;
     private ISubscriptionToken? _eventsSubscription;
@@ -31,12 +30,6 @@ public class GameConsoleClient
 
     // 用于存储其他玩家位置的字典
     private readonly Dictionary<Guid, PlayerData> _otherPlayers = new Dictionary<Guid, PlayerData>();
-
-    public GameConsoleClient(ILoggerFactory loggerFactory)
-    {
-        _loggerFactory = loggerFactory;
-        _logger = loggerFactory.CreateLogger<GameConsoleClient>();
-    }
 
     /// <summary>
     /// 初始化客户端
@@ -51,7 +44,7 @@ public class GameConsoleClient
         var serializer = new PulseRPCSerializer();
 
         // 创建传输工厂
-        var transportFactory = new TransportFactory(_loggerFactory);
+        var transportFactory = new TransportFactory(loggerFactory);
 
         // 创建通道管理器
         _channelManager = new ChannelManager();
@@ -66,7 +59,7 @@ public class GameConsoleClient
             "TcpChannel",
             tcpTransport,
             serializer,
-            _loggerFactory.CreateLogger<TransportChannel>());
+            loggerFactory.CreateLogger<TransportChannel>());
 
         _channelManager.RegisterChannel("TcpChannel", tcpChannel, true);
 
@@ -83,7 +76,7 @@ public class GameConsoleClient
             "KcpChannel",
             kcpTransport,
             serializer,
-            _loggerFactory.CreateLogger<TransportChannel>());
+            loggerFactory.CreateLogger<TransportChannel>());
 
         _channelManager.RegisterChannel("KcpChannel", kcpChannel);
 
@@ -463,8 +456,8 @@ public class GameConsoleClient
 
         public void OnPlayerJoined(PlayerJoinedEvent eventData)
         {
-            var position = eventData.Position != Vector3.Zero 
-                ? eventData.Position 
+            var position = eventData.Position != Vector3.Zero
+                ? eventData.Position
                 : new Vector3(eventData.X, eventData.Y, eventData.Z);
             _client.AddPlayer(eventData.PlayerId, eventData.PlayerName, position);
         }
