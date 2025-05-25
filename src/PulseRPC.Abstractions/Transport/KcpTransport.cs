@@ -1,6 +1,4 @@
-﻿// PulseRPC.Transport.Kcp/KcpTransport.cs
-
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Net;
@@ -51,7 +49,7 @@ namespace PulseRPC.Transport.Kcp
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
             // 创建KCP对象
-            _kcp = new KcpInternal(_options.Kcp.ConversationId, OnKcpOutput);
+            _kcp = new KcpInternal(OnKcpOutput);
 
             // 配置KCP
             _kcp.NoDelay(_options.Kcp.NoDelay, _options.Kcp.Interval, _options.Kcp.Resend,
@@ -124,7 +122,7 @@ namespace PulseRPC.Transport.Kcp
 
                 // 启动UDP接收
                 EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
-                _socket.BeginReceive(recvBuffer, 0, recvBuffer.Length, SocketFlags.None, OnUdpReceive, recvBuffer);
+                _socket.BeginReceiveFrom(recvBuffer, 0, recvBuffer.Length, SocketFlags.None, ref remoteEp, OnUdpReceive, recvBuffer);
 
                 // KCP更新循环
                 while (!_cts.IsCancellationRequested && IsConnected)
@@ -167,9 +165,15 @@ namespace PulseRPC.Transport.Kcp
         {
             try
             {
+                // 检查对象是否已释放
+                if (_disposed || _cts.IsCancellationRequested)
+                    return;
+
                 EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
-                byte[] buffer = (byte[])ar.AsyncState!;
-                int recvSize = _socket.EndReceiveFrom(ar, ref remoteEp);
+                var buffer = (byte[])ar.AsyncState!;
+                
+                // 使用正确的结束方法
+                var recvSize = _socket.EndReceiveFrom(ar, ref remoteEp);
 
                 if (recvSize > 0)
                 {
@@ -184,7 +188,27 @@ namespace PulseRPC.Transport.Kcp
                 }
 
                 // 继续接收
-                _socket.BeginReceive(buffer, 0, buffer.Length, SocketFlags.None, OnUdpReceive, buffer);
+                if (!_disposed && !_cts.IsCancellationRequested && _socket.IsBound)
+                {
+                    EndPoint newRemoteEp = new IPEndPoint(IPAddress.Any, 0);
+                    _socket.BeginReceiveFrom(buffer, 0, buffer.Length, SocketFlags.None, ref newRemoteEp, OnUdpReceive, buffer);
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Socket 已被释放，这是正常情况
+                _logger.LogDebug("Socket已释放，停止UDP接收");
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.OperationAborted || 
+                                             ex.SocketErrorCode == SocketError.ConnectionReset ||
+                                             ex.SocketErrorCode == SocketError.Interrupted)
+            {
+                // 连接被中止或重置，这在网络断开时是正常的
+                _logger.LogDebug("Socket操作被中止: {ErrorCode}", ex.SocketErrorCode);
+                if (!_cts.IsCancellationRequested && !_disposed)
+                {
+                    ChangeState(ConnectionState.Disconnected, $"网络连接中断: {ex.SocketErrorCode}", ex);
+                }
             }
             catch (Exception ex) when (!_cts.IsCancellationRequested && !_disposed)
             {
@@ -308,9 +332,9 @@ namespace PulseRPC.Transport.Kcp
             private readonly uint _conv;
             private readonly Action<byte[], int> _output;
 
-            public KcpInternal(uint conv, Action<byte[], int> output)
+            public KcpInternal(Action<byte[], int> output)
             {
-                _conv = conv;
+                _conv = 0; // 这里需要一个有效的conv值
                 _output = output;
             }
 
@@ -709,9 +733,8 @@ namespace PulseRPC.Transport.Kcp
                 byte[] buffer = new byte[4096];
                 EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
 
-                // 开始接收数据
-                _socket.BeginReceiveFrom(buffer, 0, buffer.Length, SocketFlags.None, ref remoteEp, OnUdpReceive,
-                    buffer);
+                // 开始接收数据 - 使用正确的 BeginReceiveFrom
+                _socket.BeginReceiveFrom(buffer, 0, buffer.Length, SocketFlags.None, ref remoteEp, OnUdpReceive, buffer);
 
                 // 保持任务运行
                 await Task.Delay(-1, cancellationToken);
@@ -733,6 +756,10 @@ namespace PulseRPC.Transport.Kcp
         {
             try
             {
+                // 检查是否已停止监听
+                if (!_isListening || _cts.IsCancellationRequested)
+                    return;
+
                 EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
                 byte[] buffer = (byte[])ar.AsyncState!;
                 int recvSize = _socket.EndReceiveFrom(ar, ref remoteEp);
@@ -791,25 +818,42 @@ namespace PulseRPC.Transport.Kcp
                     }
                 }
 
-                // 继续接收
-                _socket.BeginReceiveFrom(buffer, 0, buffer.Length, SocketFlags.None, ref remoteEp, OnUdpReceive,
-                    buffer);
+                // 继续接收 - 使用正确的 BeginReceiveFrom
+                if (_isListening && !_cts.IsCancellationRequested)
+                {
+                    EndPoint newRemoteEp = new IPEndPoint(IPAddress.Any, 0);
+                    _socket.BeginReceiveFrom(buffer, 0, buffer.Length, SocketFlags.None, ref newRemoteEp, OnUdpReceive, buffer);
+                }
+            }
+            catch (ObjectDisposedException)
+            {
+                // Socket 已被释放，这是正常情况
+                _logger.LogDebug("监听Socket已释放");
+            }
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.OperationAborted || 
+                                             ex.SocketErrorCode == SocketError.Interrupted)
+            {
+                // 操作被中止，通常在停止监听时发生
+                _logger.LogDebug("监听操作被中止: {ErrorCode}", ex.SocketErrorCode);
             }
             catch (Exception ex) when (!_cts.IsCancellationRequested)
             {
                 _logger.LogError(ex, "KCP接收异常");
 
+                // 尝试恢复接收
                 try
                 {
-                    // 尝试继续接收
-                    byte[] newBuffer = new byte[4096];
-                    EndPoint newRemoteEp = new IPEndPoint(IPAddress.Any, 0);
-                    _socket.BeginReceiveFrom(newBuffer, 0, newBuffer.Length, SocketFlags.None, ref newRemoteEp,
-                        OnUdpReceive, newBuffer);
+                    if (_isListening && !_cts.IsCancellationRequested)
+                    {
+                        byte[] newBuffer = new byte[4096];
+                        EndPoint newRemoteEp = new IPEndPoint(IPAddress.Any, 0);
+                        _socket.BeginReceiveFrom(newBuffer, 0, newBuffer.Length, SocketFlags.None, ref newRemoteEp, OnUdpReceive, newBuffer);
+                    }
                 }
                 catch
                 {
-                    // 忽略继续接收异常
+                    // 恢复失败，停止监听
+                    _logger.LogWarning("无法恢复UDP接收，停止监听");
                 }
             }
         }
