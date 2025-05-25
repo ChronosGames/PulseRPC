@@ -183,7 +183,7 @@ namespace ChatApp
             _channelManager.RegisterChannel("KcpChannel", kcpChannel);
 
             // 获取服务代理
-            _playerService = _channelManager.GetPlayerService();
+            _playerService = new IPlayerServiceProxy(_channelManager);
 
             // 设置事件处理器
             SetupEventHandlers();
