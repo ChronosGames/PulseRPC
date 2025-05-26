@@ -8,12 +8,15 @@ namespace ChatApp
     /// </summary>
     public class SimplePlayerController : MonoBehaviour
     {
-        [Header("移动设置")]
-        [SerializeField] private float _moveSpeed = 5.0f;
-        [SerializeField] private float _moveSendInterval = 0.1f; // 发送移动更新的间隔
+        [Header("Movement Settings")]
+        public float moveSpeed = 5.0f;
+        public float rotationSpeed = 720.0f;
 
-        [Header("游戏客户端")]
-        [SerializeField] private UnityGameClient _gameClient;
+        [Header("Game Client")]
+        public ChatComponent gameClient;
+
+        private CharacterController characterController;
+        private bool isMoving = false;
 
         private float _lastMoveTime;
         private Vector3 _lastPosition;
@@ -21,9 +24,9 @@ namespace ChatApp
         private void Awake()
         {
             // 如果没有指定游戏客户端，尝试查找
-            if (_gameClient == null)
+            if (gameClient == null)
             {
-                _gameClient = FindObjectOfType<UnityGameClient>();
+                gameClient = FindObjectOfType<ChatComponent>();
             }
         }
 
@@ -39,7 +42,7 @@ namespace ChatApp
             float vertical = Input.GetAxis("Vertical");
 
             // 计算移动向量
-            Vector3 movement = new Vector3(horizontal, 0, vertical) * _moveSpeed * Time.deltaTime;
+            Vector3 movement = new Vector3(horizontal, 0, vertical) * moveSpeed * Time.deltaTime;
 
             // 如果有移动输入
             if (movement.magnitude > 0.01f)
@@ -48,7 +51,7 @@ namespace ChatApp
                 transform.position += movement;
 
                 // 检查是否需要发送移动更新到服务器
-                if (Time.time - _lastMoveTime >= _moveSendInterval)
+                if (Time.time - _lastMoveTime >= 0.1f) // 0.1秒间隔
                 {
                     SendMoveToServer();
                     _lastMoveTime = Time.time;
@@ -76,10 +79,10 @@ namespace ChatApp
 
         private void SendMoveToServer()
         {
-            if (_gameClient != null)
+            if (gameClient != null)
             {
                 var position = transform.position;
-                _ = _gameClient.MoveAsync(position.x, position.y, position.z);
+                _ = gameClient.MoveAsync(position.x, position.y, position.z);
                 _lastPosition = position;
             }
         }
@@ -132,7 +135,7 @@ namespace ChatApp
             GUILayout.Label("R - 重置位置");
             GUILayout.Label($"当前位置: {transform.position:F1}");
 
-            if (_gameClient != null)
+            if (gameClient != null)
             {
                 GUILayout.Label("游戏客户端: 已连接");
             }

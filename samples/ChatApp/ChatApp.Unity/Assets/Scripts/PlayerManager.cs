@@ -11,11 +11,11 @@ namespace ChatApp
     /// </summary>
     public class PlayerManager : MonoBehaviour
     {
-        [Header("游戏客户端")]
-        [SerializeField] private UnityGameClient _gameClient;
+        [Header("Player Prefab")]
+        public GameObject playerPrefab;
 
-        [Header("玩家预制体")]
-        [SerializeField] private GameObject _playerPrefab;
+        [Header("Game Client")]
+        public ChatComponent gameClient;
 
         [Header("角色颜色")]
         [SerializeField] private Color _localPlayerColor = Color.green;
@@ -25,15 +25,15 @@ namespace ChatApp
         private GameObject _localPlayerObject;
 
         // 玩家对象缓存
-        private readonly Dictionary<Guid, GameObject> _playerObjects = new Dictionary<Guid, GameObject>();
+        private readonly Dictionary<Guid, GameObject> playerObjects = new Dictionary<Guid, GameObject>();
 
         private void Awake()
         {
             // 确保UnityGameClient已初始化
-            if (_gameClient == null)
+            if (gameClient == null)
             {
-                _gameClient = FindObjectOfType<UnityGameClient>();
-                if (_gameClient == null)
+                gameClient = FindObjectOfType<ChatComponent>();
+                if (gameClient == null)
                 {
                     Debug.LogError("找不到UnityGameClient组件，请确保场景中有UnityGameClient组件");
                     return;
@@ -43,25 +43,25 @@ namespace ChatApp
 
         private void Start()
         {
-            if (_gameClient != null)
+            if (gameClient != null)
             {
                 // 订阅事件
-                _gameClient.OnLoginSuccess += OnPlayerLoggedIn;
-                _gameClient.OnPlayerJoined += OnRemotePlayerJoined;
-                _gameClient.OnPlayerLeft += OnRemotePlayerLeft;
-                _gameClient.OnPlayerMoved += OnRemotePlayerMoved;
+                gameClient.OnLoginSuccess += OnPlayerLoggedIn;
+                gameClient.OnPlayerJoined += OnRemotePlayerJoined;
+                gameClient.OnPlayerLeft += OnRemotePlayerLeft;
+                gameClient.OnPlayerMoved += OnRemotePlayerMoved;
             }
         }
 
         private void OnDestroy()
         {
-            if (_gameClient != null)
+            if (gameClient != null)
             {
                 // 取消订阅事件
-                _gameClient.OnLoginSuccess -= OnPlayerLoggedIn;
-                _gameClient.OnPlayerJoined -= OnRemotePlayerJoined;
-                _gameClient.OnPlayerLeft -= OnRemotePlayerLeft;
-                _gameClient.OnPlayerMoved -= OnRemotePlayerMoved;
+                gameClient.OnLoginSuccess -= OnPlayerLoggedIn;
+                gameClient.OnPlayerJoined -= OnRemotePlayerJoined;
+                gameClient.OnPlayerLeft -= OnRemotePlayerLeft;
+                gameClient.OnPlayerMoved -= OnRemotePlayerMoved;
             }
         }
 
@@ -71,9 +71,9 @@ namespace ChatApp
         private void OnPlayerLoggedIn(PlayerInfo playerInfo)
         {
             // 创建本地玩家
-            if (_playerPrefab != null && _localPlayerObject == null)
+            if (playerPrefab != null && _localPlayerObject == null)
             {
-                _localPlayerObject = Instantiate(_playerPrefab, Vector3.zero, Quaternion.identity);
+                _localPlayerObject = Instantiate(playerPrefab, Vector3.zero, Quaternion.identity);
                 _localPlayerObject.name = $"Player_{playerInfo.Username}_{playerInfo.Id}";
 
                 // 设置本地玩家颜色
@@ -84,7 +84,7 @@ namespace ChatApp
                 }
 
                 // 添加到玩家对象缓存
-                _playerObjects[playerInfo.Id] = _localPlayerObject;
+                playerObjects[playerInfo.Id] = _localPlayerObject;
 
                 Debug.Log($"本地玩家角色已创建: {playerInfo.Username}");
             }
@@ -95,10 +95,10 @@ namespace ChatApp
         /// </summary>
         private void OnRemotePlayerJoined(Guid playerId, string playerName, System.Numerics.Vector3 position)
         {
-            if (_playerPrefab != null && !_playerObjects.ContainsKey(playerId))
+            if (playerPrefab != null && !playerObjects.ContainsKey(playerId))
             {
                 var playerPosition = new Vector3(position.X, position.Y, position.Z);
-                var playerObject = Instantiate(_playerPrefab, playerPosition, Quaternion.identity);
+                var playerObject = Instantiate(playerPrefab, playerPosition, Quaternion.identity);
                 playerObject.name = $"Player_{playerName}_{playerId}";
 
                 // 设置远程玩家颜色
@@ -109,7 +109,7 @@ namespace ChatApp
                 }
 
                 // 添加到玩家对象缓存
-                _playerObjects[playerId] = playerObject;
+                playerObjects[playerId] = playerObject;
 
                 Debug.Log($"远程玩家角色已创建: {playerName}");
             }
@@ -120,10 +120,10 @@ namespace ChatApp
         /// </summary>
         private void OnRemotePlayerLeft(Guid playerId, string reason)
         {
-            if (_playerObjects.TryGetValue(playerId, out var playerObject))
+            if (playerObjects.TryGetValue(playerId, out var playerObject))
             {
                 Destroy(playerObject);
-                _playerObjects.Remove(playerId);
+                playerObjects.Remove(playerId);
 
                 Debug.Log($"玩家角色已移除: {playerId}, 原因: {reason}");
             }
@@ -134,7 +134,7 @@ namespace ChatApp
         /// </summary>
         private void OnRemotePlayerMoved(Guid playerId, System.Numerics.Vector3 position)
         {
-            if (_playerObjects.TryGetValue(playerId, out var playerObject))
+            if (playerObjects.TryGetValue(playerId, out var playerObject))
             {
                 var targetPosition = new Vector3(position.X, position.Y, position.Z);
                 playerObject.transform.position = targetPosition;
@@ -152,9 +152,9 @@ namespace ChatApp
             }
 
             // 同时发送移动请求到服务器
-            if (_gameClient != null)
+            if (gameClient != null)
             {
-                _ = _gameClient.MoveAsync(position.x, position.y, position.z);
+                _ = gameClient.MoveAsync(position.x, position.y, position.z);
             }
         }
 
@@ -171,7 +171,7 @@ namespace ChatApp
         /// </summary>
         public GameObject GetPlayerObject(Guid playerId)
         {
-            _playerObjects.TryGetValue(playerId, out var playerObject);
+            playerObjects.TryGetValue(playerId, out var playerObject);
             return playerObject;
         }
 
@@ -180,7 +180,7 @@ namespace ChatApp
         /// </summary>
         public Dictionary<Guid, GameObject> GetAllPlayerObjects()
         {
-            return new Dictionary<Guid, GameObject>(_playerObjects);
+            return new Dictionary<Guid, GameObject>(playerObjects);
         }
     }
 }

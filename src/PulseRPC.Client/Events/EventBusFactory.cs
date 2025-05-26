@@ -1,5 +1,3 @@
-﻿// PulseRPC.Client/Events/EventBusFactory.cs
-
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Events;

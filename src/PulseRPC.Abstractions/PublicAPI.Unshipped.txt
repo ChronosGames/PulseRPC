@@ -1,100 +1,16 @@
 #nullable enable
-PulseRPC.EventSubscription.EventSubscription(string! eventName, System.Type! eventType) -> void
-PulseRPC.IEventBus.PublishAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.IEventBus.Subscribe<T>(string! eventName, PulseRPC.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!
-PulseRPC.IEventBus.Unsubscribe(PulseRPC.ISubscriptionToken! token) -> void
-PulseRPC.ISubscriptionToken.Id.get -> System.Guid
-PulseRPC.ISubscriptionToken.IsActive.get -> bool
-PulseRPC.ISubscriptionToken.Unsubscribe() -> void
-PulseRPC.Messaging.NetworkMessage.NetworkMessage() -> void
-PulseRPC.OperationAttribute.OperationAttribute() -> void
-PulseRPC.SubscriptionToken.Id.get -> System.Guid
-PulseRPC.Transport.IClientTransport.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Transport.IClientTransport.DisconnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Transport.IServerConnection.CloseAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Transport.IServerConnection.ConnectionId.get -> string!
-PulseRPC.Transport.IServerListener.IsListening.get -> bool
-PulseRPC.Transport.IServerListener.LocalEndPoint.get -> System.Net.EndPoint!
-PulseRPC.Transport.IServerListener.Name.get -> string!
-PulseRPC.Transport.IServerListener.StartAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Transport.IServerListener.StopAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Transport.IServerListener.Type.get -> PulseRPC.Transport.TransportType
-PulseRPC.Transport.ITransport.IsConnected.get -> bool
-PulseRPC.Transport.ITransport.LocalEndPoint.get -> System.Net.EndPoint!
-PulseRPC.Transport.ITransport.Name.get -> string!
-PulseRPC.Transport.ITransport.RemoteEndPoint.get -> System.Net.EndPoint!
-PulseRPC.Transport.ITransport.SendAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
-PulseRPC.Transport.ITransport.State.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Transport.ITransport.Type.get -> PulseRPC.Transport.TransportType
-PulseRPC.Transport.ITransportFactory.CreateClientTransportAsync(PulseRPC.Transport.TransportType type, PulseRPC.Transport.TransportOptions? options = null) -> System.Threading.Tasks.Task<PulseRPC.Transport.IClientTransport!>!
-PulseRPC.Transport.ITransportFactory.CreateServerListenerAsync(PulseRPC.Transport.TransportType type, int port, PulseRPC.Transport.TransportOptions? options = null) -> System.Threading.Tasks.Task<PulseRPC.Transport.IServerListener!>!
-PulseRPC.Transport.Kcp.KcpServerListener.IsListening.get -> bool
-PulseRPC.Transport.Kcp.KcpServerListener.LocalEndPoint.get -> System.Net.EndPoint!
-PulseRPC.Transport.Kcp.KcpServerListener.Name.get -> string!
-PulseRPC.Transport.Kcp.KcpServerListener.Type.get -> PulseRPC.Transport.TransportType
-PulseRPC.Transport.Kcp.KcpTransport._disposed -> bool
-PulseRPC.Transport.Kcp.KcpTransport._socket -> System.Net.Sockets.Socket!
-PulseRPC.Transport.Kcp.KcpTransport._state -> PulseRPC.Transport.ConnectionState
-PulseRPC.Transport.KcpOptions.ConversationId.get -> uint
-PulseRPC.Transport.KcpOptions.ConversationId.set -> void
-PulseRPC.Transport.KcpOptions.DisableFlowControl.get -> bool
-PulseRPC.Transport.KcpOptions.DisableFlowControl.set -> void
-PulseRPC.Transport.KcpOptions.Interval.get -> int
-PulseRPC.Transport.KcpOptions.Interval.set -> void
-PulseRPC.Transport.KcpOptions.NoDelay.get -> int
-PulseRPC.Transport.KcpOptions.NoDelay.set -> void
-PulseRPC.Transport.KcpOptions.ReceiveWindow.get -> int
-PulseRPC.Transport.KcpOptions.ReceiveWindow.set -> void
-PulseRPC.Transport.KcpOptions.Resend.get -> int
-PulseRPC.Transport.KcpOptions.Resend.set -> void
-PulseRPC.Transport.KcpOptions.SendWindow.get -> int
-PulseRPC.Transport.KcpOptions.SendWindow.set -> void
-PulseRPC.Transport.ServerConnectionEventArgs.Connection.get -> PulseRPC.Transport.IServerConnection!
-PulseRPC.Transport.ServerConnectionEventArgs.ServerConnectionEventArgs(PulseRPC.Transport.IServerConnection! connection) -> void
-PulseRPC.Transport.Tcp.TcpTransport
-PulseRPC.Transport.Tcp.TcpTransport.DataReceived -> System.EventHandler<PulseRPC.Transport.TransportDataEventArgs!>?
-PulseRPC.Transport.Tcp.TcpTransport.Name.get -> string!
-PulseRPC.Transport.Tcp.TcpTransport.StateChanged -> System.EventHandler<PulseRPC.Transport.TransportStateEventArgs!>?
-PulseRPC.Transport.Tcp.TcpTransport.TcpTransport(PulseRPC.Transport.TransportOptions? options = null, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
-PulseRPC.Transport.Tcp.TcpTransport.Type.get -> PulseRPC.Transport.TransportType
-PulseRPC.Transport.Tcp.TcpTransport._disposed -> bool
-PulseRPC.Transport.Tcp.TcpTransport._receiveBuffer -> byte[]!
-PulseRPC.Transport.Tcp.TcpTransport._receiveTask -> System.Threading.Tasks.Task?
-PulseRPC.Transport.Tcp.TcpTransport._socket -> System.Net.Sockets.Socket!
-PulseRPC.Transport.Tcp.TcpTransport._stream -> System.Net.Sockets.NetworkStream?
-PulseRPC.Transport.TransportDataEventArgs.Data.get -> System.ReadOnlyMemory<byte>
-PulseRPC.Transport.TransportDataEventArgs.TransportDataEventArgs(System.ReadOnlyMemory<byte> data) -> void
-PulseRPC.Transport.TransportFactory
-PulseRPC.Transport.TransportOptions.AutoReconnect.get -> bool
-PulseRPC.Transport.TransportOptions.AutoReconnect.set -> void
-PulseRPC.Transport.TransportOptions.ConnectionTimeout.get -> int
-PulseRPC.Transport.TransportOptions.ConnectionTimeout.set -> void
-PulseRPC.Transport.TransportOptions.CustomOptions.get -> System.Collections.Generic.Dictionary<string!, object!>!
-PulseRPC.Transport.TransportOptions.Kcp.get -> PulseRPC.Transport.KcpOptions!
-PulseRPC.Transport.TransportOptions.Kcp.set -> void
-PulseRPC.Transport.TransportOptions.KeepAlive.get -> bool
-PulseRPC.Transport.TransportOptions.KeepAlive.set -> void
-PulseRPC.Transport.TransportOptions.KeepAliveInterval.get -> int
-PulseRPC.Transport.TransportOptions.KeepAliveInterval.set -> void
-PulseRPC.Transport.TransportOptions.MaxReconnectAttempts.get -> int
-PulseRPC.Transport.TransportOptions.MaxReconnectAttempts.set -> void
-PulseRPC.Transport.TransportOptions.NoDelay.get -> bool
-PulseRPC.Transport.TransportOptions.NoDelay.set -> void
-PulseRPC.Transport.TransportOptions.ReadBufferSize.get -> int
-PulseRPC.Transport.TransportOptions.ReadBufferSize.set -> void
-PulseRPC.Transport.TransportOptions.ReconnectInterval.get -> int
-PulseRPC.Transport.TransportOptions.ReconnectInterval.set -> void
-PulseRPC.Transport.TransportOptions.UseCompression.get -> bool
-PulseRPC.Transport.TransportOptions.UseCompression.set -> void
-PulseRPC.Transport.TransportOptions.UseEncryption.get -> bool
-PulseRPC.Transport.TransportOptions.UseEncryption.set -> void
-PulseRPC.Transport.TransportOptions.WriteBufferSize.get -> int
-PulseRPC.Transport.TransportOptions.WriteBufferSize.set -> void
-PulseRPC.Transport.TransportStateEventArgs.CurrentState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Transport.TransportStateEventArgs.Exception.get -> System.Exception?
-PulseRPC.Transport.TransportStateEventArgs.PreviousState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Transport.TransportStateEventArgs.Reason.get -> string?
-PulseRPC.Transport.TransportStateEventArgs.TransportStateEventArgs(PulseRPC.Transport.ConnectionState previousState, PulseRPC.Transport.ConnectionState currentState, string? reason = null, System.Exception? exception = null) -> void
-readonly PulseRPC.Transport.Tcp.TcpTransport._options -> PulseRPC.Transport.TransportOptions!
-virtual PulseRPC.Transport.Kcp.KcpTransport.Dispose() -> void
-virtual PulseRPC.Transport.Tcp.TcpTransport.Dispose() -> void
+override PulseRPC.Transport.Kcp.KcpClientTransport.Dispose() -> void
+PulseRPC.Transport.Kcp.KcpClientTransport.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Transport.Kcp.KcpClientTransport.KcpClientTransport(PulseRPC.Transport.TransportOptions? options = null, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Check(uint currentTimeMilliseconds) -> uint
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Input(System.Span<byte> data) -> void
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.KcpInternal(System.Action<byte[]!, int>! output) -> void
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.NoDelay(int noDelay, int interval, int resend, bool nocwnd) -> void
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Recv(byte[]! buffer) -> int
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Send(byte[]! buffer) -> int
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Send(System.ReadOnlySpan<byte> buffer) -> int
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMaximumTransmissionUnit(int mtu) -> void
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMtu(int mtu) -> void
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetWindowSize(int sndwnd, int rcvwnd) -> void
+PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Update(uint currentTimeMilliseconds) -> void

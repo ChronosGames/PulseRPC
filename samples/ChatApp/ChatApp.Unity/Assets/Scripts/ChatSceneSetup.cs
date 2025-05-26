@@ -1,7 +1,9 @@
+using System;
 using UnityEngine;
 using UnityEngine.UI;
+using ChatApp.Unity;
 
-namespace ChatApp
+namespace ChatApp.Unity
 {
     /// <summary>
     /// ChatScene UI 自动设置脚本
@@ -18,6 +20,9 @@ namespace ChatApp
         [SerializeField] private Color panelColor = new Color(0.2f, 0.2f, 0.2f, 0.8f);
         [SerializeField] private Color buttonColor = new Color(0.3f, 0.6f, 0.9f, 1f);
         [SerializeField] private Color textColor = new Color(1f, 1f, 1f, 1f);
+
+        [Header("聊天组件")]
+        [SerializeField] private ChatComponent _chatComponent;
 
         private Canvas mainCanvas;
         private ChatComponent chatComponent;

@@ -11,15 +11,17 @@ namespace ChatApp
     /// </summary>
     public class GameSceneController : MonoBehaviour
     {
-        [Header("游戏客户端")]
-        [SerializeField] private UnityGameClient _gameClient;
+        [Header("Game Client")]
+        public ChatComponent gameClient;
+
+        [Header("UI Elements")]
+        public Text statusText;
+        public Text playerInfoText;
 
         [Header("玩家管理器")]
         [SerializeField] private PlayerManager _playerManager;
 
         [Header("UI组件")]
-        [SerializeField] private Text _statusText;
-        [SerializeField] private Text _playerInfoText;
         [SerializeField] private Button _moveForwardButton;
         [SerializeField] private Button _moveBackwardButton;
         [SerializeField] private Button _moveLeftButton;
@@ -39,10 +41,10 @@ namespace ChatApp
             InitializeUI();
 
             // 确保UnityGameClient已初始化
-            if (_gameClient == null)
+            if (gameClient == null)
             {
-                _gameClient = FindObjectOfType<UnityGameClient>();
-                if (_gameClient == null)
+                gameClient = FindObjectOfType<ChatComponent>();
+                if (gameClient == null)
                 {
                     Debug.LogError("找不到UnityGameClient组件，请确保场景中有UnityGameClient组件");
                     return;
@@ -79,11 +81,11 @@ namespace ChatApp
                 _moveRightButton.onClick.AddListener(MoveRight);
 
             // 初始化状态文本
-            if (_statusText != null)
-                _statusText.text = "初始化中...";
+            if (statusText != null)
+                statusText.text = "初始化中...";
 
-            if (_playerInfoText != null)
-                _playerInfoText.text = "";
+            if (playerInfoText != null)
+                playerInfoText.text = "";
         }
 
         private async void MoveForward()
@@ -124,7 +126,7 @@ namespace ChatApp
                 }
 
                 // 发送移动请求到服务器
-                await _gameClient.MoveAsync(_playerX, _playerY, _playerZ);
+                await gameClient.MoveAsync(_playerX, _playerY, _playerZ);
             }
             catch (Exception ex)
             {
@@ -135,24 +137,24 @@ namespace ChatApp
 
         public void UpdateStatus(string status)
         {
-            if (_statusText != null)
-                _statusText.text = status;
+            if (statusText != null)
+                statusText.text = status;
         }
 
         public void UpdatePlayerInfo(string username, Guid playerId)
         {
-            if (_playerInfoText != null)
-                _playerInfoText.text = $"玩家: {username}\nID: {playerId}";
+            if (playerInfoText != null)
+                playerInfoText.text = $"玩家: {username}\nID: {playerId}";
 
             UpdatePlayerPosition();
         }
 
         private void UpdatePlayerPosition()
         {
-            if (_playerInfoText != null)
+            if (playerInfoText != null)
             {
-                var baseText = _playerInfoText.text.Split(new[] { '\n' }, 2)[0];
-                _playerInfoText.text = $"{baseText}\n位置: ({_playerX:F1}, {_playerY:F1}, {_playerZ:F1})";
+                var baseText = playerInfoText.text.Split(new[] { '\n' }, 2)[0];
+                playerInfoText.text = $"{baseText}\n位置: ({_playerX:F1}, {_playerY:F1}, {_playerZ:F1})";
             }
         }
 
