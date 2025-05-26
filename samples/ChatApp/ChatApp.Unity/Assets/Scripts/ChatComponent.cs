@@ -482,7 +482,8 @@ namespace ChatApp
 
             if (moved)
             {
-                MoveAsync(newX, _position.Y, newZ).GetAwaiter().GetResult();
+                // 修复：使用异步方式而不是同步等待，避免主线程卡死
+                _ = MoveAsync(newX, _position.Y, newZ);
             }
         }
 
