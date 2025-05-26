@@ -1,1 +1,6 @@
-﻿#nullable enable
+#nullable enable
+PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.ConnectionStateChangedEventArgs(PulseRPC.Transport.ConnectionState oldState, PulseRPC.Transport.ConnectionState newState, System.Exception? exception = null) -> void
+PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.Exception.get -> System.Exception?
+PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.NewState.get -> PulseRPC.Transport.ConnectionState
+PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.OldState.get -> PulseRPC.Transport.ConnectionState
+PulseRPC.Client.Channels.TransportChannel

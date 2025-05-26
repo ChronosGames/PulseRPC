@@ -1,4 +1,4 @@
-﻿// PulseRPC.Transport.Tcp/TcpTransport.cs
+// PulseRPC.Transport.Tcp/TcpTransport.cs
 
 using System;
 using System.IO;
