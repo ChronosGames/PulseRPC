@@ -2,7 +2,7 @@
 using System.Threading.Tasks;
 using MemoryPack;
 
-namespace ChatApp.Shared.Hubs
+namespace ChatApp.Shared
 {
     /// <summary>
     /// 聊天Hub服务接口 - 客户端调用服务端的API（流式）

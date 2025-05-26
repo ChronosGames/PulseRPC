@@ -1,14 +1,10 @@
-using System;
 using System.Collections.Immutable;
 using System.IO;
-using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
-using Microsoft.CodeAnalysis.Diagnostics;
-using System.Collections.Generic;
 
 namespace PulseRPC.Generator;
 
@@ -26,7 +22,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         var serviceInterfaces =
             context.SyntaxProvider
                 .CreateSyntaxProvider(
-                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "ServiceContract"),
+                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "ServiceContract222"),
                     transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
                 .Where(static m => m.Type is not null);
 
@@ -41,216 +37,184 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         var eventInterfaces =
             context.SyntaxProvider
                 .CreateSyntaxProvider(
-                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "EventContract"),
+                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "EventContract222"),
                     transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
                 .Where(static m => m.Type is not null);
 
-        // 合并所有类型提供者
-        var allTypesProvider = serviceInterfaces.Collect()
+        // 合并服务类型 - 从ServiceContract接口和PulseClientGeneration特性
+        var allServiceTypes = serviceInterfaces.Collect()
             .Combine(classDeclarations.Collect())
-            .Combine(eventInterfaces.Collect())
-            .Select((data, _) =>
+            .Select((tuple, _) =>
             {
-                var serviceInterfaces = data.Left.Left;
-                var classDeclarations = data.Left.Right;
-                var eventInterfaces = data.Right;
+                var result = new List<ServiceTypeInfo>();
 
-                // 全局去重集合，使用类型的完整名称
-                var uniqueServiceTypes = new Dictionary<string, ServiceTypeInfo>();
-                var uniqueEventTypes = new Dictionary<string, ServiceTypeInfo>();
-
-                // 从 ServiceContract 接口收集服务类型
-                foreach (var serviceInterface in serviceInterfaces)
+                foreach (var serviceInterface in tuple.Left)
                 {
-                    if (serviceInterface.Type != null)
-                    {
-                        var key = serviceInterface.Type.ToDisplayString();
-                        uniqueServiceTypes[key] = serviceInterface;
-                    }
+                    result.Add(serviceInterface);
                 }
 
-                // 从 EventContract 接口收集事件类型
-                foreach (var eventInterface in eventInterfaces)
-                {
-                    if (eventInterface.Type != null)
-                    {
-                        var key = eventInterface.Type.ToDisplayString();
-                        uniqueEventTypes[key] = eventInterface;
-                    }
-                }
-
-                // 从 PulseClientGeneration 特性收集类型
-                foreach (var classDeclaration in classDeclarations)
+                foreach (var classDeclaration in tuple.Right)
                 {
                     foreach (var serviceType in classDeclaration)
                     {
-                        if (serviceType.Type != null)
+                        // 仅添加服务接口，不添加事件接口
+                        var typeName = serviceType.Type?.Name ?? string.Empty;
+                        if (!typeName.EndsWith("Events"))
                         {
-                            var key = serviceType.Type.ToDisplayString();
-                            var typeName = serviceType.Type.Name ?? string.Empty;
-
-                            if (typeName.EndsWith("Events"))
-                            {
-                                // 事件接口
-                                uniqueEventTypes[key] = serviceType;
-                            }
-                            else
-                            {
-                                // 服务接口
-                                uniqueServiceTypes[key] = serviceType;
-                            }
+                            result.Add(serviceType);
                         }
                     }
                 }
 
-                return new
-                {
-                    ServiceTypes = uniqueServiceTypes.Values.ToImmutableArray(),
-                    EventTypes = uniqueEventTypes.Values.ToImmutableArray()
-                };
+                return result.ToImmutableArray();
             });
 
-        // 统一的源代码输出注册 - 处理所有类型
-        context.RegisterSourceOutput(allTypesProvider.Combine(configProvider), (spc, combined) =>
+        // 合并事件类型 - 从EventContract接口和PulseClientGeneration特性
+        var allEventTypes = eventInterfaces.Collect()
+            .Combine(classDeclarations.Collect())
+            .Select((tuple, _) =>
+            {
+                var result = new List<ServiceTypeInfo>();
+
+                foreach (var eventInterface in tuple.Left)
+                {
+                    result.Add(eventInterface);
+                }
+
+                foreach (var classDeclaration in tuple.Right)
+                {
+                    foreach (var serviceType in classDeclaration)
+                    {
+                        // 仅添加事件接口
+                        var typeName = serviceType.Type?.Name ?? string.Empty;
+                        if (typeName.EndsWith("Events"))
+                        {
+                            result.Add(serviceType);
+                        }
+                    }
+                }
+
+                return result.ToImmutableArray();
+            });
+
+        // 注册服务代理源代码输出
+        context.RegisterSourceOutput(allServiceTypes.Combine(configProvider), (spc, combined) =>
         {
-            var types = combined.Left;
+            var serviceTypes = combined.Left;
             var config = combined.Right;
 
-            // 获取Unity兼容性选项
-            var unityOptions = UnityCompatibility.GetCodeGenOptions(config);
-
-            // 完全禁用文件写入，让Unity使用标准Source Generator输出
-            var writeFilesToDisk = false;
-            var outputFolder = unityOptions.OutputDirectory;
-
-            // 全局的hintName去重集合
-            var generatedHintNames = new HashSet<string>();
+            // 检查配置选项
+            var writeFilesToDisk = config.GlobalOptions.TryGetValue("build_property.PulseRPC_WriteFilesToDisk", out var writeFiles) &&
+                                   (writeFiles.Equals("true", StringComparison.OrdinalIgnoreCase));
+            var outputFolder = config.GlobalOptions.TryGetValue("build_property.PulseRPC_OutputFolder", out var folder) ? folder : "Generated";
 
             // 生成服务代理
-            foreach (var serviceTypeInfo in types.ServiceTypes)
+            foreach (var serviceTypeInfo in serviceTypes)
             {
                 if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
                 {
-                    var proxyCode = GenerateServiceProxy(namedType, unityOptions);
+                    var proxyCode = GenerateServiceProxy(namedType);
                     var fileName = $"{namedType.Name}Proxy.g.cs";
+                    spc.AddSource(fileName, SourceText.From(proxyCode, Encoding.UTF8));
 
-                    // 使用唯一的hintName避免冲突
-                    var baseHintName = $"PulseRPC.ServiceProxy.{namedType.ContainingNamespace?.ToDisplayString()}.{namedType.Name}Proxy.g.cs";
-                    var hintName = baseHintName;
-                    var counter = 1;
-
-                    // 如果hintName已存在，添加计数器
-                    while (generatedHintNames.Contains(hintName))
-                    {
-                        hintName = $"{baseHintName}.{counter}";
-                        counter++;
-                    }
-                    generatedHintNames.Add(hintName);
-
-                    // 添加到编译
-                    spc.AddSource(hintName, SourceText.From(proxyCode, Encoding.UTF8));
-
-                    // 如果需要写入磁盘，则尝试写入文件
+                    // 如果配置为写入磁盘，则尝试写入文件
                     if (writeFilesToDisk)
                     {
-                        TryWriteFileToDisk(spc, proxyCode, fileName, outputFolder, config, unityOptions);
+                        TryWriteFileToDisk(fileName, proxyCode, outputFolder);
                     }
+                }
+                else
+                {
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        new DiagnosticDescriptor(
+                            "PRPC101",
+                            "无效的服务类型",
+                            $"无法为类型 {serviceTypeInfo.Type} 生成代理，因为它不是 INamedTypeSymbol",
+                            "PulseRPC",
+                            DiagnosticSeverity.Error,
+                            true),
+                        Location.None));
                 }
             }
 
+            // 生成扩展方法
+            var namedTypes = serviceTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+            if (namedTypes.Length > 0)
+            {
+                var extensionsCode = GenerateChannelManagerExtensions(namedTypes, ImmutableArray<INamedTypeSymbol>.Empty);
+                var fileName = "ServiceChannelManagerExtensions.g.cs";
+                spc.AddSource(fileName, SourceText.From(extensionsCode, Encoding.UTF8));
+
+                // 如果配置为写入磁盘，则尝试写入文件
+                if (writeFilesToDisk)
+                {
+                    TryWriteFileToDisk(fileName, extensionsCode, outputFolder);
+                }
+            }
+        });
+
+        // 注册事件处理器源代码输出
+        context.RegisterSourceOutput(allEventTypes.Combine(configProvider), (spc, combined) =>
+        {
+            var eventTypes = combined.Left;
+            var config = combined.Right;
+
+            // 检查配置选项
+            var writeFilesToDisk = config.GlobalOptions.TryGetValue("build_property.PulseRPC_WriteFilesToDisk", out var writeFiles) &&
+                                   (writeFiles.Equals("true", StringComparison.OrdinalIgnoreCase));
+            var outputFolder = config.GlobalOptions.TryGetValue("build_property.PulseRPC_OutputFolder", out var folder) ? folder : "Generated";
+
             // 生成事件处理器
-            foreach (var eventTypeInfo in types.EventTypes)
+            foreach (var eventTypeInfo in eventTypes)
             {
                 if (eventTypeInfo.Type is INamedTypeSymbol namedType)
                 {
                     var handlerCode = GenerateEventHandler(namedType);
-                    var baseHandlerHintName = $"PulseRPC.EventHandler.{namedType.ContainingNamespace?.ToDisplayString()}.{namedType.Name}Handler.g.cs";
-                    var handlerHintName = baseHandlerHintName;
-                    var counter = 1;
-
-                    while (generatedHintNames.Contains(handlerHintName))
-                    {
-                        handlerHintName = $"{baseHandlerHintName}.{counter}";
-                        counter++;
-                    }
-                    generatedHintNames.Add(handlerHintName);
-
-                    spc.AddSource(handlerHintName, SourceText.From(handlerCode, Encoding.UTF8));
+                    var handlerFileName = $"{namedType.Name}Handler.g.cs";
+                    spc.AddSource(handlerFileName, SourceText.From(handlerCode, Encoding.UTF8));
 
                     if (writeFilesToDisk)
                     {
-                        TryWriteFileToDisk(spc, handlerCode, $"{namedType.Name}Handler.g.cs", outputFolder, config, unityOptions);
+                        TryWriteFileToDisk(handlerFileName, handlerCode, outputFolder);
                     }
 
                     // 生成事件处理器接口
                     var handlerInterfaceCode = GenerateEventHandlerInterface(namedType);
-                    var baseInterfaceHintName = $"PulseRPC.EventHandlerInterface.{namedType.ContainingNamespace?.ToDisplayString()}.I{namedType.Name}Handler.g.cs";
-                    var interfaceHintName = baseInterfaceHintName;
-                    counter = 1;
-
-                    while (generatedHintNames.Contains(interfaceHintName))
-                    {
-                        interfaceHintName = $"{baseInterfaceHintName}.{counter}";
-                        counter++;
-                    }
-                    generatedHintNames.Add(interfaceHintName);
-
-                    spc.AddSource(interfaceHintName, SourceText.From(handlerInterfaceCode, Encoding.UTF8));
+                    var interfaceFileName = $"I{namedType.Name}Handler.g.cs";
+                    spc.AddSource(interfaceFileName, SourceText.From(handlerInterfaceCode, Encoding.UTF8));
 
                     if (writeFilesToDisk)
                     {
-                        TryWriteFileToDisk(spc, handlerInterfaceCode, $"I{namedType.Name}Handler.g.cs", outputFolder, config, unityOptions);
+                        TryWriteFileToDisk(interfaceFileName, handlerInterfaceCode, outputFolder);
                     }
                 }
-            }
-
-            // 生成服务扩展方法（如果有服务类型）
-            if (types.ServiceTypes.Length > 0)
-            {
-                var serviceNamedTypes = types.ServiceTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
-                var extensionsCode = GenerateChannelManagerExtensions(serviceNamedTypes, ImmutableArray<INamedTypeSymbol>.Empty);
-                var hintName = "PulseRPC.ServiceChannelManagerExtensions.g.cs";
-
-                // 确保扩展方法的hintName也是唯一的
-                var counter = 1;
-                while (generatedHintNames.Contains(hintName))
+                else
                 {
-                    hintName = $"PulseRPC.ServiceChannelManagerExtensions.g.cs.{counter}";
-                    counter++;
-                }
-                generatedHintNames.Add(hintName);
-
-                spc.AddSource(hintName, SourceText.From(extensionsCode, Encoding.UTF8));
-
-                if (writeFilesToDisk)
-                {
-                    TryWriteFileToDisk(spc, extensionsCode, "ServiceChannelManagerExtensions.g.cs", outputFolder, config, unityOptions);
+                    spc.ReportDiagnostic(Diagnostic.Create(
+                        new DiagnosticDescriptor(
+                            "PRPC102",
+                            "无效的事件类型",
+                            $"无法为类型 {eventTypeInfo.Type} 生成事件处理器，因为它不是 INamedTypeSymbol",
+                            "PulseRPC",
+                            DiagnosticSeverity.Error,
+                            true),
+                        Location.None));
                 }
             }
 
-            // 生成事件扩展方法（如果有事件类型）
-            if (types.EventTypes.Length > 0)
+            // 生成事件扩展方法
+            var namedTypes = eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+            if (namedTypes.Length > 0)
             {
-                var eventNamedTypes = types.EventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
                 var eventExtensionsCode = GenerateChannelManagerExtensions(
                     ImmutableArray<INamedTypeSymbol>.Empty,
-                    eventNamedTypes);
-                var baseHintName = "PulseRPC.EventChannelManagerExtensions.g.cs";
-                var hintName = baseHintName;
-                var counter = 1;
-
-                while (generatedHintNames.Contains(hintName))
-                {
-                    hintName = $"{baseHintName}.{counter}";
-                    counter++;
-                }
-                generatedHintNames.Add(hintName);
-
-                spc.AddSource(hintName, SourceText.From(eventExtensionsCode, Encoding.UTF8));
+                    namedTypes);
+                var fileName = "EventChannelManagerExtensions.g.cs";
+                spc.AddSource(fileName, SourceText.From(eventExtensionsCode, Encoding.UTF8));
 
                 if (writeFilesToDisk)
                 {
-                    TryWriteFileToDisk(spc, eventExtensionsCode, "EventChannelManagerExtensions.g.cs", outputFolder, config, unityOptions);
+                    TryWriteFileToDisk(fileName, eventExtensionsCode, outputFolder);
                 }
             }
         });
@@ -366,21 +330,25 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         context.AddSource("ChannelManagerExtensions.g.cs", SourceText.From(extensionsCode, Encoding.UTF8));
     }
 
-    private static string GenerateServiceProxy(INamedTypeSymbol interfaceSymbol, UnityCodeGenOptions unityOptions)
+    private static string GenerateServiceProxy(INamedTypeSymbol interfaceSymbol)
     {
         var interfaceName = interfaceSymbol.Name;
         var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
-        var className = interfaceName.StartsWith("I") ? interfaceName.Substring(1) + "Proxy" : interfaceName + "Proxy";
+
+        // 获取通道特性
+        var defaultChannelName = GetChannelAttributeValue(interfaceSymbol) ?? "default";
 
         var sb = new StringBuilder();
 
         // 生成文件头
-        sb.AppendLine("// <auto-generated />");
+        sb.AppendLine("// <auto-generated/>");
         sb.AppendLine("#nullable enable");
         sb.AppendLine();
         sb.AppendLine("using System;");
+        sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
+        sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Transport;");
         sb.AppendLine("using PulseRPC.Messaging;");
         sb.AppendLine();
@@ -391,16 +359,17 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
         // 生成代理类
         sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// {interfaceName} 服务代理实现");
+        sb.AppendLine($"    /// 自动生成的 {interfaceName} 服务代理");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public partial class {className} : {interfaceName}");
+        sb.AppendLine($"    public class {interfaceName}Proxy : {interfaceName}");
         sb.AppendLine("    {");
-        sb.AppendLine("        private readonly PulseRPC.Transport.IChannelManager _channelManager;");
+        sb.AppendLine("        private readonly IChannelManager _channelManager;");
         sb.AppendLine();
         sb.AppendLine($"        /// <summary>");
         sb.AppendLine($"        /// 初始化 {interfaceName} 服务代理");
         sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        public {className}(PulseRPC.Transport.IChannelManager channelManager)");
+        sb.AppendLine($"        /// <param name=\"channelManager\">通道管理器</param>");
+        sb.AppendLine($"        public {interfaceName}Proxy(IChannelManager channelManager)");
         sb.AppendLine("        {");
         sb.AppendLine("            _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));");
         sb.AppendLine("        }");
@@ -412,89 +381,124 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             if (member is not IMethodSymbol methodSymbol)
                 continue;
 
-            // 跳过继承的方法
-            if (!SymbolEqualityComparer.Default.Equals(methodSymbol.ContainingType, interfaceSymbol))
+            // 检查是否有 Operation 特性
+            if (!HasAttribute(methodSymbol, "OperationAttribute"))
                 continue;
 
-            GenerateMethodImplementation(sb, methodSymbol);
+            // 生成方法实现
+            GenerateMethodImplementation(sb, methodSymbol, defaultChannelName, namespaceName, interfaceName);
         }
+
+        // 生成辅助类
+        sb.AppendLine("        private class EmptyResponse { }");
 
         // 结束类和命名空间
         sb.AppendLine("    }");
         sb.AppendLine("}");
 
-        return UnityCompatibility.GenerateUnityCompatibleCode(sb.ToString(), unityOptions);
+        return sb.ToString();
     }
 
-    private static void GenerateMethodImplementation(StringBuilder sb, IMethodSymbol methodSymbol)
+    private static void GenerateMethodImplementation(
+        StringBuilder sb,
+        IMethodSymbol methodSymbol,
+        string defaultChannelName,
+        string namespaceName,
+        string interfaceName)
     {
         var methodName = methodSymbol.Name;
         var returnType = methodSymbol.ReturnType.ToDisplayString();
-        var hasReturnValue = !methodSymbol.ReturnsVoid && returnType != "System.Threading.Tasks.Task";
+
+        // 获取方法级别的通道特性，如果没有则使用接口级别的默认通道
+        var methodChannelName = GetChannelAttributeValue(methodSymbol) ?? defaultChannelName;
+
+        sb.AppendLine($"        /// <inheritdoc/>");
 
         // 生成方法签名
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// {methodName} 方法实现");
-        sb.AppendLine($"        /// </summary>");
-        sb.Append($"        public {returnType} {methodName}(");
+        sb.Append($"        public async {returnType} {methodName}(");
 
         // 生成参数列表
         var parameters = methodSymbol.Parameters;
-        for (int i = 0; i < parameters.Length; i++)
+        for (var i = 0; i < parameters.Length; i++)
         {
-            var param = parameters[i];
-            if (i > 0) sb.Append(", ");
-            sb.Append($"{param.Type.ToDisplayString()} {param.Name}");
+            var parameter = parameters[i];
+            if (i > 0)
+                sb.Append(", ");
+
+            sb.Append($"{parameter.Type.ToDisplayString()} {parameter.Name}");
+
+            if (parameter.HasExplicitDefaultValue)
+            {
+                switch (parameter.ExplicitDefaultValue)
+                {
+                    case null:
+                        sb.Append(" = null");
+                        break;
+                    case string strValue:
+                        sb.Append($" = \"{strValue}\"");
+                        break;
+                    default:
+                        sb.Append($" = {parameter.ExplicitDefaultValue}");
+                        break;
+                }
+            }
         }
 
         sb.AppendLine(")");
         sb.AppendLine("        {");
 
-        // 生成方法体
-        if (hasReturnValue)
+        // 获取通道
+        sb.AppendLine($"            var channel = _channelManager.GetChannel(\"{methodChannelName}\");");
+
+        // 确定取消令牌
+        var cancelTokenParam = parameters.FirstOrDefault(p =>
+            p.Type.ToDisplayString() == "System.Threading.CancellationToken" ||
+            p.Type.ToDisplayString() == "CancellationToken");
+
+        var tokenName = cancelTokenParam?.Name ?? "CancellationToken.None";
+
+        // 查找请求参数 (通常是第一个非取消令牌参数)
+        var requestParam = parameters.FirstOrDefault(p =>
+            p.Type.ToDisplayString() != "System.Threading.CancellationToken" &&
+            p.Type.ToDisplayString() != "CancellationToken");
+
+        var requestName = requestParam?.Name ?? "new {}";
+        var requestType = requestParam?.Type.ToDisplayString() ?? "object";
+
+        // 确定返回类型
+        var isVoid = returnType is "System.Threading.Tasks.Task" or "Task";
+        var isValueTask = returnType.StartsWith("System.Threading.Tasks.ValueTask<") || returnType.StartsWith("ValueTask<");
+        var isTask = returnType.StartsWith("System.Threading.Tasks.Task<") || returnType.StartsWith("Task<");
+        var isValueTaskVoid = returnType is "System.Threading.Tasks.ValueTask" or "ValueTask";
+
+        // 获取返回值类型
+        var responseType = "EmptyResponse";
+        if (isValueTask || isTask)
         {
-            // 有返回值的方法
-            sb.AppendLine("            var channel = _channelManager.GetDefaultChannel();");
-            if (parameters.Length > 0)
-            {
-                sb.AppendLine($"            return channel.CallAsync<{parameters[0].Type.ToDisplayString()}, {GetGenericReturnType(returnType)}>(\"{methodName}\", {parameters[0].Name});");
-            }
-            else
-            {
-                sb.AppendLine($"            return channel.CallAsync<{GetGenericReturnType(returnType)}>(\"{methodName}\");");
-            }
+            responseType = ExtractGenericType(returnType);
         }
-        else if (returnType == "System.Threading.Tasks.Task")
+
+        // 生成方法调用
+        if (isVoid || isValueTaskVoid)
         {
-            // 异步无返回值方法
-            sb.AppendLine("            var channel = _channelManager.GetDefaultChannel();");
-            if (parameters.Length > 0)
-            {
-                sb.AppendLine($"            return channel.SendAsync(\"{methodName}\", {parameters[0].Name});");
-            }
-            else
-            {
-                sb.AppendLine($"            return channel.SendAsync(\"{methodName}\");");
-            }
+            sb.AppendLine($"            await channel.SendRequestAsync<{requestType}, {responseType}>(");
+            sb.AppendLine($"                \"{namespaceName}.{interfaceName}\", ");
+            sb.AppendLine($"                \"{methodName}\", ");
+            sb.AppendLine($"                {requestName}, ");
+            sb.AppendLine($"                {tokenName});");
         }
         else
         {
-            // 同步方法
-            sb.AppendLine("            throw new NotImplementedException(\"同步方法暂不支持\");");
+            sb.AppendLine($"            var response = await channel.SendRequestAsync<{requestType}, {responseType}>(");
+            sb.AppendLine($"                \"{namespaceName}.{interfaceName}\", ");
+            sb.AppendLine($"                \"{methodName}\", ");
+            sb.AppendLine($"                {requestName}, ");
+            sb.AppendLine($"                {tokenName});");
+            sb.AppendLine("            return response;");
         }
 
         sb.AppendLine("        }");
         sb.AppendLine();
-    }
-
-    private static string GetGenericReturnType(string returnType)
-    {
-        // 提取 Task<T> 中的 T
-        if (returnType.StartsWith("System.Threading.Tasks.Task<") && returnType.EndsWith(">"))
-        {
-            return returnType.Substring("System.Threading.Tasks.Task<".Length, returnType.Length - "System.Threading.Tasks.Task<".Length - 1);
-        }
-        return "object";
     }
 
     private static string GenerateEventHandler(INamedTypeSymbol interfaceSymbol)
@@ -722,7 +726,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine($"        /// <summary>");
             sb.AppendLine($"        /// 获取 {interfaceName} 服务");
             sb.AppendLine($"        /// </summary>");
-            sb.AppendLine($"        public static {namespaceName}.{interfaceName} Get{serviceName}(this PulseRPC.Transport.IChannelManager channelManager)");
+            sb.AppendLine($"        public static {namespaceName}.{interfaceName} Get{serviceName}(this IChannelManager channelManager)");
             sb.AppendLine("        {");
             sb.AppendLine($"            if (channelManager == null)");
             sb.AppendLine($"                throw new ArgumentNullException(nameof(channelManager));");
@@ -755,7 +759,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine($"        /// <summary>");
             sb.AppendLine($"        /// 获取 {interfaceName} 事件处理器");
             sb.AppendLine($"        /// </summary>");
-            sb.AppendLine($"        public static {namespaceName}.{handlerInterfaceName} Get{serviceName}Handler(this PulseRPC.Transport.IChannelManager channelManager)");
+            sb.AppendLine($"        public static {namespaceName}.{handlerInterfaceName} Get{serviceName}Handler(this IChannelManager channelManager)");
             sb.AppendLine("        {");
             sb.AppendLine($"            if (channelManager == null)");
             sb.AppendLine($"                throw new ArgumentNullException(nameof(channelManager));");
@@ -862,7 +866,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    private record ServiceTypeInfo
+    private class ServiceTypeInfo
     {
         public INamedTypeSymbol? Type { get; }
 
@@ -875,40 +879,22 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     /// <summary>
     /// 尝试将生成的代码写入到磁盘文件
     /// </summary>
-    private static void TryWriteFileToDisk(SourceProductionContext context, string sourceText, string fileName, string outputFolder, AnalyzerConfigOptionsProvider configProvider, UnityCodeGenOptions unityOptions)
+    private static void TryWriteFileToDisk(string fileName, string content, string outputFolder)
     {
         try
         {
-            // Ensure output directory exists
+            // 确保输出目录存在
             if (!Directory.Exists(outputFolder))
             {
                 Directory.CreateDirectory(outputFolder);
             }
 
-            var filePath = Path.Combine(outputFolder, fileName);
-
-            // Write the source file
-            File.WriteAllText(filePath, sourceText, Encoding.UTF8);
-
-            // Create .meta file for Unity if needed
-            if (unityOptions.GenerateUnityMetaFiles)
-            {
-                UnityCompatibility.CreateUnityMetaFile(filePath);
-            }
-
+            var fullPath = Path.Combine(outputFolder, fileName);
+            File.WriteAllText(fullPath, content, Encoding.UTF8);
         }
-        catch (Exception ex)
+        catch
         {
-            // Create diagnostic for file write error
-            context.ReportDiagnostic(Diagnostic.Create(
-                new DiagnosticDescriptor(
-                    "PRPC102",
-                    "文件写入失败",
-                    $"无法写入文件 {fileName}: {ex.Message}",
-                    "PulseRPC",
-                    DiagnosticSeverity.Warning,
-                    true),
-                Location.None));
+            // 忽略文件写入错误，因为 SourceGenerator 应该能够在没有文件输出的情况下工作
         }
     }
 }
