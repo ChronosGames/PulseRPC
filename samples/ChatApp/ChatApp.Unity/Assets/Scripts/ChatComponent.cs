@@ -12,14 +12,15 @@ using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
-namespace ChatApp
+namespace ChatApp.Unity
 {
     /// <summary>
     /// 整合的聊天游戏组件 - 包含完整的网络功能和UI交互
     /// </summary>
-    [PulseClientGeneration(typeof(IPlayerService))]
-    [PulseClientGeneration(typeof(IPlayerLoginEvents))]
-    [PulseClientGeneration(typeof(IPlayerMovementEvents))]
+    // 暂时禁用Source Generator特性以避免重复生成问题
+    // [PulseClientGeneration(typeof(IPlayerService))]
+    // [PulseClientGeneration(typeof(IPlayerLoginEvents))]
+    // [PulseClientGeneration(typeof(IPlayerMovementEvents))]
     public class ChatComponent : MonoBehaviour
     {
         [Header("UI组件")] public Text ChatText;
@@ -49,6 +50,17 @@ namespace ChatApp
         [SerializeField] private string _password = "password";
         [SerializeField] private float _moveDistance = 1.0f;
 
+        [Header("场景控制器")]
+        [SerializeField] private GameSceneController _sceneController;
+
+        // 状态更新事件 - 从UnityGameClient合并的事件系统
+        public event Action<string> OnStatusUpdate;
+        public event Action<PlayerInfo> OnLoginSuccess;
+        public event Action<string> OnLoginFailed;
+        public event Action<Guid, string, System.Numerics.Vector3> OnPlayerJoined;
+        public event Action<Guid, string> OnPlayerLeft;
+        public event Action<Guid, System.Numerics.Vector3> OnPlayerMoved;
+
         // 网络组件
         private IChannelManager _channelManager;
         private TransportFactory _transportFactory;
@@ -69,21 +81,26 @@ namespace ChatApp
         private void Awake()
         {
             DontDestroyOnLoad(gameObject);
+
+            // 查找场景控制器（如果未指定）
+            if (_sceneController == null)
+                _sceneController = FindObjectOfType<GameSceneController>();
         }
 
         async void Start()
         {
             InitializeUi();
-            AppendChatMessage("[系统] 初始化游戏客户端...");
+            UpdateStatus("正在初始化游戏客户端...");
 
             try
             {
                 await InitializeNetworkAsync();
+                UpdateStatus("网络组件初始化完成，等待用户连接...");
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[ChatComponent] 初始化失败: {ex.Message}");
-                AppendChatMessage($"[错误] 初始化失败: {ex.Message}");
+                UpdateStatus($"初始化失败: {ex.Message}");
             }
         }
 
@@ -188,7 +205,7 @@ namespace ChatApp
             // 设置事件处理器
             SetupEventHandlers();
 
-            AppendChatMessage("[系统] 网络组件初始化完成");
+            UpdateStatus("网络组件初始化完成");
         }
 
         private void SetupEventHandlers()
@@ -218,12 +235,12 @@ namespace ChatApp
                     loginJoinedToken, loginLeftToken, moveToken, moveBatchToken, moveBatchToken2
                 });
 
-                AppendChatMessage("[系统] 事件处理器设置完成");
+                UpdateStatus("事件处理器设置完成");
             }
             catch (Exception ex)
             {
                 Debug.LogError($"[ChatComponent] 事件处理器设置失败: {ex.Message}");
-                AppendChatMessage($"[错误] 事件处理器设置失败: {ex.Message}");
+                UpdateStatus($"事件处理器设置失败: {ex.Message}");
                 throw;
             }
         }
@@ -233,9 +250,8 @@ namespace ChatApp
         /// </summary>
         private async Task ConnectToServerAsync()
         {
-            if (_isConnected) return;
-
-            AppendChatMessage($"[系统] 正在连接到服务器 {_host}...");
+            Debug.Log($"[ChatComponent] 正在连接到服务器 {_host}...");
+            UpdateStatus($"正在连接到服务器 {_host}...");
 
             try
             {
@@ -248,85 +264,109 @@ namespace ChatApp
                 await kcpChannel.ConnectAsync(_host, _kcpPort);
 
                 _isConnected = true;
-                AppendChatMessage("[系统] 服务器连接成功");
+                Debug.Log("[ChatComponent] 已连接到服务器");
+                UpdateStatus("已连接到服务器");
 
                 // 自动登录
                 await LoginAsync();
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[ChatComponent] 连接失败: {ex.Message}");
-                AppendChatMessage($"[错误] 连接失败: {ex.Message}");
+                Debug.LogError($"[ChatComponent] 连接服务器失败: {ex.Message}");
+                UpdateStatus($"连接服务器失败: {ex.Message}");
                 throw;
             }
         }
 
         /// <summary>
-        /// 登录游戏
+        /// 登录
         /// </summary>
         private async Task LoginAsync()
         {
-            if (_isLoggedIn || !_isConnected) return;
-
-            AppendChatMessage($"[系统] 正在登录用户 {_username}...");
+            Debug.Log($"[ChatComponent] 正在登录，用户名: {_username}");
+            UpdateStatus($"正在登录用户: {_username}...");
 
             try
             {
                 var request = new LoginRequest { Username = _username, Password = _password };
-
                 var response = await _playerService.LoginAsync(request);
 
                 if (response.Success)
                 {
-                    _playerInfo = response.Player;
-                    // PlayerInfo 没有 Position 属性，初始化为默认位置
-                    _position = new System.Numerics.Vector3(0, 0, 0);
                     _isLoggedIn = true;
+                    _playerInfo = response.Player;
 
-                    AppendChatMessage($"[系统] 登录成功: {_playerInfo.Username}");
+                    Debug.Log($"[ChatComponent] 登录成功: {_playerInfo.Username} (ID: {_playerInfo.Id})");
+                    UpdateStatus($"登录成功: {_playerInfo.Username}");
+                    AppendChatMessage($"[系统] 欢迎, {_playerInfo.Username}!");
+
+                    // 更新UI
                     UpdateLoginUI(true);
-                    UpdatePlayerInfoDisplay();
-                    UpdatePositionDisplay();
+
+                    // 更新场景控制器
+                    if (_sceneController != null)
+                    {
+                        _sceneController.UpdatePlayerInfo(_playerInfo.Username, _playerInfo.Id);
+                    }
+
+                    // 触发登录成功事件
+                    OnLoginSuccess?.Invoke(_playerInfo);
                 }
                 else
                 {
+                    Debug.LogWarning($"[ChatComponent] 登录失败: {response.ErrorMessage}");
+                    UpdateStatus($"登录失败: {response.ErrorMessage}");
                     AppendChatMessage($"[错误] 登录失败: {response.ErrorMessage}");
+                    OnLoginFailed?.Invoke(response.ErrorMessage);
                 }
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[ChatComponent] 登录失败: {ex.Message}");
+                Debug.LogError($"[ChatComponent] 登录过程中发生错误: {ex.Message}");
+                UpdateStatus($"登录错误: {ex.Message}");
                 AppendChatMessage($"[错误] 登录失败: {ex.Message}");
+                OnLoginFailed?.Invoke(ex.Message);
             }
         }
 
         /// <summary>
-        /// 移动到指定位置
+        /// 移动角色
         /// </summary>
         public async Task MoveAsync(float x, float y, float z)
         {
-            if (!_isLoggedIn) return;
+            if (!_isLoggedIn || _playerService == null)
+                return;
 
             try
             {
-                var request = new MoveRequest { X = x, Y = y, Z = z };
+                // 更新本地位置
+                _position = new System.Numerics.Vector3(
+                    _position.X + x,
+                    _position.Y + y,
+                    _position.Z + z);
 
-                await _playerService.MoveAsync(request);
+                // 发送移动请求
+                await _playerService.MoveAsync(new MoveRequest
+                {
+                    X = _position.X,
+                    Y = _position.Y,
+                    Z = _position.Z
+                });
 
-                _position = new System.Numerics.Vector3(x, y, z);
+                Debug.Log($"[ChatComponent] 已移动到 ({_position.X}, {_position.Y}, {_position.Z})");
                 UpdatePositionDisplay();
-                AppendChatMessage($"[移动] 移动到: ({x:F1}, {y:F1}, {z:F1})");
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[ChatComponent] 移动失败: {ex.Message}");
+                Debug.LogError($"[ChatComponent] 移动请求失败: {ex.Message}");
+                UpdateStatus($"移动请求失败: {ex.Message}");
                 AppendChatMessage($"[错误] 移动失败: {ex.Message}");
             }
         }
 
         #endregion
 
-        #region UI交互处理
+        #region UI事件处理
 
         public async void JoinOrLeave()
         {
@@ -379,7 +419,7 @@ namespace ChatApp
                 else
                 {
                     // 作为普通消息处理
-                    AppendChatMessage($"[消息] {inputText}");
+                    AppendChatMessage($"[{_username}] {inputText}");
                 }
 
                 Input.text = string.Empty;
@@ -393,36 +433,39 @@ namespace ChatApp
 
         private async Task DisconnectFromServerAsync()
         {
+            Debug.Log("[ChatComponent] 正在断开连接...");
+            UpdateStatus("正在断开连接...");
+
             try
             {
-                AppendChatMessage("[系统] 正在断开连接...");
+                // 清理事件订阅
+                _eventsSubscription?.Dispose();
+                _eventsSubscription = null;
 
-                _isLoggedIn = false;
-                _isConnected = false;
-
-                if (_eventsSubscription != null)
-                {
-                    _eventsSubscription.Unsubscribe();
-                    _eventsSubscription = null;
-                }
-
+                // 关闭通道
                 if (_channelManager != null)
                 {
-                    // 断开所有通道
-                    var tcpChannel = _channelManager.GetChannel("TcpChannel") as IHasTransport;
-                    var kcpChannel = _channelManager.GetChannel("KcpChannel") as IHasTransport;
-
-                    await tcpChannel?.DisconnectAsync();
-                    await kcpChannel?.DisconnectAsync();
+                    _channelManager.Dispose();
+                    _channelManager = null;
                 }
 
+                _isConnected = false;
+                _isLoggedIn = false;
+                _playerInfo = null;
+                _otherPlayers.Clear();
+
+                // 更新UI
                 UpdateLoginUI(false);
                 AppendChatMessage("[系统] 已断开连接");
+                UpdateStatus("已断开连接");
+
+                // 重新初始化网络组件
+                await InitializeNetworkAsync();
             }
             catch (Exception ex)
             {
-                Debug.LogError($"[ChatComponent] 断开连接失败: {ex.Message}");
-                AppendChatMessage($"[错误] 断开连接失败: {ex.Message}");
+                Debug.LogError($"[ChatComponent] 断开连接时发生错误: {ex.Message}");
+                UpdateStatus($"断开连接错误: {ex.Message}");
             }
         }
 
@@ -432,74 +475,74 @@ namespace ChatApp
 
         public async void MoveForward()
         {
-            await MoveAsync(_position.X, _position.Y, _position.Z + _moveDistance);
+            await MoveAsync(0, 0, _moveDistance);
         }
 
         public async void MoveBackward()
         {
-            await MoveAsync(_position.X, _position.Y, _position.Z - _moveDistance);
+            await MoveAsync(0, 0, -_moveDistance);
         }
 
         public async void MoveLeft()
         {
-            await MoveAsync(_position.X - _moveDistance, _position.Y, _position.Z);
+            await MoveAsync(-_moveDistance, 0, 0);
         }
 
         public async void MoveRight()
         {
-            await MoveAsync(_position.X + _moveDistance, _position.Y, _position.Z);
-        }
-
-        private void Update()
-        {
-            if (!_isLoggedIn) return;
-
-            // WASD键盘控制
-            bool moved = false;
-            float newX = _position.X;
-            float newZ = _position.Z;
-
-            if (UnityEngine.Input.GetKeyDown(KeyCode.W))
-            {
-                newZ += _moveDistance;
-                moved = true;
-            }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.S))
-            {
-                newZ -= _moveDistance;
-                moved = true;
-            }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.A))
-            {
-                newX -= _moveDistance;
-                moved = true;
-            }
-            else if (UnityEngine.Input.GetKeyDown(KeyCode.D))
-            {
-                newX += _moveDistance;
-                moved = true;
-            }
-
-            if (moved)
-            {
-                // 修复：使用异步方式而不是同步等待，避免主线程卡死
-                _ = MoveAsync(newX, _position.Y, newZ);
-            }
+            await MoveAsync(_moveDistance, 0, 0);
         }
 
         #endregion
 
-        #region UI更新方法
+        #region 状态更新和显示
+
+        /// <summary>
+        /// 更新状态并触发事件
+        /// </summary>
+        private void UpdateStatus(string status)
+        {
+            Debug.Log($"[ChatComponent] 状态: {status}");
+
+            // 触发状态更新事件
+            OnStatusUpdate?.Invoke(status);
+
+            // 更新场景控制器
+            if (_sceneController != null)
+            {
+                _sceneController.UpdateStatus(status);
+            }
+        }
+
+        private void Update()
+        {
+            // RTT更新
+            if (LabelRtt != null && _channelManager != null)
+            {
+                try
+                {
+                    var channel = _channelManager.GetChannel("TcpChannel");
+                    // TODO: 实现RTT显示
+                    LabelRtt.text = "RTT: --ms";
+                }
+                catch
+                {
+                    LabelRtt.text = "RTT: --ms";
+                }
+            }
+        }
 
         private void AppendChatMessage(string message)
         {
             if (ChatText != null)
             {
-                ChatText.text += $"{message}\n";
-                // 自动滚动到底部
-                if (ChatText.text.Length > 2000)
+                ChatText.text += $"\n{DateTime.Now:HH:mm:ss} {message}";
+
+                // 保持聊天记录在合理长度
+                var lines = ChatText.text.Split('\n');
+                if (lines.Length > 50)
                 {
-                    ChatText.text = ChatText.text.Substring(ChatText.text.Length - 1500);
+                    ChatText.text = string.Join("\n", lines, lines.Length - 50, 50);
                 }
             }
         }
@@ -508,7 +551,7 @@ namespace ChatApp
         {
             if (JoinOrLeaveButtonText != null)
             {
-                JoinOrLeaveButtonText.text = isLoggedIn ? "已连接" : "连接服务器";
+                JoinOrLeaveButtonText.text = isLoggedIn ? "断开连接" : "连接服务器";
             }
 
             if (SendMessageButton != null)
@@ -516,17 +559,26 @@ namespace ChatApp
                 SendMessageButton.interactable = isLoggedIn;
             }
 
+            if (Input != null && Input.placeholder != null)
+            {
+                var placeholderText = Input.placeholder.GetComponent<Text>();
+                placeholderText.text = isLoggedIn ? "输入消息..." : "等待连接...";
+            }
+
             if (DisconnectButton != null)
             {
                 DisconnectButton.interactable = isLoggedIn;
             }
 
-            if (Input != null && Input.placeholder != null)
+            if (ExceptionButton != null)
             {
-                Input.placeholder.GetComponent<Text>().text = isLoggedIn ? "输入坐标 (x,z) 或消息..." : "等待连接...";
+                ExceptionButton.interactable = isLoggedIn;
             }
 
+            // 更新移动按钮状态
             SetMoveButtonsEnabled(isLoggedIn);
+
+            UpdatePlayerInfoDisplay();
         }
 
         private void SetMoveButtonsEnabled(bool enabled)
@@ -541,9 +593,9 @@ namespace ChatApp
         {
             if (PlayerInfoText != null)
             {
-                if (_playerInfo != null)
+                if (_isLoggedIn && _playerInfo != null)
                 {
-                    PlayerInfoText.text = $"玩家: {_playerInfo.Username}\nID: {_playerInfo.Id}";
+                    PlayerInfoText.text = $"玩家: {_playerInfo.Username}\nID: {_playerInfo.Id}\n在线玩家: {_otherPlayers.Count + 1}";
                 }
                 else
                 {
@@ -562,36 +614,75 @@ namespace ChatApp
 
         #endregion
 
-        #region 玩家事件处理
+        #region 玩家管理
 
+        /// <summary>
+        /// 添加新玩家
+        /// </summary>
         internal void AddPlayer(Guid playerId, string playerName, System.Numerics.Vector3 position)
         {
-            _otherPlayers[playerId] = new PlayerData { Id = playerId, Name = playerName, Position = position };
+            if (_playerInfo != null && playerId == _playerInfo.Id)
+                return; // 忽略自己
 
-            AppendChatMessage($"[玩家] {playerName} 加入了游戏");
+            if (_otherPlayers.ContainsKey(playerId))
+                return;
+
+            var playerData = new PlayerData
+            {
+                Id = playerId,
+                Name = playerName,
+                Position = position
+            };
+
+            _otherPlayers[playerId] = playerData;
+
+            // 触发事件
+            OnPlayerJoined?.Invoke(playerId, playerName, position);
+
+            AppendChatMessage($"[系统] 玩家 {playerName} 加入了游戏");
+            UpdatePlayerInfoDisplay();
+
+            Debug.Log($"[ChatComponent] 玩家加入: {playerName} ({playerId})");
         }
 
+        /// <summary>
+        /// 移除玩家
+        /// </summary>
         internal void RemovePlayer(Guid playerId, string reason)
         {
-            if (_otherPlayers.TryGetValue(playerId, out var player))
-            {
-                _otherPlayers.Remove(playerId);
-                AppendChatMessage($"[玩家] {player.Name} 离开了游戏: {reason}");
-            }
+            if (!_otherPlayers.TryGetValue(playerId, out var player))
+                return;
+
+            Debug.Log($"[ChatComponent] 玩家 {player.Name} (ID: {playerId}) 已离开游戏，原因: {reason}");
+            AppendChatMessage($"[系统] 玩家 {player.Name} 离开了游戏: {reason}");
+
+            // 触发玩家离开事件
+            OnPlayerLeft?.Invoke(playerId, reason);
+
+            _otherPlayers.Remove(playerId);
+            UpdatePlayerInfoDisplay();
         }
 
+        /// <summary>
+        /// 更新玩家位置
+        /// </summary>
         internal void UpdatePlayerPosition(Guid playerId, System.Numerics.Vector3 position)
         {
-            if (_otherPlayers.TryGetValue(playerId, out var player))
+            if (_playerInfo != null && playerId == _playerInfo.Id)
+                return; // 忽略自己
+
+            if (_otherPlayers.TryGetValue(playerId, out var playerData))
             {
-                player.Position = position;
-                AppendChatMessage($"[移动] {player.Name} 移动到: ({position.X:F1}, {position.Y:F1}, {position.Z:F1})");
+                playerData.Position = position;
+
+                // 触发事件
+                OnPlayerMoved?.Invoke(playerId, position);
             }
         }
 
         #endregion
 
-        #region 清理资源
+        #region 生命周期管理
 
         async void OnDestroy()
         {
@@ -600,45 +691,82 @@ namespace ChatApp
 
         private async Task ShutdownAsync()
         {
-            try
+            Debug.Log("[ChatComponent] 正在关闭组件...");
+            UpdateStatus("正在关闭...");
+
+            // 取消所有任务
+            _cts?.Cancel();
+
+            // 清理事件订阅
+            _eventsSubscription?.Dispose();
+            _eventsSubscription = null;
+
+            // 关闭通道
+            if (_channelManager != null)
             {
-                _cts?.Cancel();
-
-                if (_eventsSubscription != null)
-                {
-                    _eventsSubscription.Unsubscribe();
-                    _eventsSubscription = null;
-                }
-
-                if (_channelManager != null)
-                {
-                    var tcpChannel = _channelManager.GetChannel("TcpChannel") as IHasTransport;
-                    var kcpChannel = _channelManager.GetChannel("KcpChannel") as IHasTransport;
-
-                    await tcpChannel?.DisconnectAsync();
-                    await kcpChannel?.DisconnectAsync();
-                }
-
-                // TransportFactory 不需要手动释放
+                _channelManager.Dispose();
+                _channelManager = null;
             }
-            catch (Exception ex)
-            {
-                Debug.LogError($"[ChatComponent] 清理资源失败: {ex.Message}");
-            }
+
+            Debug.Log("[ChatComponent] 组件已关闭");
+            UpdateStatus("已关闭");
         }
 
         #endregion
 
-        #region 测试方法
+        #region 调试功能
 
         [ContextMenu("显示在线玩家")]
         private void DisplayPlayers()
         {
-            AppendChatMessage($"[系统] 在线玩家数量: {_otherPlayers.Count}");
+            if (!_isLoggedIn)
+            {
+                Debug.Log("[ChatComponent] 请先登录");
+                return;
+            }
+
+            Debug.Log($"[ChatComponent] 在线玩家列表:");
+            Debug.Log($"* {_playerInfo.Username} (你) - 位置: ({_position.X}, {_position.Y}, {_position.Z})");
+
             foreach (var player in _otherPlayers.Values)
             {
-                AppendChatMessage(
-                    $"  - {player.Name}: ({player.Position.X:F1}, {player.Position.Y:F1}, {player.Position.Z:F1})");
+                Debug.Log($"* {player.Name} - 位置: ({player.Position.X}, {player.Position.Y}, {player.Position.Z})");
+            }
+        }
+
+        [ContextMenu("测试连接")]
+        private async void TestConnection()
+        {
+            if (_channelManager != null && !_isConnected)
+            {
+                Debug.Log("[ChatComponent] 正在测试连接...");
+                UpdateStatus("正在测试连接...");
+
+                try
+                {
+                    await ConnectToServerAsync();
+                    Debug.Log("[ChatComponent] 连接测试成功");
+                    UpdateStatus("连接测试成功");
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[ChatComponent] 连接测试失败: {ex.Message}");
+                    UpdateStatus($"连接测试失败: {ex.Message}");
+                }
+            }
+        }
+
+        [ContextMenu("测试移动")]
+        private async void TestMove()
+        {
+            if (_isLoggedIn)
+            {
+                var random = new System.Random();
+                await MoveAsync(
+                    random.Next(-2, 3) * _moveDistance,
+                    0,
+                    random.Next(-2, 3) * _moveDistance
+                );
             }
         }
 
@@ -646,6 +774,9 @@ namespace ChatApp
 
         #region 内部类
 
+        /// <summary>
+        /// 玩家数据
+        /// </summary>
         internal class PlayerData
         {
             public Guid Id { get; set; }
@@ -653,6 +784,9 @@ namespace ChatApp
             public System.Numerics.Vector3 Position { get; set; } = new System.Numerics.Vector3();
         }
 
+        /// <summary>
+        /// 玩家事件处理器
+        /// </summary>
         private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents
         {
             private readonly ChatComponent _component;
@@ -664,8 +798,9 @@ namespace ChatApp
 
             public void OnPlayerJoined(PlayerJoinedEvent eventData)
             {
-                // 转换 Vector3 类型
-                var position = new System.Numerics.Vector3(eventData.X, eventData.Y, eventData.Z);
+                var position = eventData.Position != System.Numerics.Vector3.Zero
+                    ? eventData.Position
+                    : new System.Numerics.Vector3(eventData.X, eventData.Y, eventData.Z);
                 _component.AddPlayer(eventData.PlayerId, eventData.PlayerName, position);
             }
 
@@ -676,30 +811,30 @@ namespace ChatApp
 
             public void OnPlayerMoved(PlayerMovedEvent eventData)
             {
-                // 转换 Vector3 类型
-                var position = new System.Numerics.Vector3(eventData.X, eventData.Y, eventData.Z);
-                _component.UpdatePlayerPosition(eventData.PlayerId, position);
+                _component.UpdatePlayerPosition(eventData.PlayerId,
+                    new System.Numerics.Vector3(eventData.X, eventData.Y, eventData.Z));
             }
 
             public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
             {
-                foreach (var moveEvent in eventData)
+                foreach (var evt in eventData)
                 {
-                    var position = new System.Numerics.Vector3(moveEvent.X, moveEvent.Y, moveEvent.Z);
-                    _component.UpdatePlayerPosition(moveEvent.PlayerId, position);
+                    OnPlayerMoved(evt);
                 }
             }
 
             public void OnPlayersMovedBatch(PlayersBatchMovedEvent eventData)
             {
-                foreach (var playerMove in eventData.Updates)
+                foreach (var moveEvent in eventData.Updates)
                 {
-                    var position = new System.Numerics.Vector3(playerMove.X, playerMove.Y, playerMove.Z);
-                    _component.UpdatePlayerPosition(playerMove.PlayerId, position);
+                    OnPlayerMoved(moveEvent);
                 }
             }
         }
 
+        /// <summary>
+        /// 组合订阅令牌
+        /// </summary>
         private class CompositeSubscriptionToken : ISubscriptionToken
         {
             private readonly ISubscriptionToken[] _tokens;
@@ -707,7 +842,7 @@ namespace ChatApp
 
             public CompositeSubscriptionToken(ISubscriptionToken[] tokens)
             {
-                _tokens = tokens;
+                _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));
             }
 
             public Guid Id { get; } = Guid.NewGuid();
@@ -715,18 +850,12 @@ namespace ChatApp
 
             public void Unsubscribe()
             {
-                if (_isDisposed) return;
+                if (_isDisposed)
+                    return;
 
                 foreach (var token in _tokens)
                 {
-                    try
-                    {
-                        token?.Unsubscribe();
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.LogError($"取消订阅失败: {ex.Message}");
-                    }
+                    token.Unsubscribe();
                 }
 
                 _isDisposed = true;
@@ -735,6 +864,7 @@ namespace ChatApp
             public void Dispose()
             {
                 Unsubscribe();
+                GC.SuppressFinalize(this);
             }
         }
 
