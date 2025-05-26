@@ -1,6 +1,6 @@
 {
   "name": "com.chronosgames.pulserpc.client",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "displayName": "PulseRPC Client",
   "description": "PulseRPC client library for .NET and Unity",
   "unity": "2022.3",
