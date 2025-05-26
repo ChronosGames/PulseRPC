@@ -17,10 +17,9 @@ namespace ChatApp.Unity
     /// <summary>
     /// 整合的聊天游戏组件 - 包含完整的网络功能和UI交互
     /// </summary>
-    // 暂时禁用Source Generator特性以避免重复生成问题
-    // [PulseClientGeneration(typeof(IPlayerService))]
-    // [PulseClientGeneration(typeof(IPlayerLoginEvents))]
-    // [PulseClientGeneration(typeof(IPlayerMovementEvents))]
+    [PulseClientGeneration(typeof(IPlayerService))]
+    [PulseClientGeneration(typeof(IPlayerLoginEvents))]
+    [PulseClientGeneration(typeof(IPlayerMovementEvents))]
     public class ChatComponent : MonoBehaviour
     {
         [Header("UI组件")] public Text ChatText;
