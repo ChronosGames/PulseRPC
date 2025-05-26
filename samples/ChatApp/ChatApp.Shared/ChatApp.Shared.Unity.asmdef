@@ -1,9 +1,7 @@
 {
     "name": "ChatApp.Shared.Unity",
     "rootNamespace": "ChatApp",
-    "references": [
-        "PulseRPC.Client.Unity"
-    ],
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
