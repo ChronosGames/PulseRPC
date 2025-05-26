@@ -26,7 +26,10 @@
     <CompilerVisibleProperty Include="PulseRPC_EnableMemoryPackGenerator" />
   </ItemGroup>
 
+  <!-- 为多个Roslyn版本打包 -->
   <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll" PackagePath="analyzers/dotnet/roslyn4.0/cs" Visible="false" />
+    <None Include="$(OutputPath)\$(AssemblyName).dll" PackagePath="analyzers/dotnet/roslyn3.11/cs" Visible="false" />
     <None Include="$(OutputPath)\$(AssemblyName).dll" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
 

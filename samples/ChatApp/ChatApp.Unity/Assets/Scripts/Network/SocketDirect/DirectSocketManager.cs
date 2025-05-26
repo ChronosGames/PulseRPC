@@ -514,7 +514,6 @@ namespace UnityTCP.SocketDirect
         // 事件
         public event Action<byte[]> MessageReceived;
         public event Action Connected;
-        public event Action Disconnected;
 
         private void Awake()
         {
@@ -677,50 +676,6 @@ namespace UnityTCP.SocketDirect
                 return false;
 
             return _socketManager.SendNativeArray(array);
-        }
-    }
-
-    /// <summary>
-    /// 基于DMA的网络优化（概念性代码）
-    /// </summary>
-    public class DMANetworkAccess
-    {
-        // 注意：此类是概念性的，实际实现需要使用本机代码
-        // 真实的DMA（直接内存访问）需要操作系统和硬件支持
-
-        /// <summary>
-        /// 使用DMA进行内存复制
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static unsafe void DMAMemoryCopy(void* source, void* destination, int length)
-        {
-            // 在真实实现中，这里会调用本机API来设置DMA传输
-            // 例如Windows中的DeviceIoControl或Linux中的mmap
-
-            // 模拟DMA复制
-            UnsafeUtility.MemCpy(destination, source, length);
-        }
-
-        /// <summary>
-        /// 分配DMA可访问的内存
-        /// </summary>
-        public static unsafe IntPtr AllocateDMAMemory(int size)
-        {
-            // 在真实实现中，这会分配页对齐的、非分页的物理内存
-            // 通常使用VirtualAlloc（Windows）或mmap（Linux）
-
-            // 模拟分配
-            void* ptr = UnsafeUtility.Malloc(size, 16, Allocator.Persistent);
-            return new IntPtr(ptr);
-        }
-
-        /// <summary>
-        /// 释放DMA内存
-        /// </summary>
-        public static unsafe void FreeDMAMemory(IntPtr ptr)
-        {
-            // 释放之前分配的DMA内存
-            UnsafeUtility.Free(ptr.ToPointer(), Allocator.Persistent);
         }
     }
 }

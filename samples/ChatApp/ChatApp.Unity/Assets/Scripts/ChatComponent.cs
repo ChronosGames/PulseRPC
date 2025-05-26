@@ -217,10 +217,8 @@ namespace ChatApp.Unity
                 var kcpMessageChannel = _channelManager.GetChannel("KcpChannel");
 
                 // 登录事件 (TCP通道)
-                var loginJoinedToken = tcpMessageChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined",
-                    (sender, eventData) => eventsHandler.OnPlayerJoined(eventData));
-                var loginLeftToken = tcpMessageChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft",
-                    (sender, eventData) => eventsHandler.OnPlayerLeft(eventData));
+                var loginJoinedToken = tcpMessageChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined", (sender, eventData) => eventsHandler.OnPlayerJoined(eventData));
+                var loginLeftToken = tcpMessageChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft", (sender, eventData) => eventsHandler.OnPlayerLeft(eventData));
 
                 // 移动事件 (KCP通道)
                 var moveToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
