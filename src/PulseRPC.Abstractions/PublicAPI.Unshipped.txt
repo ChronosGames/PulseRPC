@@ -49,4 +49,6 @@ PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMaximumTransmissionUnit(int m
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMtu(int mtu) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetWindowSize(int sndwnd, int rcvwnd) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Update(uint currentTimeMilliseconds) -> void
+PulseRPC.Transport.Tcp.TcpServerListener.Dispose() -> void
+PulseRPC.Transport.Tcp.TcpTransport.ReceiveLoopAsync() -> System.Threading.Tasks.Task!
 virtual PulseRPC.EventSubscription.GetDynamicInvoker() -> System.Action<object!, object!>?

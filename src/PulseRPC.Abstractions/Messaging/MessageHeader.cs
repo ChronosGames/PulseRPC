@@ -46,8 +46,6 @@ namespace PulseRPC.Messaging
     {
         Request = 1, // 上行请求(需响应)
         Response = 2, // 响应
-        Command = 3, // 上行指令(无需响应)
-        Notification = 4, // 下行通知
         Ping = 5, // Ping
         Pong = 6, // Pong
         Event = 7, // 事件

@@ -8,6 +8,27 @@ using PulseRPC.Transport.Tcp;
 namespace PulseRPC.Transport
 {
     /// <summary>
+    /// 传输工厂接口
+    /// </summary>
+    public interface ITransportFactory
+    {
+        /// <summary>
+        /// 创建客户端传输
+        /// </summary>
+        Task<IClientTransport> CreateClientTransportAsync(
+            TransportType type,
+            TransportOptions? options = null);
+
+        /// <summary>
+        /// 创建服务端监听器
+        /// </summary>
+        Task<IServerListener> CreateServerListenerAsync(
+            TransportType type,
+            int port,
+            TransportOptions? options = null);
+    }
+
+    /// <summary>
     /// 传输工厂实现
     /// </summary>
     public class TransportFactory : ITransportFactory
