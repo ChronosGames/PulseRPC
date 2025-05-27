@@ -1,7 +1,9 @@
 {
     "name": "ChatApp.Shared.Unity",
     "rootNamespace": "ChatApp",
-    "references": [],
+    "references": [
+        "MemoryPack.Unity"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
