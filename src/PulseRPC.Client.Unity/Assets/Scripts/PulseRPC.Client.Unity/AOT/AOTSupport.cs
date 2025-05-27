@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using PulseRPC.Client.Channels;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;

@@ -6,6 +6,8 @@ using UnityEngine.Events;
 using UnityEngine.UI;
 using System.Collections;
 
+#nullable disable
+
 namespace RuntimeUnitTestToolkit
 {
     public static class UnitTest

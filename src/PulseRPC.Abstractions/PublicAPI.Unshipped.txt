@@ -1,7 +1,42 @@
 #nullable enable
+abstract PulseRPC.EventSubscription.Invoke(object! sender, byte[]! data, PulseRPC.Serialization.ISerializer! serializer) -> void
+override PulseRPC.EventSubscription<T>.GetDynamicInvoker() -> System.Action<object!, object!>!
+override PulseRPC.EventSubscription<T>.Invoke(object! sender, byte[]! data, PulseRPC.Serialization.ISerializer! serializer) -> void
 override PulseRPC.Transport.Kcp.KcpClientTransport.Dispose() -> void
+PulseRPC.ChannelAttribute.ChannelAttribute(string! channelName) -> void
+PulseRPC.ChannelAttribute.ChannelName.get -> string!
+PulseRPC.EventSubscription.EventName.get -> string!
+PulseRPC.EventSubscription.EventType.get -> System.Type!
+PulseRPC.EventSubscription.Id.get -> System.Guid
+PulseRPC.EventSubscription<T>.EventSubscription(string! eventName, PulseRPC.EventHandler<T>! handler) -> void
+PulseRPC.PulseClientGenerationAttribute.MarkerType.get -> System.Type!
+PulseRPC.PulseClientGenerationAttribute.PulseClientGenerationAttribute(System.Type! markerType) -> void
+PulseRPC.PulseClientGenerationAttribute.WithResultType.get -> System.Type?
+PulseRPC.PulseClientGenerationAttribute.WithResultType.set -> void
+PulseRPC.Transport.ChannelManager.Dispose() -> void
+PulseRPC.Transport.ChannelManager.GetChannel(string! channelName) -> PulseRPC.Messaging.IMessageChannel!
+PulseRPC.Transport.ChannelManager.GetDefaultChannel() -> PulseRPC.Messaging.IMessageChannel!
+PulseRPC.Transport.ChannelManager.HasChannel(string! channelName) -> bool
+PulseRPC.Transport.ChannelManager.RegisterChannel(string! channelName, PulseRPC.Messaging.IMessageChannel! channel, bool isDefault = false) -> void
+PulseRPC.Transport.ChannelManager.UnregisterChannel(string! channelName) -> void
+PulseRPC.Transport.IChannelManager.GetChannel(string! channelName) -> PulseRPC.Messaging.IMessageChannel!
+PulseRPC.Transport.IChannelManager.GetDefaultChannel() -> PulseRPC.Messaging.IMessageChannel!
+PulseRPC.Transport.IChannelManager.HasChannel(string! channelName) -> bool
+PulseRPC.Transport.IChannelManager.RegisterChannel(string! channelName, PulseRPC.Messaging.IMessageChannel! channel, bool isDefault = false) -> void
+PulseRPC.Transport.IChannelManager.UnregisterChannel(string! channelName) -> void
 PulseRPC.Transport.Kcp.KcpClientTransport.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 PulseRPC.Transport.Kcp.KcpClientTransport.KcpClientTransport(PulseRPC.Transport.TransportOptions? options = null, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.Check(uint currentTimeMilliseconds) -> uint
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.Input(System.Span<byte> data) -> void
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.NoDelay(int noDelay, int interval, int resend, bool nocwnd) -> void
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.Recv(byte[]! buffer) -> int
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.Send(byte[]! buffer) -> int
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.Send(System.ReadOnlySpan<byte> buffer) -> int
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.SetMaximumTransmissionUnit(int mtu) -> void
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.SetMtu(int mtu) -> void
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.SetWindowSize(int sndwnd, int rcvwnd) -> void
+PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal.Update(uint currentTimeMilliseconds) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Check(uint currentTimeMilliseconds) -> uint
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Input(System.Span<byte> data) -> void
@@ -14,3 +49,4 @@ PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMaximumTransmissionUnit(int m
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMtu(int mtu) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetWindowSize(int sndwnd, int rcvwnd) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Update(uint currentTimeMilliseconds) -> void
+virtual PulseRPC.EventSubscription.GetDynamicInvoker() -> System.Action<object!, object!>?

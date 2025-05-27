@@ -29,7 +29,7 @@ public class BuildIos
 
         // libgrpc_csharp_ext missing bitcode. as BITCODE exand binary size to 250MB.
         project.SetBuildProperty(targetGuid, "ENABLE_BITCODE", "NO");
-        
+
         File.WriteAllText(projectPath, project.WriteToString());
     }
 }

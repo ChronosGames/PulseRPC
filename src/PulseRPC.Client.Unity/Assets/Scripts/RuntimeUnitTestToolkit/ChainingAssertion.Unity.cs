@@ -107,7 +107,7 @@ namespace RuntimeUnitTestToolkit
         }
 
         /// <summary>Assert.AreSame</summary>
-        public static void IsSameReferenceAs<T>(this T actual, T expected, string message = "")
+        public static void IsSameReferenceAs<T>(this T? actual, T? expected, string message = "")
         {
             Assert.AreSame(expected, actual, message);
         }

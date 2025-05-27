@@ -1,44 +1,50 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>12</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <LangVersion>latest</LangVersion>
+    <AnalyzerLanguage>cs</AnalyzerLanguage>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);PackBuildOutputs</TargetsForTfmSpecificContentInPackage>
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <RootNamespace>PulseRPC.Client.SourceGenerator</RootNamespace>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <IncludeSymbols>false</IncludeSymbols>
+    <Description>Source Generator for PulseRPC Client</Description>
 
     <!-- Source Generator / Roslyn Analyzer -->
     <IsRoslynComponent>true</IsRoslynComponent>
     <AnalyzerLanguage>cs</AnalyzerLanguage>
-
-    <!-- We don't need to publish the package to NuGet. PulseRPC.Client.SourceGenerator.dll is bundled with PulseRPC.Client  -->
-    <IsPackable>false</IsPackable>
 
     <!-- 确保生成单一文件 -->
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <IlcInvariantGlobalization>true</IlcInvariantGlobalization>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+
+    <IsPackable>false</IsPackable>
+
+    <!-- Unity兼容性设置 -->
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <CompilerVisibleProperty Include="PulseRPC_EnableMemoryPackGenerator" />
-  </ItemGroup>
-
-  <!-- 为多个Roslyn版本打包 -->
-  <ItemGroup>
-    <None Include="$(OutputPath)\$(AssemblyName).dll" PackagePath="analyzers/dotnet/roslyn4.0/cs" Visible="false" />
-    <None Include="$(OutputPath)\$(AssemblyName).dll" PackagePath="analyzers/dotnet/roslyn3.11/cs" Visible="false" />
-    <None Include="$(OutputPath)\$(AssemblyName).dll" PackagePath="analyzers/dotnet/cs" Visible="false" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis" PrivateAssets="all" />
-    <PackageReference Include="PolySharp">
+    <!-- https://learn.microsoft.com/en-us/visualstudio/extensibility/roslyn-version-support?view=vs-2022 -->
+    <!-- require to support SyntaxValueProvider.ForAttributeWithMetadataName(Roslyn 4.3.0, VS2022 17.3) -->
+    <!-- Unity 2022.3.12f1 or newer supports 4.3.0 -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
 
+  <!-- for nuget publish -->
+  <Target Name="PackBuildOutputs" DependsOnTargets="SatelliteDllsProjectOutputGroup;DebugSymbolsProjectOutputGroup">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(TargetDir)\*.dll" PackagePath="analyzers\dotnet\cs" />
+      <TfmSpecificPackageFile Include="@(SatelliteDllsProjectOutputGroupOutput->'%(FinalOutputPath)')" PackagePath="analyzers\dotnet\cs\%(SatelliteDllsProjectOutputGroupOutput.Culture)\" />
+    </ItemGroup>
+  </Target>
 </Project>
