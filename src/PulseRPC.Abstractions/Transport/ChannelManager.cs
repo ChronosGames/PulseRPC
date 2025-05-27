@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using PulseRPC.Messaging;
@@ -75,12 +75,10 @@ namespace PulseRPC.Transport
         {
             lock (_syncLock)
             {
-                if (_channels.ContainsKey(channelName))
+                if (!_channels.TryAdd(channelName, channel))
                 {
                     throw new ArgumentException($"Channel already registered: {channelName}");
                 }
-
-                _channels[channelName] = channel;
 
                 if (isDefault || string.IsNullOrEmpty(_defaultChannelName))
                 {

@@ -185,6 +185,5 @@ readonly PulseRPC.Transport.Tcp.TcpTransport._cts -> System.Threading.Cancellati
 readonly PulseRPC.Transport.Tcp.TcpTransport._logger -> Microsoft.Extensions.Logging.ILogger!
 readonly PulseRPC.Transport.Tcp.TcpTransport._options -> PulseRPC.Transport.TransportOptions!
 readonly PulseRPC.Transport.Tcp.TcpTransport._sendLock -> System.Threading.SemaphoreSlim!
-virtual PulseRPC.EventHandler<T>.Invoke(object! sender, T eventData) -> void
 virtual PulseRPC.Transport.Kcp.KcpTransport.Dispose() -> void
 virtual PulseRPC.Transport.Tcp.TcpTransport.Dispose() -> void

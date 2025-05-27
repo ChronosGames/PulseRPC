@@ -19,21 +19,6 @@ PulseRPC.Client.Channels.TransportChannel.SubscribeToEvent<T>(string! eventName,
 PulseRPC.Client.Channels.TransportChannel.TransportChannel(string! name, PulseRPC.Transport.IClientTransport! transport, PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.Channels.TransportChannel!>? logger = null) -> void
 PulseRPC.Client.ConnectionStateChangedEventArgs
 PulseRPC.Client.IPlatformAdapter.InvokeOnMainThread(System.Action! action) -> void
-PulseRPC.Client.PulseRPCClient
-PulseRPC.Client.PulseRPCClient.CallAsync<TRequest, TResponse>(TRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<TResponse!>!
-PulseRPC.Client.PulseRPCClient.ConnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.PulseRPCClient.DisconnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.PulseRPCClient.Dispose() -> void
-PulseRPC.Client.PulseRPCClient.SendAsync<TRequest>(TRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.PulseRPCClientOptions
-PulseRPC.Client.PulseRPCClientOptions.EnableUnityMainThreadDispatch.get -> bool
-PulseRPC.Client.PulseRPCClientOptions.EnableUnityMainThreadDispatch.set -> void
-PulseRPC.Client.PulseRPCClientOptions.MaxReconnectAttempts.set -> void
-PulseRPC.Client.PulseRPCClientOptions.PlatformAdapter.get -> PulseRPC.Client.IPlatformAdapter?
-PulseRPC.Client.PulseRPCClientOptions.ServerPort.set -> void
-PulseRPC.Client.PulseRPCClientOptions.UseUnityOptimizations.get -> bool
-PulseRPC.Client.PulseRPCClientOptions.UseUnityOptimizations.set -> void
-PulseRPC.Client.PulseRPCClientOptions.Validate() -> void
 PulseRPC.NetworkChannelEventBus.NetworkChannelEventBus(PulseRPC.Messaging.IMessageChannel! channel, PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILogger<PulseRPC.NetworkChannelEventBus!>? logger = null) -> void
 PulseRPC.NetworkChannelEventBus.PublishAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 PulseRPC.NetworkChannelEventBus.Subscribe<T>(string! eventName, PulseRPC.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!

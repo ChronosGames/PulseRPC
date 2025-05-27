@@ -1,12 +1,11 @@
-﻿using System;
+using System;
 
 namespace PulseRPC
 {
     /// <summary>
     /// 指定使用的通道
     /// </summary>
-    [AttributeUsage(AttributeTargets.Interface | AttributeTargets.Method | AttributeTargets.Class,
-        AllowMultiple = false)]
+    [AttributeUsage(AttributeTargets.Interface | AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
     public class ChannelAttribute : Attribute
     {
         /// <summary>

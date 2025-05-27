@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <PackageReference Include="JetBrains.Profiler.Api" />
-    <PackageReference Include="Microsoft.CodeAnalysis" PrivateAssets="all" />
     <PackageReference Include="MemoryPack.Core" />
   </ItemGroup>
 

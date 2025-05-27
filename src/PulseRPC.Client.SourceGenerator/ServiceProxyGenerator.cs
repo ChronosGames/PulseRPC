@@ -8,8 +8,8 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace PulseRPC.Generator;
 
-[Generator]
-public class ServiceProxyGenerator : IIncrementalGenerator
+[Generator(LanguageNames.CSharp)]
+public partial class ServiceProxyGenerator : IIncrementalGenerator
 {
     private const string PulseClientGenerationAttributeName = "PulseClientGenerationAttribute";
 

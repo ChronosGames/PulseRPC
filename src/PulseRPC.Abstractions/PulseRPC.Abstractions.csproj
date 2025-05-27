@@ -15,11 +15,6 @@
     <Description>PulseRPC abstractions and interfaces shared between client and server</Description>
   </PropertyGroup>
 
-  <!-- Unity 特定的条件编译 -->
-  <PropertyGroup Condition="'$(Unity)' == 'true'">
-    <DefineConstants>$(DefineConstants);UNITY</DefineConstants>
-  </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="System.CodeDom" />

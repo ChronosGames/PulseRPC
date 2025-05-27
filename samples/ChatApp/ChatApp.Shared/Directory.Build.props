@@ -13,4 +13,28 @@
     <BaseIntermediateOutputPath>.artifacts\obj\</BaseIntermediateOutputPath>
     <BaseOutputPath>.artifacts\bin\</BaseOutputPath>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Unity特定配置 -->
+    <UnityProject>true</UnityProject>
+
+    <!-- 禁用不兼容Unity/.NET Framework 4.7.1的Source Generator -->
+    <EnableMicrosoftExtensionsLoggingSourceGenerator>false</EnableMicrosoftExtensionsLoggingSourceGenerator>
+    <EnableConfigurationBindingGenerator>false</EnableConfigurationBindingGenerator>
+    <EnableRequestDelegateGenerator>false</EnableRequestDelegateGenerator>
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+    <UseSystemTextJsonSourceGenerator>false</UseSystemTextJsonSourceGenerator>
+
+    <!-- Unity 4.7.1兼容性设置 -->
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <!-- 在Shared项目中禁用所有可能冲突的分析器，包括PulseRPC的Source Generator -->
+  <ItemGroup>
+    <Analyzer Remove="**\Microsoft.Extensions.Logging.Generators.dll" />
+    <Analyzer Remove="**\Microsoft.Extensions.Configuration.Binder.SourceGeneration.dll" />
+    <Analyzer Remove="**\System.Text.Json.SourceGeneration.dll" />
+    <Analyzer Remove="**\PulseRPC.Client.SourceGenerator.dll" />
+  </ItemGroup>
 </Project>

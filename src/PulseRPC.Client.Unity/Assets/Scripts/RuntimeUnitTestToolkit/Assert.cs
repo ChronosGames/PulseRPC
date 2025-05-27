@@ -41,7 +41,7 @@ namespace RuntimeUnitTestToolkit
             }
         }
 
-        public static void IsNull(object value, string message)
+        public static void IsNull(object? value, string message)
         {
             if (value != null)
             {
@@ -49,7 +49,7 @@ namespace RuntimeUnitTestToolkit
             }
         }
 
-        public static void IsNotNull(object value, string message)
+        public static void IsNotNull(object? value, string message)
         {
             if (value == null)
             {
@@ -62,7 +62,7 @@ namespace RuntimeUnitTestToolkit
             throw new AssertFailedException(string.Format("Failed. message:{0}", msg));
         }
 
-        public static void AreSame(object expected, object actual, string message)
+        public static void AreSame(object? expected, object? actual, string message)
         {
             if (!object.ReferenceEquals(expected, actual))
             {
@@ -70,7 +70,7 @@ namespace RuntimeUnitTestToolkit
             }
         }
 
-        public static void AreNotSame(object notExpected, object actual, string message)
+        public static void AreNotSame(object? notExpected, object? actual, string message)
         {
             if (object.ReferenceEquals(notExpected, actual))
             {
@@ -88,9 +88,9 @@ namespace RuntimeUnitTestToolkit
 
         public static void IsNotInstanceOfType(object value, Type expectedType, string message)
         {
-            if (value != null || expectedType.IsAssignableFrom(value.GetType()))
+            if (value == null || expectedType.IsAssignableFrom(value.GetType()))
             {
-                throw new AssertFailedException(string.Format("IsNotInstanceOfType Failed. valueType:{0} expectedType:{1} message:{2}", (value == null) ? null : value.GetType(), expectedType, message));
+                throw new AssertFailedException(string.Format("IsNotInstanceOfType Failed. valueType:{0} expectedType:{1} message:{2}", value?.GetType(), expectedType, message));
             }
         }
 
@@ -114,7 +114,7 @@ namespace RuntimeUnitTestToolkit
             }
 #endif
 
-            return (T)exception;
+            return (T)exception!;
         }
 
         /// <summary>Alternative of ExpectedExceptionAttribute(not allow derived type)</summary>
@@ -145,7 +145,7 @@ namespace RuntimeUnitTestToolkit
         }
 
         /// <summary>execute action and return exception when catched otherwise return null</summary>
-        static Exception ExecuteCode(Action testCode)
+        static Exception? ExecuteCode(Action testCode)
         {
             try
             {

@@ -5,22 +5,32 @@
     <Nullable>enable</Nullable>
     <LangVersion>11.0</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-
     <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
 
     <!-- 包配置 -->
     <IsPackable>true</IsPackable>
     <PackageId>PulseRPC.Client</PackageId>
     <Description>PulseRPC client library for .NET and Unity</Description>
+    
+    <!-- This project is meta package -->
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+    <IncludeContentInPack>true</IncludeContentInPack>
   </PropertyGroup>
 
   <!-- Unity 特定的条件编译 -->
-  <PropertyGroup Condition="'$(Unity)' == 'true'">
+  <PropertyGroup Condition="$(TargetFramework) == 'netstandard2.1'">
     <DefineConstants>$(DefineConstants);UNITY</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.1|AnyCPU'">
+    <WarningLevel>5</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.1|AnyCPU'">
+    <WarningLevel>5</WarningLevel>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
+    <ProjectReference Include="..\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
   </ItemGroup>
 
   <ItemGroup>
@@ -28,39 +38,31 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="System.IO.Pipelines" />
 
-    <!-- 条件依赖 - 仅 .NET 环境 -->
-    <PackageReference Include="Microsoft.Extensions.Logging" Condition="'$(Unity)' != 'true'" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="'$(Unity)' != 'true'" />
+    <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Condition="$(TargetFramework) == 'netstandard2.1'" />
+    <PackageReference Include="System.Collections.Immutable" Condition="$(TargetFramework) == 'netstandard2.1'" />
 
-    <PackageReference Include="PolySharp">
+    <!-- 条件依赖 - 仅 .NET 环境 -->
+    <PackageReference Include="Microsoft.Extensions.Logging" Condition="$(TargetFramework) != 'netstandard2.1'" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="$(TargetFramework) != 'netstandard2.1'" />
+
+    <PackageReference Include="PolySharp" Condition="$(TargetFramework) != 'netstandard2.1'">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers">
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Condition="$(TargetFramework) != 'netstandard2.1'">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
 
   <!-- Unity Package Manager 支持：复制 package.json 到输出目录 -->
-  <ItemGroup>
-    <Content Include="package.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
 
   <!-- 包含 Source Generator -->
-  <!-- 包含 Source Generator - 修复Unity兼容性 -->
   <ItemGroup>
-    <!-- 为不同的Roslyn版本提供Source Generator -->
-    <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\roslyn4.0\cs" Pack="true" Visible="false" />
-    <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\roslyn3.11\cs" Pack="true" Visible="false" />
     <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\cs" Pack="true" Visible="false" />
+    <None Include="..\PulseRPC\Icon.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
   </ItemGroup>
-
-  <!-- 添加构建依赖确保Source Generator先构建 -->
-  <ItemGroup>
-    <ProjectReference Include="..\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
-  </ItemGroup>
-
 </Project>
