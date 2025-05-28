@@ -16,7 +16,7 @@ namespace GameServer.World
         /// <summary>
         /// 玩家名称
         /// </summary>
-        public string Username { get; set; }
+        public required string Username { get; set; }
 
         /// <summary>
         /// 玩家等级

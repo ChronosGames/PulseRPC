@@ -148,37 +148,35 @@ namespace PulseRPC.Transport.Tcp
     }
 
     /// <summary>
-    /// TCP传输层实现 - 专注于网络传输和大包处理
+    /// TCP传输基类，提供TCP连接的基础功能
     /// </summary>
-    public class TcpTransport : ITransport
+    public abstract class TcpTransport : ITransport
     {
-        protected Socket _socket;
         protected readonly TransportOptions _options;
-        protected readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
-        protected readonly CancellationTokenSource _cts = new CancellationTokenSource();
         protected readonly ILogger _logger;
+        protected readonly byte[] _receiveBuffer;
+        protected readonly ConcurrentDictionary<int, LargePacketState> _largePacketStates;
+        protected readonly Task _cleanupTask;
+        protected readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
 
-        // 大包状态管理（线程安全）
-        private readonly ConcurrentDictionary<int, LargePacketState> _largePacketStates;
-        private int _nextChunkId;
-
-        protected ConnectionState _state = ConnectionState.Disconnected;
+        protected int _nextChunkId;
+        protected Socket? _socket;
         protected NetworkStream? _stream;
+        protected ConnectionState _state;
+        protected CancellationTokenSource _cts;
         protected Task? _receiveTask;
-        protected Task? _cleanupTask;
-        protected byte[] _receiveBuffer;
-        protected bool _disposed;
-
+        protected readonly object _stateLock = new object();
         protected long _totalBytesSent;
         protected long _totalBytesReceived;
+        protected bool _disposed;
 
         public string Name => "TCP";
         public TransportType Type => TransportType.Tcp;
         public bool IsConnected => _state == ConnectionState.Connected && _socket?.Connected == true;
         public ConnectionState State => _state;
 
-        public EndPoint LocalEndPoint => _socket.LocalEndPoint!;
-        public EndPoint RemoteEndPoint => _socket.RemoteEndPoint!;
+        public EndPoint LocalEndPoint => _socket?.LocalEndPoint!;
+        public EndPoint RemoteEndPoint => _socket?.RemoteEndPoint!;
 
         public long TotalBytesSent => Interlocked.Read(ref _totalBytesSent);
         public long TotalBytesReceived => Interlocked.Read(ref _totalBytesReceived);
@@ -189,32 +187,11 @@ namespace PulseRPC.Transport.Tcp
         public TcpTransport(TransportOptions? options = null, ILogger? logger = null)
         {
             _options = options ?? new TransportOptions();
-            _logger = logger ?? NullLogger.Instance;
-
+            _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
             _receiveBuffer = new byte[_options.ReadBufferSize];
-            _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-
-            // 设置Socket选项
-            _socket.NoDelay = _options.NoDelay;
-            _socket.ReceiveBufferSize = _options.ReadBufferSize;
-            _socket.SendBufferSize = _options.WriteBufferSize;
-
-            if (_options.KeepAlive)
-            {
-                _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-
-                #if WINDOWS
-                // 设置保活选项
-                var keepAliveValues = new byte[12];
-                Buffer.BlockCopy(BitConverter.GetBytes(1), 0, keepAliveValues, 0, 4);  // 启用保活
-                Buffer.BlockCopy(BitConverter.GetBytes(_options.KeepAliveInterval), 0, keepAliveValues, 4, 4);  // 保活间隔
-                Buffer.BlockCopy(BitConverter.GetBytes(1000), 0, keepAliveValues, 8, 4);  // 保活探测间隔
-                _socket.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
-                #endif
-            }
-
             _largePacketStates = new ConcurrentDictionary<int, LargePacketState>();
-            _nextChunkId = 0;
+            _nextChunkId = 1;
+            _cts = new CancellationTokenSource();
 
             // 启动清理任务
             _cleanupTask = CleanupExpiredLargePacketsAsync();
@@ -572,11 +549,6 @@ namespace PulseRPC.Transport.Tcp
         /// </summary>
         public virtual void Dispose()
         {
-            if (_disposed)
-                return;
-
-            _disposed = true;
-
             _cts.Cancel();
 
             try
@@ -590,362 +562,202 @@ namespace PulseRPC.Transport.Tcp
             }
 
             _cts.Dispose();
-            _sendLock.Dispose();
+        }
+
+        public async ValueTask CloseAsync()
+        {
+            if (_socket?.Connected == true)
+            {
+#if NET5_0_OR_GREATER
+                await _socket.DisconnectAsync(false);
+#else
+                _socket.Shutdown(SocketShutdown.Both);
+                _socket.Close();
+#endif
+            }
+            _socket?.Close();
+        }
+
+        public async ValueTask DisconnectAsync()
+        {
+            if (_socket?.Connected == true)
+            {
+#if NET5_0_OR_GREATER
+                await _socket.DisconnectAsync(false);
+#else
+                _socket.Shutdown(SocketShutdown.Both);
+                _socket.Close();
+#endif
+            }
         }
     }
+}
 
+namespace PulseRPC.Transport
+{
     /// <summary>
-    /// TCP客户端传输
+    /// 默认会话上下文实现
     /// </summary>
-    public class TcpClientTransport : TcpTransport, IClientTransport
+    internal class DefaultSessionContext : PulseRPC.ISessionContext
     {
-        private int _reconnectAttempts = 0;
-        private Timer? _reconnectTimer;
+        private readonly object _syncLock = new object();
+        private readonly ConcurrentDictionary<string, object> _properties = new ConcurrentDictionary<string, object>();
 
-        public TcpClientTransport(TransportOptions? options = null, ILogger? logger = null)
-            : base(options, logger)
+        private Guid? _userId;
+        private string? _username;
+        private string? _token;
+        private DateTime? _loginTime;
+        private System.Security.Claims.ClaimsPrincipal? _user;
+
+        public Guid? UserId
         {
-        }
-
-        /// <summary>
-        /// 连接到服务器
-        /// </summary>
-        public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
-        {
-            if (_state == ConnectionState.Connected || _state == ConnectionState.Connecting)
-                return;
-
-            ChangeState(ConnectionState.Connecting);
-
-            try
+            get
             {
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
-                linkedCts.CancelAfter(_options.ConnectionTimeout);
-
-                // 连接到服务器
-                #if NET5_0_OR_GREATER
-                    await _socket.ConnectAsync(host, port, linkedCts.Token);
-                #else
-                    await _socket.ConnectAsync(host, port);
-                #endif
-
-                // 创建网络流
-                _stream = new NetworkStream(_socket, true);
-
-                // 更新状态
-                ChangeState(ConnectionState.Connected);
-
-                // 重置重连次数
-                _reconnectAttempts = 0;
-
-                // 启动接收循环
-                _receiveTask = ReceiveLoopAsync();
-
-                _logger.LogInformation("已连接到服务器: {Host}:{Port}", host, port);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "连接到服务器失败: {Host}:{Port}", host, port);
-
-                ChangeState(ConnectionState.Failed, $"连接失败: {ex.Message}", ex);
-
-                // 如果启用了自动重连，则开始重连
-                if (_options.AutoReconnect && _reconnectAttempts < _options.MaxReconnectAttempts)
+                lock (_syncLock)
                 {
-                    StartReconnect(host, port);
-                }
-
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// 断开连接
-        /// </summary>
-        public Task DisconnectAsync(CancellationToken cancellationToken = default)
-        {
-            if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
-                return Task.CompletedTask;
-
-            ChangeState(ConnectionState.Disconnecting);
-
-            try
-            {
-                // 取消自动重连
-                _reconnectTimer?.Dispose();
-                _reconnectTimer = null;
-
-                // 关闭Socket
-                if (_socket.Connected)
-                {
-                    _socket.Shutdown(SocketShutdown.Both);
-                    _socket.Close();
-                }
-
-                // 更新状态
-                ChangeState(ConnectionState.Disconnected);
-
-                _logger.LogInformation("已断开连接");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "断开连接异常");
-
-                // 即使出现异常，也更新状态
-                ChangeState(ConnectionState.Disconnected, $"断开异常: {ex.Message}", ex);
-
-                throw;
-            }
-
-            return Task.CompletedTask;
-        }
-
-        /// <summary>
-        /// 启动重连
-        /// </summary>
-        private void StartReconnect(string host, int port)
-        {
-            if (!_options.AutoReconnect || _reconnectAttempts >= _options.MaxReconnectAttempts)
-            {
-                return;
-            }
-
-            _reconnectAttempts++;
-
-            ChangeState(ConnectionState.Reconnecting, $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
-
-            _reconnectTimer?.Dispose();
-            _reconnectTimer = new Timer(async _ =>
-            {
-                try
-                {
-                    await ConnectAsync(host, port);
-                }
-                catch
-                {
-                    // 重连失败，下次继续尝试
-                }
-            }, null, _options.ReconnectInterval, Timeout.Infinite);
-        }
-
-        /// <summary>
-        /// 释放资源
-        /// </summary>
-        public override void Dispose()
-        {
-            base.Dispose();
-            _reconnectTimer?.Dispose();
-        }
-    }
-
-    /// <summary>
-    /// TCP服务端连接
-    /// </summary>
-    public class TcpServerConnection : TcpTransport, IServerConnection
-    {
-        private readonly string _connectionId;
-
-        public string ConnectionId => _connectionId;
-
-        /// <summary>
-        /// 使用已连接的Socket创建服务端连接
-        /// </summary>
-        public TcpServerConnection(string connectionId, Socket socket, TransportOptions? options = null, ILogger? logger = null)
-            : base(options, logger)
-        {
-            _connectionId = connectionId;
-
-            // 替换Socket
-            _socket.Dispose();
-            _socket = socket;
-
-            // 创建网络流
-            _stream = new NetworkStream(socket, true);
-
-            // 设置状态
-            _state = ConnectionState.Connected;
-
-            // 启动接收循环
-            _receiveTask = ReceiveLoopAsync();
-
-            _logger.LogInformation("接受客户端连接: {ConnectionId} 从 {RemoteEndPoint}",
-                _connectionId, socket.RemoteEndPoint);
-        }
-
-        /// <summary>
-        /// 关闭连接
-        /// </summary>
-        public Task CloseAsync(CancellationToken cancellationToken = default)
-        {
-            if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
-                return Task.CompletedTask;
-
-            ChangeState(ConnectionState.Disconnecting);
-
-            try
-            {
-                // 关闭Socket
-                if (_socket.Connected)
-                {
-                    _socket.Shutdown(SocketShutdown.Both);
-                    _socket.Close();
-                }
-
-                // 更新状态
-                ChangeState(ConnectionState.Disconnected);
-
-                _logger.LogInformation("已关闭客户端连接: {ConnectionId}", _connectionId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "关闭客户端连接异常: {ConnectionId}", _connectionId);
-
-                // 即使出现异常，也更新状态
-                ChangeState(ConnectionState.Disconnected, $"关闭异常: {ex.Message}", ex);
-
-                throw;
-            }
-
-            return Task.CompletedTask;
-        }
-    }
-
-    /// <summary>
-    /// TCP服务端监听器
-    /// </summary>
-    public class TcpServerListener : IServerListener
-    {
-        private readonly TcpListener _listener;
-        private readonly TransportOptions _options;
-        private readonly ILogger _logger;
-        private readonly CancellationTokenSource _cts = new CancellationTokenSource();
-        private Task? _acceptTask;
-        private bool _isListening;
-        private readonly int _port;
-
-        public string Name => "TCP";
-        public TransportType Type => TransportType.Tcp;
-        public EndPoint LocalEndPoint => _listener.LocalEndpoint;
-        public bool IsListening => _isListening;
-
-        public event System.EventHandler<ServerConnectionEventArgs>? ConnectionAccepted;
-
-        public TcpServerListener(int port, TransportOptions? options = null, ILogger? logger = null)
-        {
-            _port = port;
-            _options = options ?? new TransportOptions();
-            _logger = logger ?? NullLogger.Instance;
-            _listener = new TcpListener(IPAddress.Any, port);
-        }
-
-        /// <summary>
-        /// 启动监听
-        /// </summary>
-        public Task StartAsync(CancellationToken cancellationToken = default)
-        {
-            if (_isListening)
-                return Task.CompletedTask;
-
-            _isListening = true;
-
-            try
-            {
-                // 启动监听
-                _listener.Start();
-
-                // 启动接受连接任务
-                _acceptTask = AcceptConnectionsAsync(_cts.Token);
-
-                _logger.LogInformation("TCP服务器监听已启动，端口: {Port}", _port);
-
-                return Task.CompletedTask;
-            }
-            catch (Exception ex)
-            {
-                _isListening = false;
-                _logger.LogError(ex, "启动TCP监听失败，端口: {Port}", _port);
-                throw;
-            }
-        }
-
-        /// <summary>
-        /// 停止监听
-        /// </summary>
-        public async Task StopAsync(CancellationToken cancellationToken = default)
-        {
-            if (!_isListening)
-                return;
-
-            _isListening = false;
-
-            // 取消接受连接任务
-            _cts.Cancel();
-
-            // 停止监听
-            _listener.Stop();
-
-            // 等待接受连接任务完成
-            try
-            {
-                if (_acceptTask != null)
-                    await _acceptTask;
-            }
-            catch (OperationCanceledException)
-            {
-                // 忽略取消异常
-            }
-
-            _logger.LogInformation("TCP服务器监听已停止，端口: {Port}", _port);
-        }
-
-        /// <summary>
-        /// 接受连接循环
-        /// </summary>
-        private async Task AcceptConnectionsAsync(CancellationToken cancellationToken)
-        {
-            try
-            {
-                while (!cancellationToken.IsCancellationRequested)
-                {
-                    // 接受新连接
-                    #if NET5_0_OR_GREATER
-                    var tcpClient = await _listener.AcceptTcpClientAsync(cancellationToken);
-                    #else
-                    var tcpClient = await _listener.AcceptTcpClientAsync();
-                    #endif
-
-                    // 设置TCP选项
-                    tcpClient.NoDelay = _options.NoDelay;
-                    tcpClient.ReceiveBufferSize = _options.ReadBufferSize;
-                    tcpClient.SendBufferSize = _options.WriteBufferSize;
-
-                    // 生成连接ID
-                    string connectionId = Guid.NewGuid().ToString("N");
-
-                    // 创建服务端连接
-                    var connection = new TcpServerConnection(connectionId, tcpClient.Client, _options, _logger);
-
-                    // 触发连接接受事件
-                    ConnectionAccepted?.Invoke(this, new ServerConnectionEventArgs(connection));
+                    return _userId;
                 }
             }
-            catch (OperationCanceledException)
+            set
             {
-                // 正常取消
-            }
-            catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                _logger.LogError(ex, "接受TCP连接异常");
+                lock (_syncLock)
+                {
+                    _userId = value;
+                }
             }
         }
 
-        /// <summary>
-        /// 释放资源
-        /// </summary>
-        public void Dispose()
+        public string? Username
         {
-            StopAsync().GetAwaiter().GetResult();
-            _cts.Dispose();
+            get
+            {
+                lock (_syncLock)
+                {
+                    return _username;
+                }
+            }
+            set
+            {
+                lock (_syncLock)
+                {
+                    _username = value;
+                }
+            }
+        }
+
+        public string? Token
+        {
+            get
+            {
+                lock (_syncLock)
+                {
+                    return _token;
+                }
+            }
+            set
+            {
+                lock (_syncLock)
+                {
+                    _token = value;
+                }
+            }
+        }
+
+        public DateTime? LoginTime
+        {
+            get
+            {
+                lock (_syncLock)
+                {
+                    return _loginTime;
+                }
+            }
+            set
+            {
+                lock (_syncLock)
+                {
+                    _loginTime = value;
+                }
+            }
+        }
+
+        public System.Security.Claims.ClaimsPrincipal? User
+        {
+            get
+            {
+                lock (_syncLock)
+                {
+                    return _user;
+                }
+            }
+            set
+            {
+                lock (_syncLock)
+                {
+                    _user = value;
+                }
+            }
+        }
+
+        public bool IsAuthenticated
+        {
+            get
+            {
+                lock (_syncLock)
+                {
+                    return _userId.HasValue && !string.IsNullOrEmpty(_username);
+                }
+            }
+        }
+
+        public IDictionary<string, object> Properties => _properties;
+
+        public void Clear()
+        {
+            lock (_syncLock)
+            {
+                _userId = null;
+                _username = null;
+                _token = null;
+                _loginTime = null;
+                _user = null;
+                _properties.Clear();
+            }
+        }
+
+        public void SetAuthentication(Guid userId, string username, string? token = null)
+        {
+            lock (_syncLock)
+            {
+                _userId = userId;
+                _username = username;
+                _token = token;
+                _loginTime = DateTime.UtcNow;
+            }
+        }
+
+        public void SetClaimsAuthentication(System.Security.Claims.ClaimsPrincipal user, string? token = null)
+        {
+            lock (_syncLock)
+            {
+                _user = user;
+                _token = token;
+                _loginTime = DateTime.UtcNow;
+
+                // 从Claims中提取用户信息
+                var userIdClaim = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier);
+                var usernameClaim = user.FindFirst(System.Security.Claims.ClaimTypes.Name);
+
+                if (userIdClaim != null && Guid.TryParse(userIdClaim.Value, out var userId))
+                {
+                    _userId = userId;
+                }
+
+                if (usernameClaim != null)
+                {
+                    _username = usernameClaim.Value;
+                }
+            }
         }
     }
 }

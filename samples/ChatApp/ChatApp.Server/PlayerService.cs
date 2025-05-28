@@ -1,5 +1,4 @@
-﻿// GameServer/Services/PlayerService.cs
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using GameServer.World;
 using System;
 using System.Collections.Generic;
@@ -8,6 +7,13 @@ using System.Threading.Tasks;
 using ChatApp.Shared;
 using Microsoft.Extensions.Hosting;
 using PulseRPC.Server;
+using PulseRPC.Server.Auth;
+using System.Security.Claims;
+using PulseRPC.Transport;
+using System.Linq;
+using PulseRPC;
+using PulseRPC.Server.Events;
+using PulseRPC.Server.Transport;
 
 namespace GameServer.Services
 {
@@ -20,6 +26,8 @@ namespace GameServer.Services
         private readonly IPlayerManager _playerManager;
         private readonly IEventPublisher _eventPublisher;
         private readonly PlayerMovementBatcher _movementBatcher;
+        private readonly IServerChannelManager _channelManager;
+        private readonly IAuthenticationProvider _authProvider;
         private readonly ILogger<PlayerService> _logger;
 
         public PlayerService(
@@ -27,12 +35,16 @@ namespace GameServer.Services
             IPlayerManager playerManager,
             IEventPublisher eventPublisher,
             PlayerMovementBatcher movementBatcher,
+            IServerChannelManager channelManager,
+            IAuthenticationProvider authProvider,
             ILogger<PlayerService> logger)
         {
             _gameWorld = gameWorld;
             _playerManager = playerManager;
             _eventPublisher = eventPublisher;
             _movementBatcher = movementBatcher;
+            _channelManager = channelManager;
+            _authProvider = authProvider;
             _logger = logger;
         }
 
@@ -45,30 +57,58 @@ namespace GameServer.Services
 
             try
             {
-                // 验证密码 (简化处理，实际应使用加密)
-                if (request.Password != "password")
-                {
-                    _logger.LogWarning("玩家 {Username} 密码错误", request.Username);
+                // 使用认证提供程序验证凭证
+                var credentials = $"{request.Username}:{request.Password}";
+                var authResult = await _authProvider.AuthenticateAsync(credentials);
 
+                if (!authResult.IsAuthenticated || authResult.User == null)
+                {
+                    _logger.LogWarning("玩家 {Username} 认证失败: {Error}", request.Username, authResult.ErrorMessage);
                     return new LoginResponse
                     {
                         Success = false,
-                        ErrorMessage = "用户名或密码错误"
+                        ErrorMessage = authResult.ErrorMessage ?? "认证失败"
                     };
                 }
 
-                // 创建或获取玩家
-                var player = await _playerManager.GetOrCreatePlayerAsync(request.Username);
+                // 从Claims中获取用户信息
+                var userIdClaim = authResult.User.FindFirst(ClaimTypes.NameIdentifier);
+                var usernameClaim = authResult.User.FindFirst(ClaimTypes.Name);
+
+                if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var playerId) || usernameClaim == null)
+                {
+                    _logger.LogError("认证成功但无法获取有效的用户信息");
+                    return new LoginResponse
+                    {
+                        Success = false,
+                        ErrorMessage = "用户信息无效"
+                    };
+                }
+
+                // 获取玩家对象
+                var player = await _playerManager.GetPlayerAsync(playerId);
+                if (player == null)
+                {
+                    _logger.LogError("找不到玩家: {PlayerId}", playerId);
+                    return new LoginResponse
+                    {
+                        Success = false,
+                        ErrorMessage = "玩家不存在"
+                    };
+                }
 
                 // 更新玩家状态为在线
                 player.IsOnline = true;
                 player.LastLoginTime = DateTime.UtcNow;
 
+                // 生成令牌
+                var token = GenerateToken(player);
+
                 // 创建响应
                 var response = new LoginResponse
                 {
                     Success = true,
-                    Token = GenerateToken(player),
+                    Token = token,
                     Player = new PlayerInfo
                     {
                         Id = player.Id,
@@ -82,12 +122,33 @@ namespace GameServer.Services
                 _logger.LogInformation("玩家 {Username} (ID: {PlayerId}) 登录成功",
                     player.Username, player.Id);
 
-                // 存储当前玩家上下文
-                RequestContext.Current = new RequestContext
+                // 获取当前连接并设置认证信息
+                var connection = RequestContext.Current;
+                if (connection != null)
                 {
-                    PlayerId = player.Id,
-                    Username = player.Username
-                };
+                    // 通过 ChannelManager 获取传输通道
+                    var channel = _channelManager.GetChannel(connection.ConnectionId);
+                    if (channel != null)
+                    {
+                        // 创建认证上下文
+                        var authContext = new PulseRPC.Server.Authentication.AuthenticationContext(connection.ConnectionId);
+                        authContext.SetClientAuthentication(player.Id.ToString(), player.Username, token, authResult.User);
+
+                        // 设置通道的认证信息
+                        channel.SetAuthentication(authContext);
+
+                        _logger.LogInformation("已为通道设置认证信息: UserId={UserId}, Username={Username}, ConnectionId={ConnectionId}",
+                            player.Id, player.Username, connection.ConnectionId);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("无法获取当前连接，无法设置认证信息");
+                }
 
                 return response;
             }
@@ -106,17 +167,51 @@ namespace GameServer.Services
         /// <summary>
         /// 处理玩家移动
         /// </summary>
+        [PulseRPC.Authorize]
         public async ValueTask MoveAsync(MoveRequest request)
         {
-            // 获取当前玩家上下文
-            var context = RequestContext.Current;
-            if (context == null || context.PlayerId == Guid.Empty)
+            _logger.LogInformation("开始处理玩家移动请求");
+
+            // 通过请求上下文获取当前连接（已由AuthenticationMiddleware验证）
+            var connection = RequestContext.Current;
+            _logger.LogInformation("RequestContext.Current: {IsNull}", connection == null ? "null" : "not null");
+
+            if (connection == null)
             {
-                _logger.LogWarning("未授权的移动请求");
-                throw new UnauthorizedAccessException("未登录");
+                _logger.LogError("RequestContext.Current 返回 null");
+                throw new InvalidOperationException("无法获取当前请求连接");
             }
 
-            var playerId = context.PlayerId;
+            // 通过 ChannelManager 获取传输通道
+            var channel = _channelManager.GetChannel(connection.ConnectionId);
+            if (channel == null)
+            {
+                _logger.LogError("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
+                throw new InvalidOperationException("无法获取传输通道");
+            }
+
+            _logger.LogInformation("连接信息: ConnectionId={ConnectionId}, Channel={ChannelType}",
+                connection.ConnectionId, channel.GetType().Name);
+
+            var authContext = channel.AuthenticationContext;
+            if (authContext == null || !authContext.IsAuthenticated)
+            {
+                _logger.LogError("通道未认证");
+                throw new UnauthorizedAccessException("用户未认证");
+            }
+
+            _logger.LogInformation("认证信息: Type={AuthType}, Identity={Identity}",
+                authContext.Type, authContext.Identity);
+
+            // 从认证上下文中获取用户ID
+            if (string.IsNullOrEmpty(authContext.Identity) || !Guid.TryParse(authContext.Identity, out var playerId))
+            {
+                _logger.LogError("认证上下文中未包含有效的用户ID: {Identity}", authContext.Identity);
+                throw new InvalidOperationException("用户信息无效");
+            }
+
+            _logger.LogInformation("从认证上下文获取到玩家ID: {PlayerId}", playerId);
+
             var player = await _playerManager.GetPlayerAsync(playerId);
 
             if (player != null)
@@ -151,6 +246,16 @@ namespace GameServer.Services
         }
 
         /// <summary>
+        /// 获取当前连接
+        /// </summary>
+        /// <returns>当前连接，如果找不到则返回null</returns>
+        private IServerConnection? GetCurrentConnection()
+        {
+            // 使用RequestContext获取当前请求的连接
+            return RequestContext.Current;
+        }
+
+        /// <summary>
         /// 通知玩家加入
         /// </summary>
         private async Task NotifyPlayerJoinedAsync(Player player)
@@ -176,6 +281,17 @@ namespace GameServer.Services
         {
             // 实际应用中应使用JWT或其他认证机制
             return Guid.NewGuid().ToString("N");
+        }
+
+        /// <summary>
+        /// 测试Ping方法（允许匿名访问）
+        /// </summary>
+        [PulseRPC.AllowAnonymous]
+        public async ValueTask<string> PingAsync(PingRequest request)
+        {
+            _logger.LogInformation("收到Ping请求: {Message}", request.Message);
+            await Task.Delay(10); // 模拟一些处理时间
+            return $"Pong: {request.Message} at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
         }
     }
 
@@ -259,23 +375,6 @@ namespace GameServer.Services
             }
 
             _logger.LogInformation("玩家移动批处理器已停止");
-        }
-    }
-
-    /// <summary>
-    /// 请求上下文
-    /// </summary>
-    public class RequestContext
-    {
-        private static readonly AsyncLocal<RequestContext> _current = new AsyncLocal<RequestContext>();
-
-        public Guid PlayerId { get; set; }
-        public string Username { get; set; }
-
-        public static RequestContext Current
-        {
-            get => _current.Value;
-            set => _current.Value = value;
         }
     }
 }

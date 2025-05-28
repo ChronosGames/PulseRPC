@@ -2,6 +2,8 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using MemoryPack;
+using PulseRPC.Transport;
+using PulseRPC.Server.Auth;
 
 namespace PulseRPC.Server.Services;
 
@@ -23,6 +25,9 @@ public class ServiceRegistry
     // 缓存直接调用方法的委托（零拷贝模式）
     private readonly ConcurrentDictionary<string, Delegate> _directMethodCache = new();
 
+    // 认证中间件
+    private readonly AuthenticationMiddleware? _authMiddleware;
+
     // 保持单例模式
     private static ServiceRegistry? _instance;
     private static readonly object _lock = new();
@@ -42,7 +47,20 @@ public class ServiceRegistry
         }
     }
 
-    private ServiceRegistry() { }
+    private ServiceRegistry(AuthenticationMiddleware? authMiddleware = null)
+    {
+        _authMiddleware = authMiddleware;
+    }
+
+    /// <summary>
+    /// 创建带认证中间件的服务注册中心实例
+    /// </summary>
+    /// <param name="authMiddleware">认证中间件</param>
+    /// <returns>服务注册中心实例</returns>
+    public static ServiceRegistry CreateWithAuth(AuthenticationMiddleware authMiddleware)
+    {
+        return new ServiceRegistry(authMiddleware);
+    }
 
     /// <summary>
     /// 注册服务
@@ -696,111 +714,137 @@ public class ServiceRegistry
     }
 
     /// <summary>
-    /// 使用零拷贝方式高性能调用服务方法
+    /// 调用服务方法
     /// </summary>
     public async Task<object?> InvokeMethodAsync(string serviceName, string methodName, byte[] requestBytes,
-        CancellationToken cancellationToken = default)
+        IServerConnection? connection = null, CancellationToken cancellationToken = default)
     {
-        // 查找服务
-        if (!_services.TryGetValue(serviceName, out var serviceInfo))
-            throw new InvalidOperationException($"服务未找到: {serviceName}");
+        Console.WriteLine($"[ServiceRegistry] 开始调用服务方法: {serviceName}.{methodName}, Connection: {connection?.ConnectionId ?? "null"}");
 
-        // 查找方法
-        if (!serviceInfo.Methods.TryGetValue(methodName, out var methodInfo))
-            throw new InvalidOperationException($"方法未找到: {methodName} in service {serviceName}");
-
-        // 获取实例
-        var instance = serviceInfo.Implementation;
-
-        // 获取缓存键
-        var cacheKey = $"{serviceName}.{methodName}";
+        // 设置请求上下文
+        RequestContext.SetCurrent(connection);
+        Console.WriteLine($"[ServiceRegistry] 已设置RequestContext: {RequestContext.Current?.ConnectionId ?? "null"}");
 
         try
         {
-            // 首先尝试使用直接调用委托（对ValueTask类型特别有效）
-            if (_directMethodCache.TryGetValue(cacheKey, out var directDelegate))
+            // 查找服务
+            if (!_services.TryGetValue(serviceName, out var serviceInfo))
+                throw new InvalidOperationException($"服务未找到: {serviceName}");
+
+            // 查找方法
+            if (!serviceInfo.Methods.TryGetValue(methodName, out var methodInfo))
+                throw new InvalidOperationException($"方法未找到: {methodName} in service {serviceName}");
+
+            // 执行认证和授权检查
+            if (connection != null && _authMiddleware != null)
             {
-                try
+                Console.WriteLine($"[ServiceRegistry] 开始认证检查: {serviceName}.{methodName}");
+                var authResult = await _authMiddleware.AuthenticateRequestAsync(connection, serviceName, methodName, methodInfo.MethodInfo);
+                if (!authResult)
                 {
-                    Console.WriteLine($"使用直接调用委托执行: {cacheKey}");
-                    // 使用直接委托调用
-                    dynamic dynDelegate = directDelegate;
-                    dynamic dynInstance = instance;
-                    dynamic result = dynDelegate(dynInstance, requestBytes, cancellationToken);
-
-                    // 等待ValueTask结果
-                    await result;
-
-                    // 获取结果值
-                    return GetValueTaskResult(result);
+                    throw new UnauthorizedAccessException("访问被拒绝：认证或授权失败");
                 }
-                catch (Exception ex)
+                Console.WriteLine($"[ServiceRegistry] 认证检查通过: {serviceName}.{methodName}");
+            }
+
+            // 获取实例
+            var instance = serviceInfo.Implementation;
+
+            // 获取缓存键
+            var cacheKey = $"{serviceName}.{methodName}";
+
+            try
+            {
+                // 首先尝试使用直接调用委托（对ValueTask类型特别有效）
+                if (_directMethodCache.TryGetValue(cacheKey, out var directDelegate))
                 {
-                    Console.WriteLine($"直接调用失败: {ex.Message}，回退到其他调用方式");
+                    try
+                    {
+                        Console.WriteLine($"使用直接调用委托执行: {cacheKey}");
+                        // 使用直接委托调用
+                        dynamic dynDelegate = directDelegate;
+                        dynamic dynInstance = instance;
+                        dynamic result = dynDelegate(dynInstance, requestBytes, cancellationToken);
+
+                        // 等待ValueTask结果
+                        await result;
+
+                        // 获取结果值
+                        return GetValueTaskResult(result);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"直接调用失败: {ex.Message}，回退到其他调用方式");
+                    }
                 }
-            }
 
-            // 检查方法返回类型是否为ValueTask
-            if (IsValueTaskType(methodInfo.MethodInfo.ReturnType))
+                // 检查方法返回类型是否为ValueTask
+                if (IsValueTaskType(methodInfo.MethodInfo.ReturnType))
+                {
+                    Console.WriteLine($"ValueTask方法缺少直接调用委托，尝试回退处理: {methodName}");
+
+                    // 尝试使用反射回退机制
+                    return await InvokeValueTaskWithReflectionAsync(methodInfo.MethodInfo, instance, requestBytes, cancellationToken);
+                }
+
+                // 标准调用路径（适用于Task和同步方法）
+                if (!_methodCache.TryGetValue(cacheKey, out var methodDelegate))
+                {
+                    // 动态创建委托
+                    methodDelegate = _methodCache.GetOrAdd(cacheKey, key => CreateMethodDelegate(methodInfo.MethodInfo));
+                }
+
+                // 获取参数类型
+                var parameterType = methodInfo.MethodInfo.GetParameters()[0].ParameterType;
+
+                // 获取缓存的反序列化委托
+                var deserializer = _deserializerCache.GetOrAdd(parameterType, type => CreateDeserializerDelegate(type));
+
+                // 反序列化请求对象
+                var request = deserializer(requestBytes);
+
+                // 准备参数
+                object[] parameters;
+                if (methodInfo.MethodInfo.GetParameters().Length > 1 &&
+                    methodInfo.MethodInfo.GetParameters()[1].ParameterType == typeof(CancellationToken))
+                {
+                    parameters = [request, cancellationToken];
+                }
+                else
+                {
+                    parameters = [request];
+                }
+
+                // 调用方法
+                var methodResult = methodDelegate(instance, parameters);
+
+                // 处理异步结果
+                if (methodResult is Task task)
+                {
+                    await task;
+
+                    // 检查是否有返回值
+                    var resultProperty = task.GetType().GetProperty("Result");
+                    return resultProperty != null ? resultProperty.GetValue(task) : null;
+                }
+
+                return methodResult;
+            }
+            catch (TargetInvocationException ex)
             {
-                Console.WriteLine($"ValueTask方法缺少直接调用委托，尝试回退处理: {methodName}");
-
-                // 尝试使用反射回退机制
-                return await InvokeValueTaskWithReflectionAsync(methodInfo.MethodInfo, instance, requestBytes, cancellationToken);
+                // 如果是目标调用异常，提取内部异常
+                throw ex.InnerException ?? ex;
             }
-
-            // 标准调用路径（适用于Task和同步方法）
-            if (!_methodCache.TryGetValue(cacheKey, out var methodDelegate))
+            catch (Exception ex)
             {
-                // 动态创建委托
-                methodDelegate = _methodCache.GetOrAdd(cacheKey, key => CreateMethodDelegate(methodInfo.MethodInfo));
+                Console.WriteLine($"执行方法异常: {ex.Message}");
+                throw;
             }
-
-            // 获取参数类型
-            var parameterType = methodInfo.MethodInfo.GetParameters()[0].ParameterType;
-
-            // 获取缓存的反序列化委托
-            var deserializer = _deserializerCache.GetOrAdd(parameterType, type => CreateDeserializerDelegate(type));
-
-            // 反序列化请求对象
-            var request = deserializer(requestBytes);
-
-            // 准备参数
-            object[] parameters;
-            if (methodInfo.MethodInfo.GetParameters().Length > 1 &&
-                methodInfo.MethodInfo.GetParameters()[1].ParameterType == typeof(CancellationToken))
-            {
-                parameters = [request, cancellationToken];
-            }
-            else
-            {
-                parameters = [request];
-            }
-
-            // 调用方法
-            var methodResult = methodDelegate(instance, parameters);
-
-            // 处理异步结果
-            if (methodResult is Task task)
-            {
-                await task;
-
-                // 检查是否有返回值
-                var resultProperty = task.GetType().GetProperty("Result");
-                return resultProperty != null ? resultProperty.GetValue(task) : null;
-            }
-
-            return methodResult;
         }
-        catch (TargetInvocationException ex)
+        finally
         {
-            // 如果是目标调用异常，提取内部异常
-            throw ex.InnerException ?? ex;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"执行方法异常: {ex.Message}");
-            throw;
+            // 清理请求上下文
+            RequestContext.Clear();
         }
     }
 

@@ -1,12 +1,11 @@
-﻿// GameServer/World/PlayerManager.cs
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using ChatApp.Shared;
-using PulseRPC.Server;
+using PulseRPC.Server.Events;
 
 namespace GameServer.World
 {
@@ -23,7 +22,7 @@ namespace GameServer.World
         /// <summary>
         /// 获取玩家
         /// </summary>
-        Task<Player> GetPlayerAsync(Guid playerId);
+        Task<Player?> GetPlayerAsync(Guid playerId);
 
         /// <summary>
         /// 获取所有玩家
@@ -101,16 +100,16 @@ namespace GameServer.World
         /// <summary>
         /// 获取玩家
         /// </summary>
-        public Task<Player> GetPlayerAsync(Guid playerId)
+        public Task<Player?> GetPlayerAsync(Guid playerId)
         {
             if (_players.TryGetValue(playerId, out var player))
             {
                 // 更新活动时间
                 player.UpdateActivity();
-                return Task.FromResult(player);
+                return Task.FromResult<Player?>(player);
             }
 
-            return Task.FromResult<Player>(null);
+            return Task.FromResult<Player?>(null);
         }
 
         /// <summary>

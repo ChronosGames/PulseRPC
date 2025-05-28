@@ -13,16 +13,26 @@ namespace ChatApp.Shared
     [Channel("TcpChannel")]
     public interface IPlayerService : INetworkService
     {
-        // 请求-响应: 玩家登录
+        /// <summary>
+        /// 玩家登录
+        /// </summary>
         [Operation]
         ValueTask<LoginResponse> LoginAsync(LoginRequest request);
 
-        // 命令: 玩家移动
+        /// <summary>
+        /// 玩家移动
+        /// </summary>
         [Operation]
         // 注意：当前KCP传输层仅为示例实现，无法正常工作
         // 临时使用TCP通道避免超时问题，生产环境需要实现完整的KCP库
         [Channel("TcpChannel")] // 临时使用TCP通道，直到KCP实现完成
         ValueTask MoveAsync(MoveRequest request);
+
+        /// <summary>
+        /// 测试Ping方法（允许匿名访问）
+        /// </summary>
+        [Operation]
+        ValueTask<string> PingAsync(PingRequest request);
     }
 
     /// <summary>
@@ -125,9 +135,21 @@ namespace ChatApp.Shared
         public bool IsRunning { get; set; }
     }
 
+    /// <summary>
+    /// 玩家移动事件数据
+    /// </summary>
     [MemoryPackable]
     public partial class PlayersBatchMovedEvent : IEventData
     {
-        public PlayerMovedEvent[] Updates { get; set; }
+        public PlayerMovedEvent[] Updates { get; set; } = Array.Empty<PlayerMovedEvent>();
+    }
+
+    /// <summary>
+    /// Ping请求
+    /// </summary>
+    [MemoryPackable]
+    public partial class PingRequest
+    {
+        public string Message { get; set; } = string.Empty;
     }
 }
