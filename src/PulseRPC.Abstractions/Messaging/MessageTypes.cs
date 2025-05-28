@@ -4,18 +4,6 @@ using System;
 namespace PulseRPC.Messaging
 {
     /// <summary>
-    /// 空载荷类型，用于替代 object 类型避免序列化问题
-    /// </summary>
-    [MemoryPackable]
-    public readonly partial struct EmptyPayload
-    {
-        /// <summary>
-        /// 静态实例，避免重复创建
-        /// </summary>
-        public static readonly EmptyPayload Instance = new();
-    }
-
-    /// <summary>
     /// 错误响应类型
     /// </summary>
     [MemoryPackable]
