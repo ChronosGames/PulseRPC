@@ -126,7 +126,14 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
             }
 
             // 反序列化响应
-            return _serializerProvider.Create(MethodType.Unary, null).Deserialize<TResponse>(new ReadOnlySequence<byte>(response.Body));
+            if (typeof(TResponse) == typeof(EmptyResponse))
+            {
+                return (TResponse)(object)EmptyResponse.Instance;
+            }
+            else
+            {
+                return _serializerProvider.Create(MethodType.Unary, null).Deserialize<TResponse>(new ReadOnlySequence<byte>(response.Body));
+            }
         }
         finally
         {

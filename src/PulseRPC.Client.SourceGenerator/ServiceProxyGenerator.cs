@@ -389,9 +389,6 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             GenerateMethodImplementation(sb, methodSymbol, defaultChannelName, namespaceName, interfaceName);
         }
 
-        // 生成辅助类
-        sb.AppendLine("        private class EmptyResponse { }");
-
         // 结束类和命名空间
         sb.AppendLine("    }");
         sb.AppendLine("}");
@@ -472,7 +469,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         var isValueTaskVoid = returnType is "System.Threading.Tasks.ValueTask" or "ValueTask";
 
         // 获取返回值类型
-        var responseType = "EmptyResponse";
+        var responseType = "PulseRPC.EmptyResponse";
         if (isValueTask || isTask)
         {
             responseType = ExtractGenericType(returnType);

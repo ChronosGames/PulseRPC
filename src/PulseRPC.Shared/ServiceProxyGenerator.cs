@@ -123,7 +123,7 @@ public class ServiceProxyGenerator : IServiceProxyGenerator
         {
             // 使用动态调用发送请求
             var sendMethod = typeof(IMessageChannel).GetMethod("SendRequestAsync")
-                .MakeGenericMethod(request.GetType(), typeof(EmptyResponse));
+                .MakeGenericMethod(request.GetType(), typeof(PulseRPC.EmptyResponse));
 
             await (Task)sendMethod.Invoke(_channel, new[] { serviceName, methodName, request, cancellationToken });
         }
@@ -157,11 +157,6 @@ public class ServiceProxyGenerator : IServiceProxyGenerator
 
             return valueTaskCtor.Invoke(new[] { resultTask });
         }
-    }
-
-    // 内部类：空响应
-    private class EmptyResponse
-    {
     }
 }
 

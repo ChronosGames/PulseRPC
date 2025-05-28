@@ -291,7 +291,7 @@ public class ServerManager : IServerManager
             var responseHeader = GetHeaderFromPool(MessageType.Response, header);
 
             // 发送响应 - 使用安全方法
-            dynamic response = result ?? EmptyPayload.Instance;
+            dynamic response = result ?? EmptyResponse.Instance;
             await channel.SendMessageAsync(clientId, responseHeader, response);
 
             // 返回对象到池
@@ -349,7 +349,7 @@ public class ServerManager : IServerManager
             var header = GetHeaderFromPool(MessageType.Pong, message.Header);
 
             // 发送Pong响应
-            await channel.SendMessageAsync(clientId, header, EmptyPayload.Instance);
+            await channel.SendMessageAsync(clientId, header, EmptyResponse.Instance);
 
             // 返回对象到池
             ReturnHeaderToPool(header);

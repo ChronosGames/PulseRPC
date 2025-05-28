@@ -19,7 +19,9 @@ namespace ChatApp.Shared
 
         // 命令: 玩家移动
         [Operation]
-        [Channel("KcpChannel")] // 覆盖接口默认通道，使用KCP通道
+        // 注意：当前KCP传输层仅为示例实现，无法正常工作
+        // 临时使用TCP通道避免超时问题，生产环境需要实现完整的KCP库
+        [Channel("TcpChannel")] // 临时使用TCP通道，直到KCP实现完成
         ValueTask MoveAsync(MoveRequest request);
     }
 
