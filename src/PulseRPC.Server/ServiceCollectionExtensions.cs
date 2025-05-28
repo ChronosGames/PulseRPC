@@ -28,7 +28,12 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
 
         // 注册通道管理器
-        services.AddSingleton<IServerChannelManager, ServerChannelManager>();
+        services.AddSingleton<IServerChannelManager>(sp =>
+        {
+            var logger = sp.GetRequiredService<ILogger<ServerChannelManager>>();
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            return new ServerChannelManager(logger, loggerFactory);
+        });
 
         // 注册认证中间件
         services.AddSingleton<AuthenticationMiddleware>();

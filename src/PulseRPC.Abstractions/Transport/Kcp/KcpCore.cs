@@ -201,17 +201,29 @@ namespace PulseRPC.Transport.Kcp
             var flag = false;
 
             if (data.Length < KcpSegmentHeader.HeaderSize)
+            {
+                _logger.LogError("[KCP.Input] 数据包太短，无法包含完整头部: Length={Length}, RequiredSize={RequiredSize}",
+                    data.Length, KcpSegmentHeader.HeaderSize);
                 return -1;
+            }
 
             var offset = 0;
+            var segmentCount = 0;
             while (offset + KcpSegmentHeader.HeaderSize <= data.Length)
             {
+                segmentCount++;
+
                 var segment = KcpSegment.Decode(data.Slice(offset));
                 if (segment == null)
+                {
+                    _logger.LogError("[KCP.Input] 第{SegmentIndex}个数据段解码失败", segmentCount);
                     break;
+                }
 
                 if (segment.Header.Conv != _conv)
                 {
+                    _logger.LogError("[KCP.Input] 会话ID不匹配: Expected={ExpectedConv}, Actual={ActualConv}",
+                        _conv, segment.Header.Conv);
                     KcpSegment.Return(segment);
                     return -1;
                 }
@@ -223,6 +235,7 @@ namespace PulseRPC.Transport.Kcp
                     segment.Header.Cmd != (byte)KcpCommand.WindowsProbe &&
                     segment.Header.Cmd != (byte)KcpCommand.WindowsResponse)
                 {
+                    _logger.LogError("[KCP.Input] 不支持的命令类型: Cmd={Cmd}", segment.Header.Cmd);
                     KcpSegment.Return(segment);
                     return -2;
                 }
@@ -253,14 +266,39 @@ namespace PulseRPC.Transport.Kcp
                 }
                 else if (segment.Header.Cmd == (byte)KcpCommand.Push)
                 {
+                    var seqDiff = TimeDiff(segment.Header.Sn, _rcvNxt + _rcvWnd);
+
                     if (TimeDiff(segment.Header.Sn, _rcvNxt + _rcvWnd) < 0)
                     {
                         AckPush(segment.Header.Sn, segment.Header.Ts);
+
+                        var nextDiff = TimeDiff(segment.Header.Sn, _rcvNxt);
+
                         if (TimeDiff(segment.Header.Sn, _rcvNxt) >= 0)
                         {
+                            // 序列号同步检查和修复逻辑
+                            var seqGap = (int)(segment.Header.Sn - _rcvNxt);
+                            if (seqGap > 0 && seqGap <= 10) // 合理的序列号跳跃范围
+                            {
+                                _logger.LogWarning("[KCP.Input] 检测到序列号跳跃，自动同步: 期望={ExpectedSn}, 实际={ActualSn}, 差距={SeqGap}",
+                                    _rcvNxt, segment.Header.Sn, seqGap);
+                                _rcvNxt = segment.Header.Sn;
+                                _logger.LogInformation("[KCP.Input] 序列号已同步: RcvNxt={RcvNxt}", _rcvNxt);
+                            }
+                            else if (seqGap > 10)
+                            {
+                                _logger.LogError("[KCP.Input] 序列号跳跃过大，可能存在数据丢失: 期望={ExpectedSn}, 实际={ActualSn}, 差距={SeqGap}",
+                                    _rcvNxt, segment.Header.Sn, seqGap);
+                            }
+
                             ParseData(segment);
                             segment = null; // 已被ParseData处理
                         }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("[KCP.Input] 序列号超出接收窗口，丢弃段: Sn={Sn}, Window={Window}",
+                            segment.Header.Sn, _rcvNxt + _rcvWnd);
                     }
                 }
                 else if (segment.Header.Cmd == (byte)KcpCommand.WindowsProbe)
@@ -627,6 +665,8 @@ namespace PulseRPC.Transport.Kcp
             if (TimeDiff(sn, _rcvNxt + _rcvWnd) >= 0 ||
                 TimeDiff(sn, _rcvNxt) < 0)
             {
+                _logger.LogWarning("[KCP.ParseData] 数据段序列号超出范围，丢弃: Sn={Sn}, RcvNxt={RcvNxt}, RcvWnd={RcvWnd}",
+                    sn, _rcvNxt, _rcvWnd);
                 KcpSegment.Return(newseg);
                 return;
             }
@@ -653,19 +693,23 @@ namespace PulseRPC.Transport.Kcp
             if (!repeat)
             {
                 if (after == -1)
+                {
                     _rcvBuf.Insert(0, newseg);
+                }
                 else
+                {
                     _rcvBuf.Insert(after + 1, newseg);
+                }
             }
             else
             {
                 KcpSegment.Return(newseg);
             }
 
-            // 移动可用数据到接收队列
             while (_rcvBuf.Count > 0)
             {
                 var seg = _rcvBuf[0];
+
                 if (seg.Header.Sn == _rcvNxt && _rcvQueue.Count < _rcvWnd)
                 {
                     _rcvBuf.RemoveAt(0);
@@ -674,6 +718,16 @@ namespace PulseRPC.Transport.Kcp
                 }
                 else
                 {
+                    if (seg.Header.Sn != _rcvNxt)
+                    {
+                        _logger.LogDebug("[KCP.ParseData] 段序列号不连续，停止移动: ExpectedSn={ExpectedSn}, ActualSn={ActualSn}",
+                            _rcvNxt, seg.Header.Sn);
+                    }
+                    if (_rcvQueue.Count >= _rcvWnd)
+                    {
+                        _logger.LogDebug("[KCP.ParseData] 接收队列已满，停止移动: QueueCount={QueueCount}, RcvWnd={RcvWnd}",
+                            _rcvQueue.Count, _rcvWnd);
+                    }
                     break;
                 }
             }

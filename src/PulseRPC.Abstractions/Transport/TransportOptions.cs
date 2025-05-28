@@ -24,6 +24,26 @@ namespace PulseRPC.Transport
         public int ConnectionTimeout { get; set; } = 5000;
 
         /// <summary>
+        /// 握手重试次数
+        /// </summary>
+        public int HandshakeRetryCount { get; set; } = 3;
+
+        /// <summary>
+        /// 单次握手超时 (毫秒)
+        /// </summary>
+        public int HandshakeTimeout { get; set; } = 2000;
+
+        /// <summary>
+        /// 是否启用网络诊断
+        /// </summary>
+        public bool EnableNetworkDiagnostics { get; set; } = true;
+
+        /// <summary>
+        /// UDP接收超时 (毫秒)
+        /// </summary>
+        public int UdpReceiveTimeout { get; set; } = 1000;
+
+        /// <summary>
         /// NoDelay选项 (TCP)
         /// </summary>
         public bool NoDelay { get; set; } = true;

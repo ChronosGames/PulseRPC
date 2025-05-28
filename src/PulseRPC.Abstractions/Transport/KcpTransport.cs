@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using MemoryPack;
 
 namespace PulseRPC.Transport.Kcp
 {
@@ -69,7 +68,10 @@ namespace PulseRPC.Transport.Kcp
             CancellationToken cancellationToken = default)
         {
             if (!IsConnected)
+            {
+                _logger.LogWarning("KCP基类无法发送数据: 未连接");
                 return false;
+            }
 
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
 
@@ -78,77 +80,23 @@ namespace PulseRPC.Transport.Kcp
             {
                 // 直接发送数据到KCP
                 var result = _kcp.Send(data.Span);
+
+                // 立即更新KCP状态以确保数据及时发送
+                if (result == 0)
+                {
+                    uint currentTime = GetCurrentTimeMs();
+                    _kcp.Update(currentTime);
+                }
+                else
+                {
+                    _logger.LogWarning("KCP基类发送数据到KCP协议栈失败: result={Result}", result);
+                }
+
                 return result == 0;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "KCP发送数据失败");
-                return false;
-            }
-            finally
-            {
-                _sendLock.Release();
-            }
-        }
-
-        public async Task<bool> SendAsync<T>(Messaging.MessageHeader header, T? payload, CancellationToken cancellationToken = default)
-        {
-            if (!IsConnected)
-                return false;
-
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
-
-            await _sendLock.WaitAsync(linkedCts.Token);
-            try
-            {
-                // 使用MemoryPack序列化数据
-                var headerBytes = MemoryPackSerializer.Serialize(header);
-
-                byte[] payloadBytes = Array.Empty<byte>();
-                if (payload != null)
-                {
-                    payloadBytes = MemoryPackSerializer.Serialize(payload);
-                }
-
-                // 创建完整消息包：[HeaderLength:4][Header:HeaderLength][PayloadLength:4][Payload:PayloadLength]
-                var totalLength = 4 + headerBytes.Length + 4 + payloadBytes.Length;
-                var messageBuffer = new byte[totalLength];
-
-                var offset = 0;
-
-                // 写入消息头长度
-                BitConverter.TryWriteBytes(messageBuffer.AsSpan(offset), headerBytes.Length);
-                offset += 4;
-
-                // 写入消息头
-                headerBytes.CopyTo(messageBuffer, offset);
-                offset += headerBytes.Length;
-
-                // 写入载荷长度
-                BitConverter.TryWriteBytes(messageBuffer.AsSpan(offset), payloadBytes.Length);
-                offset += 4;
-
-                // 写入载荷
-                payloadBytes.CopyTo(messageBuffer, offset);
-
-                // 通过KCP发送数据
-                var result = _kcp.Send(messageBuffer);
-
-                if (result == 0)
-                {
-                    _logger.LogDebug("KCP消息发送成功: HeaderLength={HeaderLength}, PayloadLength={PayloadLength}",
-                        headerBytes.Length, payloadBytes.Length);
-                    return true;
-                }
-                else
-                {
-                    _logger.LogWarning("KCP消息发送失败: Result={Result}", result);
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "KCP发送消息异常");
+                _logger.LogError(ex, "KCP基类发送数据失败");
                 return false;
             }
             finally
@@ -190,40 +138,67 @@ namespace PulseRPC.Transport.Kcp
                 _socket.BeginReceiveFrom(recvBuffer, 0, recvBuffer.Length, SocketFlags.None, ref remoteEp, OnUdpReceive, recvBuffer);
 
                 // KCP更新循环
-                while (!_cts.IsCancellationRequested && IsConnected)
+                while (!_disposed && !_cts.IsCancellationRequested && IsConnected)
                 {
-                    uint currentTime = GetCurrentTimeMs();
-
-                    if (currentTime >= nextUpdateTime)
+                    try
                     {
-                        // 更新KCP
-                        _kcp.Update(currentTime);
-                        nextUpdateTime = _kcp.Check(currentTime);
+                        uint currentTime = GetCurrentTimeMs();
 
-                        // 处理接收数据
-                        ProcessKcpReceive();
+                        if (currentTime >= nextUpdateTime)
+                        {
+                            // 更新KCP
+                            _kcp.Update(currentTime);
+                            nextUpdateTime = _kcp.Check(currentTime);
+
+                            // 处理接收数据
+                            ProcessKcpReceive();
+                        }
+
+                        // 等待下次更新
+                        int sleepTime = (int)(nextUpdateTime - currentTime);
+                        if (sleepTime > 0)
+                        {
+                            // 使用更安全的延迟方式，避免 CancellationTokenSource 被释放的问题
+                            try
+                            {
+                                await Task.Delay(Math.Min(sleepTime, 5), _cts.Token); // 减少到5ms以提高实时性
+                            }
+                            catch (ObjectDisposedException) when (_disposed)
+                            {
+                                // CancellationTokenSource 已被释放，正常退出
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            try
+                            {
+                                await Task.Delay(1, _cts.Token); // 防止100%CPU占用
+                            }
+                            catch (ObjectDisposedException) when (_disposed)
+                            {
+                                // CancellationTokenSource 已被释放，正常退出
+                                break;
+                            }
+                        }
                     }
-
-                    // 等待下次更新
-                    int sleepTime = (int)(nextUpdateTime - currentTime);
-                    if (sleepTime > 0)
+                    catch (OperationCanceledException) when (_cts.IsCancellationRequested || _disposed)
                     {
-                        await Task.Delay(Math.Min(sleepTime, 10), _cts.Token);
+                        // 正常取消，退出循环
+                        break;
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        await Task.Delay(1, _cts.Token); // 防止100%CPU占用
+                        _logger.LogError(ex, "KCP更新循环异常");
+                        ChangeState(ConnectionState.Failed, $"更新异常: {ex.Message}");
+                        break;
                     }
                 }
             }
-            catch (OperationCanceledException)
-            {
-                // 正常取消
-            }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "KCP更新循环异常");
-                ChangeState(ConnectionState.Disconnected, $"KCP异常: {ex.Message}", ex);
+                _logger.LogError(ex, "KCP更新循环启动失败");
+                ChangeState(ConnectionState.Failed, $"循环启动失败: {ex.Message}");
             }
         }
 
@@ -266,14 +241,12 @@ namespace PulseRPC.Transport.Kcp
             catch (ObjectDisposedException)
             {
                 // Socket 已被释放，这是正常情况
-                _logger.LogDebug("Socket已释放，停止UDP接收");
             }
             catch (SocketException ex) when (ex.SocketErrorCode == SocketError.OperationAborted ||
                                              ex.SocketErrorCode == SocketError.ConnectionReset ||
                                              ex.SocketErrorCode == SocketError.Interrupted)
             {
                 // 连接被中止或重置，这在网络断开时是正常的
-                _logger.LogDebug("Socket操作被中止: {ErrorCode}", ex.SocketErrorCode);
                 if (!_cts.IsCancellationRequested && !_disposed)
                 {
                     ChangeState(ConnectionState.Disconnected, $"网络连接中断: {ex.SocketErrorCode}", ex);
@@ -289,7 +262,7 @@ namespace PulseRPC.Transport.Kcp
         /// <summary>
         /// 处理KCP接收数据
         /// </summary>
-        protected void ProcessKcpReceive()
+        private void ProcessKcpReceive()
         {
             try
             {
@@ -305,12 +278,13 @@ namespace PulseRPC.Transport.Kcp
                     // 触发数据接收事件
                     var receivedData = new byte[size];
                     Array.Copy(buffer, 0, receivedData, 0, size);
+
                     DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData));
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "处理KCP接收数据异常");
+                _logger.LogError(ex, "KCP基类处理接收数据异常");
             }
         }
 
@@ -349,22 +323,76 @@ namespace PulseRPC.Transport.Kcp
 
             _disposed = true;
 
-            _cts.Cancel();
-
             try
             {
-                _socket?.Close();
-                _socket?.Dispose();
+                // 首先取消令牌，停止所有正在进行的操作
+                _cts.Cancel();
+
+                // 等待更新任务完成（短时间等待）
+                try
+                {
+                    _updateTask?.Wait(TimeSpan.FromSeconds(2));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "等待KCP更新任务完成时发生异常");
+                }
+
+                // 释放 Socket 资源
+                try
+                {
+                    _socket?.Close();
+                    _socket?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "关闭Socket时发生异常");
+                }
+
+                // 释放 KCP 资源
+                try
+                {
+                    _kcp?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "释放KCP资源时发生异常");
+                }
+
+                // 释放其他资源
+                try
+                {
+                    _sendLock?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "释放发送锁时发生异常");
+                }
+
+                try
+                {
+                    _cts.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "释放CancellationTokenSource时发生异常");
+                }
+
+                try
+                {
+                    _stopwatch.Stop();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "停止计时器时发生异常");
+                }
+
+                _logger.LogDebug("KCP传输资源已释放");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "关闭KCP资源异常");
+                _logger.LogError(ex, "释放KCP传输资源时发生严重异常");
             }
-
-            _kcp?.Dispose();
-            _cts.Dispose();
-            _sendLock.Dispose();
-            _stopwatch.Stop();
         }
     }
 }
