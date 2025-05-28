@@ -54,6 +54,11 @@ namespace PulseRPC.Transport
         /// 发送数据
         /// </summary>
         Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 发送数据
+        /// </summary>
+        Task<bool> SendAsync<T>(in Messaging.MessageHeader header, T? payload, CancellationToken cancellationToken = default);
     }
 
     /// <summary>
@@ -221,6 +226,18 @@ namespace PulseRPC.Transport
         public ServerConnectionEventArgs(IServerConnection connection)
         {
             Connection = connection;
+        }
+    }
+
+    public class NetworkMessage
+    {
+        public Messaging.MessageHeader Header { get; set; }
+        public byte[] Body { get; set; }
+
+        public NetworkMessage(Messaging.MessageHeader header, byte[] body)
+        {
+            Header = header;
+            Body = body;
         }
     }
 }

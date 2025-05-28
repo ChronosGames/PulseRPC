@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -6,8 +7,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Serialization;
-
-#nullable enable
 
 namespace PulseRPC.Events
 {
@@ -17,16 +16,16 @@ namespace PulseRPC.Events
     public class MemoryChannelEventBus : IEventBus
     {
         private readonly Dictionary<string, List<EventSubscription>> _subscriptions = new();
-        private readonly ISerializer _serializer;
+        private readonly ISerializerProvider _serializerProvider;
         private readonly object _syncLock = new object();
         private readonly ILogger<MemoryChannelEventBus> _logger;
 
         /// <summary>
         /// 创建内存通道事件总线
         /// </summary>
-        public MemoryChannelEventBus(ISerializer serializer, ILogger<MemoryChannelEventBus>? logger = null)
+        public MemoryChannelEventBus(ISerializerProvider serializerProvider, ILogger<MemoryChannelEventBus>? logger = null)
         {
-            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+            _serializerProvider = serializerProvider ?? throw new ArgumentNullException(nameof(serializerProvider));
             _logger = logger ?? NullLogger<MemoryChannelEventBus>.Instance;
         }
 
@@ -52,8 +51,13 @@ namespace PulseRPC.Events
 
             try
             {
+                var writer = new ArrayBufferWriter<byte>();
+                var data = new { Name = "John", Age = 30 };
+
+                _serializerProvider.Create(MethodType.ClientStreaming, null).Serialize(writer, in data);
+
                 // 序列化事件数据
-                byte[] eventBytes = _serializer.Serialize(eventData);
+                var eventBytes = writer.WrittenSpan.ToArray();
 
                 // 通知所有订阅者
                 foreach (var subscription in subscriptions)
@@ -61,12 +65,11 @@ namespace PulseRPC.Events
                     try
                     {
                         // 触发事件处理
-                        subscription.Invoke(this, eventBytes, _serializer);
+                        subscription.Invoke(this, eventBytes, _serializerProvider);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "事件处理异常: {EventName}, {SubscriptionId}",
-                            eventName, subscription.Id);
+                        _logger.LogError(ex, "事件处理异常: {EventName}, {SubscriptionId}", eventName, subscription.Id);
                     }
                 }
             }

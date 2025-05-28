@@ -12,7 +12,7 @@ public class NetworkChannelEventBus : IEventBus
 {
     private readonly IMessageChannel _channel;
     private readonly Dictionary<string, List<EventSubscription>> _subscriptions = new();
-    private readonly ISerializer _serializer;
+    private readonly ISerializerProvider _serializerProvider;
     private readonly object _syncLock = new object();
     private readonly ILogger<NetworkChannelEventBus> _logger;
     private bool _initialized;
@@ -20,11 +20,11 @@ public class NetworkChannelEventBus : IEventBus
     /// <summary>
     /// 创建网络通道事件总线
     /// </summary>
-    public NetworkChannelEventBus(IMessageChannel channel, ISerializer serializer,
+    public NetworkChannelEventBus(IMessageChannel channel, ISerializerProvider serializerProvider,
         ILogger<NetworkChannelEventBus>? logger = null)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));
-        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        _serializerProvider = serializerProvider ?? throw new ArgumentNullException(nameof(serializerProvider));
         _logger = logger ?? NullLogger<NetworkChannelEventBus>.Instance;
     }
 
@@ -172,7 +172,7 @@ public class NetworkChannelEventBus : IEventBus
             try
             {
                 // 触发事件处理
-                subscription.Invoke(this, eventData, _serializer);
+                subscription.Invoke(this, eventData, _serializerProvider);
             }
             catch (Exception ex)
             {

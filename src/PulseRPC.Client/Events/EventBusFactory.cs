@@ -11,16 +11,16 @@ namespace PulseRPC.Client.Events
     /// </summary>
     public class EventBusFactory
     {
-        private readonly ISerializer _serializer;
+        private readonly ISerializerProvider _serializerProvider;
         private readonly ILoggerFactory? _loggerFactory;
         private readonly Dictionary<string, IEventBus> _eventBuses = new();
 
         /// <summary>
         /// 创建事件总线工厂
         /// </summary>
-        public EventBusFactory(ISerializer serializer, ILoggerFactory? loggerFactory = null)
+        public EventBusFactory(ISerializerProvider serializerProvider, ILoggerFactory? loggerFactory = null)
         {
-            _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+            _serializerProvider = serializerProvider ?? throw new ArgumentNullException(nameof(serializerProvider));
             _loggerFactory = loggerFactory;
         }
 
@@ -41,7 +41,7 @@ namespace PulseRPC.Client.Events
             // 创建网络通道事件总线
             var logger = _loggerFactory?.CreateLogger<NetworkChannelEventBus>() ??
                          NullLogger<NetworkChannelEventBus>.Instance;
-            var eventBus = new NetworkChannelEventBus(channel, _serializer, logger);
+            var eventBus = new NetworkChannelEventBus(channel, _serializerProvider, logger);
 
             _eventBuses[channelKey] = eventBus;
             return eventBus;
@@ -60,7 +60,7 @@ namespace PulseRPC.Client.Events
             // 创建内存通道事件总线
             var logger = _loggerFactory?.CreateLogger<MemoryChannelEventBus>() ??
                          NullLogger<MemoryChannelEventBus>.Instance;
-            var eventBus = new MemoryChannelEventBus(_serializer, logger);
+            var eventBus = new MemoryChannelEventBus(_serializerProvider, logger);
 
             _eventBuses[key] = eventBus;
             return eventBus;

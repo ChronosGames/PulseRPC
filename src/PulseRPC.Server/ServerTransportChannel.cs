@@ -1,4 +1,6 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
@@ -16,7 +18,7 @@ public class ServerTransportChannel : IServerChannel
 {
     private readonly string _name;
     private readonly IServerListener _listener;
-    private readonly ISerializer _serializer;
+    private readonly ISerializerProvider _serializerProvider;
     private readonly ConcurrentDictionary<string, IServerConnection> _connections = new();
     private readonly ILogger<ServerTransportChannel> _logger;
 
@@ -26,11 +28,11 @@ public class ServerTransportChannel : IServerChannel
     public event System.EventHandler<ClientConnectedEventArgs>? ClientConnected;
     public event System.EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
-    public ServerTransportChannel(string name, IServerListener listener, ISerializer serializer, ILogger<ServerTransportChannel>? logger = null)
+    public ServerTransportChannel(string name, IServerListener listener, ISerializerProvider serializerProvider, ILogger<ServerTransportChannel>? logger = null)
     {
         _name = name;
         _listener = listener;
-        _serializer = serializer;
+        _serializerProvider = serializerProvider;
         _logger = logger ?? NullLogger<ServerTransportChannel>.Instance;
 
         // 注册监听器事件
@@ -40,7 +42,7 @@ public class ServerTransportChannel : IServerChannel
     /// <summary>
     /// 发送消息到客户端
     /// </summary>
-    public async Task SendMessageAsync(string clientId, MessageHeader header, object? body)
+    public async Task SendMessageAsync(string clientId, Messaging.MessageHeader header, object? body)
     {
         if (!_connections.TryGetValue(clientId, out var connection))
         {
@@ -49,35 +51,17 @@ public class ServerTransportChannel : IServerChannel
 
         try
         {
-            // 序列化头部
-            var headerBytes = _serializer.Serialize(header);
 
-            // 序列化消息体
-            byte[] bodyBytes;
+            // 发送消息
             if (body != null)
             {
-                dynamic prototype = body;
-                bodyBytes = _serializer.Serialize(prototype);
+                dynamic payload = body;
+                await connection.SendAsync(header, payload);
             }
             else
             {
-                bodyBytes = Array.Empty<byte>();
+                await connection.SendAsync<object>(header, null);
             }
-
-            // 创建完整消息
-            using var ms = new MemoryStream();
-            await using var writer = new BinaryWriter(ms);
-
-            // 写入头部长度
-            writer.Write(headerBytes.Length);
-            // 写入头部
-            writer.Write(headerBytes);
-            // 写入消息体
-            writer.Write(bodyBytes);
-
-            // 发送消息
-            var messageData = ms.ToArray();
-            await connection.SendAsync(messageData);
         }
         catch (Exception ex)
         {
@@ -99,33 +83,12 @@ public class ServerTransportChannel : IServerChannel
     public async Task BroadcastEventAsync<T>(string eventName, T eventData)
     {
         // 创建消息头
-        var header = new MessageHeader
+        var header = new Messaging.MessageHeader
         {
             Type = MessageType.Event,
             MessageId = Guid.NewGuid(),
-            MethodName = eventName,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            MethodName = eventName
         };
-
-        // 序列化头部
-        var headerBytes = _serializer.Serialize(header);
-
-        // 序列化消息体
-        var bodyBytes = _serializer.Serialize(eventData);
-
-        // 创建完整消息
-        using var ms = new MemoryStream();
-        await using var writer = new BinaryWriter(ms);
-
-        // 写入头部长度
-        writer.Write(headerBytes.Length);
-        // 写入头部
-        writer.Write(headerBytes);
-        // 写入消息体
-        writer.Write(bodyBytes);
-
-        // 获取完整消息数据
-        var messageData = ms.ToArray();
 
         // 获取所有客户端连接
         var connections = _connections.Values.ToArray();
@@ -138,7 +101,7 @@ public class ServerTransportChannel : IServerChannel
         {
             try
             {
-                tasks.Add(connection.SendAsync(messageData));
+                tasks.Add(connection.SendAsync(header, eventData));
             }
             catch (Exception ex)
             {
@@ -158,33 +121,12 @@ public class ServerTransportChannel : IServerChannel
     public async Task BroadcastEventAsync<T>(string eventName, T eventData, IEnumerable<string> clientIds)
     {
         // 创建消息头
-        var header = new MessageHeader
+        var header = new Messaging.MessageHeader
         {
             Type = MessageType.Event,
             MessageId = Guid.NewGuid(),
-            MethodName = eventName,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            MethodName = eventName
         };
-
-        // 序列化头部
-        var headerBytes = _serializer.Serialize(header);
-
-        // 序列化消息体
-        var bodyBytes = _serializer.Serialize(eventData);
-
-        // 创建完整消息
-        using var ms = new MemoryStream();
-        await using var writer = new BinaryWriter(ms);
-
-        // 写入头部长度
-        writer.Write(headerBytes.Length);
-        // 写入头部
-        writer.Write(headerBytes);
-        // 写入消息体
-        writer.Write(bodyBytes);
-
-        // 获取完整消息数据
-        var messageData = ms.ToArray();
 
         // 创建发送任务列表
         var tasks = new List<Task>();
@@ -192,86 +134,23 @@ public class ServerTransportChannel : IServerChannel
         // 广播消息到指定客户端
         foreach (var clientId in clientIds)
         {
-            if (_connections.TryGetValue(clientId, out var connection))
+            if (!_connections.TryGetValue(clientId, out var connection))
             {
-                try
-                {
-                    tasks.Add(connection.SendAsync(messageData));
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "向客户端 {ClientId} 广播事件失败", clientId);
-                }
+                continue;
+            }
+
+            try
+            {
+                tasks.Add(connection.SendAsync(header, eventData));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "向客户端 {ClientId} 广播事件失败", clientId);
             }
         }
 
         // 等待所有发送完成
         await Task.WhenAll(tasks);
-    }
-
-    /// <summary>
-    /// 将NetworkMessage中的Body反序列化为指定类型的对象
-    /// </summary>
-    /// <typeparam name="T">要反序列化成的目标类型</typeparam>
-    /// <param name="message">网络消息</param>
-    /// <returns>反序列化后的对象</returns>
-    public T DeserializeMessageBody<T>(NetworkMessage message)
-    {
-        if (message.Body == null || message.Body.Length == 0)
-        {
-            if (typeof(T).IsValueType)
-            {
-                return default!;
-            }
-            throw new InvalidOperationException("消息体为空，无法反序列化为指定类型");
-        }
-
-        return _serializer.Deserialize<T>(message.Body);
-    }
-
-    /// <summary>
-    /// 高性能方式将NetworkMessage中的Body反序列化为指定类型的对象
-    /// 直接使用MemoryPack进行反序列化，避免中间层调用
-    /// </summary>
-    /// <typeparam name="T">要反序列化成的目标类型</typeparam>
-    /// <param name="message">网络消息</param>
-    /// <returns>反序列化后的对象</returns>
-    public T DeserializeBodyDirect<T>(NetworkMessage message)
-    {
-        if (message.Body == null || message.Body.Length == 0)
-        {
-            if (typeof(T).IsValueType)
-            {
-                return default!;
-            }
-            throw new InvalidOperationException("消息体为空，无法反序列化为指定类型");
-        }
-
-        // 直接使用MemoryPack反序列化，跳过ISerializer接口
-        return MemoryPackSerializer.Deserialize<T>(message.Body)!;
-    }
-
-    /// <summary>
-    /// 零拷贝方式将NetworkMessage中的Body反序列化为指定类型的对象
-    /// 使用ReadOnlyMemory<byte>避免不必要的内存复制
-    /// </summary>
-    /// <typeparam name="T">要反序列化成的目标类型</typeparam>
-    /// <param name="message">网络消息</param>
-    /// <returns>反序列化后的对象</returns>
-    public T DeserializeBodyZeroCopy<T>(NetworkMessage message)
-    {
-        if (message.Body == null || message.Body.Length == 0)
-        {
-            if (typeof(T).IsValueType)
-            {
-                return default!;
-            }
-            throw new InvalidOperationException("消息体为空，无法反序列化为指定类型");
-        }
-
-        // 使用ReadOnlySpan<byte>避免复制整个数组
-        ReadOnlySpan<byte> span = message.Body;
-        return MemoryPackSerializer.Deserialize<T>(span)!;
     }
 
     /// <summary>
@@ -306,11 +185,10 @@ public class ServerTransportChannel : IServerChannel
 
         try
         {
-            using var ms = new MemoryStream(e.Data.ToArray());
-            using var reader = new BinaryReader(ms);
+            var reader = new ReadOnlySequence<byte>(e.Data);
 
-            // 读取头部长度
-            var headerLength = reader.ReadInt32();
+            var headerLength = BinaryPrimitives.ReadInt32LittleEndian(reader.FirstSpan);
+            reader = reader.Slice(4); // 跳过头部长度字段
 
             // 验证头部长度
             if (headerLength <= 0 || headerLength > e.Data.Length - 4)
@@ -319,19 +197,13 @@ public class ServerTransportChannel : IServerChannel
                 return;
             }
 
-            // 读取头部
-            var headerBytes = reader.ReadBytes(headerLength);
-            var header = _serializer.Deserialize<MessageHeader>(headerBytes);
+            var header = _serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<Messaging.MessageHeader>(reader);
 
             // 读取消息体
             var bodyBytes = reader.ReadBytes((int)(ms.Length - ms.Position));
 
             // 创建网络消息
-            var message = new NetworkMessage
-            {
-                Header = header,
-                Body = bodyBytes
-            };
+            var message = new NetworkMessage(header, bodyBytes);
 
             // 触发消息接收事件
             MessageReceived?.Invoke(this, new MessageReceivedEventArgs(connection.ConnectionId, message));
@@ -426,7 +298,7 @@ public class ServerTransportChannel : IServerChannel
     /// </summary>
     /// <typeparam name="T">消息体类型</typeparam>
     /// <param name="handler">消息处理器</param>
-    public void RegisterTypeHandler<T>(Action<string, MessageHeader, T> handler)
+    public void RegisterTypeHandler<T>(Action<string, Messaging.MessageHeader, T> handler)
     {
         // 注册事件处理器
         MessageReceived += (sender, args) =>
@@ -456,7 +328,7 @@ public class ServerTransportChannel : IServerChannel
     /// <typeparam name="T">消息体类型</typeparam>
     /// <param name="methodName">方法名</param>
     /// <param name="handler">消息处理器</param>
-    public void RegisterMethodHandler<T>(string methodName, Action<string, MessageHeader, T> handler)
+    public void RegisterMethodHandler<T>(string methodName, Action<string, Messaging.MessageHeader, T> handler)
     {
         // 注册事件处理器
         MessageReceived += (sender, args) =>

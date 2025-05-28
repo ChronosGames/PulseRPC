@@ -38,7 +38,6 @@ namespace PulseRPC.Messaging
         public Guid MessageId { get; set; }
         public string ServiceName { get; set; } = string.Empty;
         public string MethodName { get; set; } = string.Empty;
-        public long Timestamp { get; set; }
     }
 
     // 消息类型枚举
@@ -49,15 +48,5 @@ namespace PulseRPC.Messaging
         Ping = 5, // Ping
         Pong = 6, // Pong
         Event = 7, // 事件
-    }
-
-    /// <summary>
-    /// 网络消息 - 使用简化的MemoryPack序列化
-    /// </summary>
-    [MemoryPackable]
-    public partial class NetworkMessage
-    {
-        public MessageHeader Header { get; set; } = new MessageHeader();
-        public byte[] Body { get; set; } = Array.Empty<byte>();
     }
 }

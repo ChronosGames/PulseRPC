@@ -1,4 +1,5 @@
-﻿using PulseRPC.Messaging;
+﻿using PulseRPC.Transport;
+using MessageHeader = PulseRPC.Messaging.MessageHeader;
 
 namespace PulseRPC.Server;
 
@@ -53,9 +54,6 @@ public class MessageReceivedEventArgs : EventArgs
     /// </summary>
     public string ClientId { get; }
 
-    /// <summary>
-    /// 接收到的消息
-    /// </summary>
     public NetworkMessage Message { get; }
 
     public MessageReceivedEventArgs(string clientId, NetworkMessage message)

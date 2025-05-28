@@ -1,10 +1,16 @@
 #nullable enable
-abstract PulseRPC.EventSubscription.Invoke(object! sender, byte[]! data, PulseRPC.Serialization.ISerializer! serializer) -> void
+abstract PulseRPC.EventSubscription.Invoke(object! sender, byte[]! data, PulseRPC.Serialization.ISerializerProvider! serializerProvider) -> void
+const PulseRPC.Transport.MessageHeader.FlagCompressed = 2 -> ushort
+const PulseRPC.Transport.MessageHeader.FlagLargePacket = 1 -> ushort
+const PulseRPC.Transport.MessageHeader.FlagNone = 0 -> ushort
 override PulseRPC.EventSubscription<T>.GetDynamicInvoker() -> System.Action<object!, object!>!
-override PulseRPC.EventSubscription<T>.Invoke(object! sender, byte[]! data, PulseRPC.Serialization.ISerializer! serializer) -> void
+override PulseRPC.EventSubscription<T>.Invoke(object! sender, byte[]? data, PulseRPC.Serialization.ISerializerProvider? serializerProvider) -> void
 override PulseRPC.Transport.Kcp.KcpClientTransport.Dispose() -> void
 PulseRPC.ChannelAttribute.ChannelAttribute(string! channelName) -> void
 PulseRPC.ChannelAttribute.ChannelName.get -> string!
+PulseRPC.Events.MemoryChannelEventBus.PublishAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Events.MemoryChannelEventBus.Subscribe<T>(string! eventName, PulseRPC.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!
+PulseRPC.Events.MemoryChannelEventBus.Unsubscribe(PulseRPC.ISubscriptionToken! token) -> void
 PulseRPC.EventSubscription.EventName.get -> string!
 PulseRPC.EventSubscription.EventType.get -> System.Type!
 PulseRPC.EventSubscription.Id.get -> System.Guid
@@ -24,6 +30,7 @@ PulseRPC.Transport.IChannelManager.GetDefaultChannel() -> PulseRPC.Messaging.IMe
 PulseRPC.Transport.IChannelManager.HasChannel(string! channelName) -> bool
 PulseRPC.Transport.IChannelManager.RegisterChannel(string! channelName, PulseRPC.Messaging.IMessageChannel! channel, bool isDefault = false) -> void
 PulseRPC.Transport.IChannelManager.UnregisterChannel(string! channelName) -> void
+PulseRPC.Transport.ITransport.SendAsync<T>(in PulseRPC.Messaging.MessageHeader! header, T payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 PulseRPC.Transport.Kcp.KcpClientTransport.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 PulseRPC.Transport.Kcp.KcpClientTransport.KcpClientTransport(PulseRPC.Transport.TransportOptions? options = null, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
 PulseRPC.Transport.Kcp.KcpTransport.IKcpInternal
@@ -49,6 +56,16 @@ PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMaximumTransmissionUnit(int m
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMtu(int mtu) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetWindowSize(int sndwnd, int rcvwnd) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Update(uint currentTimeMilliseconds) -> void
+PulseRPC.Transport.LargePacketState.Progress.get -> float
 PulseRPC.Transport.Tcp.TcpServerListener.Dispose() -> void
+PulseRPC.Transport.Tcp.TcpTransport.IsConnected.get -> bool
+PulseRPC.Transport.Tcp.TcpTransport.LocalEndPoint.get -> System.Net.EndPoint!
 PulseRPC.Transport.Tcp.TcpTransport.ReceiveLoopAsync() -> System.Threading.Tasks.Task!
+PulseRPC.Transport.Tcp.TcpTransport.RemoteEndPoint.get -> System.Net.EndPoint!
+PulseRPC.Transport.Tcp.TcpTransport.State.get -> PulseRPC.Transport.ConnectionState
+PulseRPC.Transport.Tcp.TcpTransport.TotalBytesReceived.get -> long
+PulseRPC.Transport.Tcp.TcpTransport.TotalBytesSent.get -> long
+PulseRPC.Transport.TcpConnection.Dispose() -> void
+static PulseRPC.Serialization.PulseRPCSerializer.Instance.get -> PulseRPC.Serialization.PulseRPCSerializer!
 virtual PulseRPC.EventSubscription.GetDynamicInvoker() -> System.Action<object!, object!>?
+virtual PulseRPC.Transport.Tcp.TcpTransport.SendAsync<T>(PulseRPC.Messaging.MessageHeader! header, T? payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
