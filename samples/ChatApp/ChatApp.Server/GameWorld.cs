@@ -70,7 +70,7 @@ namespace GameServer.World
         /// <summary>
         /// 更新游戏世界
         /// </summary>
-        private void UpdateWorld(object state)
+        private void UpdateWorld(object? state)
         {
             try
             {

@@ -11,6 +11,7 @@ using System;
 using System.Threading.Tasks;
 using ChatApp.Shared;
 using PulseRPC.Server.Services;
+using PulseRPC.Server.Transport;
 
 namespace GameServer
 {
@@ -194,7 +195,10 @@ namespace GameServer
             services.AddSingleton<IPlayerManager, PlayerManager>();
 
             // 添加PulseRPC服务器的相关服务
-            services.AddPulseServerServices();
+            services.AddPulseRpcServer();
+
+            // 覆盖默认的认证提供程序，使用ChatApp专用的SimpleAuthenticationProvider
+            services.AddSingleton<PulseRPC.Server.Auth.IAuthenticationProvider, ChatApp.Server.Auth.SimpleAuthenticationProvider>();
 
             // 添加服务实现
             services.AddTransient<IPlayerService, PlayerService>();
@@ -203,9 +207,10 @@ namespace GameServer
             services.AddSingleton<PlayerMovementBatcher>();
             services.AddHostedService(sp => sp.GetRequiredService<PlayerMovementBatcher>());
 
-            // 添加高性能服务注册中心
+            // 添加高性能服务注册中心（使用认证中间件）
             services.AddSingleton<ServiceRegistry>(sp => {
-                var registry = ServiceRegistry.Instance;
+                var authMiddleware = sp.GetRequiredService<PulseRPC.Server.Auth.AuthenticationMiddleware>();
+                var registry = ServiceRegistry.CreateWithAuth(authMiddleware);
 
                 // 注册服务
                 registry.RegisterService<IPlayerService, PlayerService>(
@@ -217,16 +222,11 @@ namespace GameServer
             // 添加服务器管理器
             services.AddSingleton<IServerManager>(sp =>
             {
-                var logger = sp.GetRequiredService<ILogger<ServerManager>>();
-                var serializer = sp.GetRequiredService<ISerializerProvider>();
-                var serviceRegistry = sp.GetRequiredService<ServiceRegistry>();
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-                var serverChannelManager = sp.GetRequiredService<IServerChannelManager>();
+                var serverChannelManager = sp.GetRequiredService<PulseRPC.Server.Transport.IServerChannelManager>();
 
-                // 创建高性能服务器管理器
+                // 创建服务器管理器
                 var serverManager = new ServerManager(
-                    serviceRegistry,
-                    serializer,
                     serverChannelManager,
                     loggerFactory);
 

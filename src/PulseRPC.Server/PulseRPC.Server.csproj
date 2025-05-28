@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
     <ProjectReference Include="..\PulseRPC.Shared\PulseRPC.Shared.csproj" />
   </ItemGroup>
 

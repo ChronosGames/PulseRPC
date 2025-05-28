@@ -52,7 +52,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         // 创建TCP通道
         var tcpOptions = new TransportOptions { NoDelay = true, KeepAlive = true, AutoReconnect = true };
 
-        var tcpTransport = await transportFactory.CreateClientTransportAsync(
+        var tcpTransport = await transportFactory.CreateTransportAsync(
             TransportType.Tcp, tcpOptions);
 
         var tcpChannel = new TransportChannel(
@@ -69,7 +69,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             Kcp = new KcpOptions { NoDelay = 1, Interval = 10, Resend = 2, DisableFlowControl = false }
         };
 
-        var kcpTransport = await transportFactory.CreateClientTransportAsync(
+        var kcpTransport = await transportFactory.CreateTransportAsync(
             TransportType.Kcp, kcpOptions);
 
         var kcpChannel = new TransportChannel(

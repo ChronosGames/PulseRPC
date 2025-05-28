@@ -536,8 +536,10 @@ namespace PulseRPC.Transport.Kcp
     public class KcpServerConnection : KcpTransport, IServerConnection
     {
         private readonly string _connectionId;
+        private readonly PulseRPC.ISessionContext _session;
 
         public string ConnectionId => _connectionId;
+        public PulseRPC.ISessionContext Session => _session;
 
         /// <summary>
         /// 使用远程端点创建KCP服务端连接
@@ -547,6 +549,7 @@ namespace PulseRPC.Transport.Kcp
             : base(options, logger)
         {
             _connectionId = connectionId;
+            _session = CreateSessionContext();
 
             // 替换Socket和端点
             _socket.Dispose();
@@ -565,6 +568,14 @@ namespace PulseRPC.Transport.Kcp
 
             _logger.LogInformation("接受KCP客户端连接: {ConnectionId} 从 {RemoteEndPoint}",
                 _connectionId, remoteEndpoint);
+        }
+
+        /// <summary>
+        /// 创建会话上下文实例
+        /// </summary>
+        protected virtual PulseRPC.ISessionContext CreateSessionContext()
+        {
+            return new PulseRPC.Transport.DefaultSessionContext();
         }
 
         /// <summary>

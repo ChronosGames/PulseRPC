@@ -13,6 +13,7 @@
     <IsPackable>true</IsPackable>
     <PackageId>PulseRPC.Abstractions</PackageId>
     <Description>PulseRPC abstractions and interfaces shared between client and server</Description>
+    <RootNamespace>PulseRPC</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
