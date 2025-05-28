@@ -107,8 +107,9 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
 
         try
         {
-            // 发送请求
-            await _transport.SendAsync(header, request, cancellationToken);
+            // 序列化并发送请求
+            var serializedMessage = await SerializeAndPackMessage(header, request);
+            await _transport.SendAsync(serializedMessage, cancellationToken);
 
             // 等待响应，设置超时
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -151,8 +152,9 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
             MethodName = eventName
         };
 
-        // 发送事件
-        await _transport.SendAsync(header, eventData, cancellationToken);
+        // 序列化并发送事件
+        var serializedMessage = await SerializeAndPackMessage(header, eventData);
+        await _transport.SendAsync(serializedMessage, cancellationToken);
     }
 
     /// <summary>
@@ -197,6 +199,46 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 序列化并打包消息
+    /// </summary>
+    private async Task<ReadOnlyMemory<byte>> SerializeAndPackMessage<T>(Messaging.MessageHeader header, T? payload)
+    {
+        return await Task.Run(() =>
+        {
+            // 序列化消息头
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+
+            var headerWriter = new ArrayBufferWriter<byte>();
+            serializer.Serialize(headerWriter, in header);
+            var headerBytes = headerWriter.WrittenMemory.ToArray();
+
+            // 序列化载荷
+            byte[] payloadBytes = Array.Empty<byte>();
+            if (payload != null)
+            {
+                var payloadWriter = new ArrayBufferWriter<byte>();
+                serializer.Serialize(payloadWriter, in payload);
+                payloadBytes = payloadWriter.WrittenMemory.ToArray();
+            }
+
+            // 组装完整消息：[HeaderLength(4)] + [Header] + [Payload]
+            using var messageStream = new MemoryStream();
+            using var writer = new BinaryWriter(messageStream);
+
+            // 写入头部长度
+            writer.Write(headerBytes.Length);
+
+            // 写入头部
+            writer.Write(headerBytes);
+
+            // 写入载荷
+            writer.Write(payloadBytes);
+
+            return new ReadOnlyMemory<byte>(messageStream.ToArray());
+        });
     }
 
     /// <summary>
@@ -331,8 +373,9 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
                 MessageId = message.Header.MessageId
             };
 
-            // 发送Pong
-            await _transport.SendAsync<object>(header, null, CancellationToken.None);
+            // 序列化并发送Pong
+            var serializedMessage = await SerializeAndPackMessage(header, (object?)null);
+            await _transport.SendAsync(serializedMessage, CancellationToken.None);
         }
         catch (Exception ex)
         {

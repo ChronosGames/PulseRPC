@@ -4,8 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using MemoryPack;
 
-#nullable enable
-
 namespace PulseRPC.Messaging
 {
     public interface IHasTransport

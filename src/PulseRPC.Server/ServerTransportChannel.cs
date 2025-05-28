@@ -51,17 +51,9 @@ public class ServerTransportChannel : IServerChannel
 
         try
         {
-
-            // 发送消息
-            if (body != null)
-            {
-                dynamic payload = body;
-                await connection.SendAsync(header, payload);
-            }
-            else
-            {
-                await connection.SendAsync<object>(header, null);
-            }
+            // 序列化并发送消息
+            var serializedMessage = await SerializeAndPackMessage(header, body);
+            await connection.SendAsync(serializedMessage);
         }
         catch (Exception ex)
         {
@@ -90,6 +82,9 @@ public class ServerTransportChannel : IServerChannel
             MethodName = eventName
         };
 
+        // 序列化消息（一次序列化，多次发送）
+        var serializedMessage = await SerializeAndPackMessage(header, eventData);
+
         // 获取所有客户端连接
         var connections = _connections.Values.ToArray();
 
@@ -101,7 +96,7 @@ public class ServerTransportChannel : IServerChannel
         {
             try
             {
-                tasks.Add(connection.SendAsync(header, eventData));
+                tasks.Add(connection.SendAsync(serializedMessage));
             }
             catch (Exception ex)
             {
@@ -128,6 +123,9 @@ public class ServerTransportChannel : IServerChannel
             MethodName = eventName
         };
 
+        // 序列化消息（一次序列化，多次发送）
+        var serializedMessage = await SerializeAndPackMessage(header, eventData);
+
         // 创建发送任务列表
         var tasks = new List<Task>();
 
@@ -141,7 +139,7 @@ public class ServerTransportChannel : IServerChannel
 
             try
             {
-                tasks.Add(connection.SendAsync(header, eventData));
+                tasks.Add(connection.SendAsync(serializedMessage));
             }
             catch (Exception ex)
             {
@@ -185,10 +183,11 @@ public class ServerTransportChannel : IServerChannel
 
         try
         {
-            var reader = new ReadOnlySequence<byte>(e.Data);
+            using var ms = new MemoryStream(e.Data.ToArray());
+            using var reader = new BinaryReader(ms);
 
-            var headerLength = BinaryPrimitives.ReadInt32LittleEndian(reader.FirstSpan);
-            reader = reader.Slice(4); // 跳过头部长度字段
+            // 读取头部长度
+            int headerLength = reader.ReadInt32();
 
             // 验证头部长度
             if (headerLength <= 0 || headerLength > e.Data.Length - 4)
@@ -197,10 +196,12 @@ public class ServerTransportChannel : IServerChannel
                 return;
             }
 
-            var header = _serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<Messaging.MessageHeader>(reader);
+            // 读取头部
+            byte[] headerBytes = reader.ReadBytes(headerLength);
+            var header = _serializerProvider.Create(MethodType.Unary, null).Deserialize<Messaging.MessageHeader>(new ReadOnlySequence<byte>(headerBytes));
 
             // 读取消息体
-            var bodyBytes = reader.ReadBytes((int)(ms.Length - ms.Position));
+            byte[] bodyBytes = reader.ReadBytes((int)(ms.Length - ms.Position));
 
             // 创建网络消息
             var message = new NetworkMessage(header, bodyBytes);
@@ -309,7 +310,7 @@ public class ServerTransportChannel : IServerChannel
             try
             {
                 // 使用零拷贝方式反序列化消息体
-                var body = DeserializeBodyZeroCopy<T>(message);
+                var body = DeserializeBytes<T>(message.Body);
 
                 // 调用处理器
                 handler(args.ClientId, message.Header, body);
@@ -342,7 +343,7 @@ public class ServerTransportChannel : IServerChannel
             try
             {
                 // 使用零拷贝方式反序列化消息体
-                var body = DeserializeBodyZeroCopy<T>(message);
+                var body = DeserializeBytes<T>(message.Body);
 
                 // 调用处理器
                 handler(args.ClientId, message.Header, body);
@@ -399,5 +400,45 @@ public class ServerTransportChannel : IServerChannel
         // 使用ReadOnlySpan<byte>指定区域
         var span = new ReadOnlySpan<byte>(data, offset, length);
         return MemoryPackSerializer.Deserialize<T>(span)!;
+    }
+
+    /// <summary>
+    /// 序列化并打包消息
+    /// </summary>
+    private async Task<ReadOnlyMemory<byte>> SerializeAndPackMessage<T>(MessageHeader header, T? payload)
+    {
+        return await Task.Run(() =>
+        {
+            // 序列化消息头
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+
+            var headerWriter = new ArrayBufferWriter<byte>();
+            serializer.Serialize(headerWriter, in header);
+            var headerBytes = headerWriter.WrittenMemory.ToArray();
+
+            // 序列化载荷
+            byte[] payloadBytes = Array.Empty<byte>();
+            if (payload != null)
+            {
+                var payloadWriter = new ArrayBufferWriter<byte>();
+                serializer.Serialize(payloadWriter, in payload);
+                payloadBytes = payloadWriter.WrittenMemory.ToArray();
+            }
+
+            // 组装完整消息：[HeaderLength(4)] + [Header] + [Payload]
+            using var messageStream = new MemoryStream();
+            using var writer = new BinaryWriter(messageStream);
+
+            // 写入头部长度
+            writer.Write(headerBytes.Length);
+
+            // 写入头部
+            writer.Write(headerBytes);
+
+            // 写入载荷
+            writer.Write(payloadBytes);
+
+            return new ReadOnlyMemory<byte>(messageStream.ToArray());
+        });
     }
 }
