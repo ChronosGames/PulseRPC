@@ -14,6 +14,8 @@ using System.Linq;
 using PulseRPC;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Transport;
+using PulseRPC.Serialization;
+using PulseRPC.Messaging;
 
 namespace GameServer.Services
 {
@@ -29,6 +31,7 @@ namespace GameServer.Services
         private readonly IServerChannelManager _channelManager;
         private readonly IAuthenticationProvider _authProvider;
         private readonly ILogger<PlayerService> _logger;
+        private readonly ISerializerProvider _serializerProvider;
 
         public PlayerService(
             IGameWorld gameWorld,
@@ -37,7 +40,8 @@ namespace GameServer.Services
             PlayerMovementBatcher movementBatcher,
             IServerChannelManager channelManager,
             IAuthenticationProvider authProvider,
-            ILogger<PlayerService> logger)
+            ILogger<PlayerService> logger,
+            ISerializerProvider serializerProvider)
         {
             _gameWorld = gameWorld;
             _playerManager = playerManager;
@@ -46,6 +50,7 @@ namespace GameServer.Services
             _channelManager = channelManager;
             _authProvider = authProvider;
             _logger = logger;
+            _serializerProvider = serializerProvider;
         }
 
         /// <summary>
@@ -116,12 +121,6 @@ namespace GameServer.Services
                     }
                 };
 
-                // 通知其他玩家
-                await NotifyPlayerJoinedAsync(player);
-
-                _logger.LogInformation("玩家 {Username} (ID: {PlayerId}) 登录成功",
-                    player.Username, player.Id);
-
                 // 获取当前连接并设置认证信息
                 var connection = RequestContext.Current;
                 if (connection != null)
@@ -139,6 +138,16 @@ namespace GameServer.Services
 
                         _logger.LogInformation("已为通道设置认证信息: UserId={UserId}, Username={Username}, ConnectionId={ConnectionId}",
                             player.Id, player.Username, connection.ConnectionId);
+
+                        // 认证设置完成后，通知其他玩家
+                        try
+                        {
+                            await NotifyPlayerJoinedAsync(player);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "发布玩家加入事件失败，但不影响登录: {Username}", player.Username);
+                        }
                     }
                     else
                     {
@@ -149,6 +158,9 @@ namespace GameServer.Services
                 {
                     _logger.LogWarning("无法获取当前连接，无法设置认证信息");
                 }
+
+                _logger.LogInformation("玩家 {Username} (ID: {PlayerId}) 登录成功",
+                    player.Username, player.Id);
 
                 return response;
             }
@@ -269,9 +281,48 @@ namespace GameServer.Services
                 Z = player.Position.Z
             };
 
-            await _eventPublisher.PublishEventAsync("OnPlayerJoined", joinEvent);
+            // 获取当前连接ID，避免向正在登录的连接发送事件（防止死锁）
+            var currentConnection = RequestContext.Current;
+            var currentConnectionId = currentConnection?.ConnectionId;
 
-            _logger.LogInformation("已广播玩家 {Username} 加入事件", player.Username);
+            // 获取所有已认证的通道，但排除当前连接
+            var channels = _channelManager.GetAuthenticatedChannels()
+                .Where(c => c.ConnectionId != currentConnectionId)
+                .ToList();
+
+            if (!channels.Any())
+            {
+                _logger.LogDebug("没有其他已认证的连接，跳过玩家加入事件广播: {Username}", player.Username);
+                return;
+            }
+
+            // 序列化事件数据
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+            var writer = new System.Buffers.ArrayBufferWriter<byte>();
+            serializer.Serialize(writer, in joinEvent);
+            var eventDataBytes = writer.WrittenMemory.ToArray();
+
+            // 并行发送给其他已认证的连接
+            var tasks = channels.Select(async channel =>
+            {
+                try
+                {
+                    await channel.SendAsync(eventDataBytes, CancellationToken.None);
+                    _logger.LogTrace("玩家加入事件已发送到连接: {ConnectionId}", channel.ConnectionId);
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "向连接 {ConnectionId} 发送玩家加入事件时失败", channel.ConnectionId);
+                    return false;
+                }
+            });
+
+            var results = await Task.WhenAll(tasks);
+            var successCount = results.Count(r => r);
+
+            _logger.LogInformation("已广播玩家 {Username} 加入事件到 {SuccessCount}/{TotalCount} 个连接",
+                player.Username, successCount, channels.Count);
         }
 
         /// <summary>

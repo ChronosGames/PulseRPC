@@ -59,6 +59,12 @@ namespace GameServer
                 // 启动服务器
                 await serverManager.StartAsync();
 
+                // 注册服务到ServiceRegistry（必须在服务器启动后）
+                var serviceRegistry = host.Services.GetRequiredService<ServiceRegistry>();
+                var playerService = host.Services.GetRequiredService<IPlayerService>();
+                serviceRegistry.RegisterService<IPlayerService, PlayerService>((PlayerService)playerService);
+                Console.WriteLine("服务已注册到ServiceRegistry");
+
                 Console.WriteLine("\n高性能服务器已启动，按 ESC 键停止服务器...\n");
 
                 // 等待退出
@@ -207,16 +213,11 @@ namespace GameServer
             services.AddSingleton<PlayerMovementBatcher>();
             services.AddHostedService(sp => sp.GetRequiredService<PlayerMovementBatcher>());
 
-            // 添加高性能服务注册中心（使用认证中间件）
-            services.AddSingleton<ServiceRegistry>(sp => {
-                var authMiddleware = sp.GetRequiredService<PulseRPC.Server.Auth.AuthenticationMiddleware>();
-                var registry = ServiceRegistry.CreateWithAuth(authMiddleware);
-
-                // 注册服务
-                registry.RegisterService<IPlayerService, PlayerService>(
-                    (PlayerService)sp.GetRequiredService<IPlayerService>());
-
-                return registry;
+            // 在服务器启动后注册服务到ServiceRegistry
+            services.Configure<HostOptions>(options =>
+            {
+                options.ServicesStartConcurrently = false;
+                options.ServicesStopConcurrently = false;
             });
 
             // 添加服务器管理器
@@ -255,12 +256,6 @@ namespace GameServer
 
                 return serverManager;
             });
-
-            // 添加性能测试工具
-            // services.AddTransient<PerformanceTester>();
-
-            // 添加服务测试工具
-            // services.AddTransient<PlayerServiceTests>();
         }
     }
 }

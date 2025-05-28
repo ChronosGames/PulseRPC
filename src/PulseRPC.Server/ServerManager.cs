@@ -42,7 +42,9 @@ public class ServerManager : IServerManager
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ServerManager> _logger;
     private readonly Dictionary<string, TransportInfo> _transports = new();
+    private readonly Dictionary<string, IServerListener> _listeners = new();
     private readonly IServerChannelManager _channelManager;
+    private readonly IServerTransportFactory _transportFactory;
     private bool _isRunning;
 
     public ServerManager(
@@ -52,6 +54,7 @@ public class ServerManager : IServerManager
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ServerManager>();
         _channelManager = serverChannelManager;
+        _transportFactory = new ServerTransportFactory(loggerFactory);
     }
 
     /// <summary>
@@ -102,7 +105,28 @@ public class ServerManager : IServerManager
 
         try
         {
-            // TODO: 实现服务器启动逻辑
+            // 为每个传输创建并启动监听器
+            foreach (var transportInfo in _transports.Values)
+            {
+                // 创建监听器
+                var listener = await _transportFactory.CreateListenerAsync(
+                    transportInfo.Type,
+                    transportInfo.Port,
+                    transportInfo.Options);
+
+                // 注册连接接受事件
+                listener.ConnectionAccepted += OnConnectionAccepted;
+
+                // 启动监听器
+                await listener.StartAsync(cancellationToken);
+
+                // 添加到监听器集合
+                _listeners.Add(transportInfo.Name, listener);
+
+                _logger.LogInformation("已启动 {Type} 监听器: {Name}, 端口: {Port}",
+                    transportInfo.Type, transportInfo.Name, transportInfo.Port);
+            }
+
             _isRunning = true;
             _logger.LogInformation("服务器已启动");
         }
@@ -126,12 +150,61 @@ public class ServerManager : IServerManager
 
         _isRunning = false;
 
+        // 停止所有监听器
+        foreach (var kvp in _listeners)
+        {
+            try
+            {
+                var listener = kvp.Value;
+                listener.ConnectionAccepted -= OnConnectionAccepted;
+                await listener.StopAsync(cancellationToken);
+                listener.Dispose();
+
+                _logger.LogInformation("已停止监听器: {Name}", kvp.Key);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "停止监听器 {Name} 时发生错误", kvp.Key);
+            }
+        }
+
+        _listeners.Clear();
+
         // 释放通道资源
         _channelManager.Dispose();
 
         _logger.LogInformation("服务器已停止");
+    }
 
-        await Task.CompletedTask;
+    /// <summary>
+    /// 处理新连接
+    /// </summary>
+    private void OnConnectionAccepted(object? sender, ServerConnectionEventArgs e)
+    {
+        try
+        {
+            _logger.LogInformation("接受新连接: {ConnectionId} 从 {RemoteAddress}",
+                e.Connection.ConnectionId, e.Connection.RemoteEndPoint);
+
+            // 将连接添加到通道管理器
+            var channel = _channelManager.AddChannel(e.Connection);
+
+            _logger.LogDebug("已为连接 {ConnectionId} 创建传输通道", e.Connection.ConnectionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "处理新连接 {ConnectionId} 时发生错误", e.Connection.ConnectionId);
+
+            // 关闭有问题的连接
+            try
+            {
+                _ = e.Connection.CloseAsync();
+            }
+            catch
+            {
+                // 忽略关闭时的异常
+            }
+        }
     }
 
     /// <summary>
@@ -144,6 +217,21 @@ public class ServerManager : IServerManager
             // 停止服务器
             _ = StopAsync();
         }
+
+        // 释放监听器资源
+        foreach (var listener in _listeners.Values)
+        {
+            try
+            {
+                listener.Dispose();
+            }
+            catch
+            {
+                // 忽略释放时的异常
+            }
+        }
+
+        _listeners.Clear();
 
         // 释放通道资源
         _channelManager.Dispose();

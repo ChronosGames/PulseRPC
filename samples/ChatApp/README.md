@@ -1,20 +1,75 @@
-# MagicOnionSample
+# ChatApp 示例项目
 
-Provides a sample of a simple chat app using MagicOnion.  
+## 概述
 
-Please see here about MagicOnion itself.  
-https://github.com/Cysharp/MagicOnion
+这是一个基于 PulseRPC 框架的实时聊天和游戏示例，演示了如何使用 TCP 和 KCP 传输协议进行网络通信。
+
+## 已知问题
+
+### KCP 传输层问题
+
+**问题描述**：当前 KCP 传输层实现仅为示例代码，无法正常工作。这会导致使用 KCP 通道的 RPC 调用（如 `MoveAsync`）出现超时错误。
+
+**错误信息**：
+```
+System.TimeoutException: 请求 MoveAsync 超时
+```
+
+**临时解决方案**：
+1. 已将 `IPlayerService.MoveAsync` 方法的通道从 `KcpChannel` 改为 `TcpChannel`
+2. 这样可以确保移动请求通过 TCP 协议正常工作
+
+**完整解决方案**：
+要真正解决此问题，需要：
+1. 集成真正的 KCP 库，如 [KCP.NET](https://github.com/skywind3000/kcp)
+2. 替换 `src/PulseRPC.Abstractions/Transport/KcpTransport.cs` 中的简化实现
+3. 实现完整的 KCP 协议支持
+
+## 使用说明
+
+### 启动服务器
+```bash
+cd samples/ChatApp/ChatApp.Server
+dotnet run
+```
+
+### 启动控制台客户端
+```bash
+cd samples/ChatApp/ChatApp.Console
+dotnet run
+```
+
+### Unity 客户端
+1. 打开 Unity 项目 `samples/ChatApp/ChatApp.Unity`
+2. 运行场景
+
+## 传输协议说明
+
+- **TCP 通道**：用于可靠的请求-响应通信（登录、聊天等）
+- **KCP 通道**：原计划用于低延迟的实时数据传输（移动、位置更新等），但当前未实现
+
+## 端口配置
+
+- TCP 服务器：7000
+- KCP 服务器：7001（当前无法使用）
+
+# ChatApp Sample
+
+Provides a sample of a simple chat app using PulseRPC.
+
+Please see here about PulseRPC itself.
+https://github.com/ChronosGames/PulseRPC
 
 ## Getting started
 
-To run simple ChatApp.Server, 
+To run simple ChatApp.Server,
 
-1. Launch `ChatApp.Server` from VisualStudio. 
-2. Run `ChatScene` from UnityEditor. 
+1. Launch `ChatApp.Server` from VisualStudio.
+2. Run `ChatScene` from UnityEditor.
 
 ### ChatApp.Server
 
-This is Sample Serverside MagicOnion.
+This is Sample Serverside PulseRPC.
 You can lanunch via Visual Studio 2022 with .NET 8, open `MagicOnion.sln` > samples > set `ChatApp.Server` project as start up and Start Debug.
 
 ### ChatApp.Unity
@@ -74,7 +129,7 @@ In the Unity project, specify the Shared project as a file reference in [Package
 ## Code generate
 
 MagicOnion Client is Source Generator based but still MessagePack needs generate code by command line tool.
-  
+
 Add the following specification to `ChatApp.Shared.csproj`.
 
 ```xml
