@@ -38,7 +38,7 @@ public interface IServerManager : IDisposable
 }
 
 /// <summary>
-/// 高性能服务器管理器
+/// 高性能服务器管理器 - 负责处理所有网络连接和消息路由
 /// </summary>
 public class ServerManager : IServerManager
 {
@@ -56,9 +56,6 @@ public class ServerManager : IServerManager
     private long _successRequests;
     private long _failedRequests;
     private long _processingTimeTotal; // 毫秒
-
-    // 空对象实例，用于替代null
-    private static readonly object EmptyObject = new();
 
     // 消息池 - 减少内存分配
     private readonly ObjectPool<Messaging.MessageHeader> _headerPool;
@@ -294,7 +291,8 @@ public class ServerManager : IServerManager
             var responseHeader = GetHeaderFromPool(MessageType.Response, header);
 
             // 发送响应 - 使用安全方法
-            await channel.SendMessageAsync(clientId, responseHeader, result ?? EmptyObject);
+            dynamic response = result ?? EmptyPayload.Instance;
+            await channel.SendMessageAsync(clientId, responseHeader, response);
 
             // 返回对象到池
             ReturnHeaderToPool(responseHeader);
@@ -307,7 +305,7 @@ public class ServerManager : IServerManager
             // 创建错误响应 - 使用对象池
             var errorHeader = GetHeaderFromPool(MessageType.Response, header);
 
-            var errorResponse = new ErrorResponse { ErrorCode = "SERVER_ERROR", ErrorMessage = ex.Message };
+            var errorResponse = ErrorResponse.Create("SERVER_ERROR", ex.Message, ex.StackTrace ?? string.Empty);
 
             // 发送错误响应
             await channel.SendMessageAsync(clientId, errorHeader, errorResponse);
@@ -351,7 +349,7 @@ public class ServerManager : IServerManager
             var header = GetHeaderFromPool(MessageType.Pong, message.Header);
 
             // 发送Pong响应
-            await channel.SendMessageAsync(clientId, header, EmptyObject);
+            await channel.SendMessageAsync(clientId, header, EmptyPayload.Instance);
 
             // 返回对象到池
             ReturnHeaderToPool(header);
@@ -397,20 +395,11 @@ public class ServerManager : IServerManager
     /// </summary>
     private class TransportInfo
     {
-        public required string Name { get; init; }
-        public required TransportType Type { get; init; }
-        public required int Port { get; init; }
-        public required TransportOptions Options { get; init; }
-        public required bool IsDefault { get; init; }
-    }
-
-    /// <summary>
-    /// 错误响应
-    /// </summary>
-    private class ErrorResponse
-    {
-        public required string ErrorCode { get; init; }
-        public required string ErrorMessage { get; init; }
+        public string Name { get; set; } = string.Empty;
+        public TransportType Type { get; set; }
+        public int Port { get; set; }
+        public TransportOptions Options { get; set; } = new();
+        public bool IsDefault { get; set; }
     }
 
     /// <summary>

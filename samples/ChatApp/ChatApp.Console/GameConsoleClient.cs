@@ -177,7 +177,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
                 _playerInfo = response.Player;
 
                 _logger.LogInformation("登录成功: {Username} (ID: {PlayerId})",
-                    _playerInfo.Username, _playerInfo.Id);
+                    _playerInfo!.Username, _playerInfo.Id);
             }
             else
             {

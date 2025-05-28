@@ -126,7 +126,7 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
             }
 
             // 反序列化响应
-            return _serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<TResponse>(new ReadOnlySequence<byte>(response.Body));
+            return _serializerProvider.Create(MethodType.Unary, null).Deserialize<TResponse>(new ReadOnlySequence<byte>(response.Body));
         }
         finally
         {
@@ -248,25 +248,35 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
     {
         try
         {
-            using var ms = new MemoryStream(e.Data.ToArray());
-            using var reader = new BinaryReader(ms);
+            // TcpTransport 发送的数据已经是应用层消息格式：[HeaderLength(4)] + [Header] + [Payload]
+            // 不需要再处理传输层头部
 
-            // 读取头部长度
-            int headerLength = reader.ReadInt32();
+            var data = e.Data;
+            if (data.Length < 4)
+            {
+                _logger.LogWarning("收到的消息太短，无法包含头部长度");
+                return;
+            }
+
+            // 读取头部长度（小端序）
+            var headerLengthBytes = data.Slice(0, 4).ToArray();
+            int headerLength = BitConverter.ToInt32(headerLengthBytes, 0);
 
             // 检查头部长度合法性
-            if (headerLength <= 0 || headerLength > e.Data.Length - 4)
+            if (headerLength <= 0 || headerLength > data.Length - 4)
             {
-                _logger.LogWarning("收到无效的消息头");
+                _logger.LogWarning("收到无效的消息头长度: {HeaderLength}, 数据总长度: {DataLength}", headerLength, data.Length);
                 return;
             }
 
             // 读取头部
-            byte[] headerBytes = reader.ReadBytes(headerLength);
-            var header = _serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<Messaging.MessageHeader>(new ReadOnlySequence<byte>(headerBytes));
+            var headerBytes = data.Slice(4, headerLength).ToArray();
+            var header = _serializerProvider.Create(MethodType.Unary, null).Deserialize<Messaging.MessageHeader>(new ReadOnlySequence<byte>(headerBytes));
 
             // 读取消息体
-            byte[] bodyBytes = reader.ReadBytes((int)(ms.Length - ms.Position));
+            var bodyStartIndex = 4 + headerLength;
+            var bodyLength = data.Length - bodyStartIndex;
+            byte[] bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
 
             // 创建网络消息
             var message = new NetworkMessage(header, bodyBytes);
@@ -474,8 +484,8 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
 
         public override void Invoke(byte[] data, ISerializerProvider serializerProvider)
         {
-            var eventData = serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<T>(new ReadOnlySequence<byte>(data));
-            _handler(this, eventData);
+            var eventData = serializerProvider.Create(MethodType.Unary, null).Deserialize<T>(new ReadOnlySequence<byte>(data));
+            _handler.Invoke(this, eventData);
         }
     }
 }

@@ -62,26 +62,26 @@ namespace ChatApp.Shared
     [MemoryPackable]
     public partial class LoginRequest
     {
-        public string Username { get; set; }
-        public string Password { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
     }
 
     [MemoryPackable]
     public partial class LoginResponse
     {
         public bool Success { get; set; }
-        public string Token { get; set; }
-        public PlayerInfo Player { get; set; }
-        public string ErrorMessage { get; set; }
+        public string Token { get; set; } = string.Empty;
+        public PlayerInfo? Player { get; set; }
+        public string ErrorMessage { get; set; } = string.Empty;
     }
 
     [MemoryPackable]
     public partial class PlayerInfo
     {
         public Guid Id { get; set; }
-        public string Username { get; set; }
+        public string Username { get; set; } = string.Empty;
         public int Level { get; set; }
-        public string AvatarUrl { get; set; }
+        public string AvatarUrl { get; set; } = string.Empty;
     }
 
     [MemoryPackable]
