@@ -73,7 +73,7 @@ namespace PulseRPC.Transport.Kcp
             try
             {
                 // KCP需要先发送长度
-                byte[] lengthBytes = BitConverter.GetBytes(data.Length);
+                var lengthBytes = BitConverter.GetBytes(data.Length);
                 _kcp.Send(lengthBytes);
 
                 // 发送数据
@@ -90,6 +90,11 @@ namespace PulseRPC.Transport.Kcp
             {
                 _sendLock.Release();
             }
+        }
+
+        public Task<bool> SendAsync<T>(in Messaging.MessageHeader header, T? payload, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -171,7 +176,7 @@ namespace PulseRPC.Transport.Kcp
 
                 EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
                 var buffer = (byte[])ar.AsyncState!;
-                
+
                 // 使用正确的结束方法
                 var recvSize = _socket.EndReceiveFrom(ar, ref remoteEp);
 
@@ -199,7 +204,7 @@ namespace PulseRPC.Transport.Kcp
                 // Socket 已被释放，这是正常情况
                 _logger.LogDebug("Socket已释放，停止UDP接收");
             }
-            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.OperationAborted || 
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.OperationAborted ||
                                              ex.SocketErrorCode == SocketError.ConnectionReset ||
                                              ex.SocketErrorCode == SocketError.Interrupted)
             {
@@ -830,7 +835,7 @@ namespace PulseRPC.Transport.Kcp
                 // Socket 已被释放，这是正常情况
                 _logger.LogDebug("监听Socket已释放");
             }
-            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.OperationAborted || 
+            catch (SocketException ex) when (ex.SocketErrorCode == SocketError.OperationAborted ||
                                              ex.SocketErrorCode == SocketError.Interrupted)
             {
                 // 操作被中止，通常在停止监听时发生

@@ -1,5 +1,3 @@
-// PulseRPC.Transport/TransportOptions.cs
-
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -64,6 +62,16 @@ namespace PulseRPC.Transport
         /// 是否使用加密
         /// </summary>
         public bool UseEncryption { get; set; } = false;
+
+        /// <summary>
+        /// 小包阈值
+        /// </summary>
+        public int SmallPacketThreshold { get; set; } = 64 * 1024;
+
+        /// <summary>
+        /// 分块大小
+        /// </summary>
+        public int ChunkSize { get; set; } = 32 * 1024;
 
         /// <summary>
         /// KCP相关选项

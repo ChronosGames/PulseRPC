@@ -15,7 +15,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddPulseServerServices(this IServiceCollection services)
      {
          // 添加序列化器
-         services.AddSingleton<ISerializer, PulseRPCSerializer>();
+         services.AddSingleton<ISerializerProvider, PulseRPCSerializer>();
 
          // 添加事件发布器
          services.AddSingleton<IEventPublisher, EventPublisher>();

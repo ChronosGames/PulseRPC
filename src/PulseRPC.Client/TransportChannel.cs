@@ -1,3 +1,4 @@
+using System.Buffers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Messaging;
@@ -30,8 +31,7 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
 {
     private readonly string _name;
     private readonly IClientTransport _transport;
-    private readonly ISerializer _serializer;
-    private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+    private readonly ISerializerProvider _serializerProvider;
     private readonly Dictionary<Guid, TaskCompletionSource<NetworkMessage>> _pendingRequests = new();
     private readonly Dictionary<string, List<EventSubscription>> _eventSubscriptions = new();
     private readonly object _syncRoot = new object();
@@ -46,11 +46,11 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
 
     public event System.EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
 
-    public TransportChannel(string name, IClientTransport transport, ISerializer serializer, ILogger<TransportChannel>? logger = null)
+    public TransportChannel(string name, IClientTransport transport, ISerializerProvider serializerProvider, ILogger<TransportChannel>? logger = null)
     {
         _name = name;
         _transport = transport;
-        _serializer = serializer;
+        _serializerProvider = serializerProvider;
         _logger = logger ?? NullLogger<TransportChannel>.Instance;
 
         // 注册传输事件
@@ -90,17 +90,13 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
     {
         // 创建消息头
         var messageId = Guid.NewGuid();
-        var header = new MessageHeader
+        var header = new Messaging.MessageHeader
         {
             Type = MessageType.Request,
             MessageId = messageId,
             ServiceName = serviceName,
-            MethodName = methodName,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            MethodName = methodName
         };
-
-        // 序列化请求体
-        byte[] body = _serializer.Serialize(request);
 
         // 创建待处理请求
         var tcs = new TaskCompletionSource<NetworkMessage>();
@@ -112,7 +108,7 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
         try
         {
             // 发送请求
-            await SendMessageAsync(header, body, cancellationToken);
+            await _transport.SendAsync(header, request, cancellationToken);
 
             // 等待响应，设置超时
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -129,7 +125,7 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
             }
 
             // 反序列化响应
-            return _serializer.Deserialize<TResponse>(response.Body);
+            return _serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<TResponse>(new ReadOnlySequence<byte>(response.Body));
         }
         finally
         {
@@ -147,20 +143,16 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
     public async Task SendEventAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default)
     {
         // 创建消息头
-        var header = new MessageHeader
+        var header = new Messaging.MessageHeader
         {
             Type = MessageType.Event,
             MessageId = Guid.NewGuid(),
             ServiceName = string.Empty,
-            MethodName = eventName,
-            Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            MethodName = eventName
         };
 
-        // 序列化事件数据
-        byte[] body = _serializer.Serialize(eventData);
-
         // 发送事件
-        await SendMessageAsync(header, body, cancellationToken);
+        await _transport.SendAsync(header, eventData, cancellationToken);
     }
 
     /// <summary>
@@ -208,44 +200,6 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
     }
 
     /// <summary>
-    /// 发送消息
-    /// </summary>
-    private async Task SendMessageAsync(MessageHeader header, byte[] body, CancellationToken cancellationToken)
-    {
-        // 序列化头部
-        byte[] headerBytes = _serializer.Serialize(header);
-
-        // 创建完整消息
-        using var ms = new MemoryStream();
-        using var writer = new BinaryWriter(ms);
-
-        // 写入头部长度
-        writer.Write(headerBytes.Length);
-        // 写入头部
-        writer.Write(headerBytes);
-        // 写入消息体
-        writer.Write(body);
-
-        // 获取完整消息数据
-        byte[] messageData = ms.ToArray();
-
-        // 发送消息
-        await _sendLock.WaitAsync(cancellationToken);
-        try
-        {
-            bool sent = await _transport.SendAsync(messageData, cancellationToken);
-            if (!sent)
-            {
-                throw new InvalidOperationException("发送失败，可能已断开连接");
-            }
-        }
-        finally
-        {
-            _sendLock.Release();
-        }
-    }
-
-    /// <summary>
     /// 处理传输层数据接收
     /// </summary>
     private void OnTransportDataReceived(object? sender, TransportDataEventArgs e)
@@ -267,17 +221,13 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
 
             // 读取头部
             byte[] headerBytes = reader.ReadBytes(headerLength);
-            var header = _serializer.Deserialize<MessageHeader>(headerBytes);
+            var header = _serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<Messaging.MessageHeader>(new ReadOnlySequence<byte>(headerBytes));
 
             // 读取消息体
             byte[] bodyBytes = reader.ReadBytes((int)(ms.Length - ms.Position));
 
             // 创建网络消息
-            var message = new NetworkMessage
-            {
-                Header = header,
-                Body = bodyBytes
-            };
+            var message = new NetworkMessage(header, bodyBytes);
 
             // 处理消息
             ProcessMessage(message);
@@ -358,7 +308,7 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
         {
             try
             {
-                subscription.Invoke(message.Body, _serializer);
+                subscription.Invoke(message.Body, _serializerProvider);
             }
             catch (Exception ex)
             {
@@ -375,15 +325,14 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
         try
         {
             // 创建Pong响应
-            var header = new MessageHeader
+            var header = new Messaging.MessageHeader
             {
                 Type = MessageType.Pong,
-                MessageId = message.Header.MessageId,
-                Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                MessageId = message.Header.MessageId
             };
 
             // 发送Pong
-            await SendMessageAsync(header, Array.Empty<byte>(), CancellationToken.None);
+            await _transport.SendAsync<object>(header, null, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -406,20 +355,22 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
         ConnectionStateChanged?.Invoke(this, eventArgs);
 
         // 如果断开连接，取消所有待处理请求
-        if (e.CurrentState == ConnectionState.Disconnected)
+        if (e.CurrentState != ConnectionState.Disconnected)
         {
-            Dictionary<Guid, TaskCompletionSource<NetworkMessage>> pendingRequests;
-            lock (_syncRoot)
-            {
-                pendingRequests = new Dictionary<Guid, TaskCompletionSource<NetworkMessage>>(_pendingRequests);
-                _pendingRequests.Clear();
-            }
+            return;
+        }
 
-            // 设置所有请求失败
-            foreach (var request in pendingRequests.Values)
-            {
-                request.TrySetException(new IOException("连接断开"));
-            }
+        Dictionary<Guid, TaskCompletionSource<NetworkMessage>> pendingRequests;
+        lock (_syncRoot)
+        {
+            pendingRequests = new Dictionary<Guid, TaskCompletionSource<NetworkMessage>>(_pendingRequests);
+            _pendingRequests.Clear();
+        }
+
+        // 设置所有请求失败
+        foreach (var request in pendingRequests.Values)
+        {
+            request.TrySetException(new IOException("连接断开"));
         }
     }
 
@@ -451,9 +402,6 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
 
         // 释放传输层
         _transport.Dispose();
-
-        // 释放其他资源
-        _sendLock.Dispose();
     }
 
     // 内部类：事件订阅基类
@@ -467,7 +415,7 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
             EventName = eventName;
         }
 
-        public abstract void Invoke(byte[] data, ISerializer serializer);
+        public abstract void Invoke(byte[] data, ISerializerProvider serializerProvider);
     }
 
     // 内部类：泛型事件订阅
@@ -481,9 +429,9 @@ public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEven
             _handler = handler;
         }
 
-        public override void Invoke(byte[] data, ISerializer serializer)
+        public override void Invoke(byte[] data, ISerializerProvider serializerProvider)
         {
-            var eventData = serializer.Deserialize<T>(data);
+            var eventData = serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<T>(new ReadOnlySequence<byte>(data));
             _handler(this, eventData);
         }
     }

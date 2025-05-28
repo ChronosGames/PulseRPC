@@ -1,8 +1,7 @@
 using System;
+using System.Buffers;
 using System.Diagnostics;
 using PulseRPC.Serialization;
-
-#nullable enable
 
 namespace PulseRPC
 {
@@ -39,7 +38,7 @@ namespace PulseRPC
         /// <summary>
         /// 触发事件处理
         /// </summary>
-        public abstract void Invoke(object sender, byte[] data, ISerializer serializer);
+        public abstract void Invoke(object sender, byte[] data, ISerializerProvider serializerProvider);
 
         /// <summary>
         /// 获取事件处理器的动态调用包装
@@ -69,15 +68,15 @@ namespace PulseRPC
         /// <summary>
         /// 触发事件处理
         /// </summary>
-        public override void Invoke(object sender, byte[] data, ISerializer serializer)
+        public override void Invoke(object sender, byte[]? data, ISerializerProvider? serializerProvider)
         {
-            if (data == null || serializer == null)
+            if (data == null || serializerProvider == null)
                 return;
 
             try
             {
                 // 反序列化事件数据
-                var eventData = serializer.Deserialize<T>(data);
+                var eventData = serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<T>(new ReadOnlySequence<byte>(data));
 
                 // 调用处理器
                 _handler(sender, eventData);

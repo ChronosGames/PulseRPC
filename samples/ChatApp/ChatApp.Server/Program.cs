@@ -218,7 +218,7 @@ namespace GameServer
             services.AddSingleton<IServerManager>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<ServerManager>>();
-                var serializer = sp.GetRequiredService<ISerializer>();
+                var serializer = sp.GetRequiredService<ISerializerProvider>();
                 var serviceRegistry = sp.GetRequiredService<ServiceRegistry>();
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
                 var serverChannelManager = sp.GetRequiredService<IServerChannelManager>();

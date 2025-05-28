@@ -1,36 +1,84 @@
 ﻿using System;
+using System.Buffers;
+using System.Reflection;
 using MemoryPack;
 
 namespace PulseRPC.Serialization
 {
-    /// <summary>
-    /// 序列化接口
-    /// </summary>
-    public interface ISerializer
+    public enum MethodType
     {
-        byte[] Serialize<T>(T obj);
-        T Deserialize<T>(byte[] data);
-        object Deserialize(byte[] data, Type type);
+        /// <summary>Single request sent from client, single response received from server.</summary>
+        Unary,
+
+        /// <summary>Stream of request sent from client, single response received from server.</summary>
+        ClientStreaming,
+
+        /// <summary>Single request sent from client, stream of responses received from server.</summary>
+        ServerStreaming,
+
+        /// <summary>Both server and client can stream arbitrary number of requests and responses simultaneously.</summary>
+        DuplexStreaming
     }
 
     /// <summary>
-    /// 高性能二进制序列化实现
+    /// Provides a serializer for request/response of PulseRPC services and hub methods.
     /// </summary>
-    public class PulseRPCSerializer : ISerializer
+    public interface ISerializerProvider
     {
-        public byte[] Serialize<T>(T obj)
+
+        /// <summary>
+        /// Create a serializer for the service method.
+        /// </summary>
+        /// <param name="methodType">gRPC method type of the method.</param>
+        /// <param name="methodInfo">A method info for an implementation of the service method. It is a hint that handling request parameters on the server, which may be passed null on the client.</param>
+        /// <returns></returns>
+        ISerializer Create(MethodType methodType, MethodInfo? methodInfo);
+    }
+
+    /// <summary>
+    /// Provides a processing for message serialization.
+    /// </summary>
+    public interface ISerializer
+    {
+        void Serialize<T>(IBufferWriter<byte> writer, in T value);
+
+        T Deserialize<T>(in ReadOnlySequence<byte> bytes);
+    }
+
+    public partial class PulseRPCSerializer : ISerializerProvider
+    {
+        readonly MemoryPackSerializerOptions _serializerOptions;
+        public static PulseRPCSerializer Instance { get; } = new(MemoryPackSerializerOptions.Default);
+
+        private PulseRPCSerializer(MemoryPackSerializerOptions serializerOptions)
         {
-            return MemoryPackSerializer.Serialize(obj);
+            _serializerOptions = serializerOptions;
         }
 
-        public T Deserialize<T>(byte[] data)
+        static PulseRPCSerializer()
         {
-            return MemoryPackSerializer.Deserialize<T>(data)!;
+            // DynamicArgumentTupleFormatter.Register();
         }
 
-        public object Deserialize(byte[] data, Type type)
+        public PulseRPCSerializer WithOptions(MemoryPackSerializerOptions serializerOptions) => new PulseRPCSerializer(serializerOptions);
+
+        public ISerializer Create(MethodType methodType, MethodInfo? methodInfo)
         {
-            return MemoryPackSerializer.Deserialize(type, data)!;
+            return new Serializer(_serializerOptions);
+        }
+
+        class Serializer : ISerializer
+        {
+            readonly MemoryPackSerializerOptions _serializerOptions;
+
+            public Serializer(MemoryPackSerializerOptions serializerOptions)
+            {
+                _serializerOptions = serializerOptions;
+            }
+
+            public void Serialize<T>(IBufferWriter<byte> writer, in T value) => MemoryPackSerializer.Serialize(writer, value, _serializerOptions);
+
+            public T Deserialize<T>(in ReadOnlySequence<byte> bytes) => MemoryPackSerializer.Deserialize<T>(bytes, _serializerOptions)!;
         }
     }
 }

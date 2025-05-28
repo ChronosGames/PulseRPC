@@ -1,6 +1,5 @@
-// PulseRPC.Transport.Tcp/TcpTransport.cs
-
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -22,11 +21,18 @@ namespace PulseRPC.Transport.Tcp
         protected readonly CancellationTokenSource _cts = new CancellationTokenSource();
         protected readonly ILogger _logger;
 
+        // 大包状态管理（线程安全）
+        private readonly ConcurrentDictionary<int, LargePacketState> _largePacketStates;
+        private int _nextChunkId;
+
         protected ConnectionState _state = ConnectionState.Disconnected;
         protected NetworkStream? _stream;
         protected Task? _receiveTask;
         protected byte[] _receiveBuffer;
         protected bool _disposed;
+
+        protected long _totalBytesSent;
+        protected long _totalBytesReceived;
 
         public string Name => "TCP";
         public TransportType Type => TransportType.Tcp;
@@ -35,6 +41,9 @@ namespace PulseRPC.Transport.Tcp
 
         public EndPoint LocalEndPoint => _socket.LocalEndPoint!;
         public EndPoint RemoteEndPoint => _socket.RemoteEndPoint!;
+
+        public long TotalBytesSent => Interlocked.Read(ref _totalBytesSent);
+        public long TotalBytesReceived => Interlocked.Read(ref _totalBytesReceived);
 
         public event System.EventHandler<TransportStateEventArgs>? StateChanged;
         public event System.EventHandler<TransportDataEventArgs>? DataReceived;
@@ -65,11 +74,11 @@ namespace PulseRPC.Transport.Tcp
                 _socket.IOControl(IOControlCode.KeepAliveValues, keepAliveValues, null);
                 #endif
             }
+
+            _largePacketStates = new ConcurrentDictionary<int, LargePacketState>();
+            _nextChunkId = 0;
         }
 
-        /// <summary>
-        /// 发送数据
-        /// </summary>
         public virtual async Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
         {
             if (!IsConnected)
@@ -102,6 +111,14 @@ namespace PulseRPC.Transport.Tcp
             {
                 _sendLock.Release();
             }
+        }
+
+        /// <summary>
+        /// 发送数据
+        /// </summary>
+        public virtual Task<bool> SendAsync<T>(in Messaging.MessageHeader header, T? payload, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -192,8 +209,7 @@ namespace PulseRPC.Transport.Tcp
 
             _state = newState;
 
-            _logger.LogInformation("传输状态变更: {OldState} -> {NewState} ({Reason})",
-                oldState, newState, reason ?? "未指定原因");
+            _logger.LogInformation("传输状态变更: {OldState} -> {NewState} ({Reason})", oldState, newState, reason ?? "未指定原因");
 
             StateChanged?.Invoke(this, new TransportStateEventArgs(oldState, newState, reason, exception));
         }
@@ -293,10 +309,10 @@ namespace PulseRPC.Transport.Tcp
         /// <summary>
         /// 断开连接
         /// </summary>
-        public async Task DisconnectAsync(CancellationToken cancellationToken = default)
+        public Task DisconnectAsync(CancellationToken cancellationToken = default)
         {
             if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
-                return;
+                return Task.CompletedTask;
 
             ChangeState(ConnectionState.Disconnecting);
 
@@ -327,6 +343,8 @@ namespace PulseRPC.Transport.Tcp
 
                 throw;
             }
+
+            return Task.CompletedTask;
         }
 
         /// <summary>
@@ -334,25 +352,27 @@ namespace PulseRPC.Transport.Tcp
         /// </summary>
         private void StartReconnect(string host, int port)
         {
-            if (_options.AutoReconnect && _reconnectAttempts < _options.MaxReconnectAttempts)
+            if (!_options.AutoReconnect || _reconnectAttempts >= _options.MaxReconnectAttempts)
             {
-                _reconnectAttempts++;
-
-                ChangeState(ConnectionState.Reconnecting, $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
-
-                _reconnectTimer?.Dispose();
-                _reconnectTimer = new Timer(async _ =>
-                {
-                    try
-                    {
-                        await ConnectAsync(host, port);
-                    }
-                    catch
-                    {
-                        // 重连失败，下次继续尝试
-                    }
-                }, null, _options.ReconnectInterval, Timeout.Infinite);
+                return;
             }
+
+            _reconnectAttempts++;
+
+            ChangeState(ConnectionState.Reconnecting, $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
+
+            _reconnectTimer?.Dispose();
+            _reconnectTimer = new Timer(async _ =>
+            {
+                try
+                {
+                    await ConnectAsync(host, port);
+                }
+                catch
+                {
+                    // 重连失败，下次继续尝试
+                }
+            }, null, _options.ReconnectInterval, Timeout.Infinite);
         }
 
         /// <summary>
@@ -402,10 +422,10 @@ namespace PulseRPC.Transport.Tcp
         /// <summary>
         /// 关闭连接
         /// </summary>
-        public async Task CloseAsync(CancellationToken cancellationToken = default)
+        public Task CloseAsync(CancellationToken cancellationToken = default)
         {
             if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
-                return;
+                return Task.CompletedTask;
 
             ChangeState(ConnectionState.Disconnecting);
 
@@ -432,6 +452,8 @@ namespace PulseRPC.Transport.Tcp
 
                 throw;
             }
+
+            return Task.CompletedTask;
         }
     }
 

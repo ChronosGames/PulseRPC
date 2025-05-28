@@ -44,7 +44,7 @@ public class ServerManager : IServerManager
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ServiceRegistry _serviceRegistry;
-    private readonly ISerializer _serializer;
+    private readonly ISerializerProvider _serializerProvider;
     private readonly ILogger<ServerManager> _logger;
     private readonly Dictionary<string, TransportInfo> _transports = new();
     private readonly IServerChannelManager _channelManager;
@@ -61,23 +61,23 @@ public class ServerManager : IServerManager
     private static readonly object EmptyObject = new();
 
     // 消息池 - 减少内存分配
-    private readonly ObjectPool<MessageHeader> _headerPool;
+    private readonly ObjectPool<Messaging.MessageHeader> _headerPool;
     private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;
 
     public ServerManager(
         ServiceRegistry serviceRegistry,
-        ISerializer serializer,
+        ISerializerProvider serializerProvider,
         IServerChannelManager serverChannelManager,
         ILoggerFactory loggerFactory)
     {
         _serviceRegistry = serviceRegistry;
-        _serializer = serializer;
+        _serializerProvider = serializerProvider;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ServerManager>();
         _channelManager = serverChannelManager;
 
         // 初始化对象池
-        _headerPool = new ObjectPool<MessageHeader>(() => new MessageHeader(), 100);
+        _headerPool = new ObjectPool<Messaging.MessageHeader>(() => new Messaging.MessageHeader(), 100);
     }
 
     /// <summary>
@@ -144,8 +144,8 @@ public class ServerManager : IServerManager
                 var channel = new ServerTransportChannel(
                     transport.Name,
                     listener,
-                    _serializer,
-                    _logger as ILogger<ServerTransportChannel>);
+                    _serializerProvider,
+                    _loggerFactory.CreateLogger<ServerTransportChannel>());
 
                 // 添加消息处理器
                 channel.MessageReceived += OnMessageReceived;
@@ -281,7 +281,7 @@ public class ServerManager : IServerManager
         try
         {
             // 直接访问消息体字节数组，避免重复序列化/反序列化
-            var requestBytes = message.Body ?? Array.Empty<byte>();
+            var requestBytes = message.Body;
 
             // 未知服务或方法 - 使用高性能服务注册中心
             var result = await _serviceRegistry.InvokeMethodAsync(
@@ -321,14 +321,13 @@ public class ServerManager : IServerManager
     /// 从对象池获取响应头
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private MessageHeader GetHeaderFromPool(MessageType type, MessageHeader requestHeader)
+    private Messaging.MessageHeader GetHeaderFromPool(MessageType type, Messaging.MessageHeader requestHeader)
     {
         var header = _headerPool.Get();
         header.Type = type;
         header.MessageId = requestHeader.MessageId;
         header.ServiceName = requestHeader.ServiceName;
         header.MethodName = requestHeader.MethodName;
-        header.Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         return header;
     }
 
@@ -336,7 +335,7 @@ public class ServerManager : IServerManager
     /// 将对象返回到池
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void ReturnHeaderToPool(MessageHeader header)
+    private void ReturnHeaderToPool(Messaging.MessageHeader header)
     {
         _headerPool.Return(header);
     }
