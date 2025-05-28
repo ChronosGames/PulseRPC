@@ -4,6 +4,10 @@ using System.Reflection;
 using MemoryPack;
 using PulseRPC.Transport;
 using PulseRPC.Server.Auth;
+using PulseRPC.Server.Transport;
+using PulseRPC.Messaging;
+using PulseRPC.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Server.Services;
 
@@ -28,6 +32,12 @@ public class ServiceRegistry
     // 认证中间件
     private readonly AuthenticationMiddleware? _authMiddleware;
 
+    // 添加RPC消息处理相关字段
+    private readonly IServerChannelManager? _channelManager;
+    private readonly ISerializerProvider? _serializerProvider;
+    private readonly ILogger<ServiceRegistry>? _logger;
+    private bool _rpcHandlingEnabled = false;
+
     // 保持单例模式
     private static ServiceRegistry? _instance;
     private static readonly object _lock = new();
@@ -47,9 +57,15 @@ public class ServiceRegistry
         }
     }
 
-    private ServiceRegistry(AuthenticationMiddleware? authMiddleware = null)
+    private ServiceRegistry(AuthenticationMiddleware? authMiddleware = null,
+        IServerChannelManager? channelManager = null,
+        ISerializerProvider? serializerProvider = null,
+        ILogger<ServiceRegistry>? logger = null)
     {
         _authMiddleware = authMiddleware;
+        _channelManager = channelManager;
+        _serializerProvider = serializerProvider;
+        _logger = logger;
     }
 
     /// <summary>
@@ -60,6 +76,40 @@ public class ServiceRegistry
     public static ServiceRegistry CreateWithAuth(AuthenticationMiddleware authMiddleware)
     {
         return new ServiceRegistry(authMiddleware);
+    }
+
+    /// <summary>
+    /// 创建带完整RPC处理能力的服务注册中心实例
+    /// </summary>
+    /// <param name="authMiddleware">认证中间件</param>
+    /// <param name="channelManager">通道管理器</param>
+    /// <param name="serializerProvider">序列化器提供程序</param>
+    /// <param name="logger">日志记录器</param>
+    /// <returns>服务注册中心实例</returns>
+    public static ServiceRegistry CreateWithRpcHandling(
+        AuthenticationMiddleware authMiddleware,
+        IServerChannelManager channelManager,
+        ISerializerProvider serializerProvider,
+        ILogger<ServiceRegistry> logger)
+    {
+        var registry = new ServiceRegistry(authMiddleware, channelManager, serializerProvider, logger);
+        registry.EnableRpcMessageHandling();
+        return registry;
+    }
+
+    /// <summary>
+    /// 启用RPC消息处理
+    /// </summary>
+    public void EnableRpcMessageHandling()
+    {
+        if (_rpcHandlingEnabled || _channelManager == null || _serializerProvider == null)
+            return;
+
+        _channelManager.ChannelConnected += OnChannelConnected;
+        _channelManager.ChannelDisconnected += OnChannelDisconnected;
+        _rpcHandlingEnabled = true;
+
+        _logger?.LogInformation("ServiceRegistry RPC消息处理已启用");
     }
 
     /// <summary>
@@ -1106,4 +1156,328 @@ public class ServiceRegistry
         public required MethodInfo MethodInfo { get; init; }
         public required string? Channel { get; init; }
     }
+
+    #region RPC消息处理
+
+    /// <summary>
+    /// 处理新通道连接
+    /// </summary>
+    private void OnChannelConnected(object? sender, ChannelEventArgs e)
+    {
+        try
+        {
+            // 为新通道订阅数据接收事件
+            e.Channel.DataReceived += OnChannelDataReceived;
+            _logger?.LogDebug("已为通道 {ConnectionId} 订阅DataReceived事件", e.Channel.ConnectionId);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "订阅通道 {ConnectionId} 的DataReceived事件时发生错误", e.Channel.ConnectionId);
+        }
+    }
+
+    /// <summary>
+    /// 处理通道断开
+    /// </summary>
+    private void OnChannelDisconnected(object? sender, ChannelEventArgs e)
+    {
+        try
+        {
+            // 取消订阅数据接收事件
+            e.Channel.DataReceived -= OnChannelDataReceived;
+            _logger?.LogDebug("已为通道 {ConnectionId} 取消订阅DataReceived事件", e.Channel.ConnectionId);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "取消订阅通道 {ConnectionId} 的DataReceived事件时发生错误", e.Channel.ConnectionId);
+        }
+    }
+
+    /// <summary>
+    /// 处理通道数据接收
+    /// </summary>
+    private async void OnChannelDataReceived(object? sender, TransportDataEventArgs e)
+    {
+        if (sender is not ITransportChannel channel)
+        {
+            _logger?.LogWarning("DataReceived事件发送者不是ITransportChannel类型");
+            return;
+        }
+
+        try
+        {
+            _logger?.LogDebug("收到来自通道 {ConnectionId} 的RPC数据: {Size} bytes",
+                channel.ConnectionId, e.Data.Length);
+
+            // 解析RPC消息
+            var message = ParseRpcMessage(e.Data);
+            if (message == null)
+            {
+                _logger?.LogWarning("无法解析来自通道 {ConnectionId} 的RPC消息", channel.ConnectionId);
+                return;
+            }
+
+            _logger?.LogDebug("解析RPC消息成功: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
+                message.ServiceName, message.MethodName, message.RequestId);
+
+            // 调用服务方法
+            var serverConnection = channel.Transport;
+            var result = await InvokeMethodAsync(
+                message.ServiceName,
+                message.MethodName,
+                message.RequestData,
+                serverConnection);
+
+            _logger?.LogDebug("服务方法调用完成: {ServiceName}.{MethodName}, 请求ID={RequestId}",
+                message.ServiceName, message.MethodName, message.RequestId);
+
+            // 发送响应
+            await SendResponse(channel, message.RequestId, result);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "处理来自通道 {ConnectionId} 的RPC消息时发生错误", channel.ConnectionId);
+
+            // 尝试发送错误响应
+            try
+            {
+                await SendErrorResponse(channel, "Unknown", ex.Message);
+            }
+            catch (Exception sendEx)
+            {
+                _logger?.LogError(sendEx, "发送错误响应失败");
+            }
+        }
+    }
+
+    /// <summary>
+    /// 解析RPC消息
+    /// </summary>
+    private RpcMessage? ParseRpcMessage(ReadOnlyMemory<byte> data)
+    {
+        try
+        {
+            if (_serializerProvider == null)
+            {
+                _logger?.LogError("序列化器提供程序为null，无法解析RPC消息");
+                return null;
+            }
+
+            _logger?.LogDebug("尝试解析RPC消息，数据长度: {Length}", data.Length);
+
+            if (data.Length < 4)
+            {
+                _logger?.LogWarning("收到的消息太短，无法包含头部长度");
+                return null;
+            }
+
+            // 读取头部长度（小端序）
+            var headerLengthBytes = data.Slice(0, 4).ToArray();
+            int headerLength = BitConverter.ToInt32(headerLengthBytes, 0);
+
+            // 检查头部长度合法性
+            if (headerLength <= 0 || headerLength > data.Length - 4)
+            {
+                _logger?.LogWarning("收到无效的消息头长度: {HeaderLength}, 数据总长度: {DataLength}",
+                    headerLength, data.Length);
+                return null;
+            }
+
+            // 读取头部
+            var headerBytes = data.Slice(4, headerLength).ToArray();
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+            var header = serializer.Deserialize<MessageHeader>(new System.Buffers.ReadOnlySequence<byte>(headerBytes));
+
+            // 验证消息类型
+            if (header.Type != MessageType.Request)
+            {
+                _logger?.LogDebug("忽略非请求消息类型: {Type}", header.Type);
+                return null;
+            }
+
+            // 读取消息体
+            var bodyStartIndex = 4 + headerLength;
+            var bodyLength = data.Length - bodyStartIndex;
+            byte[] bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
+
+            _logger?.LogDebug("成功解析RPC消息: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
+                header.ServiceName, header.MethodName, header.MessageId);
+
+            return new RpcMessage
+            {
+                ServiceName = header.ServiceName ?? string.Empty,
+                MethodName = header.MethodName ?? string.Empty,
+                RequestId = header.MessageId.ToString(),
+                RequestData = bodyBytes
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "解析RPC消息失败");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 发送响应
+    /// </summary>
+    private async Task SendResponse(ITransportChannel channel, string requestId, object? result)
+    {
+        try
+        {
+            if (_serializerProvider == null)
+            {
+                _logger?.LogError("序列化器提供程序为null，无法发送响应");
+                return;
+            }
+
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+
+            // 创建响应头
+            var header = new MessageHeader
+            {
+                Type = MessageType.Response,
+                MessageId = Guid.Parse(requestId)
+            };
+
+            // 序列化头部
+            var headerWriter = new System.Buffers.ArrayBufferWriter<byte>();
+            serializer.Serialize(headerWriter, in header);
+            var headerBytes = headerWriter.WrittenMemory.ToArray();
+
+            // 序列化响应体
+            byte[] payloadBytes = Array.Empty<byte>();
+            if (result != null)
+            {
+                try
+                {
+                    var payloadWriter = new System.Buffers.ArrayBufferWriter<byte>();
+
+                    // 使用result的实际类型进行序列化
+                    var resultType = result.GetType();
+                    _logger?.LogDebug("序列化响应，类型: {Type}", resultType.Name);
+
+                    // 使用反射调用泛型序列化方法
+                    var serializeMethod = typeof(ISerializer).GetMethod(nameof(ISerializer.Serialize));
+                    if (serializeMethod != null)
+                    {
+                        var genericSerializeMethod = serializeMethod.MakeGenericMethod(resultType);
+                        genericSerializeMethod.Invoke(serializer, new object[] { payloadWriter, result });
+                        payloadBytes = payloadWriter.WrittenMemory.ToArray();
+                    }
+                    else
+                    {
+                        _logger?.LogError("无法找到ISerializer.Serialize方法");
+                        throw new InvalidOperationException("序列化方法不可用");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogError(ex, "序列化响应时发生错误，响应类型: {Type}", result.GetType().Name);
+                    throw;
+                }
+            }
+
+            // 组装完整消息：[HeaderLength(4)] + [Header] + [Payload]
+            using var messageStream = new System.IO.MemoryStream();
+            using var writer = new System.IO.BinaryWriter(messageStream);
+
+            // 写入头部长度
+            writer.Write(headerBytes.Length);
+
+            // 写入头部
+            writer.Write(headerBytes);
+
+            // 写入载荷
+            writer.Write(payloadBytes);
+
+            var responseData = new ReadOnlyMemory<byte>(messageStream.ToArray());
+
+            // 发送响应
+            await channel.SendAsync(responseData);
+
+            _logger?.LogDebug("已发送响应到通道 {ConnectionId}, 请求ID={RequestId}, 响应大小={Size} bytes",
+                channel.ConnectionId, requestId, responseData.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "发送响应到通道 {ConnectionId} 失败, 请求ID={RequestId}",
+                channel.ConnectionId, requestId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 发送错误响应
+    /// </summary>
+    private async Task SendErrorResponse(ITransportChannel channel, string requestId, string errorMessage)
+    {
+        try
+        {
+            if (_serializerProvider == null)
+            {
+                _logger?.LogError("序列化器提供程序为null，无法发送错误响应");
+                return;
+            }
+
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+
+            // 创建错误响应头
+            var header = new MessageHeader
+            {
+                Type = MessageType.Response,
+                MessageId = string.IsNullOrEmpty(requestId) ? Guid.NewGuid() : Guid.Parse(requestId)
+            };
+
+            // 创建错误响应体
+            var errorResponse = new { Error = errorMessage, RequestId = requestId };
+
+            // 序列化头部
+            var headerWriter = new System.Buffers.ArrayBufferWriter<byte>();
+            serializer.Serialize(headerWriter, in header);
+            var headerBytes = headerWriter.WrittenMemory.ToArray();
+
+            // 序列化错误响应体
+            var payloadWriter = new System.Buffers.ArrayBufferWriter<byte>();
+            serializer.Serialize(payloadWriter, errorResponse);
+            var payloadBytes = payloadWriter.WrittenMemory.ToArray();
+
+            // 组装完整消息：[HeaderLength(4)] + [Header] + [Payload]
+            using var messageStream = new System.IO.MemoryStream();
+            using var writer = new System.IO.BinaryWriter(messageStream);
+
+            // 写入头部长度
+            writer.Write(headerBytes.Length);
+
+            // 写入头部
+            writer.Write(headerBytes);
+
+            // 写入载荷
+            writer.Write(payloadBytes);
+
+            var responseData = new ReadOnlyMemory<byte>(messageStream.ToArray());
+
+            await channel.SendAsync(responseData);
+
+            _logger?.LogDebug("已发送错误响应到通道 {ConnectionId}, 请求ID={RequestId}, 错误={Error}",
+                channel.ConnectionId, requestId, errorMessage);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "发送错误响应失败");
+        }
+    }
+
+    /// <summary>
+    /// RPC消息结构
+    /// </summary>
+    private class RpcMessage
+    {
+        public required string ServiceName { get; set; }
+        public required string MethodName { get; set; }
+        public required string RequestId { get; set; }
+        public required byte[] RequestData { get; set; }
+    }
+
+    #endregion
 }

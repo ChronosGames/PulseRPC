@@ -19,11 +19,11 @@ public class AuthenticationMiddleware
 {
     private readonly IAuthenticationProvider? _authenticationProvider;
     private readonly IAuthorizationProvider? _authorizationProvider;
-    private readonly ServerChannelManager _channelManager;
+    private readonly IServerChannelManager _channelManager;
     private readonly ILogger<AuthenticationMiddleware> _logger;
 
     public AuthenticationMiddleware(
-        ServerChannelManager channelManager,
+        IServerChannelManager channelManager,
         IAuthenticationProvider? authenticationProvider = null,
         IAuthorizationProvider? authorizationProvider = null,
         ILogger<AuthenticationMiddleware>? logger = null)
