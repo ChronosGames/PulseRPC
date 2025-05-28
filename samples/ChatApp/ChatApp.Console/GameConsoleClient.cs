@@ -66,7 +66,15 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         // 创建KCP通道
         var kcpOptions = new TransportOptions
         {
-            Kcp = new KcpOptions { NoDelay = 1, Interval = 10, Resend = 2, DisableFlowControl = false }
+            Kcp = new KcpOptions
+            {
+                NoDelay = 1,
+                Interval = 10,
+                Resend = 2,
+                DisableFlowControl = false,
+                SendWindow = 32,      // 与服务端匹配
+                ReceiveWindow = 128   // 与服务端匹配
+            }
         };
 
         var kcpTransport = await transportFactory.CreateTransportAsync(

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using PulseRPC.Authentication;
 using PulseRPC.Transport;
+using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Server.Transport
 {
@@ -16,6 +17,7 @@ namespace PulseRPC.Server.Transport
         private readonly IServerConnection _transport;
         private readonly ConcurrentDictionary<string, object> _properties;
         private readonly object _authLock = new object();
+        private readonly ILogger<ServerTransportChannel>? _logger;
 
         private IAuthenticationContext? _authenticationContext;
         private DateTime _lastActiveTime;
@@ -25,12 +27,14 @@ namespace PulseRPC.Server.Transport
         /// 构造函数
         /// </summary>
         /// <param name="transport">底层传输连接</param>
-        public ServerTransportChannel(IServerConnection transport)
+        /// <param name="logger">日志记录器</param>
+        public ServerTransportChannel(IServerConnection transport, ILogger<ServerTransportChannel>? logger = null)
         {
             _transport = transport ?? throw new ArgumentNullException(nameof(transport));
             _properties = new ConcurrentDictionary<string, object>();
             ConnectedTime = DateTime.UtcNow;
             _lastActiveTime = ConnectedTime;
+            _logger = logger;
 
             // 转发传输层事件
             _transport.StateChanged += OnTransportStateChanged;
@@ -146,7 +150,23 @@ namespace PulseRPC.Server.Transport
         private void OnTransportDataReceived(object? sender, TransportDataEventArgs e)
         {
             LastActiveTime = DateTime.UtcNow;
+
+            if (sender is IServerConnection connection)
+            {
+                _logger?.LogInformation("[通道数据转发] {ConnectionId} 接收到传输数据: Size={Size} bytes, Data=[{DataHex}]",
+                    connection.ConnectionId, e.Data.Length, Convert.ToHexString(e.Data.Span[..Math.Min(e.Data.Length, 64)]));
+
+                _logger?.LogDebug("[通道数据转发] {ConnectionId} 转发给订阅者，订阅者数量: {SubscriberCount}",
+                    connection.ConnectionId, DataReceived?.GetInvocationList()?.Length ?? 0);
+            }
+            else
+            {
+                _logger?.LogWarning("[通道数据转发] 发送者不是IServerConnection类型: {SenderType}", sender?.GetType().Name ?? "null");
+            }
+
             DataReceived?.Invoke(this, e);
+
+            _logger?.LogTrace("[通道数据转发] DataReceived事件已完成转发");
         }
 
         /// <inheritdoc />

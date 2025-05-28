@@ -18,6 +18,7 @@ namespace PulseRPC.Server.Transport
     {
         private readonly ConcurrentDictionary<string, ITransportChannel> _channels;
         private readonly ILogger<ServerChannelManager> _logger;
+        private readonly ILoggerFactory? _loggerFactory;
         private readonly Timer _cleanupTimer;
         private readonly object _lockObject = new object();
         private volatile bool _disposed;
@@ -52,10 +53,11 @@ namespace PulseRPC.Server.Transport
         /// </summary>
         public event System.EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;
 
-        public ServerChannelManager(ILogger<ServerChannelManager> logger)
+        public ServerChannelManager(ILogger<ServerChannelManager> logger, ILoggerFactory? loggerFactory = null)
         {
             _channels = new ConcurrentDictionary<string, ITransportChannel>();
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _loggerFactory = loggerFactory;
 
             // 启动清理定时器，每60秒清理一次过期连接
             _cleanupTimer = new Timer(CleanupExpiredChannels, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
@@ -71,7 +73,9 @@ namespace PulseRPC.Server.Transport
             if (connection == null) throw new ArgumentNullException(nameof(connection));
             if (_disposed) throw new ObjectDisposedException(nameof(ServerChannelManager));
 
-            var channel = new ServerTransportChannel(connection);
+            // 创建通道专用的日志器
+            var channelLogger = _loggerFactory?.CreateLogger<ServerTransportChannel>();
+            var channel = new ServerTransportChannel(connection, channelLogger);
 
             // 注册事件处理
             channel.StateChanged += OnChannelStateChanged;

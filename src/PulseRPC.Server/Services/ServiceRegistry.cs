@@ -1,4 +1,5 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Buffers;
+using System.Collections.Concurrent;
 using System.Linq.Expressions;
 using System.Reflection;
 using MemoryPack;
@@ -8,13 +9,28 @@ using PulseRPC.Server.Transport;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Network;
+using System.Text.Json;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using PulseRPC.Messaging;
+using PulseRPC.Serialization;
+using PulseRPC.Server.Auth;
+using PulseRPC.Server.Transport;
+using PulseRPC.Transport;
+using System.ComponentModel;
+using System.IO;
+using MemoryPack;
 
 namespace PulseRPC.Server.Services;
 
 /// <summary>
 /// 高性能服务注册中心，优化从网络字节流到服务调用的全流程
 /// </summary>
-public class ServiceRegistry
+public partial class ServiceRegistry
 {
     // 服务和实现的映射
     private readonly Dictionary<string, ServiceInfo> _services = new();
@@ -766,287 +782,150 @@ public class ServiceRegistry
     /// <summary>
     /// 调用服务方法
     /// </summary>
-    public async Task<object?> InvokeMethodAsync(string serviceName, string methodName, byte[] requestBytes,
-        IServerConnection? connection = null, CancellationToken cancellationToken = default)
+    private async Task<object?> InvokeMethodAsync(string serviceName, string methodName,
+        byte[] requestData, IServerConnection connection)
     {
-        Console.WriteLine($"[ServiceRegistry] 开始调用服务方法: {serviceName}.{methodName}, Connection: {connection?.ConnectionId ?? "null"}");
+        _logger?.LogDebug("[方法调用] 开始调用方法: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
+            serviceName, methodName, connection.ConnectionId);
 
-        // 设置请求上下文
-        RequestContext.SetCurrent(connection);
-        Console.WriteLine($"[ServiceRegistry] 已设置RequestContext: {RequestContext.Current?.ConnectionId ?? "null"}");
+        // 查找服务
+        if (!_services.TryGetValue(serviceName, out var serviceInfo))
+        {
+            _logger?.LogError("[方法调用] 未找到服务: {ServiceName}, 可用服务: [{Services}]",
+                serviceName, string.Join(", ", _services.Keys));
+            throw new InvalidOperationException($"未找到服务: {serviceName}");
+        }
+
+        _logger?.LogDebug("[方法调用] 找到服务: {ServiceName}, 默认通道: {DefaultChannel}",
+            serviceName, serviceInfo.DefaultChannel);
+
+        // 查找方法
+        if (!serviceInfo.Methods.TryGetValue(methodName, out var methodInfo))
+        {
+            _logger?.LogError("[方法调用] 服务 {ServiceName} 中未找到方法: {MethodName}, 可用方法: [{Methods}]",
+                serviceName, methodName, string.Join(", ", serviceInfo.Methods.Keys));
+            throw new InvalidOperationException($"服务 {serviceName} 中未找到方法: {methodName}");
+        }
+
+        _logger?.LogDebug("[方法调用] 找到方法: {ServiceName}.{MethodName}, 方法通道: {MethodChannel}",
+            serviceName, methodName, methodInfo.Channel ?? "Default");
 
         try
         {
-            // 查找服务
-            if (!_services.TryGetValue(serviceName, out var serviceInfo))
-                throw new InvalidOperationException($"服务未找到: {serviceName}");
+            // 运行认证中间件
+            _logger?.LogDebug("[方法调用] 开始认证检查: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
+                serviceName, methodName, connection.ConnectionId);
 
-            // 查找方法
-            if (!serviceInfo.Methods.TryGetValue(methodName, out var methodInfo))
-                throw new InvalidOperationException($"方法未找到: {methodName} in service {serviceName}");
+            await _authMiddleware!.AuthenticateRequestAsync(connection, serviceName, methodName, methodInfo.MethodInfo);
 
-            // 执行认证和授权检查
-            if (connection != null && _authMiddleware != null)
-            {
-                Console.WriteLine($"[ServiceRegistry] 开始认证检查: {serviceName}.{methodName}");
-                var authResult = await _authMiddleware.AuthenticateRequestAsync(connection, serviceName, methodName, methodInfo.MethodInfo);
-                if (!authResult)
-                {
-                    throw new UnauthorizedAccessException("访问被拒绝：认证或授权失败");
-                }
-                Console.WriteLine($"[ServiceRegistry] 认证检查通过: {serviceName}.{methodName}");
-            }
+            _logger?.LogInformation("[方法调用] 认证检查通过: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
+                serviceName, methodName, connection.ConnectionId);
 
-            // 获取实例
-            var instance = serviceInfo.Implementation;
-
-            // 获取缓存键
-            var cacheKey = $"{serviceName}.{methodName}";
+            // 设置请求上下文 - 这是修复RequestContext.Current返回null的关键
+            _logger?.LogDebug("[方法调用] 设置请求上下文: {ConnectionId}", connection.ConnectionId);
+            RequestContext.SetCurrent(connection);
 
             try
             {
-                // 首先尝试使用直接调用委托（对ValueTask类型特别有效）
-                if (_directMethodCache.TryGetValue(cacheKey, out var directDelegate))
+                // 准备方法参数
+                _logger?.LogDebug("[方法调用] 准备方法参数: {ServiceName}.{MethodName}", serviceName, methodName);
+
+                object?[] parameters;
+                if (requestData.Length == 0)
                 {
-                    try
-                    {
-                        Console.WriteLine($"使用直接调用委托执行: {cacheKey}");
-                        // 使用直接委托调用
-                        dynamic dynDelegate = directDelegate;
-                        dynamic dynInstance = instance;
-                        dynamic result = dynDelegate(dynInstance, requestBytes, cancellationToken);
-
-                        // 等待ValueTask结果
-                        await result;
-
-                        // 获取结果值
-                        return GetValueTaskResult(result);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"直接调用失败: {ex.Message}，回退到其他调用方式");
-                    }
-                }
-
-                // 检查方法返回类型是否为ValueTask
-                if (IsValueTaskType(methodInfo.MethodInfo.ReturnType))
-                {
-                    Console.WriteLine($"ValueTask方法缺少直接调用委托，尝试回退处理: {methodName}");
-
-                    // 尝试使用反射回退机制
-                    return await InvokeValueTaskWithReflectionAsync(methodInfo.MethodInfo, instance, requestBytes, cancellationToken);
-                }
-
-                // 标准调用路径（适用于Task和同步方法）
-                if (!_methodCache.TryGetValue(cacheKey, out var methodDelegate))
-                {
-                    // 动态创建委托
-                    methodDelegate = _methodCache.GetOrAdd(cacheKey, key => CreateMethodDelegate(methodInfo.MethodInfo));
-                }
-
-                // 获取参数类型
-                var parameterType = methodInfo.MethodInfo.GetParameters()[0].ParameterType;
-
-                // 获取缓存的反序列化委托
-                var deserializer = _deserializerCache.GetOrAdd(parameterType, type => CreateDeserializerDelegate(type));
-
-                // 反序列化请求对象
-                var request = deserializer(requestBytes);
-
-                // 准备参数
-                object[] parameters;
-                if (methodInfo.MethodInfo.GetParameters().Length > 1 &&
-                    methodInfo.MethodInfo.GetParameters()[1].ParameterType == typeof(CancellationToken))
-                {
-                    parameters = [request, cancellationToken];
+                    _logger?.LogDebug("[方法调用] 方法无参数");
+                    parameters = Array.Empty<object>();
                 }
                 else
                 {
-                    parameters = [request];
+                    _logger?.LogDebug("[方法调用] 反序列化请求参数: Size={Size} bytes", requestData.Length);
+
+                    var parameterTypes = methodInfo.MethodInfo.GetParameters().Select(p => p.ParameterType).ToArray();
+                    _logger?.LogTrace("[方法调用] 参数类型: [{ParameterTypes}]",
+                        string.Join(", ", parameterTypes.Select(t => t.Name)));
+
+                    // 反序列化参数
+                    var serializer = _serializerProvider!.Create(MethodType.Unary, null);
+                    parameters = new object?[parameterTypes.Length];
+
+                    if (parameterTypes.Length == 1)
+                    {
+                        // 单参数直接反序列化
+                        var parameter = typeof(ISerializer)
+                            .GetMethod(nameof(ISerializer.Deserialize))!
+                            .MakeGenericMethod(parameterTypes[0])
+                            .Invoke(serializer, new object[] { new ReadOnlySequence<byte>(requestData) });
+                        parameters[0] = parameter;
+
+                        _logger?.LogDebug("[方法调用] 单参数反序列化完成: Type={Type}", parameterTypes[0].Name);
+                    }
+                    else
+                    {
+                        _logger?.LogWarning("[方法调用] 多参数方法暂未实现: {ServiceName}.{MethodName}", serviceName, methodName);
+                        throw new NotImplementedException("多参数方法反序列化暂未实现");
+                    }
                 }
 
                 // 调用方法
-                var methodResult = methodDelegate(instance, parameters);
+                _logger?.LogInformation("[方法调用] 执行业务逻辑: {ServiceName}.{MethodName}, 参数数量: {ParameterCount}",
+                    serviceName, methodName, parameters.Length);
+
+                var result = methodInfo.MethodInfo.Invoke(serviceInfo.Implementation, parameters);
 
                 // 处理异步结果
-                if (methodResult is Task task)
+                if (result is Task task)
                 {
+                    _logger?.LogDebug("[方法调用] 等待异步方法完成: {ServiceName}.{MethodName}", serviceName, methodName);
                     await task;
 
-                    // 检查是否有返回值
-                    var resultProperty = task.GetType().GetProperty("Result");
-                    return resultProperty != null ? resultProperty.GetValue(task) : null;
+                    if (task.GetType().IsGenericType)
+                    {
+                        result = task.GetType().GetProperty("Result")?.GetValue(task);
+                        _logger?.LogDebug("[方法调用] 获取异步方法返回值: Type={Type}", result?.GetType().Name ?? "null");
+                    }
+                    else
+                    {
+                        _logger?.LogDebug("[方法调用] 异步方法无返回值");
+                        result = null;
+                    }
                 }
-
-                return methodResult;
-            }
-            catch (TargetInvocationException ex)
-            {
-                // 如果是目标调用异常，提取内部异常
-                throw ex.InnerException ?? ex;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"执行方法异常: {ex.Message}");
-                throw;
-            }
-        }
-        finally
-        {
-            // 清理请求上下文
-            RequestContext.Clear();
-        }
-    }
-
-    /// <summary>
-    /// 使用反射方式调用ValueTask方法（回退机制）
-    /// </summary>
-    private async Task<object?> InvokeValueTaskWithReflectionAsync(MethodInfo methodInfo, object instance, byte[] requestBytes, CancellationToken cancellationToken)
-    {
-        try
-        {
-            Console.WriteLine($"使用反射回退机制调用ValueTask方法: {methodInfo.Name}");
-
-            // 获取参数类型
-            var parameters = methodInfo.GetParameters();
-            if (parameters.Length == 0)
-            {
-                throw new InvalidOperationException($"方法 {methodInfo.Name} 没有参数");
-            }
-
-            var parameterType = parameters[0].ParameterType;
-            Console.WriteLine($"参数类型: {parameterType.Name}");
-
-            // 获取缓存的反序列化委托
-            var deserializer = _deserializerCache.GetOrAdd(parameterType, type => CreateDeserializerDelegate(type));
-
-            // 反序列化请求对象
-            var request = deserializer(requestBytes);
-
-            // 验证反序列化结果
-            if (request == null)
-            {
-                Console.WriteLine($"警告: 反序列化返回null，参数类型: {parameterType.Name}");
-                // 如果是值类型，创建默认实例；如果是引用类型，抛出异常
-                if (parameterType.IsValueType)
+                else if (result != null && IsValueTaskType(result.GetType()))
                 {
-                    request = Activator.CreateInstance(parameterType)!;
-                    Console.WriteLine($"为值类型创建默认实例: {parameterType.Name}");
+                    _logger?.LogDebug("[方法调用] 等待ValueTask方法完成: {ServiceName}.{MethodName}", serviceName, methodName);
+
+                    // 处理ValueTask
+                    await (dynamic)result;
+
+                    if (result.GetType().IsGenericType)
+                    {
+                        result = result.GetType().GetProperty("Result")?.GetValue(result);
+                        _logger?.LogDebug("[方法调用] 获取ValueTask方法返回值: Type={Type}", result?.GetType().Name ?? "null");
+                    }
+                    else
+                    {
+                        _logger?.LogDebug("[方法调用] ValueTask方法无返回值");
+                        result = null;
+                    }
                 }
-                else
-                {
-                    throw new InvalidOperationException($"无法反序列化请求参数，类型: {parameterType.Name}");
-                }
+
+                _logger?.LogInformation("[方法调用] 业务逻辑执行完成: {ServiceName}.{MethodName}, 返回值类型: {ReturnType}",
+                    serviceName, methodName, result?.GetType().Name ?? "null");
+
+                return result;
             }
-
-            Console.WriteLine($"反序列化成功，参数类型: {parameterType.Name}, 值: {request}");
-
-            // 准备参数
-            object[] methodParams;
-            if (parameters.Length > 1 && parameters[1].ParameterType == typeof(CancellationToken))
+            finally
             {
-                methodParams = [request, cancellationToken];
-                Console.WriteLine("方法包含CancellationToken参数");
+                // 清除请求上下文
+                _logger?.LogDebug("[方法调用] 清除请求上下文: {ConnectionId}", connection.ConnectionId);
+                RequestContext.Clear();
             }
-            else
-            {
-                methodParams = [request];
-                Console.WriteLine("方法只有一个参数");
-            }
-
-            Console.WriteLine($"准备调用方法: {methodInfo.Name}，参数数量: {methodParams.Length}");
-
-            // 使用反射调用方法
-            var result = methodInfo.Invoke(instance, methodParams);
-
-            if (result == null)
-            {
-                Console.WriteLine("方法调用返回null");
-                return null;
-            }
-
-            Console.WriteLine($"方法调用成功，返回类型: {result.GetType().Name}");
-
-            // 处理ValueTask返回类型
-            return await HandleValueTaskAsync(result, methodInfo.ReturnType);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"反射回退调用失败: {ex.Message}");
-            Console.WriteLine($"异常类型: {ex.GetType().Name}");
-            Console.WriteLine($"堆栈跟踪: {ex.StackTrace}");
-
-            // 如果是内部异常，也记录
-            if (ex.InnerException != null)
-            {
-                Console.WriteLine($"内部异常: {ex.InnerException.Message}");
-                Console.WriteLine($"内部异常堆栈: {ex.InnerException.StackTrace}");
-            }
-
+            _logger?.LogError(ex, "[方法调用] 调用方法失败: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
+                serviceName, methodName, connection.ConnectionId);
             throw;
         }
-    }
-
-    /// <summary>
-    /// 获取ValueTask的结果值
-    /// </summary>
-    private static object? GetValueTaskResult(object valueTask)
-    {
-        var type = valueTask.GetType();
-
-        // 检查是否是ValueTask<T>
-        if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ValueTask<>))
-        {
-            // 使用反射获取Result属性
-            var resultProperty = type.GetProperty("Result");
-            if (resultProperty != null)
-            {
-                return resultProperty.GetValue(valueTask);
-            }
-        }
-
-        // 如果是普通ValueTask或无法获取结果，返回null
-        return null;
-    }
-
-    /// <summary>
-    /// 处理ValueTask返回类型
-    /// </summary>
-    private async Task<object?> HandleValueTaskAsync(object valueTask, Type valueTaskType)
-    {
-        if (!valueTaskType.IsGenericType)
-        {
-            // 普通ValueTask，无返回值
-            var asTaskMethod = valueTaskType.GetMethod("AsTask");
-            if (asTaskMethod != null)
-            {
-                var task = (Task)asTaskMethod.Invoke(valueTask, null)!;
-                await task;
-                return null;
-            }
-        }
-        else
-        {
-            // ValueTask<T>，有返回值
-            var resultType = valueTaskType.GetGenericArguments()[0];
-
-            // 创建一个能接收所有类型的通用处理方法
-            var method = GetType().GetMethod(nameof(HandleValueTaskWithResultAsync),
-                BindingFlags.NonPublic | BindingFlags.Instance)!.MakeGenericMethod(resultType);
-
-            return await (Task<object?>)method.Invoke(this, [valueTask])!;
-        }
-
-        return null;
-    }
-
-    /// <summary>
-    /// 处理带返回值的ValueTask
-    /// </summary>
-    private async Task<object?> HandleValueTaskWithResultAsync<T>(ValueTask<T> valueTask)
-    {
-        var result = await valueTask;
-        return result;
     }
 
     /// <summary>
@@ -1200,27 +1079,36 @@ public class ServiceRegistry
     {
         if (sender is not ITransportChannel channel)
         {
-            _logger?.LogWarning("DataReceived事件发送者不是ITransportChannel类型");
+            _logger?.LogError("[ServiceRegistry] DataReceived事件发送者不是ITransportChannel类型: {SenderType}",
+                sender?.GetType().Name ?? "null");
             return;
         }
 
         try
         {
-            _logger?.LogDebug("收到来自通道 {ConnectionId} 的RPC数据: {Size} bytes",
-                channel.ConnectionId, e.Data.Length);
+            _logger?.LogInformation("[ServiceRegistry] {ConnectionId} 收到RPC数据: Size={Size} bytes, Data=[{DataHex}]",
+                channel.ConnectionId, e.Data.Length, Convert.ToHexString(e.Data.Span[..Math.Min(e.Data.Length, 64)]));
 
             // 解析RPC消息
+            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始解析RPC消息", channel.ConnectionId);
             var message = ParseRpcMessage(e.Data);
+
             if (message == null)
             {
-                _logger?.LogWarning("无法解析来自通道 {ConnectionId} 的RPC消息", channel.ConnectionId);
+                _logger?.LogError("[ServiceRegistry] {ConnectionId} 无法解析RPC消息，数据可能已损坏: Size={Size}",
+                    channel.ConnectionId, e.Data.Length);
+                await SendStructuredErrorResponse(channel, "Unknown", "ParseError", "MESSAGE_PARSE_FAILED",
+                    "无法解析RPC消息，数据格式错误");
                 return;
             }
 
-            _logger?.LogDebug("解析RPC消息成功: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
-                message.ServiceName, message.MethodName, message.RequestId);
+            _logger?.LogInformation("[ServiceRegistry] {ConnectionId} RPC消息解析成功: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
+                channel.ConnectionId, message.ServiceName, message.MethodName, message.RequestId);
 
             // 调用服务方法
+            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始调用服务方法: {ServiceName}.{MethodName}",
+                channel.ConnectionId, message.ServiceName, message.MethodName);
+
             var serverConnection = channel.Transport;
             var result = await InvokeMethodAsync(
                 message.ServiceName,
@@ -1228,24 +1116,107 @@ public class ServiceRegistry
                 message.RequestData,
                 serverConnection);
 
-            _logger?.LogDebug("服务方法调用完成: {ServiceName}.{MethodName}, 请求ID={RequestId}",
-                message.ServiceName, message.MethodName, message.RequestId);
+            _logger?.LogInformation("[ServiceRegistry] {ConnectionId} 服务方法调用完成: {ServiceName}.{MethodName}, 请求ID={RequestId}",
+                channel.ConnectionId, message.ServiceName, message.MethodName, message.RequestId);
 
             // 发送响应
+            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始发送响应: {RequestId}", channel.ConnectionId, message.RequestId);
             await SendResponse(channel, message.RequestId, result);
+            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 响应发送完成: {RequestId}", channel.ConnectionId, message.RequestId);
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "处理来自通道 {ConnectionId} 的RPC消息时发生错误", channel.ConnectionId);
+            string? serviceName = null;
+            string? methodName = null;
+            string? requestId = "Unknown";
 
-            // 尝试发送错误响应
+            // 尝试从解析的消息中获取服务和方法信息
             try
             {
-                await SendErrorResponse(channel, "Unknown", ex.Message);
+                var parsedMessage = ParseRpcMessage(e.Data);
+                if (parsedMessage != null)
+                {
+                    serviceName = parsedMessage.ServiceName;
+                    methodName = parsedMessage.MethodName;
+                    requestId = parsedMessage.RequestId;
+                }
             }
-            catch (Exception sendEx)
+            catch
             {
-                _logger?.LogError(sendEx, "发送错误响应失败");
+                // 忽略解析失败
+            }
+
+            // 根据异常类型进行专门处理
+            switch (ex)
+            {
+                case UnauthorizedAccessException unauthorizedEx:
+                    _logger?.LogWarning("认证失败 - 通道: {ConnectionId}, 服务: {ServiceName}, 方法: {MethodName}, 错误: {Error}",
+                        channel.ConnectionId, serviceName ?? "未知", methodName ?? "未知", unauthorizedEx.Message);
+
+                    // 发送结构化认证错误响应
+                    try
+                    {
+                        await SendStructuredErrorResponse(channel, requestId, "AuthenticationError", "UNAUTHORIZED",
+                            unauthorizedEx.Message, serviceName, methodName, new Dictionary<string, object>
+                            {
+                                { "ConnectionId", channel.ConnectionId },
+                                { "AuthenticationRequired", true }
+                            });
+                    }
+                    catch (Exception sendEx)
+                    {
+                        _logger?.LogError(sendEx, "发送认证错误响应失败");
+                    }
+                    break;
+
+                case InvalidOperationException invalidOpEx when invalidOpEx.Message.Contains("服务未找到") || invalidOpEx.Message.Contains("方法未找到"):
+                    _logger?.LogWarning("服务调用错误 - 通道: {ConnectionId}, 服务: {ServiceName}, 方法: {MethodName}, 错误: {Error}",
+                        channel.ConnectionId, serviceName ?? "未知", methodName ?? "未知", invalidOpEx.Message);
+
+                    try
+                    {
+                        await SendStructuredErrorResponse(channel, requestId, "ServiceError", "NOT_FOUND",
+                            invalidOpEx.Message, serviceName, methodName);
+                    }
+                    catch (Exception sendEx)
+                    {
+                        _logger?.LogError(sendEx, "发送服务错误响应失败");
+                    }
+                    break;
+
+                case TimeoutException timeoutEx:
+                    _logger?.LogWarning("请求超时 - 通道: {ConnectionId}, 服务: {ServiceName}, 方法: {MethodName}, 错误: {Error}",
+                        channel.ConnectionId, serviceName ?? "未知", methodName ?? "未知", timeoutEx.Message);
+
+                    try
+                    {
+                        await SendStructuredErrorResponse(channel, requestId, "TimeoutError", "REQUEST_TIMEOUT",
+                            timeoutEx.Message, serviceName, methodName);
+                    }
+                    catch (Exception sendEx)
+                    {
+                        _logger?.LogError(sendEx, "发送超时错误响应失败");
+                    }
+                    break;
+
+                default:
+                    _logger?.LogError(ex, "处理来自通道 {ConnectionId} 的RPC消息时发生错误 - 服务: {ServiceName}, 方法: {MethodName}",
+                        channel.ConnectionId, serviceName ?? "未知", methodName ?? "未知");
+
+                    // 发送通用错误响应
+                    try
+                    {
+                        await SendStructuredErrorResponse(channel, requestId, "InternalError", "INTERNAL_SERVER_ERROR",
+                            "服务器内部错误，请稍后重试", serviceName, methodName, new Dictionary<string, object>
+                            {
+                                { "ExceptionType", ex.GetType().Name }
+                            });
+                    }
+                    catch (Exception sendEx)
+                    {
+                        _logger?.LogError(sendEx, "发送错误响应失败");
+                    }
+                    break;
             }
         }
     }
@@ -1259,15 +1230,15 @@ public class ServiceRegistry
         {
             if (_serializerProvider == null)
             {
-                _logger?.LogError("序列化器提供程序为null，无法解析RPC消息");
+                _logger?.LogError("[RPC解析] 序列化器提供程序为null，无法解析RPC消息");
                 return null;
             }
 
-            _logger?.LogDebug("尝试解析RPC消息，数据长度: {Length}", data.Length);
+            _logger?.LogDebug("[RPC解析] 开始解析RPC消息，数据长度: {Length} bytes", data.Length);
 
             if (data.Length < 4)
             {
-                _logger?.LogWarning("收到的消息太短，无法包含头部长度");
+                _logger?.LogError("[RPC解析] 收到的消息太短，无法包含头部长度: {Length} bytes", data.Length);
                 return null;
             }
 
@@ -1275,23 +1246,31 @@ public class ServiceRegistry
             var headerLengthBytes = data.Slice(0, 4).ToArray();
             int headerLength = BitConverter.ToInt32(headerLengthBytes, 0);
 
+            _logger?.LogDebug("[RPC解析] 解析头部长度: {HeaderLength} bytes", headerLength);
+
             // 检查头部长度合法性
             if (headerLength <= 0 || headerLength > data.Length - 4)
             {
-                _logger?.LogWarning("收到无效的消息头长度: {HeaderLength}, 数据总长度: {DataLength}",
+                _logger?.LogError("[RPC解析] 收到无效的消息头长度: {HeaderLength}, 数据总长度: {DataLength}",
                     headerLength, data.Length);
                 return null;
             }
 
             // 读取头部
             var headerBytes = data.Slice(4, headerLength).ToArray();
+            _logger?.LogDebug("[RPC解析] 解析消息头部: Size={HeaderSize} bytes, Data=[{HeaderHex}]",
+                headerBytes.Length, Convert.ToHexString(headerBytes, 0, Math.Min(headerBytes.Length, 32)));
+
             var serializer = _serializerProvider.Create(MethodType.Unary, null);
             var header = serializer.Deserialize<MessageHeader>(new System.Buffers.ReadOnlySequence<byte>(headerBytes));
+
+            _logger?.LogDebug("[RPC解析] 成功反序列化消息头: Type={Type}, ServiceName={ServiceName}, MethodName={MethodName}, MessageId={MessageId}",
+                header.Type, header.ServiceName, header.MethodName, header.MessageId);
 
             // 验证消息类型
             if (header.Type != MessageType.Request)
             {
-                _logger?.LogDebug("忽略非请求消息类型: {Type}", header.Type);
+                _logger?.LogWarning("[RPC解析] 忽略非请求消息类型: {Type}", header.Type);
                 return null;
             }
 
@@ -1300,8 +1279,15 @@ public class ServiceRegistry
             var bodyLength = data.Length - bodyStartIndex;
             byte[] bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
 
-            _logger?.LogDebug("成功解析RPC消息: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
-                header.ServiceName, header.MethodName, header.MessageId);
+            _logger?.LogDebug("[RPC解析] 解析消息体: Size={BodySize} bytes", bodyLength);
+            if (bodyLength > 0)
+            {
+                _logger?.LogTrace("[RPC解析] 消息体数据: [{BodyHex}]",
+                    Convert.ToHexString(bodyBytes, 0, Math.Min(bodyBytes.Length, 32)));
+            }
+
+            _logger?.LogInformation("[RPC解析] RPC消息解析完成: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}, 体大小={BodySize}",
+                header.ServiceName, header.MethodName, header.MessageId, bodyLength);
 
             return new RpcMessage
             {
@@ -1313,7 +1299,7 @@ public class ServiceRegistry
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "解析RPC消息失败");
+            _logger?.LogError(ex, "[RPC解析] 解析RPC消息失败，数据长度: {Length}", data.Length);
             return null;
         }
     }
@@ -1331,6 +1317,15 @@ public class ServiceRegistry
                 return;
             }
 
+            // 检查是否是void方法（无返回值）
+            if (result == null)
+            {
+                _logger?.LogDebug("方法无返回值，不发送响应: RequestId={RequestId}", requestId);
+                return;
+            }
+
+            _logger?.LogDebug("序列化响应，类型: {Type}", result.GetType().Name);
+
             var serializer = _serializerProvider.Create(MethodType.Unary, null);
 
             // 创建响应头
@@ -1347,35 +1342,32 @@ public class ServiceRegistry
 
             // 序列化响应体
             byte[] payloadBytes = Array.Empty<byte>();
-            if (result != null)
+            try
             {
-                try
-                {
-                    var payloadWriter = new System.Buffers.ArrayBufferWriter<byte>();
+                var payloadWriter = new System.Buffers.ArrayBufferWriter<byte>();
 
-                    // 使用result的实际类型进行序列化
-                    var resultType = result.GetType();
-                    _logger?.LogDebug("序列化响应，类型: {Type}", resultType.Name);
+                // 使用result的实际类型进行序列化
+                var resultType = result.GetType();
+                _logger?.LogDebug("序列化响应，类型: {Type}", resultType.Name);
 
-                    // 使用反射调用泛型序列化方法
-                    var serializeMethod = typeof(ISerializer).GetMethod(nameof(ISerializer.Serialize));
-                    if (serializeMethod != null)
-                    {
-                        var genericSerializeMethod = serializeMethod.MakeGenericMethod(resultType);
-                        genericSerializeMethod.Invoke(serializer, new object[] { payloadWriter, result });
-                        payloadBytes = payloadWriter.WrittenMemory.ToArray();
-                    }
-                    else
-                    {
-                        _logger?.LogError("无法找到ISerializer.Serialize方法");
-                        throw new InvalidOperationException("序列化方法不可用");
-                    }
-                }
-                catch (Exception ex)
+                // 使用反射调用泛型序列化方法
+                var serializeMethod = typeof(ISerializer).GetMethod(nameof(ISerializer.Serialize));
+                if (serializeMethod != null)
                 {
-                    _logger?.LogError(ex, "序列化响应时发生错误，响应类型: {Type}", result.GetType().Name);
-                    throw;
+                    var genericSerializeMethod = serializeMethod.MakeGenericMethod(resultType);
+                    genericSerializeMethod.Invoke(serializer, new object[] { payloadWriter, result });
+                    payloadBytes = payloadWriter.WrittenMemory.ToArray();
                 }
+                else
+                {
+                    _logger?.LogError("无法找到ISerializer.Serialize方法");
+                    throw new InvalidOperationException("序列化方法不可用");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "序列化响应时发生错误，响应类型: {Type}", result.GetType().Name);
+                throw;
             }
 
             // 组装完整消息：[HeaderLength(4)] + [Header] + [Payload]
@@ -1401,22 +1393,22 @@ public class ServiceRegistry
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "发送响应到通道 {ConnectionId} 失败, 请求ID={RequestId}",
-                channel.ConnectionId, requestId);
-            throw;
+            _logger?.LogError(ex, "发送响应失败");
         }
     }
 
     /// <summary>
-    /// 发送错误响应
+    /// 发送结构化错误响应
     /// </summary>
-    private async Task SendErrorResponse(ITransportChannel channel, string requestId, string errorMessage)
+    private async Task SendStructuredErrorResponse(ITransportChannel channel, string requestId, string errorType,
+        string errorCode, string errorMessage, string? serviceName = null, string? methodName = null,
+        Dictionary<string, object>? additionalInfo = null)
     {
         try
         {
             if (_serializerProvider == null)
             {
-                _logger?.LogError("序列化器提供程序为null，无法发送错误响应");
+                _logger?.LogError("序列化器提供程序为null，无法发送结构化错误响应");
                 return;
             }
 
@@ -1426,11 +1418,21 @@ public class ServiceRegistry
             var header = new MessageHeader
             {
                 Type = MessageType.Response,
-                MessageId = string.IsNullOrEmpty(requestId) ? Guid.NewGuid() : Guid.Parse(requestId)
+                MessageId = string.IsNullOrEmpty(requestId) || requestId == "Unknown" ? Guid.NewGuid() : Guid.Parse(requestId),
+                ServiceName = serviceName ?? string.Empty,
+                MethodName = methodName ?? string.Empty
             };
 
-            // 创建错误响应体
-            var errorResponse = new { Error = errorMessage, RequestId = requestId };
+            // 创建结构化错误响应体
+            var structuredErrorResponse = new StructuredErrorResponse
+            {
+                ErrorType = errorType,
+                ErrorCode = errorCode,
+                ErrorMessage = errorMessage,
+                RequestId = requestId ?? "Unknown",
+                ServiceName = serviceName,
+                MethodName = methodName
+            };
 
             // 序列化头部
             var headerWriter = new System.Buffers.ArrayBufferWriter<byte>();
@@ -1439,7 +1441,7 @@ public class ServiceRegistry
 
             // 序列化错误响应体
             var payloadWriter = new System.Buffers.ArrayBufferWriter<byte>();
-            serializer.Serialize(payloadWriter, errorResponse);
+            serializer.Serialize(payloadWriter, structuredErrorResponse);
             var payloadBytes = payloadWriter.WrittenMemory.ToArray();
 
             // 组装完整消息：[HeaderLength(4)] + [Header] + [Payload]
@@ -1459,13 +1461,71 @@ public class ServiceRegistry
 
             await channel.SendAsync(responseData);
 
-            _logger?.LogDebug("已发送错误响应到通道 {ConnectionId}, 请求ID={RequestId}, 错误={Error}",
-                channel.ConnectionId, requestId, errorMessage);
+            _logger?.LogDebug("已发送结构化错误响应到通道 {ConnectionId} - 类型: {ErrorType}, 代码: {ErrorCode}, 请求ID: {RequestId}, 服务: {ServiceName}, 方法: {MethodName}",
+                channel.ConnectionId, errorType, errorCode, requestId, serviceName ?? "未知", methodName ?? "未知");
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "发送错误响应失败");
+            _logger?.LogError(ex, "发送结构化错误响应失败");
         }
+    }
+
+    /// <summary>
+    /// 发送错误响应（保留兼容性）
+    /// </summary>
+    private async Task SendErrorResponse(ITransportChannel channel, string requestId, string errorMessage)
+    {
+        await SendStructuredErrorResponse(channel, requestId, "InternalError", "INTERNAL_SERVER_ERROR",
+            errorMessage);
+    }
+
+    /// <summary>
+    /// 结构化错误响应
+    /// </summary>
+    [MemoryPackable]
+    private partial class StructuredErrorResponse
+    {
+        /// <summary>
+        /// 错误类型
+        /// </summary>
+        [MemoryPackOrder(0)]
+        public required string ErrorType { get; set; }
+
+        /// <summary>
+        /// 错误代码
+        /// </summary>
+        [MemoryPackOrder(1)]
+        public required string ErrorCode { get; set; }
+
+        /// <summary>
+        /// 错误消息
+        /// </summary>
+        [MemoryPackOrder(2)]
+        public required string ErrorMessage { get; set; }
+
+        /// <summary>
+        /// 请求ID
+        /// </summary>
+        [MemoryPackOrder(3)]
+        public required string RequestId { get; set; }
+
+        /// <summary>
+        /// 服务名称
+        /// </summary>
+        [MemoryPackOrder(4)]
+        public string? ServiceName { get; set; }
+
+        /// <summary>
+        /// 方法名称
+        /// </summary>
+        [MemoryPackOrder(5)]
+        public string? MethodName { get; set; }
+
+        /// <summary>
+        /// 时间戳
+        /// </summary>
+        [MemoryPackOrder(6)]
+        public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     }
 
     /// <summary>
