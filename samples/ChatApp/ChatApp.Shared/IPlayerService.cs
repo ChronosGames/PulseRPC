@@ -4,6 +4,8 @@ using System.Threading.Tasks;
 using MemoryPack;
 using PulseRPC;
 
+#nullable enable
+
 namespace ChatApp.Shared
 {
     /// <summary>
@@ -23,9 +25,7 @@ namespace ChatApp.Shared
         /// 玩家移动
         /// </summary>
         [Operation]
-        // 注意：当前KCP传输层仅为示例实现，无法正常工作
-        // 临时使用TCP通道避免超时问题，生产环境需要实现完整的KCP库
-        [Channel("TcpChannel")] // 临时使用TCP通道，直到KCP实现完成
+        [Channel("KcpChannel")]
         ValueTask MoveAsync(MoveRequest request);
 
         /// <summary>
@@ -110,7 +110,7 @@ namespace ChatApp.Shared
     public partial class PlayerJoinedEvent : IEventData
     {
         public Guid PlayerId { get; set; }
-        public string PlayerName { get; set; }
+        public string PlayerName { get; set; } = string.Empty;
         public Vector3 Position { get; set; }
         public float X { get; set; }
         public float Y { get; set; }
@@ -121,7 +121,7 @@ namespace ChatApp.Shared
     public partial class PlayerLeftEvent : IEventData
     {
         public Guid PlayerId { get; set; }
-        public string Reason { get; set; }
+        public string Reason { get; set; } = string.Empty;
     }
 
     [MemoryPackable]

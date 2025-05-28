@@ -223,30 +223,5 @@ namespace PulseRPC.Server.Authentication
                 return false;
             }
         }
-
-        /// <summary>
-        /// 从现有ISessionContext迁移到新的认证上下文（兼容性方法）
-        /// </summary>
-        public static AuthenticationContext FromSessionContext(string connectionId, PulseRPC.ISessionContext sessionContext)
-        {
-            var authContext = new AuthenticationContext(connectionId);
-
-            if (sessionContext.IsAuthenticated && sessionContext.UserId.HasValue && !string.IsNullOrEmpty(sessionContext.Username))
-            {
-                authContext.SetClientAuthentication(
-                    sessionContext.UserId.Value.ToString(),
-                    sessionContext.Username,
-                    sessionContext.Token
-                );
-
-                // 复制属性
-                foreach (var prop in sessionContext.Properties)
-                {
-                    authContext.Properties[prop.Key] = prop.Value;
-                }
-            }
-
-            return authContext;
-        }
     }
 }

@@ -97,7 +97,7 @@ namespace PulseRPC.AOT
             RegisterType<TransportChannel>();
             RegisterType<TcpTransport>();
             RegisterType<KcpTransport>();
-            RegisterType<PulseRPCSerializer>();
+            RegisterType<PulseRPCSerializerProvider>();
             RegisterType<ISerializer>();
         }
 
