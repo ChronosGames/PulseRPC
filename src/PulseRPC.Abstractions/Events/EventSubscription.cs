@@ -68,7 +68,7 @@ namespace PulseRPC
         /// <summary>
         /// 触发事件处理
         /// </summary>
-        public override void Invoke(object sender, byte[]? data, ISerializerProvider? serializerProvider)
+        public override void Invoke(object sender, byte[] data, ISerializerProvider serializerProvider)
         {
             if (data == null || serializerProvider == null)
                 return;
@@ -76,7 +76,7 @@ namespace PulseRPC
             try
             {
                 // 反序列化事件数据
-                var eventData = serializerProvider.Create(MethodType.ClientStreaming, null).Deserialize<T>(new ReadOnlySequence<byte>(data));
+                var eventData = serializerProvider.Create(MethodType.Unary, null).Deserialize<T>(new ReadOnlySequence<byte>(data));
 
                 // 调用处理器
                 _handler(sender, eventData);

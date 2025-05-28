@@ -42,7 +42,7 @@ public class ServerTransportChannel : IServerChannel
     /// <summary>
     /// 发送消息到客户端
     /// </summary>
-    public async Task SendMessageAsync(string clientId, Messaging.MessageHeader header, object? body)
+    public async Task SendMessageAsync<T>(string clientId, Messaging.MessageHeader header, T? body)
     {
         if (!_connections.TryGetValue(clientId, out var connection))
         {

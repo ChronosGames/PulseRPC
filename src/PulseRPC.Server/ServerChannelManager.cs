@@ -16,7 +16,7 @@ public interface IServerChannel : IDisposable
     /// <summary>
     /// 发送消息到特定客户端
     /// </summary>
-    Task SendMessageAsync(string clientId, MessageHeader header, object body);
+    Task SendMessageAsync<T>(string clientId, MessageHeader header, T? body);
 
     /// <summary>
     /// 广播事件到所有客户端

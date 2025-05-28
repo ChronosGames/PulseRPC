@@ -54,10 +54,10 @@ namespace PulseRPC.Events
                 var writer = new ArrayBufferWriter<byte>();
                 var data = new { Name = "John", Age = 30 };
 
-                _serializerProvider.Create(MethodType.ClientStreaming, null).Serialize(writer, in data);
+                _serializerProvider.Create(MethodType.Unary, null).Serialize(writer, in data);
 
                 // 序列化事件数据
-                var eventBytes = writer.WrittenSpan.ToArray();
+                var eventBytes = writer.WrittenMemory.ToArray();
 
                 // 通知所有订阅者
                 foreach (var subscription in subscriptions)
