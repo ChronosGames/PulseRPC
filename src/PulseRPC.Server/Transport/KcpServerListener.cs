@@ -296,6 +296,9 @@ public class KcpServerListener : IServerListener
                         // 检查是否是握手包
                         if (recvSize == 4)
                         {
+                            _logger.LogDebug("收到KCP握手包: ClientId={ClientId}, Conv={Conv}, RemoteEndpoint={RemoteEndpoint}",
+                                clientId, conv, clientEp);
+
                             // 创建新连接
                             connection = new KcpServerConnection(clientId, _socket, clientEp, conv, _options,
                                 _logger);
@@ -305,13 +308,39 @@ public class KcpServerListener : IServerListener
                                 // 连接事件处理
                                 connection.StateChanged += OnConnectionStateChanged;
 
-                                // 触发连接接受事件
-                                ConnectionAccepted?.Invoke(this, new ServerConnectionEventArgs(connection));
+                                // 发送握手确认包
+                                try
+                                {
+                                    byte[] handshakeConfirmation = BitConverter.GetBytes(conv);
+                                    int sentBytes = _socket.SendTo(handshakeConfirmation, clientEp);
+                                    _logger.LogDebug("已发送KCP握手确认: ClientId={ClientId}, Conv={Conv}, Bytes={Bytes}",
+                                        clientId, conv, sentBytes);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, "发送KCP握手确认失败: ClientId={ClientId}, Conv={Conv}", clientId, conv);
+
+                                    // 清理失败的连接
+                                    if (_connections.TryRemove(clientId, out var failedConnection))
+                                    {
+                                        failedConnection.StateChanged -= OnConnectionStateChanged;
+                                        failedConnection.Dispose();
+                                    }
+
+                                    // 继续接收处理，不中断服务
+                                }
+
+                                // 触发连接接受事件（只有在握手确认发送成功或失败处理完成后）
+                                if (_connections.ContainsKey(clientId))
+                                {
+                                    ConnectionAccepted?.Invoke(this, new ServerConnectionEventArgs(connection));
+                                }
                             }
                             else
                             {
                                 // 连接已存在
                                 connection.Dispose();
+                                _logger.LogDebug("KCP连接已存在，丢弃重复握手包: ClientId={ClientId}", clientId);
                             }
                         }
                     }
