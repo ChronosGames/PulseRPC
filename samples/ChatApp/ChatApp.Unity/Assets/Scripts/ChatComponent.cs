@@ -175,7 +175,7 @@ namespace ChatApp.Unity
             _cts = new CancellationTokenSource();
 
             // 创建序列化器
-            var serializer = new PulseRPCSerializer();
+            var serializer = PulseRPCSerializerProvider.Instance;
 
             // 创建传输工厂
             _transportFactory = new TransportFactory();
@@ -185,7 +185,7 @@ namespace ChatApp.Unity
 
             // 创建TCP通道
             var tcpOptions = new TransportOptions { NoDelay = true, KeepAlive = true, AutoReconnect = true };
-            var tcpTransport = await _transportFactory.CreateClientTransportAsync(TransportType.Tcp, tcpOptions);
+            var tcpTransport = await _transportFactory.CreateTransportAsync(TransportType.Tcp, tcpOptions);
             var tcpChannel = new TransportChannel("TcpChannel", tcpTransport, serializer, null);
             _channelManager.RegisterChannel("TcpChannel", tcpChannel, true);
 
@@ -194,7 +194,7 @@ namespace ChatApp.Unity
             {
                 Kcp = new KcpOptions { NoDelay = 1, Interval = 10, Resend = 2, DisableFlowControl = false }
             };
-            var kcpTransport = await _transportFactory.CreateClientTransportAsync(TransportType.Kcp, kcpOptions);
+            var kcpTransport = await _transportFactory.CreateTransportAsync(TransportType.Kcp, kcpOptions);
             var kcpChannel = new TransportChannel("KcpChannel", kcpTransport, serializer, null);
             _channelManager.RegisterChannel("KcpChannel", kcpChannel);
 

@@ -90,9 +90,9 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
             try
             {
-                // 获取事件处理器 - 暂时只使用TCP通道，避免KCP相关问题
+                // 获取事件处理器
                 var tcpMessageChannel = _channelManager.GetChannel("TcpChannel");
-                // var kcpMessageChannel = _channelManager.GetChannel("KcpChannel");
+                var kcpMessageChannel = _channelManager.GetChannel("KcpChannel");
 
                 // 登录事件 (TCP通道)
                 var loginJoinedToken = tcpMessageChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined",
@@ -100,12 +100,12 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
                 var loginLeftToken = tcpMessageChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft",
                     (sender, eventData) => eventsHandler.OnPlayerLeft(eventData));
 
-                // 移动事件 (暂时也使用TCP通道，而不是KCP通道)
-                var moveToken = tcpMessageChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
+                // 移动事件 (KCP通道)
+                var moveToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
                     (sender, eventData) => eventsHandler.OnPlayerMoved(eventData));
-                var moveBatchToken = tcpMessageChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch",
+                var moveBatchToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch",
                     (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
-                var moveBatchToken2 = tcpMessageChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
+                var moveBatchToken2 = kcpMessageChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
                     (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
 
                 // 保存订阅令牌
@@ -141,11 +141,11 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             var tcpChannel = _channelManager!.GetChannel("TcpChannel") as IHasTransport;
             await tcpChannel!.ConnectAsync(host, tcpPort);
 
-            // 暂时跳过KCP连接，因为KCP传输实现不完整
-            // var kcpChannel = _channelManager.GetChannel("KcpChannel") as IHasTransport;
-            // await kcpChannel!.ConnectAsync(host, kcpPort);
+            // 连接KCP通道
+            var kcpChannel = _channelManager.GetChannel("KcpChannel") as IHasTransport;
+            await kcpChannel!.ConnectAsync(host, kcpPort);
 
-            _logger.LogInformation("已连接到服务器 (仅TCP)");
+            _logger.LogInformation("已连接到服务器 (TCP + KCP)");
         }
         catch (Exception ex)
         {
