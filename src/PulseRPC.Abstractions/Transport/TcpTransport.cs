@@ -11,12 +11,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using MemoryPack;
 
 namespace PulseRPC.Transport.Tcp
 {
     /// <summary>
-    /// 消息头结构
+    /// 传输层消息头结构（用于大包拆解）
     /// </summary>
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public readonly struct MessageHeader
@@ -44,6 +43,7 @@ namespace PulseRPC.Transport.Tcp
         public bool IsLargePacket => (Flags & FlagLargePacket) != 0;
         public bool IsChunked => (Flags & FlagChunked) != 0;
         public bool IsEndOfChunk => (Flags & FlagEndOfChunk) != 0;
+        public bool IsCompressed => (Flags & FlagCompressed) != 0;
     }
 
     /// <summary>
@@ -148,7 +148,7 @@ namespace PulseRPC.Transport.Tcp
     }
 
     /// <summary>
-    /// TCP传输基类
+    /// TCP传输层实现 - 专注于网络传输和大包处理
     /// </summary>
     public class TcpTransport : ITransport
     {
@@ -220,6 +220,9 @@ namespace PulseRPC.Transport.Tcp
             _cleanupTask = CleanupExpiredLargePacketsAsync();
         }
 
+        /// <summary>
+        /// 发送原始字节数据（传输层核心方法）
+        /// </summary>
         public virtual async Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
         {
             if (!IsConnected)
@@ -239,7 +242,7 @@ namespace PulseRPC.Transport.Tcp
                 if (_stream == null)
                     return false;
 
-                // 创建消息头
+                // 创建传输层消息头
                 var header = new MessageHeader(data.Length, 0, MessageHeader.FlagNone);
                 var headerBytes = new byte[MessageHeader.Size];
                 WriteMessageHeader(headerBytes, 0, header);
@@ -330,109 +333,7 @@ namespace PulseRPC.Transport.Tcp
         }
 
         /// <summary>
-        /// 发送数据
-        /// </summary>
-        public virtual Task<bool> SendAsync<T>(in Messaging.MessageHeader header, T? payload, CancellationToken cancellationToken = default)
-        {
-            return SendMessageAsync(header, payload, cancellationToken);
-        }
-
-        /// <summary>
-        /// 发送消息的异步实现
-        /// </summary>
-        private async Task<bool> SendMessageAsync<T>(Messaging.MessageHeader header, T? payload, CancellationToken cancellationToken)
-        {
-            if (!IsConnected)
-                return false;
-
-            var arrayPool = ArrayPool<byte>.Shared;
-            byte[]? headerBuffer = null;
-            byte[]? payloadBuffer = null;
-            byte[]? messageBuffer = null;
-
-            try
-            {
-                // 1. 序列化 Messaging.MessageHeader
-                headerBuffer = arrayPool.Rent(1024); // 预估Header大小
-                var headerLength = SerializeMessageHeader(header, headerBuffer);
-
-                // 2. 序列化 Payload
-                byte[]? payloadBytes = null;
-                int payloadLength = 0;
-                if (payload != null)
-                {
-                    var payloadData = MemoryPackSerializer.Serialize(payload);
-                    payloadLength = payloadData.Length;
-                    payloadBuffer = arrayPool.Rent(payloadLength);
-                    payloadData.CopyTo(payloadBuffer, 0);
-                    payloadBytes = payloadBuffer;
-                }
-
-                // 3. 组装完整应用层消息：[HeaderLength(4)] + [Header] + [Payload]
-                var totalAppMessageSize = 4 + headerLength + payloadLength;
-                messageBuffer = arrayPool.Rent(totalAppMessageSize);
-                var actualMessageSize = AssembleApplicationMessage(headerBuffer, headerLength, payloadBytes, payloadLength, messageBuffer);
-
-                // 4. 通过传输层发送（会自动处理大包分块）
-                var messageMemory = new ReadOnlyMemory<byte>(messageBuffer, 0, actualMessageSize);
-                return await SendAsync(messageMemory, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "发送消息失败: {ServiceName}.{MethodName}", header.ServiceName, header.MethodName);
-                return false;
-            }
-            finally
-            {
-                // 5. 清理资源 - 异常安全
-                if (headerBuffer != null) arrayPool.Return(headerBuffer);
-                if (payloadBuffer != null) arrayPool.Return(payloadBuffer);
-                if (messageBuffer != null) arrayPool.Return(messageBuffer);
-            }
-        }
-
-        /// <summary>
-        /// 序列化 Messaging.MessageHeader
-        /// </summary>
-        private int SerializeMessageHeader(Messaging.MessageHeader header, byte[] buffer)
-        {
-            var headerData = MemoryPackSerializer.Serialize(header);
-            if (headerData.Length > buffer.Length)
-            {
-                throw new InvalidOperationException($"Header size {headerData.Length} exceeds buffer size {buffer.Length}");
-            }
-
-            headerData.CopyTo(buffer, 0);
-            return headerData.Length;
-        }
-
-        /// <summary>
-        /// 组装应用层消息：[HeaderLength(4)] + [Header] + [Payload]
-        /// </summary>
-        private int AssembleApplicationMessage(byte[] headerBuffer, int headerLength, byte[]? payloadBytes, int payloadLength, byte[] messageBuffer)
-        {
-            var offset = 0;
-
-            // 写入Header长度（4字节）
-            BitConverter.GetBytes(headerLength).CopyTo(messageBuffer, offset);
-            offset += 4;
-
-            // 写入Header
-            Array.Copy(headerBuffer, 0, messageBuffer, offset, headerLength);
-            offset += headerLength;
-
-            // 写入Payload
-            if (payloadBytes != null && payloadLength > 0)
-            {
-                Array.Copy(payloadBytes, 0, messageBuffer, offset, payloadLength);
-                offset += payloadLength;
-            }
-
-            return offset;
-        }
-
-        /// <summary>
-        /// 接收循环
+        /// 接收循环 - 处理传输层消息和分块重组
         /// </summary>
         protected async Task ReceiveLoopAsync()
         {
@@ -442,11 +343,11 @@ namespace PulseRPC.Transport.Tcp
 
                 while (!_cts.IsCancellationRequested && IsConnected)
                 {
-                    // 读取消息头
+                    // 读取传输层消息头
                     if (!await ReadExactBytesAsync(headerBuffer, 0, MessageHeader.Size))
                         break;
 
-                    // 解析消息头
+                    // 解析传输层消息头
                     var header = ReadMessageHeader(headerBuffer, 0);
 
                     // 验证长度
@@ -472,7 +373,7 @@ namespace PulseRPC.Transport.Tcp
                     }
                     else
                     {
-                        // 触发数据接收事件（普通消息）
+                        // 触发数据接收事件（传输层完整消息）
                         DataReceived?.Invoke(this, new TransportDataEventArgs(new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length)));
                     }
                 }
@@ -537,7 +438,7 @@ namespace PulseRPC.Transport.Tcp
                         // 移除状态
                         _largePacketStates.TryRemove(chunkHeader.ChunkId, out _);
 
-                        // 触发数据接收事件
+                        // 触发数据接收事件（完整的大包数据）
                         DataReceived?.Invoke(this, new TransportDataEventArgs(new ReadOnlyMemory<byte>(completeData)));
                     }
                 }
@@ -607,7 +508,7 @@ namespace PulseRPC.Transport.Tcp
         }
 
         /// <summary>
-        /// 写入消息头
+        /// 写入传输层消息头
         /// </summary>
         private static void WriteMessageHeader(byte[] buffer, int offset, MessageHeader header)
         {
@@ -617,7 +518,7 @@ namespace PulseRPC.Transport.Tcp
         }
 
         /// <summary>
-        /// 读取消息头
+        /// 读取传输层消息头
         /// </summary>
         private static MessageHeader ReadMessageHeader(byte[] buffer, int offset)
         {
