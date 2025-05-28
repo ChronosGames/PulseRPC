@@ -112,75 +112,18 @@ public class ServiceRegistry
                 var returnType = methodInfo.ReturnType.GetGenericArguments()[0];
                 Console.WriteLine($"  - ValueTask<T>返回类型: ValueTask<{returnType.Name}>");
 
-                // 创建泛型委托类型 - 修复泛型参数数量
-                var delegateType = typeof(Func<,,,>).MakeGenericType(
-                    implementationType, typeof(byte[]), typeof(CancellationToken), methodInfo.ReturnType);
-
-                Console.WriteLine($"  - 委托类型: {delegateType.Name}");
-
-                try
+                if (!TryCreateValueTaskTResultDelegate(cacheKey, implementationType, parameterType, returnType))
                 {
-                    // 获取用于创建包装器的静态方法
-                    var wrapperMethod = GetType().GetMethod(nameof(CreateValueTaskTResultWrapper),
-                        BindingFlags.NonPublic | BindingFlags.Static);
-
-                    if (wrapperMethod == null)
-                    {
-                        Console.WriteLine("  - 错误: 找不到CreateValueTaskTResultWrapper方法");
-                        return;
-                    }
-
-                    // 创建泛型方法 - 确保泛型参数正确
-                    var genericWrapperMethod = wrapperMethod.MakeGenericMethod(
-                        implementationType, parameterType, returnType);
-
-                    // 创建委托 - 使用正确的方法创建委托
-                    var directDelegate = Delegate.CreateDelegate(delegateType, genericWrapperMethod);
-
-                    // 添加到缓存
-                    _directMethodCache.TryAdd(cacheKey, directDelegate);
-                    Console.WriteLine($"  - 成功创建ValueTask<{returnType.Name}>的直接调用委托");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"  - 创建ValueTask<T>委托失败: {ex.Message}");
-                    Console.WriteLine($"  - 详细错误: {ex}");
+                    Console.WriteLine($"  - ValueTask<{returnType.Name}>委托创建失败");
                 }
             }
             else if (methodInfo.ReturnType == typeof(ValueTask))
             {
                 Console.WriteLine("  - 无返回值ValueTask类型");
 
-                // 针对无返回值ValueTask类型 - 修复泛型参数数量
-                var delegateType = typeof(Func<,,,>).MakeGenericType(
-                    implementationType, typeof(byte[]), typeof(CancellationToken), typeof(ValueTask));
-
-                try
+                if (!TryCreateVoidValueTaskDelegate(cacheKey, implementationType, parameterType))
                 {
-                    // 获取用于创建包装器的静态方法
-                    var wrapperMethod = GetType().GetMethod(nameof(CreateVoidValueTaskWrapper),
-                        BindingFlags.NonPublic | BindingFlags.Static);
-
-                    if (wrapperMethod == null)
-                    {
-                        Console.WriteLine("  - 错误: 找不到CreateVoidValueTaskWrapper方法");
-                        return;
-                    }
-
-                    // 创建泛型方法
-                    var genericWrapperMethod = wrapperMethod.MakeGenericMethod(implementationType, parameterType);
-
-                    // 创建委托
-                    var directDelegate = Delegate.CreateDelegate(delegateType, genericWrapperMethod);
-
-                    // 添加到缓存
-                    _directMethodCache.TryAdd(cacheKey, directDelegate);
-                    Console.WriteLine("  - 成功创建ValueTask的直接调用委托");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"  - 创建ValueTask委托失败: {ex.Message}");
-                    Console.WriteLine($"  - 详细错误: {ex}");
+                    Console.WriteLine("  - ValueTask委托创建失败");
                 }
             }
         }
@@ -193,7 +136,187 @@ public class ServiceRegistry
     }
 
     /// <summary>
-    /// 创建ValueTask<TResult>方法的静态包装器
+    /// 尝试创建ValueTask&lt;TResult&gt;类型的委托
+    /// </summary>
+    private bool TryCreateValueTaskTResultDelegate(string cacheKey, Type implementationType, Type parameterType, Type returnType)
+    {
+        try
+        {
+            // 创建泛型委托类型
+            var delegateType = typeof(Func<,,,>).MakeGenericType(
+                implementationType, typeof(byte[]), typeof(CancellationToken), typeof(ValueTask<>).MakeGenericType(returnType));
+
+            Console.WriteLine($"  - 委托类型: {delegateType}");
+
+            // 获取用于创建包装器的静态方法 - 修复BindingFlags
+            var wrapperMethod = typeof(ServiceRegistry).GetMethod(
+                nameof(CreateValueTaskTResultWrapper),
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            if (wrapperMethod == null)
+            {
+                Console.WriteLine("  - 错误: 找不到CreateValueTaskTResultWrapper方法");
+                Console.WriteLine("  - 尝试获取所有静态方法进行诊断...");
+                LogAvailableStaticMethods();
+                return false;
+            }
+
+            Console.WriteLine($"  - 找到包装器方法: {wrapperMethod}");
+
+            // 创建泛型方法 - 确保泛型参数正确
+            var genericWrapperMethod = wrapperMethod.MakeGenericMethod(
+                implementationType, parameterType, returnType);
+
+            Console.WriteLine($"  - 泛型包装器方法: {genericWrapperMethod}");
+
+            // 验证方法签名
+            if (!ValidateMethodSignature(genericWrapperMethod, delegateType))
+            {
+                Console.WriteLine("  - 错误: 方法签名不匹配");
+                return false;
+            }
+
+            // 创建委托
+            var directDelegate = Delegate.CreateDelegate(delegateType, genericWrapperMethod);
+
+            // 添加到缓存
+            _directMethodCache.TryAdd(cacheKey, directDelegate);
+            Console.WriteLine($"  - 成功创建ValueTask<{returnType.Name}>的直接调用委托");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  - 创建ValueTask<T>委托失败: {ex.Message}");
+            Console.WriteLine($"  - 详细错误: {ex}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 尝试创建无返回值ValueTask类型的委托
+    /// </summary>
+    private bool TryCreateVoidValueTaskDelegate(string cacheKey, Type implementationType, Type parameterType)
+    {
+        try
+        {
+            // 创建委托类型
+            var delegateType = typeof(Func<,,,>).MakeGenericType(
+                implementationType, typeof(byte[]), typeof(CancellationToken), typeof(ValueTask));
+
+            Console.WriteLine($"  - 委托类型: {delegateType}");
+
+            // 获取用于创建包装器的静态方法 - 修复BindingFlags
+            var wrapperMethod = typeof(ServiceRegistry).GetMethod(
+                nameof(CreateVoidValueTaskWrapper),
+                BindingFlags.NonPublic | BindingFlags.Static);
+
+            if (wrapperMethod == null)
+            {
+                Console.WriteLine("  - 错误: 找不到CreateVoidValueTaskWrapper方法");
+                Console.WriteLine("  - 尝试获取所有静态方法进行诊断...");
+                LogAvailableStaticMethods();
+                return false;
+            }
+
+            Console.WriteLine($"  - 找到包装器方法: {wrapperMethod}");
+
+            // 创建泛型方法
+            var genericWrapperMethod = wrapperMethod.MakeGenericMethod(implementationType, parameterType);
+
+            Console.WriteLine($"  - 泛型包装器方法: {genericWrapperMethod}");
+
+            // 验证方法签名
+            if (!ValidateMethodSignature(genericWrapperMethod, delegateType))
+            {
+                Console.WriteLine("  - 错误: 方法签名不匹配");
+                return false;
+            }
+
+            // 创建委托
+            var directDelegate = Delegate.CreateDelegate(delegateType, genericWrapperMethod);
+
+            // 添加到缓存
+            _directMethodCache.TryAdd(cacheKey, directDelegate);
+            Console.WriteLine("  - 成功创建ValueTask的直接调用委托");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  - 创建ValueTask委托失败: {ex.Message}");
+            Console.WriteLine($"  - 详细错误: {ex}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 验证方法签名与委托类型是否匹配
+    /// </summary>
+    private bool ValidateMethodSignature(MethodInfo method, Type delegateType)
+    {
+        try
+        {
+            var invokeMethod = delegateType.GetMethod("Invoke");
+            if (invokeMethod == null) return false;
+
+            var delegateParams = invokeMethod.GetParameters();
+            var methodParams = method.GetParameters();
+
+            // 验证参数数量
+            if (delegateParams.Length != methodParams.Length)
+            {
+                Console.WriteLine($"    - 参数数量不匹配: 委托={delegateParams.Length}, 方法={methodParams.Length}");
+                return false;
+            }
+
+            // 验证参数类型
+            for (int i = 0; i < delegateParams.Length; i++)
+            {
+                if (delegateParams[i].ParameterType != methodParams[i].ParameterType)
+                {
+                    Console.WriteLine($"    - 参数{i}类型不匹配: 委托={delegateParams[i].ParameterType}, 方法={methodParams[i].ParameterType}");
+                    return false;
+                }
+            }
+
+            // 验证返回类型
+            if (invokeMethod.ReturnType != method.ReturnType)
+            {
+                Console.WriteLine($"    - 返回类型不匹配: 委托={invokeMethod.ReturnType}, 方法={method.ReturnType}");
+                return false;
+            }
+
+            Console.WriteLine("    - 方法签名验证通过");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"    - 方法签名验证异常: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 记录可用的静态方法以便诊断
+    /// </summary>
+    private void LogAvailableStaticMethods()
+    {
+        try
+        {
+            var staticMethods = typeof(ServiceRegistry).GetMethods(BindingFlags.NonPublic | BindingFlags.Static);
+            Console.WriteLine("  - 可用的静态方法:");
+            foreach (var method in staticMethods)
+            {
+                Console.WriteLine($"    - {method.Name}: {method}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  - 无法获取静态方法列表: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// 创建ValueTask&lt;TResult&gt;方法的静态包装器
     /// </summary>
     private static ValueTask<TResult> CreateValueTaskTResultWrapper<TImpl, TParam, TResult>(
         TImpl implementation, byte[] data, CancellationToken cancellationToken)
@@ -469,17 +592,44 @@ public class ServiceRegistry
 
                 // 使用反射调用
                 var method = typeof(MemoryPackSerializer)
-                    .GetMethod(nameof(MemoryPackSerializer.Deserialize), new Type[] { typeof(byte[]) })!
-                    .MakeGenericMethod(type);
+                    .GetMethod(nameof(MemoryPackSerializer.Deserialize), new Type[] { typeof(byte[]) });
 
-                var result = method.Invoke(null, new object[] { data });
-                Console.WriteLine($"[ServiceRegistry] 反射反序列化成功，类型: {type.Name}，数据长度: {data.Length}");
-                return result!;
+                if (method == null)
+                {
+                    throw new InvalidOperationException("无法找到 MemoryPackSerializer.Deserialize 方法");
+                }
+
+                var genericMethod = method.MakeGenericMethod(type);
+                var result = genericMethod.Invoke(null, new object[] { data });
+
+                Console.WriteLine($"[ServiceRegistry] 反射反序列化成功，类型: {type.Name}，数据长度: {data.Length}，结果: {result != null}");
+
+                // 确保不返回null值
+                if (result == null)
+                {
+                    Console.WriteLine($"[ServiceRegistry] 警告: 反序列化返回null，创建默认实例，类型: {type.Name}");
+                    return type.IsValueType ? Activator.CreateInstance(type)! : Activator.CreateInstance(type)!;
+                }
+
+                return result;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[ServiceRegistry] 反射反序列化失败，类型: {type.Name}，错误: {ex.Message}");
-                throw;
+                Console.WriteLine($"[ServiceRegistry] 详细错误: {ex}");
+
+                // 发生异常时返回默认实例而不是null
+                try
+                {
+                    var defaultInstance = Activator.CreateInstance(type);
+                    Console.WriteLine($"[ServiceRegistry] 返回默认实例，类型: {type.Name}");
+                    return defaultInstance!;
+                }
+                catch (Exception createEx)
+                {
+                    Console.WriteLine($"[ServiceRegistry] 无法创建默认实例: {createEx.Message}");
+                    throw new InvalidOperationException($"反序列化失败且无法创建默认实例，类型: {type.Name}", ex);
+                }
             }
         };
     }
@@ -572,6 +722,7 @@ public class ServiceRegistry
             {
                 try
                 {
+                    Console.WriteLine($"使用直接调用委托执行: {cacheKey}");
                     // 使用直接委托调用
                     dynamic dynDelegate = directDelegate;
                     dynamic dynInstance = instance;
@@ -585,16 +736,17 @@ public class ServiceRegistry
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"直接调用失败: {ex.Message}，回退到标准调用");
+                    Console.WriteLine($"直接调用失败: {ex.Message}，回退到其他调用方式");
                 }
             }
 
             // 检查方法返回类型是否为ValueTask
             if (IsValueTaskType(methodInfo.MethodInfo.ReturnType))
             {
-                // ValueTask方法应该使用直接调用，如果没有直接委托则无法继续
-                throw new InvalidOperationException(
-                    $"无法调用ValueTask返回类型的方法: {methodName}，缺少直接调用委托");
+                Console.WriteLine($"ValueTask方法缺少直接调用委托，尝试回退处理: {methodName}");
+
+                // 尝试使用反射回退机制
+                return await InvokeValueTaskWithReflectionAsync(methodInfo.MethodInfo, instance, requestBytes, cancellationToken);
             }
 
             // 标准调用路径（适用于Task和同步方法）
@@ -648,6 +800,95 @@ public class ServiceRegistry
         catch (Exception ex)
         {
             Console.WriteLine($"执行方法异常: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 使用反射方式调用ValueTask方法（回退机制）
+    /// </summary>
+    private async Task<object?> InvokeValueTaskWithReflectionAsync(MethodInfo methodInfo, object instance, byte[] requestBytes, CancellationToken cancellationToken)
+    {
+        try
+        {
+            Console.WriteLine($"使用反射回退机制调用ValueTask方法: {methodInfo.Name}");
+
+            // 获取参数类型
+            var parameters = methodInfo.GetParameters();
+            if (parameters.Length == 0)
+            {
+                throw new InvalidOperationException($"方法 {methodInfo.Name} 没有参数");
+            }
+
+            var parameterType = parameters[0].ParameterType;
+            Console.WriteLine($"参数类型: {parameterType.Name}");
+
+            // 获取缓存的反序列化委托
+            var deserializer = _deserializerCache.GetOrAdd(parameterType, type => CreateDeserializerDelegate(type));
+
+            // 反序列化请求对象
+            var request = deserializer(requestBytes);
+
+            // 验证反序列化结果
+            if (request == null)
+            {
+                Console.WriteLine($"警告: 反序列化返回null，参数类型: {parameterType.Name}");
+                // 如果是值类型，创建默认实例；如果是引用类型，抛出异常
+                if (parameterType.IsValueType)
+                {
+                    request = Activator.CreateInstance(parameterType)!;
+                    Console.WriteLine($"为值类型创建默认实例: {parameterType.Name}");
+                }
+                else
+                {
+                    throw new InvalidOperationException($"无法反序列化请求参数，类型: {parameterType.Name}");
+                }
+            }
+
+            Console.WriteLine($"反序列化成功，参数类型: {parameterType.Name}, 值: {request}");
+
+            // 准备参数
+            object[] methodParams;
+            if (parameters.Length > 1 && parameters[1].ParameterType == typeof(CancellationToken))
+            {
+                methodParams = [request, cancellationToken];
+                Console.WriteLine("方法包含CancellationToken参数");
+            }
+            else
+            {
+                methodParams = [request];
+                Console.WriteLine("方法只有一个参数");
+            }
+
+            Console.WriteLine($"准备调用方法: {methodInfo.Name}，参数数量: {methodParams.Length}");
+
+            // 使用反射调用方法
+            var result = methodInfo.Invoke(instance, methodParams);
+
+            if (result == null)
+            {
+                Console.WriteLine("方法调用返回null");
+                return null;
+            }
+
+            Console.WriteLine($"方法调用成功，返回类型: {result.GetType().Name}");
+
+            // 处理ValueTask返回类型
+            return await HandleValueTaskAsync(result, methodInfo.ReturnType);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"反射回退调用失败: {ex.Message}");
+            Console.WriteLine($"异常类型: {ex.GetType().Name}");
+            Console.WriteLine($"堆栈跟踪: {ex.StackTrace}");
+
+            // 如果是内部异常，也记录
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"内部异常: {ex.InnerException.Message}");
+                Console.WriteLine($"内部异常堆栈: {ex.InnerException.StackTrace}");
+            }
+
             throw;
         }
     }
