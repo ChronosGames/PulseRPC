@@ -41,7 +41,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         _cts = new CancellationTokenSource();
 
         // 创建序列化器
-        var serializer = new PulseRPCSerializer();
+        var serializer = PulseRPCSerializerProvider.Instance;
 
         // 创建传输工厂
         var transportFactory = new TransportFactory(loggerFactory);
