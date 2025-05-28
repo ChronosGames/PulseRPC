@@ -16,7 +16,7 @@ namespace PulseRPC.Transport.Kcp
     /// </summary>
     public class KcpTransport : ITransport
     {
-        protected readonly KcpCore _kcp;
+        protected KcpCore _kcp;
         protected Socket _socket;
         protected readonly TransportOptions _options;
         protected readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);

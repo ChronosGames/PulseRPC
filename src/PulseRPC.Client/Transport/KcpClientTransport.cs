@@ -59,10 +59,48 @@ namespace PulseRPC.Client.Transport
 
                 // 发送握手包
                 byte[] handshakeData = BitConverter.GetBytes(_options.Kcp.ConversationId);
-                _socket.SendTo(handshakeData, _remoteEndpoint);
+                int sentBytes = _socket.SendTo(handshakeData, _remoteEndpoint);
+                _logger.LogDebug("已发送KCP握手包: Conv={Conv}, Bytes={Bytes}, RemoteEndpoint={RemoteEndpoint}",
+                    _options.Kcp.ConversationId, sentBytes, _remoteEndpoint);
 
-                // 等待连接建立
-                await Task.Delay(100, linkedCts.Token);
+                // 等待握手确认 - 实现真正的握手机制
+                bool handshakeConfirmed = false;
+                var handshakeTimeout = DateTime.UtcNow.AddMilliseconds(_options.ConnectionTimeout);
+
+                while (!handshakeConfirmed && DateTime.UtcNow < handshakeTimeout && !linkedCts.Token.IsCancellationRequested)
+                {
+                    if (_socket.Available > 0)
+                    {
+                        EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
+                        byte[] receiveBuffer = new byte[4];
+
+                        try
+                        {
+                            int received = _socket.ReceiveFrom(receiveBuffer, ref remoteEp);
+                            if (received == 4)
+                            {
+                                uint receivedConv = BitConverter.ToUInt32(receiveBuffer, 0);
+                                if (receivedConv == _options.Kcp.ConversationId && remoteEp.Equals(_remoteEndpoint))
+                                {
+                                    handshakeConfirmed = true;
+                                    _logger.LogDebug("收到KCP握手确认: Conv={Conv}", receivedConv);
+                                    break;
+                                }
+                            }
+                        }
+                        catch (SocketException ex) when (ex.SocketErrorCode == SocketError.WouldBlock)
+                        {
+                            // 没有数据可读，继续等待
+                        }
+                    }
+
+                    await Task.Delay(10, linkedCts.Token); // 短暂等待避免忙等待
+                }
+
+                if (!handshakeConfirmed)
+                {
+                    throw new TimeoutException($"KCP握手超时，未收到服务器确认，Conv={_options.Kcp.ConversationId}");
+                }
 
                 // 启动KCP更新循环
                 _updateTask = KcpUpdateLoopAsync();
