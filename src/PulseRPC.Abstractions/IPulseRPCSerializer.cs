@@ -45,22 +45,22 @@ namespace PulseRPC.Serialization
         T Deserialize<T>(in ReadOnlySequence<byte> bytes);
     }
 
-    public partial class PulseRPCSerializer : ISerializerProvider
+    public partial class PulseRPCSerializerProvider : ISerializerProvider
     {
         readonly MemoryPackSerializerOptions _serializerOptions;
-        public static PulseRPCSerializer Instance { get; } = new(MemoryPackSerializerOptions.Default);
+        public static PulseRPCSerializerProvider Instance { get; } = new(MemoryPackSerializerOptions.Default);
 
-        private PulseRPCSerializer(MemoryPackSerializerOptions serializerOptions)
+        private PulseRPCSerializerProvider(MemoryPackSerializerOptions serializerOptions)
         {
             _serializerOptions = serializerOptions;
         }
 
-        static PulseRPCSerializer()
+        static PulseRPCSerializerProvider()
         {
             // DynamicArgumentTupleFormatter.Register();
         }
 
-        public PulseRPCSerializer WithOptions(MemoryPackSerializerOptions serializerOptions) => new PulseRPCSerializer(serializerOptions);
+        public PulseRPCSerializerProvider WithOptions(MemoryPackSerializerOptions serializerOptions) => new PulseRPCSerializerProvider(serializerOptions);
 
         public ISerializer Create(MethodType methodType, MethodInfo? methodInfo)
         {
