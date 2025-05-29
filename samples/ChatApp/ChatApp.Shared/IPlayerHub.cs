@@ -11,9 +11,8 @@ namespace ChatApp.Shared
     /// <summary>
     /// 指定默认使用TCP通道
     /// </summary>
-    [ServiceContract]
     [Channel("TcpChannel")]
-    public interface IPlayerService : INetworkService
+    public interface IPlayerHub : IPulseHub
     {
         /// <summary>
         /// 玩家登录

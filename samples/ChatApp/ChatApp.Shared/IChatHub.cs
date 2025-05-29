@@ -7,9 +7,8 @@ namespace ChatApp.Shared
     /// <summary>
     /// 聊天Hub服务接口 - 客户端调用服务端的API（流式）
     /// </summary>
-    [ServiceContract]
     [Channel("TcpChannel")]
-    public interface IChatHub : INetworkService
+    public interface IChatHub : IPulseHub
     {
         /// <summary>
         /// 加入聊天室

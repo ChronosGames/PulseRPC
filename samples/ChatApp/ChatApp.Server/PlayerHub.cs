@@ -22,7 +22,7 @@ namespace GameServer.Services
     /// <summary>
     /// 玩家服务实现
     /// </summary>
-    public class PlayerService : IPlayerService
+    public class PlayerHub : IPlayerHub
     {
         private readonly IGameWorld _gameWorld;
         private readonly IPlayerManager _playerManager;
@@ -30,17 +30,17 @@ namespace GameServer.Services
         private readonly PlayerMovementBatcher _movementBatcher;
         private readonly IServerChannelManager _channelManager;
         private readonly IAuthenticationProvider _authProvider;
-        private readonly ILogger<PlayerService> _logger;
+        private readonly ILogger<PlayerHub> _logger;
         private readonly ISerializerProvider _serializerProvider;
 
-        public PlayerService(
+        public PlayerHub(
             IGameWorld gameWorld,
             IPlayerManager playerManager,
             IEventPublisher eventPublisher,
             PlayerMovementBatcher movementBatcher,
             IServerChannelManager channelManager,
             IAuthenticationProvider authProvider,
-            ILogger<PlayerService> logger,
+            ILogger<PlayerHub> logger,
             ISerializerProvider serializerProvider)
         {
             _gameWorld = gameWorld;

@@ -4,7 +4,7 @@ using PulseRPC;
 
 namespace JwtAuthApp.Shared
 {
-    public interface ITimerHub : IPulseHub<ITimerHub>
+    public interface ITimerHub : IPulseHub
     {
         Task SetAsync(TimeSpan interval);
 

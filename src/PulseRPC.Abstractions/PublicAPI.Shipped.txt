@@ -18,7 +18,7 @@ PulseRPC.IEventBus.Subscribe<T>(string! eventName, PulseRPC.EventHandler<T>! han
 PulseRPC.IEventBus.Unsubscribe(PulseRPC.ISubscriptionToken! token) -> void
 PulseRPC.IEventData
 PulseRPC.IEventSubscriber
-PulseRPC.INetworkService
+PulseRPC.IPulseHub
 PulseRPC.IServiceProxyGenerator
 PulseRPC.ISubscriptionToken
 PulseRPC.ISubscriptionToken.Id.get -> System.Guid
@@ -48,8 +48,6 @@ PulseRPC.RPCServiceAttribute.RPCServiceAttribute() -> void
 PulseRPC.Serialization.ISerializer
 PulseRPC.Serialization.PulseRPCSerializer
 PulseRPC.Serialization.PulseRPCSerializer.PulseRPCSerializer() -> void
-PulseRPC.ServiceContractAttribute
-PulseRPC.ServiceContractAttribute.ServiceContractAttribute() -> void
 PulseRPC.SubscriptionToken
 PulseRPC.SubscriptionToken.Id.get -> System.Guid
 PulseRPC.Transport.ChannelManager

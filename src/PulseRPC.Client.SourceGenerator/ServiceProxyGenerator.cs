@@ -18,11 +18,11 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         // 获取配置选项
         var configProvider = context.AnalyzerConfigOptionsProvider;
 
-        // 方法一：查找带有 ServiceContract 特性的接口
+        // 方法一：查找实现 IPulseHub 接口的服务接口
         var serviceInterfaces =
             context.SyntaxProvider
                 .CreateSyntaxProvider(
-                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "ServiceContract222"),
+                    predicate: static (s, _) => s is InterfaceDeclarationSyntax,
                     transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
                 .Where(static m => m.Type is not null);
 
@@ -37,11 +37,11 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         var eventInterfaces =
             context.SyntaxProvider
                 .CreateSyntaxProvider(
-                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "EventContract222"),
+                    predicate: static (s, _) => IsInterfaceWithAttribute(s, "EventContract"),
                     transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
                 .Where(static m => m.Type is not null);
 
-        // 合并服务类型 - 从ServiceContract接口和PulseClientGeneration特性
+        // 合并服务类型 - 从IPulseHub接口和PulseClientGeneration特性
         var allServiceTypes = serviceInterfaces.Collect()
             .Combine(classDeclarations.Collect())
             .Select((tuple, _) =>
@@ -230,7 +230,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         if (interfaceSymbol == null)
             return new ServiceTypeInfo(null);
 
-        // 检查是否实现了 INetworkService 接口
+        // 检查是否实现了 IPulseHub 接口
         if (!IsNetworkService(interfaceSymbol))
             return new ServiceTypeInfo(null);
 
@@ -283,8 +283,8 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
 
     private static bool IsNetworkService(INamedTypeSymbol typeSymbol)
     {
-        // 检查是否实现了 INetworkService 接口
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "INetworkService");
+        // 检查是否实现了 IPulseHub 接口
+        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
     }
 
     private static void ExecuteEventHandlerGeneration(
@@ -715,7 +715,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             if (interfaceSymbol == null) continue;
 
             var interfaceName = interfaceSymbol.Name;
-            var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
+            var fullTypeName = GetFullTypeName(interfaceSymbol);
 
             // 去掉I前缀
             var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
@@ -723,12 +723,12 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine($"        /// <summary>");
             sb.AppendLine($"        /// 获取 {interfaceName} 服务");
             sb.AppendLine($"        /// </summary>");
-            sb.AppendLine($"        public static {namespaceName}.{interfaceName} Get{serviceName}(this IChannelManager channelManager)");
+            sb.AppendLine($"        public static {fullTypeName} Get{serviceName}(this IChannelManager channelManager)");
             sb.AppendLine("        {");
             sb.AppendLine($"            if (channelManager == null)");
             sb.AppendLine($"                throw new ArgumentNullException(nameof(channelManager));");
             sb.AppendLine();
-            sb.AppendLine($"            return new {namespaceName}.{interfaceName}Proxy(channelManager);");
+            sb.AppendLine($"            return new {fullTypeName}Proxy(channelManager);");
             sb.AppendLine("        }");
             sb.AppendLine();
         }
@@ -739,7 +739,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             if (interfaceSymbol == null) continue;
 
             var interfaceName = interfaceSymbol.Name;
-            var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
+            var fullTypeName = GetFullTypeName(interfaceSymbol);
 
             // 去掉I前缀获取服务名
             var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
@@ -753,16 +753,25 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 ? interfaceName.Substring(1) + "Handler"
                 : interfaceName + "Handler";
 
+            // 获取处理器的完整类型名称
+            var handlerInterfaceFullName = interfaceSymbol.ContainingNamespace.IsGlobalNamespace
+                ? handlerInterfaceName
+                : $"{interfaceSymbol.ContainingNamespace.ToDisplayString()}.{handlerInterfaceName}";
+
+            var handlerClassFullName = interfaceSymbol.ContainingNamespace.IsGlobalNamespace
+                ? handlerClassName
+                : $"{interfaceSymbol.ContainingNamespace.ToDisplayString()}.{handlerClassName}";
+
             sb.AppendLine($"        /// <summary>");
             sb.AppendLine($"        /// 获取 {interfaceName} 事件处理器");
             sb.AppendLine($"        /// </summary>");
-            sb.AppendLine($"        public static {namespaceName}.{handlerInterfaceName} Get{serviceName}Handler(this IChannelManager channelManager)");
+            sb.AppendLine($"        public static {handlerInterfaceFullName} Get{serviceName}Handler(this IChannelManager channelManager)");
             sb.AppendLine("        {");
             sb.AppendLine($"            if (channelManager == null)");
             sb.AppendLine($"                throw new ArgumentNullException(nameof(channelManager));");
             sb.AppendLine();
             sb.AppendLine($"            var channel = channelManager.GetChannel(\"{GetChannelAttributeValue(interfaceSymbol) ?? "default"}\");");
-            sb.AppendLine($"            return new {namespaceName}.{handlerClassName}(channel);");
+            sb.AppendLine($"            return new {handlerClassFullName}(channel);");
             sb.AppendLine("        }");
             sb.AppendLine();
         }
@@ -892,6 +901,21 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         catch
         {
             // 忽略文件写入错误，因为 SourceGenerator 应该能够在没有文件输出的情况下工作
+        }
+    }
+
+    /// <summary>
+    /// 获取类型的完整名称，正确处理全局命名空间
+    /// </summary>
+    private static string GetFullTypeName(INamedTypeSymbol typeSymbol)
+    {
+        if (typeSymbol.ContainingNamespace.IsGlobalNamespace)
+        {
+            return typeSymbol.Name;
+        }
+        else
+        {
+            return $"{typeSymbol.ContainingNamespace.ToDisplayString()}.{typeSymbol.Name}";
         }
     }
 }
