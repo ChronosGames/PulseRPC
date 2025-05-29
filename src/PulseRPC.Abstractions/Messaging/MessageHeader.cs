@@ -6,18 +6,20 @@ using MemoryPack;
 
 namespace PulseRPC.Messaging
 {
-    public interface IHasTransport
-    {
-        Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default);
-
-        Task DisconnectAsync(CancellationToken cancellationToken = default);
-    }
-
     /// <summary>
     /// 消息通道接口
     /// </summary>
     public interface IClientChannel : IDisposable
     {
+        Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default);
+
+        Task DisconnectAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 注册事件回调
+        /// </summary>
+        void RegisterEventCallback(Action<string, byte[]> callback);
+
         Task<TResponse> SendRequestAsync<TRequest, TResponse>(string serviceName, string methodName, TRequest request,
             CancellationToken cancellationToken = default);
 

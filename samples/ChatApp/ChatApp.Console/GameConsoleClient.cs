@@ -146,12 +146,12 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         try
         {
             // 连接TCP通道
-            var tcpChannel = _channelManager!.GetChannel("TcpChannel") as IHasTransport;
-            await tcpChannel!.ConnectAsync(host, tcpPort);
+            var tcpChannel = _channelManager!.GetChannel("TcpChannel");
+            await tcpChannel.ConnectAsync(host, tcpPort);
 
             // 连接KCP通道
-            var kcpChannel = _channelManager.GetChannel("KcpChannel") as IHasTransport;
-            await kcpChannel!.ConnectAsync(host, kcpPort);
+            var kcpChannel = _channelManager.GetChannel("KcpChannel");
+            await kcpChannel.ConnectAsync(host, kcpPort);
 
             _logger.LogInformation("已连接到服务器 (TCP + KCP)");
         }
@@ -421,11 +421,8 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         {
             foreach (var channelName in new[] { "TcpChannel", "KcpChannel" })
             {
-                var channel = _channelManager!.GetChannel(channelName) as IHasTransport;
-                if (channel != null)
-                {
-                    await channel.DisconnectAsync();
-                }
+                var channel = _channelManager!.GetChannel(channelName);
+                await channel.DisconnectAsync();
             }
         }
         catch (Exception ex)

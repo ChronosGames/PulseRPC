@@ -24,7 +24,6 @@ PulseRPC.ISubscriptionToken
 PulseRPC.ISubscriptionToken.Id.get -> System.Guid
 PulseRPC.ISubscriptionToken.IsActive.get -> bool
 PulseRPC.ISubscriptionToken.Unsubscribe() -> void
-PulseRPC.Messaging.IHasTransport
 PulseRPC.Messaging.IClientChannel
 PulseRPC.Messaging.MessageHeader
 PulseRPC.Messaging.MessageHeader.MessageHeader() -> void
