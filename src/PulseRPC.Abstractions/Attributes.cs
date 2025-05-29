@@ -64,48 +64,12 @@ namespace PulseRPC
     }
 
     /// <summary>
-    /// 服务契约特性
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Interface)]
-    public class ServiceContractAttribute : Attribute
-    {
-        // 可以添加额外的服务契约特性
-    }
-
-    /// <summary>
     /// 事件契约特性
     /// </summary>
     [AttributeUsage(AttributeTargets.Interface)]
     public class EventContractAttribute : Attribute
     {
         // 可以添加额外的事件契约特性
-    }
-
-    /// <summary>
-    /// 标记 RPC 方法
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Method)]
-    public class RPCMethodAttribute : Attribute
-    {
-        // 可以添加额外的方法特性
-    }
-
-    /// <summary>
-    /// 标记 RPC 服务接口
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Interface)]
-    public class RPCServiceAttribute : Attribute
-    {
-        // 可以添加额外的服务特性
-    }
-
-    /// <summary>
-    /// 标记事件数据
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct)]
-    public class EventDataAttribute : Attribute
-    {
-        // 可以添加额外的事件数据特性
     }
 
     /// <summary>

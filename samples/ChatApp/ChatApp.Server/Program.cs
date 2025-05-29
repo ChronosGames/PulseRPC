@@ -60,8 +60,8 @@ namespace GameServer
 
                 // 注册服务到ServiceRegistry（必须在服务器启动后）
                 var serviceRegistry = host.Services.GetRequiredService<ServiceRegistry>();
-                var playerService = host.Services.GetRequiredService<IPlayerService>();
-                serviceRegistry.RegisterService<IPlayerService, PlayerService>((PlayerService)playerService);
+                var playerService = host.Services.GetRequiredService<IPlayerHub>();
+                serviceRegistry.RegisterService<IPlayerHub, PlayerHub>((PlayerHub)playerService);
                 Console.WriteLine("服务已注册到ServiceRegistry");
 
                 Console.WriteLine("\n高性能服务器已启动，按 ESC 键停止服务器...\n");
@@ -206,7 +206,7 @@ namespace GameServer
             services.AddSingleton<IAuthenticationProvider, SimpleAuthenticationProvider>();
 
             // 添加服务实现
-            services.AddTransient<IPlayerService, PlayerService>();
+            services.AddTransient<IPlayerHub, PlayerHub>();
 
             // 添加位置更新批处理器
             services.AddSingleton<PlayerMovementBatcher>();

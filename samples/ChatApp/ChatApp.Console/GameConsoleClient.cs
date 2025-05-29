@@ -14,14 +14,14 @@ namespace ChatApp.Console;
 /// <summary>
 /// 游戏控制台客户端
 /// </summary>
-[PulseClientGeneration(typeof(IPlayerService))]
+[PulseClientGeneration(typeof(IPlayerHub))]
 [PulseClientGeneration(typeof(IPlayerLoginEvents))]
 [PulseClientGeneration(typeof(IPlayerMovementEvents))]
 public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
     private IChannelManager? _channelManager;
-    private IPlayerService? _playerService;
+    private IPlayerHub? _playerService;
     private ISubscriptionToken? _eventsSubscription;
     private CancellationTokenSource? _cts;
     private bool _isLoggedIn;
@@ -91,7 +91,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         try
         {
             // 获取服务代理
-            _playerService = _channelManager.GetPlayerService();
+            _playerService = _channelManager.GetPlayerHub();
 
             // 创建事件处理器实例
             var eventsHandler = new PlayerEventsHandler(this);

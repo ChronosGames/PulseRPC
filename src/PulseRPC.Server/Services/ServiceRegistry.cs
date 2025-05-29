@@ -131,7 +131,7 @@ public partial class ServiceRegistry
     /// 注册服务
     /// </summary>
     public void RegisterService<TInterface, TImplementation>(TImplementation implementation)
-        where TInterface : class, INetworkService
+        where TInterface : class, IPulseHub
         where TImplementation : class, TInterface
     {
         var interfaceType = typeof(TInterface);
@@ -931,7 +931,7 @@ public partial class ServiceRegistry
     /// 直接调用已知服务和方法 - 高效路径
     /// </summary>
     public async Task<TResponse> DirectInvokeAsync<TRequest, TResponse>(
-        INetworkService service, string methodName, byte[] requestBytes)
+        IPulseHub service, string methodName, byte[] requestBytes)
     {
         // 反序列化请求
         var request = MemoryPackSerializer.Deserialize<TRequest>(requestBytes)!;
