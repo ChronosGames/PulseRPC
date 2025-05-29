@@ -17,55 +17,45 @@ namespace ChatApp.Shared
         /// <summary>
         /// 玩家登录
         /// </summary>
-        [Operation]
         ValueTask<LoginResponse> LoginAsync(LoginRequest request);
 
         /// <summary>
         /// 玩家移动
         /// </summary>
-        [Operation]
         [Channel("KcpChannel")]
         ValueTask MoveAsync(MoveRequest request);
 
         /// <summary>
         /// 测试Ping方法（允许匿名访问）
         /// </summary>
-        [Operation]
         ValueTask<string> PingAsync(PingRequest request);
     }
 
     /// <summary>
     /// 事件接口 - 登录相关事件使用TCP
     /// </summary>
-    [EventContract]
     [Channel("TcpChannel")]
-    public interface IPlayerLoginEvents : IEventSubscriber
+    public interface IPlayerLoginEvents : IPulseReceiver
     {
         // 下行通知: 玩家加入游戏
-        [PulseRPC.Event]
         void OnPlayerJoined(PlayerJoinedEvent eventData);
 
         // 下行通知: 玩家离开游戏
-        [PulseRPC.Event]
         void OnPlayerLeft(PlayerLeftEvent eventData);
     }
 
     /// <summary>
     /// 事件接口 - 位置更新使用KCP
     /// </summary>
-    [EventContract]
     [Channel("KcpChannel")]
-    public interface IPlayerMovementEvents : IEventSubscriber
+    public interface IPlayerMovementEvents : IPulseReceiver
     {
         // 下行通知: 玩家移动
-        [PulseRPC.Event]
         void OnPlayerMoved(PlayerMovedEvent eventData);
 
         // 下行通知: 批量玩家移动
-        [PulseRPC.Event]
         void OnPlayersMovedBatch(PlayerMovedEvent[] eventData);
 
-        [PulseRPC.Event]
         void OnPlayersMovedBatch(PlayersBatchMovedEvent eventData);
     }
 
