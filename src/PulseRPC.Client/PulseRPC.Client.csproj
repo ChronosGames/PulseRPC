@@ -11,7 +11,7 @@
     <IsPackable>true</IsPackable>
     <PackageId>PulseRPC.Client</PackageId>
     <Description>PulseRPC client library for .NET and Unity</Description>
-    
+
     <!-- This project is meta package -->
     <IncludeBuildOutput>true</IncludeBuildOutput>
     <IncludeContentInPack>true</IncludeContentInPack>
@@ -60,9 +60,5 @@
   <!-- 包含 Source Generator -->
   <ItemGroup>
     <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\cs" Pack="true" Visible="false" />
-    <None Include="..\PulseRPC\Icon.png">
-      <Pack>True</Pack>
-      <PackagePath>\</PackagePath>
-    </None>
   </ItemGroup>
 </Project>

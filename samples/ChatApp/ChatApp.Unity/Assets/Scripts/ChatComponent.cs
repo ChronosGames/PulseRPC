@@ -17,7 +17,7 @@ namespace ChatApp.Unity
     /// <summary>
     /// 整合的聊天游戏组件 - 包含完整的网络功能和UI交互
     /// </summary>
-    [PulseClientGeneration(typeof(IPlayerService))]
+    [PulseClientGeneration(typeof(IPlayerHub))]
     [PulseClientGeneration(typeof(IPlayerLoginEvents))]
     [PulseClientGeneration(typeof(IPlayerMovementEvents))]
     public class ChatComponent : MonoBehaviour
@@ -63,7 +63,7 @@ namespace ChatApp.Unity
         // 网络组件
         private IChannelManager _channelManager;
         private TransportFactory _transportFactory;
-        private IPlayerService _playerService;
+        private IPlayerHub _playerService;
         private ISubscriptionToken _eventsSubscription;
         private CancellationTokenSource _cts;
 
@@ -199,7 +199,7 @@ namespace ChatApp.Unity
             _channelManager.RegisterChannel("KcpChannel", kcpChannel);
 
             // 获取服务代理
-            _playerService = _channelManager.GetPlayerService();
+            _playerService = _channelManager.GetPlayerHub();
 
             // 设置事件处理器
             SetupEventHandlers();
@@ -253,11 +253,11 @@ namespace ChatApp.Unity
             try
             {
                 // 连接TCP通道
-                var tcpChannel = _channelManager.GetChannel("TcpChannel") as IHasTransport;
+                var tcpChannel = _channelManager.GetChannel("TcpChannel");
                 await tcpChannel.ConnectAsync(_host, _tcpPort);
 
                 // 连接KCP通道
-                var kcpChannel = _channelManager.GetChannel("KcpChannel") as IHasTransport;
+                var kcpChannel = _channelManager.GetChannel("KcpChannel");
                 await kcpChannel.ConnectAsync(_host, _kcpPort);
 
                 _isConnected = true;

@@ -740,8 +740,7 @@ public partial class ServiceRegistry
                 }
 
                 // 尝试使用反射
-                var method = typeof(MemoryPackSerializer)
-                    .GetMethod(nameof(MemoryPackSerializer.Deserialize), new Type[] { typeof(byte[]) });
+                var method = typeof(MemoryPackSerializer).GetMethod(nameof(MemoryPackSerializer.Deserialize), [typeof(byte[])]);
 
                 if (method == null)
                 {
