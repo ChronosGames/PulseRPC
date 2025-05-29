@@ -27,7 +27,7 @@ public class ConnectionStateChangedEventArgs : EventArgs
 /// <summary>
 /// 基于传输层的消息通道
 /// </summary>
-public partial class TransportChannel : IClientChannel, IHasTransport, IHasEventReceiver
+public partial class TransportChannel : IClientChannel
 {
     private readonly string _name;
     private readonly IClientTransport _transport;
@@ -151,7 +151,7 @@ public partial class TransportChannel : IClientChannel, IHasTransport, IHasEvent
     public async Task SendEventAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default)
     {
         // 创建消息头
-        var header = new Messaging.MessageHeader
+        var header = new MessageHeader
         {
             Type = MessageType.Event,
             MessageId = Guid.NewGuid(),
@@ -191,19 +191,23 @@ public partial class TransportChannel : IClientChannel, IHasTransport, IHasEvent
     {
         lock (_syncRoot)
         {
-            if (_eventSubscriptions.TryGetValue(eventName, out var subscriptions))
+            if (!_eventSubscriptions.TryGetValue(eventName, out var subscriptions))
             {
-                var subscription = subscriptions.FirstOrDefault(s => s.Id == subscriptionId);
-                if (subscription != null)
-                {
-                    subscriptions.Remove(subscription);
+                return;
+            }
 
-                    // 如果没有更多订阅，移除事件
-                    if (subscriptions.Count == 0)
-                    {
-                        _eventSubscriptions.Remove(eventName);
-                    }
-                }
+            var subscription = subscriptions.FirstOrDefault(s => s.Id == subscriptionId);
+            if (subscription == null)
+            {
+                return;
+            }
+
+            subscriptions.Remove(subscription);
+
+            // 如果没有更多订阅，移除事件
+            if (subscriptions.Count == 0)
+            {
+                _eventSubscriptions.Remove(eventName);
             }
         }
     }
@@ -211,7 +215,7 @@ public partial class TransportChannel : IClientChannel, IHasTransport, IHasEvent
     /// <summary>
     /// 序列化并打包消息
     /// </summary>
-    private async Task<ReadOnlyMemory<byte>> SerializeAndPackMessage<T>(Messaging.MessageHeader header, T? payload)
+    private async Task<ReadOnlyMemory<byte>> SerializeAndPackMessage<T>(MessageHeader header, T? payload)
     {
         return await Task.Run(() =>
         {
@@ -223,7 +227,7 @@ public partial class TransportChannel : IClientChannel, IHasTransport, IHasEvent
             var headerBytes = headerWriter.WrittenMemory.ToArray();
 
             // 序列化载荷
-            byte[] payloadBytes = Array.Empty<byte>();
+            var payloadBytes = Array.Empty<byte>();
             if (payload != null)
             {
                 var payloadWriter = new ArrayBufferWriter<byte>();
@@ -242,7 +246,10 @@ public partial class TransportChannel : IClientChannel, IHasTransport, IHasEvent
             writer.Write(headerBytes);
 
             // 写入载荷
-            writer.Write(payloadBytes);
+            if (payloadBytes.Length > 0)
+            {
+                writer.Write(payloadBytes);
+            }
 
             return new ReadOnlyMemory<byte>(messageStream.ToArray());
         });
@@ -266,8 +273,8 @@ public partial class TransportChannel : IClientChannel, IHasTransport, IHasEvent
             }
 
             // 读取头部长度（小端序）
-            var headerLengthBytes = data.Slice(0, 4).ToArray();
-            int headerLength = BitConverter.ToInt32(headerLengthBytes, 0);
+            var headerLengthBytes = data[..4].ToArray();
+            var headerLength = BitConverter.ToInt32(headerLengthBytes, 0);
 
             // 检查头部长度合法性
             if (headerLength <= 0 || headerLength > data.Length - 4)
@@ -283,7 +290,7 @@ public partial class TransportChannel : IClientChannel, IHasTransport, IHasEvent
             // 读取消息体
             var bodyStartIndex = 4 + headerLength;
             var bodyLength = data.Length - bodyStartIndex;
-            byte[] bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
+            var bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
 
             // 创建网络消息
             var message = new NetworkMessage(header, bodyBytes);

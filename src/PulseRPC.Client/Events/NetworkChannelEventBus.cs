@@ -42,10 +42,7 @@ public class NetworkChannelEventBus : IEventBus
                 return;
 
             // 订阅通道事件
-            if (_channel is IHasEventReceiver eventReceiver)
-            {
-                eventReceiver.RegisterEventCallback(OnNetworkEventReceived);
-            }
+            _channel.RegisterEventCallback(OnNetworkEventReceived);
 
             _initialized = true;
         }
@@ -181,15 +178,4 @@ public class NetworkChannelEventBus : IEventBus
             }
         }
     }
-}
-
-/// <summary>
-/// 具有事件接收器的通道接口
-/// </summary>
-public interface IHasEventReceiver
-{
-    /// <summary>
-    /// 注册事件回调
-    /// </summary>
-    void RegisterEventCallback(Action<string, byte[]> callback);
 }
