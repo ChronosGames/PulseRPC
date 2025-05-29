@@ -981,8 +981,8 @@ public partial class ServiceRegistry
         // 获取所有操作方法
         foreach (var method in interfaceType.GetMethods())
         {
-            // 检查是否有Operation特性
-            if (method.GetCustomAttribute<OperationAttribute>() != null)
+            // 自动处理所有公共方法，不再检查 Operation 特性
+            if (method.IsPublic)
             {
                 // 获取方法通道
                 var methodChannel = GetChannelName(method);

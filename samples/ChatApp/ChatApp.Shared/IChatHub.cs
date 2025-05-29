@@ -15,14 +15,12 @@ namespace ChatApp.Shared
         /// </summary>
         /// <param name="request">加入请求</param>
         /// <returns>是否成功</returns>
-        [Operation]
         Task<bool> JoinAsync(JoinRequest request);
 
         /// <summary>
         /// 离开聊天室
         /// </summary>
         /// <returns>是否成功</returns>
-        [Operation]
         Task<bool> LeaveAsync();
 
         /// <summary>
@@ -30,7 +28,6 @@ namespace ChatApp.Shared
         /// </summary>
         /// <param name="message">消息内容</param>
         /// <returns>是否成功</returns>
-        [Operation]
         Task<bool> SendMessageAsync(string message);
 
         /// <summary>
@@ -38,36 +35,31 @@ namespace ChatApp.Shared
         /// </summary>
         /// <param name="message">错误消息</param>
         /// <returns>是否成功</returns>
-        [Operation]
         Task<bool> GenerateException(string message);
     }
 
     /// <summary>
     /// 聊天Hub接收器接口 - 服务端调用客户端的API
     /// </summary>
-    [EventContract]
     [Channel("TcpChannel")]
-    public interface IChatHubReceiver : IEventSubscriber
+    public interface IChatHubReceiver : IPulseReceiver
     {
         /// <summary>
         /// 有用户加入时触发
         /// </summary>
         /// <param name="name">用户名</param>
-        [PulseRPC.Event]
         void OnJoin(string name);
 
         /// <summary>
         /// 有用户离开时触发
         /// </summary>
         /// <param name="name">用户名</param>
-        [PulseRPC.Event]
         void OnLeave(string name);
 
         /// <summary>
         /// 收到新消息时触发
         /// </summary>
         /// <param name="message">消息内容</param>
-        [PulseRPC.Event]
         void OnSendMessage(MessageResponse message);
 
         /// <summary>
@@ -76,7 +68,6 @@ namespace ChatApp.Shared
         /// <param name="name">用户名</param>
         /// <param name="age">年龄</param>
         /// <returns>格式化后的字符串</returns>
-        [PulseRPC.Event]
         Task<string> HelloAsync(string name, int age);
     }
 

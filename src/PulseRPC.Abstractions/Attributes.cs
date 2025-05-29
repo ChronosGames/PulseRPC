@@ -46,33 +46,6 @@ namespace PulseRPC
     }
 
     /// <summary>
-    /// 操作特性
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Method)]
-    public class OperationAttribute : Attribute
-    {
-        // 可以添加额外的操作特性
-    }
-
-    /// <summary>
-    /// 事件特性
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Method)]
-    public class EventAttribute : Attribute
-    {
-        // 可以添加额外的事件特性
-    }
-
-    /// <summary>
-    /// 事件契约特性
-    /// </summary>
-    [AttributeUsage(AttributeTargets.Interface)]
-    public class EventContractAttribute : Attribute
-    {
-        // 可以添加额外的事件契约特性
-    }
-
-    /// <summary>
     /// 认证类型枚举（用于特性）
     /// </summary>
     public enum AuthType
