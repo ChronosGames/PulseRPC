@@ -7,18 +7,18 @@ namespace PulseRPC.Server;
 /// </summary>
 public static class RequestContext
 {
-    private static readonly AsyncLocal<IServerConnection?> _currentConnection = new();
+    private static readonly AsyncLocal<IServerTransport?> _currentConnection = new();
 
     /// <summary>
     /// 获取当前请求的连接
     /// </summary>
-    public static IServerConnection? Current => _currentConnection.Value;
+    public static IServerTransport? Current => _currentConnection.Value;
 
     /// <summary>
     /// 设置当前请求的连接
     /// </summary>
     /// <param name="connection">服务器连接</param>
-    public static void SetCurrent(IServerConnection? connection)
+    public static void SetCurrent(IServerTransport? connection)
     {
         _currentConnection.Value = connection;
     }

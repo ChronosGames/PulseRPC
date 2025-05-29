@@ -8,9 +8,9 @@ namespace PulseRPC.Server.Transport;
 /// <summary>
 /// 服务器通道管理器，管理所有客户端连接的传输通道
 /// </summary>
-public class ServerChannelManager : IServerChannelManager, IDisposable
+public class ServerChannelManager : IServerChannelManager
 {
-    private readonly ConcurrentDictionary<string, ITransportChannel> _channels;
+    private readonly ConcurrentDictionary<string, IServerChannel> _channels;
     private readonly ILogger<ServerChannelManager> _logger;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly Timer _cleanupTimer;
@@ -49,7 +49,7 @@ public class ServerChannelManager : IServerChannelManager, IDisposable
 
     public ServerChannelManager(ILogger<ServerChannelManager> logger, ILoggerFactory? loggerFactory = null)
     {
-        _channels = new ConcurrentDictionary<string, ITransportChannel>();
+        _channels = new ConcurrentDictionary<string, IServerChannel>();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _loggerFactory = loggerFactory;
 
@@ -60,24 +60,24 @@ public class ServerChannelManager : IServerChannelManager, IDisposable
     /// <summary>
     /// 添加新的传输通道
     /// </summary>
-    /// <param name="connection">服务器连接</param>
+    /// <param name="transport">服务器连接</param>
     /// <returns>创建的传输通道</returns>
-    public ITransportChannel AddChannel(IServerConnection connection)
+    public IServerChannel AddChannel(IServerTransport transport)
     {
-        if (connection == null) throw new ArgumentNullException(nameof(connection));
+        if (transport == null) throw new ArgumentNullException(nameof(transport));
         if (_disposed) throw new ObjectDisposedException(nameof(ServerChannelManager));
 
         // 创建通道专用的日志器
         var channelLogger = _loggerFactory?.CreateLogger<ServerTransportChannel>();
-        var channel = new ServerTransportChannel(connection, channelLogger);
+        var channel = new ServerTransportChannel(transport, channelLogger);
 
         // 注册事件处理
         channel.StateChanged += OnChannelStateChanged;
 
         // 添加到管理字典
-        if (_channels.TryAdd(connection.ConnectionId, channel))
+        if (_channels.TryAdd(transport.ConnectionId, channel))
         {
-            _logger.LogInformation("已添加传输通道: {ConnectionId}", connection.ConnectionId);
+            _logger.LogInformation("已添加传输通道: {ConnectionId}", transport.ConnectionId);
             ChannelConnected?.Invoke(this, new ChannelEventArgs(channel));
             return channel;
         }
@@ -85,7 +85,7 @@ public class ServerChannelManager : IServerChannelManager, IDisposable
         {
             // 如果添加失败，说明连接ID冲突，释放新创建的通道
             channel.Dispose();
-            throw new InvalidOperationException($"连接ID冲突: {connection.ConnectionId}");
+            throw new InvalidOperationException($"连接ID冲突: {transport.ConnectionId}");
         }
     }
 
@@ -94,9 +94,12 @@ public class ServerChannelManager : IServerChannelManager, IDisposable
     /// </summary>
     /// <param name="connectionId">连接ID</param>
     /// <returns>传输通道，如果不存在则返回null</returns>
-    public ITransportChannel? GetChannel(string connectionId)
+    public IServerChannel? GetChannel(string connectionId)
     {
-        if (string.IsNullOrEmpty(connectionId)) return null;
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            return null;
+        }
 
         _channels.TryGetValue(connectionId, out var channel);
         return channel;
@@ -133,7 +136,7 @@ public class ServerChannelManager : IServerChannelManager, IDisposable
     /// 获取所有传输通道
     /// </summary>
     /// <returns>所有传输通道的集合</returns>
-    public IEnumerable<ITransportChannel> GetAllChannels()
+    public IEnumerable<IServerChannel> GetAllChannels()
     {
         return _channels.Values.ToList();
     }
@@ -142,7 +145,7 @@ public class ServerChannelManager : IServerChannelManager, IDisposable
     /// 获取所有已认证的传输通道
     /// </summary>
     /// <returns>已认证的传输通道集合</returns>
-    public IEnumerable<ITransportChannel> GetAuthenticatedChannels()
+    public IEnumerable<IServerChannel> GetAuthenticatedChannels()
     {
         return _channels.Values.Where(c => c.IsAuthenticated).ToList();
     }
@@ -152,9 +155,9 @@ public class ServerChannelManager : IServerChannelManager, IDisposable
     /// </summary>
     /// <param name="username">用户名</param>
     /// <returns>用户的传输通道集合</returns>
-    public IEnumerable<ITransportChannel> GetChannelsByUser(string username)
+    public IEnumerable<IServerChannel> GetChannelsByUser(string username)
     {
-        if (string.IsNullOrEmpty(username)) return Enumerable.Empty<ITransportChannel>();
+        if (string.IsNullOrEmpty(username)) return Enumerable.Empty<IServerChannel>();
 
         return _channels.Values
             .Where(c => c.IsAuthenticated &&

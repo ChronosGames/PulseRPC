@@ -10,7 +10,7 @@ namespace PulseRPC.Server.Transport;
 /// <summary>
 /// TCP服务端连接
 /// </summary>
-public class TcpServerConnection : TcpTransport, IServerConnection
+public class TcpServerTransport : TcpTransport, IServerTransport
 {
     private readonly string _connectionId;
 
@@ -19,7 +19,7 @@ public class TcpServerConnection : TcpTransport, IServerConnection
     /// <summary>
     /// 使用已连接的Socket创建服务端连接
     /// </summary>
-    public TcpServerConnection(string connectionId, Socket socket, TransportOptions? options = null,
+    public TcpServerTransport(string connectionId, Socket socket, TransportOptions? options = null,
         ILogger? logger = null)
         : base(options, logger)
     {
@@ -183,7 +183,7 @@ public class TcpServerListener : IServerListener
                 string connectionId = Guid.NewGuid().ToString("N");
 
                 // 创建服务端连接
-                var connection = new TcpServerConnection(connectionId, tcpClient.Client, _options, _logger);
+                var connection = new TcpServerTransport(connectionId, tcpClient.Client, _options, _logger);
 
                 // 触发连接接受事件
                 ConnectionAccepted?.Invoke(this, new ServerConnectionEventArgs(connection));

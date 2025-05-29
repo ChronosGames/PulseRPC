@@ -76,7 +76,7 @@ namespace PulseRPC.Transport
     /// <summary>
     /// 服务端连接接口
     /// </summary>
-    public interface IServerConnection : ITransport
+    public interface IServerTransport : ITransport
     {
         /// <summary>
         /// 连接ID
@@ -217,11 +217,11 @@ namespace PulseRPC.Transport
         /// <summary>
         /// 客户端连接
         /// </summary>
-        public IServerConnection Connection { get; }
+        public IServerTransport Transport { get; }
 
-        public ServerConnectionEventArgs(IServerConnection connection)
+        public ServerConnectionEventArgs(IServerTransport transport)
         {
-            Connection = connection;
+            Transport = transport;
         }
     }
 

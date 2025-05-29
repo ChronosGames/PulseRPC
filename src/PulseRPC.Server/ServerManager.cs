@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 
@@ -184,21 +180,21 @@ public class ServerManager : IServerManager
         try
         {
             _logger.LogInformation("接受新连接: {ConnectionId} 从 {RemoteAddress}",
-                e.Connection.ConnectionId, e.Connection.RemoteEndPoint);
+                e.Transport.ConnectionId, e.Transport.RemoteEndPoint);
 
             // 将连接添加到通道管理器
-            var channel = _channelManager.AddChannel(e.Connection);
+            var channel = _channelManager.AddChannel(e.Transport);
 
-            _logger.LogDebug("已为连接 {ConnectionId} 创建传输通道", e.Connection.ConnectionId);
+            _logger.LogDebug("已为连接 {ConnectionId} 创建传输通道", e.Transport.ConnectionId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "处理新连接 {ConnectionId} 时发生错误", e.Connection.ConnectionId);
+            _logger.LogError(ex, "处理新连接 {ConnectionId} 时发生错误", e.Transport.ConnectionId);
 
             // 关闭有问题的连接
             try
             {
-                _ = e.Connection.CloseAsync();
+                _ = e.Transport.CloseAsync();
             }
             catch
             {

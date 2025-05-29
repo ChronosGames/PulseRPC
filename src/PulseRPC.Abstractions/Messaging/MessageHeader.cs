@@ -16,7 +16,7 @@ namespace PulseRPC.Messaging
     /// <summary>
     /// 消息通道接口
     /// </summary>
-    public interface IMessageChannel : IDisposable
+    public interface IClientChannel : IDisposable
     {
         Task<TResponse> SendRequestAsync<TRequest, TResponse>(string serviceName, string methodName, TRequest request,
             CancellationToken cancellationToken = default);

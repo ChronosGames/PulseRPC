@@ -9,12 +9,16 @@ using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Server.Transport;
 
+public interface IServerChannel : ITransportChannel
+{
+}
+
 /// <summary>
 /// 服务器传输通道实现，包装 IServerConnection 并提供认证和会话管理
 /// </summary>
-public class ServerTransportChannel : ITransportChannel
+public class ServerTransportChannel : IServerChannel
 {
-    private readonly IServerConnection _transport;
+    private readonly IServerTransport _transport;
     private readonly ConcurrentDictionary<string, object> _properties;
     private readonly object _authLock = new object();
     private readonly ILogger<ServerTransportChannel>? _logger;
@@ -28,7 +32,7 @@ public class ServerTransportChannel : ITransportChannel
     /// </summary>
     /// <param name="transport">底层传输连接</param>
     /// <param name="logger">日志记录器</param>
-    public ServerTransportChannel(IServerConnection transport, ILogger<ServerTransportChannel>? logger = null)
+    public ServerTransportChannel(IServerTransport transport, ILogger<ServerTransportChannel>? logger = null)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _properties = new ConcurrentDictionary<string, object>();
@@ -45,7 +49,7 @@ public class ServerTransportChannel : ITransportChannel
     public string ConnectionId => _transport.ConnectionId;
 
     /// <inheritdoc />
-    public IServerConnection Transport => _transport;
+    public IServerTransport Transport => _transport;
 
     /// <inheritdoc />
     public IAuthenticationContext? AuthenticationContext
@@ -151,7 +155,7 @@ public class ServerTransportChannel : ITransportChannel
     {
         LastActiveTime = DateTime.UtcNow;
 
-        if (sender is IServerConnection connection)
+        if (sender is IServerTransport connection)
         {
             _logger?.LogInformation("[通道数据转发] {ConnectionId} 接收到传输数据: Size={Size} bytes, Data=[{DataHex}]",
                 connection.ConnectionId, e.Data.Length, Convert.ToHexString(e.Data.Span[..Math.Min(e.Data.Length, 64)]));

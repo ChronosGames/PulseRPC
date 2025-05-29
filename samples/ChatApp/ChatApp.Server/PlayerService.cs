@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using ChatApp.Shared;
 using Microsoft.Extensions.Hosting;
 using PulseRPC.Server;
-using PulseRPC.Server.Auth;
+using PulseRPC.Server.Authentication;
 using System.Security.Claims;
 using PulseRPC.Transport;
 using System.Linq;
@@ -261,7 +261,7 @@ namespace GameServer.Services
         /// 获取当前连接
         /// </summary>
         /// <returns>当前连接，如果找不到则返回null</returns>
-        private IServerConnection? GetCurrentConnection()
+        private IServerTransport? GetCurrentConnection()
         {
             // 使用RequestContext获取当前请求的连接
             return RequestContext.Current;

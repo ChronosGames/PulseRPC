@@ -4,7 +4,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 
-namespace PulseRPC.Server.Auth;
+namespace PulseRPC.Server.Authentication;
 
 /// <summary>
 /// 基于JWT的身份验证提供者

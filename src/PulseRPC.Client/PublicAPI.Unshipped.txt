@@ -2,7 +2,7 @@
 PulseRPC.Client.ConnectionStateChangedEventArgs.ConnectionStateChangedEventArgs(bool isConnected, string? disconnectReason = null) -> void
 PulseRPC.Client.ConnectionStateChangedEventArgs.DisconnectReason.get -> string?
 PulseRPC.Client.ConnectionStateChangedEventArgs.IsConnected.get -> bool
-PulseRPC.Client.Events.EventBusFactory.CreateForChannel(PulseRPC.Messaging.IMessageChannel! channel) -> PulseRPC.IEventBus!
+PulseRPC.Client.Events.EventBusFactory.CreateForChannel(PulseRPC.Messaging.IClientChannel! channel) -> PulseRPC.IEventBus!
 PulseRPC.Client.Events.EventBusFactory.CreateInMemory(string! name = "memory") -> PulseRPC.IEventBus!
 PulseRPC.Client.Events.EventBusFactory.EventBusFactory(PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
 PulseRPC.Client.Platform.Net.NetPlatformAdapter.ConfigureThreading() -> void

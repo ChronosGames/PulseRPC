@@ -10,7 +10,7 @@ namespace PulseRPC;
 /// </summary>
 public class NetworkChannelEventBus : IEventBus
 {
-    private readonly IMessageChannel _channel;
+    private readonly IClientChannel _channel;
     private readonly Dictionary<string, List<EventSubscription>> _subscriptions = new();
     private readonly ISerializerProvider _serializerProvider;
     private readonly object _syncLock = new object();
@@ -20,7 +20,7 @@ public class NetworkChannelEventBus : IEventBus
     /// <summary>
     /// 创建网络通道事件总线
     /// </summary>
-    public NetworkChannelEventBus(IMessageChannel channel, ISerializerProvider serializerProvider,
+    public NetworkChannelEventBus(IClientChannel channel, ISerializerProvider serializerProvider,
         ILogger<NetworkChannelEventBus>? logger = null)
     {
         _channel = channel ?? throw new ArgumentNullException(nameof(channel));

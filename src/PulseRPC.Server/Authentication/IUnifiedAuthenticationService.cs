@@ -1,6 +1,6 @@
 using System.Threading.Tasks;
 using PulseRPC.Authentication;
-using PulseRPC.Server.Auth;
+using PulseRPC.Server.Authentication;
 
 namespace PulseRPC.Server.Authentication
 {
