@@ -18,48 +18,25 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         // 获取配置选项
         var configProvider = context.AnalyzerConfigOptionsProvider;
 
-        // 方法一：查找实现 IPulseHub 接口的服务接口
-        var serviceInterfaces =
-            context.SyntaxProvider
-                .CreateSyntaxProvider(
-                    predicate: static (s, _) => s is InterfaceDeclarationSyntax,
-                    transform: static (ctx, _) => GetServiceTypeFromInterface(ctx))
-                .Where(static m => m.Type is not null);
-
-        // 方法二：查找带有 PulseClientGeneration 特性的类
+        // 查找带有 PulseClientGeneration 特性的类
         var classDeclarations = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (s, _) => s is ClassDeclarationSyntax { AttributeLists.Count: > 0 },
                 transform: (ctx, _) => GetServiceTypesFromClass(ctx))
             .Where(m => m.Length > 0);
 
-        // 方法三：查找实现 IPulseReceiver 接口的事件接口
-        var eventInterfaces =
-            context.SyntaxProvider
-                .CreateSyntaxProvider(
-                    predicate: static (s, _) => s is InterfaceDeclarationSyntax,
-                    transform: static (ctx, _) => GetEventTypeFromInterface(ctx))
-                .Where(static m => m.Type is not null);
-
-        // 合并服务类型 - 从IPulseHub接口和PulseClientGeneration特性
-        var allServiceTypes = serviceInterfaces.Collect()
-            .Combine(classDeclarations.Collect())
-            .Select((tuple, _) =>
+        // 分离服务类型和事件类型 - 基于接口实现而非名称
+        var allServiceTypes = classDeclarations.Collect()
+            .Select((classDeclarationArray, _) =>
             {
                 var result = new List<ServiceTypeInfo>();
 
-                foreach (var serviceInterface in tuple.Left)
-                {
-                    result.Add(serviceInterface);
-                }
-
-                foreach (var classDeclaration in tuple.Right)
+                foreach (var classDeclaration in classDeclarationArray)
                 {
                     foreach (var serviceType in classDeclaration)
                     {
-                        // 仅添加服务接口，不添加事件接口
-                        var typeName = serviceType.Type?.Name ?? string.Empty;
-                        if (!typeName.EndsWith("Events"))
+                        // 检查是否实现了IPulseHub接口（服务接口）
+                        if (serviceType.Type != null && IsNetworkService(serviceType.Type))
                         {
                             result.Add(serviceType);
                         }
@@ -69,25 +46,17 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 return result.ToImmutableArray();
             });
 
-        // 合并事件类型 - 从EventContract接口和PulseClientGeneration特性
-        var allEventTypes = eventInterfaces.Collect()
-            .Combine(classDeclarations.Collect())
-            .Select((tuple, _) =>
+        var allEventTypes = classDeclarations.Collect()
+            .Select((classDeclarationArray, _) =>
             {
                 var result = new List<ServiceTypeInfo>();
 
-                foreach (var eventInterface in tuple.Left)
-                {
-                    result.Add(eventInterface);
-                }
-
-                foreach (var classDeclaration in tuple.Right)
+                foreach (var classDeclaration in classDeclarationArray)
                 {
                     foreach (var serviceType in classDeclaration)
                     {
-                        // 仅添加事件接口
-                        var typeName = serviceType.Type?.Name ?? string.Empty;
-                        if (typeName.EndsWith("Events"))
+                        // 检查是否实现了IPulseReceiver接口（事件接口）
+                        if (serviceType.Type != null && IsEventReceiver(serviceType.Type))
                         {
                             result.Add(serviceType);
                         }
@@ -220,40 +189,6 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         });
     }
 
-    private static ServiceTypeInfo GetServiceTypeFromInterface(GeneratorSyntaxContext context)
-    {
-        var interfaceDeclaration = (InterfaceDeclarationSyntax)context.Node;
-        var semanticModel = context.SemanticModel;
-
-        // 获取接口的语义模型
-        var interfaceSymbol = semanticModel.GetDeclaredSymbol(interfaceDeclaration);
-        if (interfaceSymbol == null)
-            return new ServiceTypeInfo(null);
-
-        // 检查是否实现了 IPulseHub 或 IPulseReceiver 接口
-        if (!IsNetworkService(interfaceSymbol) && !IsEventReceiver(interfaceSymbol))
-            return new ServiceTypeInfo(null);
-
-        return new ServiceTypeInfo(interfaceSymbol);
-    }
-
-    private static ServiceTypeInfo GetEventTypeFromInterface(GeneratorSyntaxContext context)
-    {
-        var interfaceDeclaration = (InterfaceDeclarationSyntax)context.Node;
-        var semanticModel = context.SemanticModel;
-
-        // 获取接口的语义模型
-        var interfaceSymbol = semanticModel.GetDeclaredSymbol(interfaceDeclaration);
-        if (interfaceSymbol == null)
-            return new ServiceTypeInfo(null);
-
-        // 检查是否实现了 IPulseReceiver 接口
-        if (!IsEventReceiver(interfaceSymbol))
-            return new ServiceTypeInfo(null);
-
-        return new ServiceTypeInfo(interfaceSymbol);
-    }
-
     private static ServiceTypeInfo[] GetServiceTypesFromClass(GeneratorSyntaxContext context)
     {
         var classDeclaration = (ClassDeclarationSyntax)context.Node;
@@ -262,40 +197,35 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         // 获取类的语义模型
         var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
         if (classSymbol == null)
-            return Array.Empty<ServiceTypeInfo>();
+        {
+            return [];
+        }
 
         var result = new List<ServiceTypeInfo>();
 
         // 查找 PulseClientGeneration 特性
         foreach (var attribute in classSymbol.GetAttributes())
         {
-            if (attribute.AttributeClass?.Name != "PulseClientGenerationAttribute")
+            if (attribute.AttributeClass?.Name != PulseClientGenerationAttributeName)
+            {
                 continue;
+            }
 
             // 获取特性的参数
             if (attribute.ConstructorArguments.Length != 1)
+            {
                 continue;
+            }
 
-            var serviceType = attribute.ConstructorArguments[0].Value as INamedTypeSymbol;
-            if (serviceType == null)
+            if (attribute.ConstructorArguments[0].Value is not INamedTypeSymbol serviceType)
+            {
                 continue;
+            }
 
             result.Add(new ServiceTypeInfo(serviceType));
         }
 
         return result.ToArray();
-    }
-
-    private static bool IsInterfaceWithAttribute(SyntaxNode node, string attributeName)
-    {
-        // 仅检查接口声明
-        if (node is not InterfaceDeclarationSyntax interfaceDecl)
-        {
-            return false;
-        }
-
-        // 暂时保留特性检查逻辑，但主要依赖接口约定
-        return (from attributeList in interfaceDecl.AttributeLists from attribute in attributeList.Attributes select attribute.Name.ToString()).Any(name => name == attributeName || name == $"{attributeName}Attribute");
     }
 
     private static bool IsNetworkService(INamedTypeSymbol typeSymbol)
@@ -308,49 +238,6 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
     {
         // 检查是否实现了 IPulseReceiver 接口
         return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseReceiver");
-    }
-
-    private static void ExecuteEventHandlerGeneration(
-        Compilation compilation,
-        ImmutableArray<InterfaceDeclarationSyntax> interfaces,
-        SourceProductionContext context)
-    {
-        if (interfaces.IsDefaultOrEmpty)
-        {
-            return;
-        }
-
-        // 处理每个事件接口
-        foreach (var interfaceDecl in interfaces)
-        {
-            // 获取语义模型
-            var semanticModel = compilation.GetSemanticModel(interfaceDecl.SyntaxTree);
-
-            // 获取接口符号
-            if (semanticModel.GetDeclaredSymbol(interfaceDecl) is not INamedTypeSymbol interfaceSymbol)
-            {
-                continue;
-            }
-
-            // 生成事件处理器代码
-            var handlerCode = GenerateEventHandler(interfaceSymbol);
-
-            // 添加生成的源代码
-            context.AddSource($"{interfaceSymbol.Name}Handler.g.cs", SourceText.From(handlerCode, Encoding.UTF8));
-        }
-    }
-
-    private static void ExecuteExtensionsGeneration(
-        Compilation compilation,
-        ImmutableArray<INamedTypeSymbol> serviceTypes,
-        ImmutableArray<INamedTypeSymbol> eventTypes,
-        SourceProductionContext context)
-    {
-        // 生成通道管理器扩展代码
-        var extensionsCode = GenerateChannelManagerExtensions(serviceTypes, eventTypes);
-
-        // 添加生成的源代码
-        context.AddSource("ChannelManagerExtensions.g.cs", SourceText.From(extensionsCode, Encoding.UTF8));
     }
 
     private static string GenerateServiceProxy(INamedTypeSymbol interfaceSymbol)
@@ -824,17 +711,6 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
 
         // 返回默认通道名称而不是空字符串
         return null;
-    }
-
-    private static bool HasAttribute(ISymbol symbol, string attributeName)
-    {
-        var shortName = attributeName.EndsWith("Attribute", StringComparison.Ordinal)
-            ? attributeName.Substring(0, attributeName.Length - "Attribute".Length)
-            : attributeName;
-
-        var longName = shortName + "Attribute";
-
-        return symbol.GetAttributes().Select(attribute => attribute.AttributeClass?.Name).Any(name => name == shortName || name == longName);
     }
 
     private static string ExtractGenericType(string genericTypeName)
