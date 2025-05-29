@@ -13,17 +13,17 @@ namespace PulseRPC.Transport
         /// <summary>
         /// 获取通道
         /// </summary>
-        IMessageChannel GetChannel(string channelName);
+        IClientChannel GetChannel(string channelName);
 
         /// <summary>
         /// 获取默认通道
         /// </summary>
-        IMessageChannel GetDefaultChannel();
+        IClientChannel GetDefaultChannel();
 
         /// <summary>
         /// 注册通道
         /// </summary>
-        void RegisterChannel(string channelName, IMessageChannel channel, bool isDefault = false);
+        void RegisterChannel(string channelName, IClientChannel channel, bool isDefault = false);
 
         /// <summary>
         /// 注销通道
@@ -41,11 +41,11 @@ namespace PulseRPC.Transport
     /// </summary>
     public class ChannelManager : IChannelManager
     {
-        private readonly Dictionary<string, IMessageChannel> _channels = new();
+        private readonly Dictionary<string, IClientChannel> _channels = new();
         private string? _defaultChannelName;
         private readonly object _syncLock = new object();
 
-        public IMessageChannel GetChannel(string channelName)
+        public IClientChannel GetChannel(string channelName)
         {
             lock (_syncLock)
             {
@@ -58,7 +58,7 @@ namespace PulseRPC.Transport
             }
         }
 
-        public IMessageChannel GetDefaultChannel()
+        public IClientChannel GetDefaultChannel()
         {
             lock (_syncLock)
             {
@@ -71,7 +71,7 @@ namespace PulseRPC.Transport
             }
         }
 
-        public void RegisterChannel(string channelName, IMessageChannel channel, bool isDefault = false)
+        public void RegisterChannel(string channelName, IClientChannel channel, bool isDefault = false)
         {
             lock (_syncLock)
             {

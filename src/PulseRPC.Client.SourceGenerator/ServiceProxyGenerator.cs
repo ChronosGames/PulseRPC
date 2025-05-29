@@ -536,13 +536,13 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine($"    public class {handlerClassName} : {handlerInterfaceName}");
         sb.AppendLine("    {");
-        sb.AppendLine("        private readonly IMessageChannel _channel;");
+        sb.AppendLine("        private readonly IClientChannel _channel;");
         sb.AppendLine($"        private readonly Dictionary<{interfaceName}, List<ISubscriptionToken>> _subscriptions = new Dictionary<{interfaceName}, List<ISubscriptionToken>>();");
         sb.AppendLine();
         sb.AppendLine($"        /// <summary>");
         sb.AppendLine($"        /// 初始化 {interfaceName} 事件处理器");
         sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        public {handlerClassName}(IMessageChannel channel)");
+        sb.AppendLine($"        public {handlerClassName}(IClientChannel channel)");
         sb.AppendLine("        {");
         sb.AppendLine("            _channel = channel ?? throw new ArgumentNullException(nameof(channel));");
         sb.AppendLine("        }");

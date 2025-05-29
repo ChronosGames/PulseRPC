@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PulseRPC.Network;
 using PulseRPC.Serialization;
-using PulseRPC.Server.Auth;
+using PulseRPC.Server.Authentication;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Services;
 using PulseRPC.Server.Transport;

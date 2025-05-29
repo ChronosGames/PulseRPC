@@ -99,21 +99,21 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             try
             {
                 // 获取事件处理器
-                var tcpMessageChannel = _channelManager.GetChannel("TcpChannel");
-                var kcpMessageChannel = _channelManager.GetChannel("KcpChannel");
+                var tcpClientChannel = _channelManager.GetChannel("TcpChannel");
+                var kcpClientChannel = _channelManager.GetChannel("KcpChannel");
 
                 // 登录事件 (TCP通道)
-                var loginJoinedToken = tcpMessageChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined",
+                var loginJoinedToken = tcpClientChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined",
                     (sender, eventData) => eventsHandler.OnPlayerJoined(eventData));
-                var loginLeftToken = tcpMessageChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft",
+                var loginLeftToken = tcpClientChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft",
                     (sender, eventData) => eventsHandler.OnPlayerLeft(eventData));
 
                 // 移动事件 (KCP通道)
-                var moveToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
+                var moveToken = kcpClientChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
                     (sender, eventData) => eventsHandler.OnPlayerMoved(eventData));
-                var moveBatchToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch",
+                var moveBatchToken = kcpClientChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch",
                     (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
-                var moveBatchToken2 = kcpMessageChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
+                var moveBatchToken2 = kcpClientChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
                     (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
 
                 // 保存订阅令牌

@@ -17,7 +17,7 @@ namespace PulseRPC.Transport
         /// <summary>
         /// 底层传输连接
         /// </summary>
-        IServerConnection Transport { get; }
+        IServerTransport Transport { get; }
 
         /// <summary>
         /// 认证上下文，包含用户或服务的认证信息

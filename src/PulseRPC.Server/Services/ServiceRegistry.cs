@@ -4,7 +4,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using MemoryPack;
 using PulseRPC.Transport;
-using PulseRPC.Server.Auth;
+using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Transport;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
@@ -18,7 +18,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
-using PulseRPC.Server.Auth;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 using System.ComponentModel;
@@ -783,10 +782,10 @@ public partial class ServiceRegistry
     /// 调用服务方法
     /// </summary>
     private async Task<object?> InvokeMethodAsync(string serviceName, string methodName,
-        byte[] requestData, IServerConnection connection)
+        byte[] requestData, IServerTransport transport)
     {
         _logger?.LogDebug("[方法调用] 开始调用方法: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
-            serviceName, methodName, connection.ConnectionId);
+            serviceName, methodName, transport.ConnectionId);
 
         // 查找服务
         if (!_services.TryGetValue(serviceName, out var serviceInfo))
@@ -814,16 +813,16 @@ public partial class ServiceRegistry
         {
             // 运行认证中间件
             _logger?.LogDebug("[方法调用] 开始认证检查: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
-                serviceName, methodName, connection.ConnectionId);
+                serviceName, methodName, transport.ConnectionId);
 
-            await _authMiddleware!.AuthenticateRequestAsync(connection, serviceName, methodName, methodInfo.MethodInfo);
+            await _authMiddleware!.AuthenticateRequestAsync(transport, serviceName, methodName, methodInfo.MethodInfo);
 
             _logger?.LogInformation("[方法调用] 认证检查通过: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
-                serviceName, methodName, connection.ConnectionId);
+                serviceName, methodName, transport.ConnectionId);
 
             // 设置请求上下文 - 这是修复RequestContext.Current返回null的关键
-            _logger?.LogDebug("[方法调用] 设置请求上下文: {ConnectionId}", connection.ConnectionId);
-            RequestContext.SetCurrent(connection);
+            _logger?.LogDebug("[方法调用] 设置请求上下文: {ConnectionId}", transport.ConnectionId);
+            RequestContext.SetCurrent(transport);
 
             try
             {
@@ -916,14 +915,14 @@ public partial class ServiceRegistry
             finally
             {
                 // 清除请求上下文
-                _logger?.LogDebug("[方法调用] 清除请求上下文: {ConnectionId}", connection.ConnectionId);
+                _logger?.LogDebug("[方法调用] 清除请求上下文: {ConnectionId}", transport.ConnectionId);
                 RequestContext.Clear();
             }
         }
         catch (Exception ex)
         {
             _logger?.LogError(ex, "[方法调用] 调用方法失败: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
-                serviceName, methodName, connection.ConnectionId);
+                serviceName, methodName, transport.ConnectionId);
             throw;
         }
     }

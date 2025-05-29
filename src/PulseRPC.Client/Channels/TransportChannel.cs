@@ -27,7 +27,7 @@ public class ConnectionStateChangedEventArgs : EventArgs
 /// <summary>
 /// 基于传输层的消息通道
 /// </summary>
-public partial class TransportChannel : IMessageChannel, IHasTransport, IHasEventReceiver
+public partial class TransportChannel : IClientChannel, IHasTransport, IHasEventReceiver
 {
     private readonly string _name;
     private readonly IClientTransport _transport;

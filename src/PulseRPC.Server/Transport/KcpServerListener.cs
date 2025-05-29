@@ -11,7 +11,7 @@ namespace PulseRPC.Server.Transport;
 /// <summary>
 /// KCP服务端连接 - 重构版本，使用组合模式
 /// </summary>
-public class KcpServerConnection : IServerConnection
+public class KcpServerTransport : IServerTransport
 {
     private readonly string _connectionId;
     private readonly Socket _sharedSocket;
@@ -40,7 +40,7 @@ public class KcpServerConnection : IServerConnection
     /// <summary>
     /// 创建KCP服务端连接
     /// </summary>
-    public KcpServerConnection(string connectionId, Socket sharedSocket, IPEndPoint remoteEndpoint, uint conv,
+    public KcpServerTransport(string connectionId, Socket sharedSocket, IPEndPoint remoteEndpoint, uint conv,
         TransportOptions? options = null, ILogger? logger = null)
     {
         _connectionId = connectionId;
@@ -399,7 +399,7 @@ public class KcpServerListener : IServerListener
     private Task? _listenTask;
     private bool _isListening;
     private readonly int _port;
-    private readonly ConcurrentDictionary<string, KcpServerConnection> _connections = new();
+    private readonly ConcurrentDictionary<string, KcpServerTransport> _connections = new();
 
     public string Name => "KCP";
     public TransportType Type => TransportType.Kcp;
@@ -660,7 +660,7 @@ public class KcpServerListener : IServerListener
                 clientId, conv, clientEp);
 
             // 创建新连接
-            var connection = new KcpServerConnection(clientId, _socket, clientEp, conv, _options, _logger);
+            var connection = new KcpServerTransport(clientId, _socket, clientEp, conv, _options, _logger);
 
             if (_connections.TryAdd(clientId, connection))
             {
@@ -763,7 +763,7 @@ public class KcpServerListener : IServerListener
     {
         if (e.CurrentState == ConnectionState.Disconnected)
         {
-            var connection = (KcpServerConnection)sender!;
+            var connection = (KcpServerTransport)sender!;
             HandleClientDisconnection(connection.ConnectionId);
         }
     }

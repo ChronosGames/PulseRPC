@@ -1,6 +1,6 @@
 using System.Security.Claims;
 
-namespace PulseRPC.Server.Auth;
+namespace PulseRPC.Server.Authentication;
 
 /// <summary>
 /// 授权提供者接口

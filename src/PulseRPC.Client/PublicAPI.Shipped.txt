@@ -19,7 +19,7 @@ PulseRPC.Client.Channels.TransportChannel.SubscribeToEvent<T>(string! eventName,
 PulseRPC.Client.Channels.TransportChannel.TransportChannel(string! name, PulseRPC.Transport.IClientTransport! transport, PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.Channels.TransportChannel!>? logger = null) -> void
 PulseRPC.Client.ConnectionStateChangedEventArgs
 PulseRPC.Client.IPlatformAdapter.InvokeOnMainThread(System.Action! action) -> void
-PulseRPC.NetworkChannelEventBus.NetworkChannelEventBus(PulseRPC.Messaging.IMessageChannel! channel, PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILogger<PulseRPC.NetworkChannelEventBus!>? logger = null) -> void
+PulseRPC.NetworkChannelEventBus.NetworkChannelEventBus(PulseRPC.Messaging.IClientChannel! channel, PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILogger<PulseRPC.NetworkChannelEventBus!>? logger = null) -> void
 PulseRPC.NetworkChannelEventBus.PublishAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 PulseRPC.NetworkChannelEventBus.Subscribe<T>(string! eventName, PulseRPC.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!
 PulseRPC.NetworkChannelEventBus.Unsubscribe(PulseRPC.ISubscriptionToken! token) -> void

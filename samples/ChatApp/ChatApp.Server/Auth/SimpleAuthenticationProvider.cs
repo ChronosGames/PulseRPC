@@ -1,11 +1,11 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Auth;
+using PulseRPC.Server.Authentication;
 using System.Security.Claims;
 using GameServer.World;
 using System;
 using System.Threading.Tasks;
 
-namespace ChatApp.Server.Auth;
+namespace GameServer;
 
 /// <summary>
 /// 简单的身份验证提供者，用于ChatApp的用户名/密码认证

@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using System.Security.Claims;
 
-namespace PulseRPC.Server.Auth;
+namespace PulseRPC.Server.Authentication;
 
 /// <summary>
 /// 基于角色的授权提供者

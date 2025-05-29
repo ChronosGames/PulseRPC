@@ -1,6 +1,6 @@
 using System.Security.Claims;
 
-namespace PulseRPC.Server.Auth;
+namespace PulseRPC.Server.Authentication;
 
 /// <summary>
 /// 提供身份验证功能的接口

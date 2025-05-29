@@ -40,16 +40,16 @@ public interface IServerChannelManager : IDisposable
     /// <summary>
     /// 添加新的传输通道
     /// </summary>
-    /// <param name="connection">服务器连接</param>
+    /// <param name="transport">服务器连接</param>
     /// <returns>创建的传输通道</returns>
-    ITransportChannel AddChannel(IServerConnection connection);
+    IServerChannel AddChannel(IServerTransport transport);
 
     /// <summary>
     /// 获取指定的传输通道
     /// </summary>
     /// <param name="connectionId">连接ID</param>
     /// <returns>传输通道，如果不存在则返回null</returns>
-    ITransportChannel? GetChannel(string connectionId);
+    IServerChannel? GetChannel(string connectionId);
 
     /// <summary>
     /// 移除指定的传输通道
@@ -62,20 +62,20 @@ public interface IServerChannelManager : IDisposable
     /// 获取所有传输通道
     /// </summary>
     /// <returns>所有传输通道的集合</returns>
-    IEnumerable<ITransportChannel> GetAllChannels();
+    IEnumerable<IServerChannel> GetAllChannels();
 
     /// <summary>
     /// 获取所有已认证的传输通道
     /// </summary>
     /// <returns>已认证的传输通道集合</returns>
-    IEnumerable<ITransportChannel> GetAuthenticatedChannels();
+    IEnumerable<IServerChannel> GetAuthenticatedChannels();
 
     /// <summary>
     /// 根据认证用户名获取传输通道
     /// </summary>
     /// <param name="username">用户名</param>
     /// <returns>用户的传输通道集合</returns>
-    IEnumerable<ITransportChannel> GetChannelsByUser(string username);
+    IEnumerable<IServerChannel> GetChannelsByUser(string username);
 
     /// <summary>
     /// 广播消息到所有已认证的通道

@@ -1,6 +1,6 @@
 using System;
 using PulseRPC;
-using PulseRPC.Server.Auth;
+using PulseRPC.Server.Authentication;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Transport;
 using PulseRPC.Server.Transport;
 
-namespace PulseRPC.Server.Auth;
+namespace PulseRPC.Server.Authentication;
 
 /// <summary>
 /// 认证中间件，提供基于特性的自动认证功能
@@ -37,20 +37,20 @@ public class AuthenticationMiddleware
     /// <summary>
     /// 对请求进行认证检查
     /// </summary>
-    /// <param name="connection">服务器连接</param>
+    /// <param name="transport">服务器连接</param>
     /// <param name="serviceName">服务名称</param>
     /// <param name="methodName">方法名称</param>
     /// <param name="methodInfo">方法信息（用于检查特性）</param>
     /// <returns>是否通过认证</returns>
-    public async Task<bool> AuthenticateRequestAsync(IServerConnection connection, string serviceName, string methodName, MethodInfo? methodInfo = null)
+    public async Task<bool> AuthenticateRequestAsync(IServerTransport transport, string serviceName, string methodName, MethodInfo? methodInfo = null)
     {
         try
         {
             // 获取传输通道
-            var channel = _channelManager.GetChannel(connection.ConnectionId);
+            var channel = _channelManager.GetChannel(transport.ConnectionId);
             if (channel == null)
             {
-                _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
+                _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", transport.ConnectionId);
                 return false;
             }
 
@@ -77,7 +77,7 @@ public class AuthenticationMiddleware
                 if (authResult.IsAuthenticated && authResult.User != null)
                 {
                     // 创建新的认证上下文
-                    var authContext = new PulseRPC.Server.Authentication.AuthenticationContext(connection.ConnectionId);
+                    var authContext = new PulseRPC.Server.Authentication.AuthenticationContext(transport.ConnectionId);
                     var userId = authResult.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                     var username = authResult.User.FindFirst(ClaimTypes.Name)?.Value;
 

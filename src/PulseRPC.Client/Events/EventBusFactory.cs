@@ -27,7 +27,7 @@ namespace PulseRPC.Client.Events
         /// <summary>
         /// 为通道创建事件总线
         /// </summary>
-        public IEventBus CreateForChannel(IMessageChannel channel)
+        public IEventBus CreateForChannel(IClientChannel channel)
         {
             if (channel == null)
                 throw new ArgumentNullException(nameof(channel));

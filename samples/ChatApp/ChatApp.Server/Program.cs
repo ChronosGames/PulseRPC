@@ -1,4 +1,3 @@
-// GameServer/Program.cs
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -10,8 +9,8 @@ using GameServer.World;
 using System;
 using System.Threading.Tasks;
 using ChatApp.Shared;
+using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Services;
-using PulseRPC.Server.Transport;
 
 namespace GameServer
 {
@@ -204,7 +203,7 @@ namespace GameServer
             services.AddPulseRpcServer();
 
             // 覆盖默认的认证提供程序，使用ChatApp专用的SimpleAuthenticationProvider
-            services.AddSingleton<PulseRPC.Server.Auth.IAuthenticationProvider, ChatApp.Server.Auth.SimpleAuthenticationProvider>();
+            services.AddSingleton<IAuthenticationProvider, SimpleAuthenticationProvider>();
 
             // 添加服务实现
             services.AddTransient<IPlayerService, PlayerService>();
