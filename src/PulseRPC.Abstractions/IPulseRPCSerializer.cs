@@ -67,9 +67,9 @@ namespace PulseRPC.Serialization
             return new Serializer(_serializerOptions);
         }
 
-        class Serializer : ISerializer
+        private class Serializer : ISerializer
         {
-            readonly MemoryPackSerializerOptions _serializerOptions;
+            private readonly MemoryPackSerializerOptions _serializerOptions;
 
             public Serializer(MemoryPackSerializerOptions serializerOptions)
             {
