@@ -178,6 +178,19 @@ namespace PulseRPC.Benchmark.Core.Extensions
             });
             */
         }
+
+        /// <summary>
+        /// 注册基准测试服务实现
+        /// </summary>
+        /// <typeparam name="T">服务实现类型</typeparam>
+        /// <param name="services">服务集合</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddBenchmarkServiceImplementation<T>(this IServiceCollection services)
+            where T : class
+        {
+            services.TryAddScoped<T>();
+            return services;
+        }
     }
 
     /// <summary>
@@ -234,6 +247,47 @@ namespace PulseRPC.Benchmark.Core.Extensions
         /// 重试间隔（毫秒）
         /// </summary>
         public int RetryIntervalMs { get; set; } = 1000;
+    }
+
+    /// <summary>
+    /// 基准测试服务配置选项
+    /// </summary>
+    public class BenchmarkServiceOptions
+    {
+        /// <summary>
+        /// 服务端点地址
+        /// </summary>
+        public string ServiceEndpoint { get; set; } = "localhost:5000";
+
+        /// <summary>
+        /// 连接超时时间（毫秒）
+        /// </summary>
+        public int ConnectionTimeoutMs { get; set; } = 5000;
+
+        /// <summary>
+        /// 请求超时时间（毫秒）
+        /// </summary>
+        public int RequestTimeoutMs { get; set; } = 30000;
+
+        /// <summary>
+        /// 最大重试次数
+        /// </summary>
+        public int MaxRetryCount { get; set; } = 3;
+
+        /// <summary>
+        /// 是否启用压缩
+        /// </summary>
+        public bool EnableCompression { get; set; } = true;
+
+        /// <summary>
+        /// 缓冲区大小
+        /// </summary>
+        public int BufferSize { get; set; } = 64 * 1024; // 64KB
+
+        /// <summary>
+        /// 日志级别
+        /// </summary>
+        public string LogLevel { get; set; } = "Information";
     }
 
     // 占位符类，实际实现将在后续阶段完成
@@ -363,4 +417,12 @@ namespace PulseRPC.Benchmark.Core.Extensions
         public override Task<bool> SendAsync(byte[] data, CancellationToken cancellationToken = default) => Task.FromResult(true);
         public override Task<byte[]?> ReceiveAsync(TimeSpan timeout, CancellationToken cancellationToken = default) => Task.FromResult<byte[]?>(new byte[0]);
     }
+
+    // 占位符接口和实现，用于编译通过
+    public interface IMessageSerializer { }
+    public interface IBenchmarkServiceClientFactory { }
+    public interface IMessageHandler { }
+    public class MemoryPackMessageSerializer : IMessageSerializer { }
+    public class DefaultBenchmarkServiceClientFactory : IBenchmarkServiceClientFactory { }
+    public class DefaultMessageHandler : IMessageHandler { }
 }

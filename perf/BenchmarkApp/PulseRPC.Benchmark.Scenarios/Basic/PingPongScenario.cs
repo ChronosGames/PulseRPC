@@ -109,8 +109,8 @@ namespace PulseRPC.Benchmark.Scenarios.Basic
         /// <inheritdoc />
         protected override async Task<BenchmarkResult> DoExecuteAsync(
             BenchmarkConfiguration configuration,
-            IProgress<ExecutionProgress>? progress,
-            CancellationToken cancellationToken)
+            Action<ExecutionProgress>? progressCallback,
+            CancellationToken cancellationToken = default)
         {
             Logger.LogInformation("开始执行PingPong基准测试，持续时间: {Duration} 秒", configuration.DurationSeconds);
 
@@ -169,7 +169,7 @@ namespace PulseRPC.Benchmark.Scenarios.Basic
                         var elapsed = now - startTime;
                         var progressPercent = (elapsed.TotalSeconds / configuration.DurationSeconds) * 100;
 
-                        progress?.Report(new ExecutionProgress
+                        progressCallback?.Invoke(new ExecutionProgress
                         {
                             CompletedSteps = (int)totalOperations,
                             TotalSteps = configuration.OperationsPerConnection ?? (int)(configuration.DurationSeconds * 100),

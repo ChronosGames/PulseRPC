@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using PulseRPC.Benchmark.Core.Models;
 
 namespace PulseRPC.Benchmark.Core.Interfaces
@@ -48,34 +49,53 @@ namespace PulseRPC.Benchmark.Core.Interfaces
         /// 初始化场景
         /// </summary>
         /// <param name="transport">传输层实例</param>
-        /// <param name="configuration">基准测试配置</param>
+        /// <param name="configuration">场景配置</param>
+        /// <param name="serviceProvider">服务提供者（可选）</param>
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>初始化任务</returns>
-        Task InitializeAsync(IBenchmarkTransport transport, BenchmarkConfiguration configuration, CancellationToken cancellationToken = default);
+        Task InitializeAsync(IBenchmarkTransport transport, BenchmarkConfiguration configuration, IServiceProvider? serviceProvider = null, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// 执行预热操作
+        /// 预热场景
         /// </summary>
-        /// <param name="configuration">基准测试配置</param>
+        /// <param name="warmupConfiguration">预热配置</param>
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>预热任务</returns>
-        Task WarmupAsync(BenchmarkConfiguration configuration, CancellationToken cancellationToken = default);
+        Task WarmupAsync(BenchmarkConfiguration warmupConfiguration, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// 执行基准测试
+        /// 执行场景
         /// </summary>
-        /// <param name="configuration">基准测试配置</param>
-        /// <param name="progress">进度报告器</param>
+        /// <param name="configuration">场景配置</param>
+        /// <param name="progressCallback">进度回调</param>
         /// <param name="cancellationToken">取消令牌</param>
-        /// <returns>测试结果</returns>
-        Task<BenchmarkResult> ExecuteAsync(BenchmarkConfiguration configuration, IProgress<ExecutionProgress>? progress = null, CancellationToken cancellationToken = default);
+        /// <returns>场景执行结果</returns>
+        Task<BenchmarkResult> ExecuteAsync(BenchmarkConfiguration configuration, Action<ExecutionProgress>? progressCallback = null, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// 清理场景资源
+        /// 清理场景
         /// </summary>
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>清理任务</returns>
         Task CleanupAsync(CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 检查场景是否需要服务依赖
+        /// </summary>
+        /// <returns>是否需要服务依赖</returns>
+        bool RequiresServiceDependencies { get; }
+
+        /// <summary>
+        /// 获取场景所需的服务类型
+        /// </summary>
+        /// <returns>所需的服务类型列表</returns>
+        IEnumerable<Type> GetRequiredServiceTypes();
+
+        /// <summary>
+        /// 配置服务依赖
+        /// </summary>
+        /// <param name="serviceProvider">服务提供者</param>
+        void ConfigureServices(IServiceProvider serviceProvider);
 
         /// <summary>
         /// 获取场景的默认配置

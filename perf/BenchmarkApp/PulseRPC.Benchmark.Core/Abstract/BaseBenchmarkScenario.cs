@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Benchmark.Core.Interfaces;
 using PulseRPC.Benchmark.Core.Models;
@@ -49,7 +52,7 @@ namespace PulseRPC.Benchmark.Core.Abstract
         public abstract ScenarioRequirements GetRequirements();
 
         /// <inheritdoc />
-        public virtual async Task InitializeAsync(IBenchmarkTransport transport, BenchmarkConfiguration configuration, CancellationToken cancellationToken = default)
+        public virtual async Task InitializeAsync(IBenchmarkTransport transport, BenchmarkConfiguration configuration, IServiceProvider? serviceProvider = null, CancellationToken cancellationToken = default)
         {
             if (_isInitialized)
             {
@@ -62,6 +65,12 @@ namespace PulseRPC.Benchmark.Core.Abstract
             try
             {
                 _logger.LogInformation("初始化场景: {ScenarioName}", Name);
+
+                // 配置服务依赖
+                if (serviceProvider != null && RequiresServiceDependencies)
+                {
+                    ConfigureServices(serviceProvider);
+                }
 
                 await DoInitializeAsync(configuration, cancellationToken);
 
@@ -76,7 +85,7 @@ namespace PulseRPC.Benchmark.Core.Abstract
         }
 
         /// <inheritdoc />
-        public virtual async Task WarmupAsync(BenchmarkConfiguration configuration, CancellationToken cancellationToken = default)
+        public virtual async Task WarmupAsync(BenchmarkConfiguration warmupConfiguration, CancellationToken cancellationToken = default)
         {
             if (!_isInitialized)
                 throw new InvalidOperationException($"场景 {Name} 尚未初始化");
@@ -85,7 +94,7 @@ namespace PulseRPC.Benchmark.Core.Abstract
             {
                 _logger.LogInformation("开始预热场景: {ScenarioName}", Name);
 
-                await DoWarmupAsync(configuration, cancellationToken);
+                await DoWarmupAsync(warmupConfiguration, cancellationToken);
 
                 _logger.LogInformation("场景预热完成: {ScenarioName}", Name);
             }
@@ -97,7 +106,7 @@ namespace PulseRPC.Benchmark.Core.Abstract
         }
 
         /// <inheritdoc />
-        public virtual async Task<BenchmarkResult> ExecuteAsync(BenchmarkConfiguration configuration, IProgress<ExecutionProgress>? progress = null, CancellationToken cancellationToken = default)
+        public virtual async Task<BenchmarkResult> ExecuteAsync(BenchmarkConfiguration configuration, Action<ExecutionProgress>? progressCallback = null, CancellationToken cancellationToken = default)
         {
             if (!_isInitialized)
                 throw new InvalidOperationException($"场景 {Name} 尚未初始化");
@@ -106,7 +115,7 @@ namespace PulseRPC.Benchmark.Core.Abstract
             {
                 _logger.LogInformation("开始执行场景: {ScenarioName}", Name);
 
-                var result = await DoExecuteAsync(configuration, progress, cancellationToken);
+                var result = await DoExecuteAsync(configuration, progressCallback, cancellationToken);
 
                 _logger.LogInformation("场景执行完成: {ScenarioName}, 耗时: {Duration}ms",
                     Name, result.Duration.TotalMilliseconds);
@@ -233,10 +242,10 @@ namespace PulseRPC.Benchmark.Core.Abstract
         /// 执行具体的基准测试（由子类实现）
         /// </summary>
         /// <param name="configuration">配置</param>
-        /// <param name="progress">进度报告器</param>
+        /// <param name="progressCallback">进度回调</param>
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>测试结果</returns>
-        protected abstract Task<BenchmarkResult> DoExecuteAsync(BenchmarkConfiguration configuration, IProgress<ExecutionProgress>? progress, CancellationToken cancellationToken);
+        protected abstract Task<BenchmarkResult> DoExecuteAsync(BenchmarkConfiguration configuration, Action<ExecutionProgress>? progressCallback, CancellationToken cancellationToken);
 
         /// <summary>
         /// 执行具体的清理操作（由子类实现）
@@ -295,5 +304,32 @@ namespace PulseRPC.Benchmark.Core.Abstract
         /// 检查是否已初始化
         /// </summary>
         protected bool IsInitialized => _isInitialized;
+
+        /// <summary>
+        /// 生成随机字节数组
+        /// </summary>
+        /// <param name="size">大小</param>
+        /// <returns>随机字节数组</returns>
+        protected byte[] GenerateRandomBytes(int size)
+        {
+            var buffer = new byte[size];
+            RandomNumberGenerator.Fill(buffer);
+            return buffer;
+        }
+
+        /// <inheritdoc />
+        public virtual bool RequiresServiceDependencies => false;
+
+        /// <inheritdoc />
+        public virtual IEnumerable<Type> GetRequiredServiceTypes()
+        {
+            return Enumerable.Empty<Type>();
+        }
+
+        /// <inheritdoc />
+        public virtual void ConfigureServices(IServiceProvider serviceProvider)
+        {
+            // 默认不需要配置服务
+        }
     }
 }
