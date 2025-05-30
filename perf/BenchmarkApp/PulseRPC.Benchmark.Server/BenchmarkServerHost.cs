@@ -1,15 +1,9 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Benchmark.Core.Interfaces;
 using PulseRPC.Benchmark.Metrics.Abstractions;
 using PulseRPC.Benchmark.Server.Configuration;
 using PulseRPC.Benchmark.Server.Services;
-using PulseRPC.Benchmark.Shared;
 using PulseRPC.Benchmark.Server.Extensions;
 
 namespace PulseRPC.Benchmark.Server;
@@ -44,13 +38,15 @@ public class BenchmarkServerHost : BackgroundService
         {
             lock (_stateLock)
             {
-                if (_currentState != value)
+                if (_currentState == value)
                 {
-                    var oldState = _currentState;
-                    _currentState = value;
-                    _logger.LogInformation("服务器状态变更: {OldState} -> {NewState}", oldState, value);
-                    StateChanged?.Invoke(oldState, value);
+                    return;
                 }
+
+                var oldState = _currentState;
+                _currentState = value;
+                _logger.LogInformation("服务器状态变更: {OldState} -> {NewState}", oldState, value);
+                StateChanged?.Invoke(oldState, value);
             }
         }
     }
@@ -71,6 +67,8 @@ public class BenchmarkServerHost : BackgroundService
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
     }
+
+
 
     /// <summary>
     /// 启动服务端宿主
@@ -181,7 +179,7 @@ public class BenchmarkServerHost : BackgroundService
     /// </summary>
     private async Task ShutdownAsync()
     {
-        if (CurrentState == ServerState.Stopped || CurrentState == ServerState.Stopping)
+        if (CurrentState is ServerState.Stopped or ServerState.Stopping)
         {
             return;
         }

@@ -990,11 +990,11 @@ groups:
 
 如果在使用 BenchmarkApp 过程中遇到问题，请通过以下方式寻求帮助：
 
-- **GitHub Issues**: [提交问题](https://github.com/your-org/PulseRPC/issues)
-- **讨论区**: [GitHub Discussions](https://github.com/your-org/PulseRPC/discussions)
+- **GitHub Issues**: [提交问题](https://github.com/ChronosGames/PulseRPC/issues)
+- **讨论区**: [GitHub Discussions](https://github.com/ChronosGames/PulseRPC/discussions)
 - **文档**: [在线文档](https://docs.pulserpc.com)
 
 ---
 
-**最后更新**: 2024-11-27
+**最后更新**: 2025-05-30
 **版本**: v1.0.0
