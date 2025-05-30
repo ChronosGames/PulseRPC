@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PulseRPC Performance Configuration Template",
+  "description": "性能测试配置模板，包含性能调优和监控相关配置",
+
+  "performance": {
+    "threadPool": {
+      "minWorkerThreads": 4,
+      "maxWorkerThreads": 0,
+      "minCompletionPortThreads": 4,
+      "maxCompletionPortThreads": 0
+    },
+
+    "memory": {
+      "initialHeapSizeMB": 64,
+      "maxHeapSizeMB": 1024,
+      "gcMode": "Server",
+      "enableLargeObjectHeapCompaction": true,
+      "arrayPoolMaxArrayLength": 1048576,
+      "arrayPoolMaxArraysPerBucket": 50
+    },
+
+    "networking": {
+      "tcpKeepAlive": true,
+      "tcpNoDelay": true,
+      "socketBufferSize": 65536,
+      "maxConnections": 10000,
+      "connectionPoolSize": 100,
+      "reuseAddress": true
+    },
+
+    "serialization": {
+      "enableCompression": true,
+      "compressionLevel": "Optimal",
+      "compressionThreshold": 1024,
+      "enableBinaryProtocol": true,
+      "maxMessageSize": 16777216
+    }
+  },
+
+  "monitoring": {
+    "metrics": {
+      "enableSystemMetrics": true,
+      "enableApplicationMetrics": true,
+      "enableCustomMetrics": true,
+      "collectionIntervalMs": 1000,
+      "retentionDurationHours": 24
+    },
+
+    "counters": {
+      "enablePerformanceCounters": true,
+      "categories": [
+        "Process",
+        "Memory",
+        "Network Interface",
+        "Thread",
+        ".NET CLR Memory",
+        ".NET CLR LocksAndThreads"
+      ]
+    },
+
+    "profiling": {
+      "enableCpuProfiling": false,
+      "enableMemoryProfiling": false,
+      "enableAllocationTracking": false,
+      "samplingIntervalMs": 10,
+      "profilingDurationSeconds": 300
+    }
+  },
+
+  "testing": {
+    "warmup": {
+      "enableWarmup": true,
+      "durationSeconds": 30,
+      "targetQPS": 100,
+      "concurrency": 10
+    },
+
+    "execution": {
+      "defaultDurationSeconds": 300,
+      "maxDurationSeconds": 3600,
+      "timeoutMs": 30000,
+      "maxRetries": 3,
+      "retryDelayMs": 1000
+    },
+
+    "rampUp": {
+      "enableRampUp": true,
+      "durationSeconds": 60,
+      "startQPS": 10,
+      "endQPS": 1000,
+      "steps": 10
+    },
+
+    "coolDown": {
+      "enableCoolDown": true,
+      "durationSeconds": 30,
+      "targetQPS": 50
+    }
+  },
+
+  "thresholds": {
+    "latency": {
+      "p50MaxMs": 10,
+      "p95MaxMs": 50,
+      "p99MaxMs": 100,
+      "p999MaxMs": 500
+    },
+
+    "throughput": {
+      "minQPS": 100,
+      "targetQPS": 1000,
+      "maxQPS": 10000
+    },
+
+    "errorRate": {
+      "maxErrorPercent": 1.0,
+      "criticalErrorPercent": 5.0
+    },
+
+    "resources": {
+      "maxCpuPercent": 80,
+      "maxMemoryMB": 2048,
+      "maxDiskIOPS": 1000,
+      "maxNetworkMbps": 1000
+    }
+  },
+
+  "alerts": {
+    "enabled": true,
+    "channels": ["console", "file"],
+    "rules": [
+      {
+        "name": "high_latency",
+        "condition": "p99_latency_ms > 200",
+        "severity": "warning",
+        "message": "P99延迟超过200ms"
+      },
+      {
+        "name": "high_error_rate",
+        "condition": "error_rate_percent > 2.0",
+        "severity": "critical",
+        "message": "错误率超过2%"
+      },
+      {
+        "name": "low_throughput",
+        "condition": "qps < 50",
+        "severity": "warning",
+        "message": "吞吐量低于50 QPS"
+      },
+      {
+        "name": "high_cpu",
+        "condition": "cpu_usage_percent > 90",
+        "severity": "critical",
+        "message": "CPU使用率超过90%"
+      }
+    ]
+  },
+
+  "profiles": {
+    "development": {
+      "performance.memory.maxHeapSizeMB": 256,
+      "performance.networking.maxConnections": 100,
+      "testing.execution.defaultDurationSeconds": 60,
+      "monitoring.metrics.collectionIntervalMs": 5000
+    },
+
+    "testing": {
+      "performance.memory.maxHeapSizeMB": 512,
+      "performance.networking.maxConnections": 1000,
+      "testing.execution.defaultDurationSeconds": 180,
+      "monitoring.metrics.collectionIntervalMs": 1000
+    },
+
+    "production": {
+      "performance.memory.maxHeapSizeMB": 2048,
+      "performance.networking.maxConnections": 10000,
+      "testing.execution.defaultDurationSeconds": 600,
+      "monitoring.metrics.collectionIntervalMs": 500,
+      "monitoring.profiling.enableCpuProfiling": true
+    },
+
+    "benchmark": {
+      "performance.memory.maxHeapSizeMB": 4096,
+      "performance.networking.maxConnections": 50000,
+      "testing.execution.defaultDurationSeconds": 1800,
+      "monitoring.metrics.collectionIntervalMs": 100,
+      "monitoring.profiling.enableCpuProfiling": true,
+      "monitoring.profiling.enableMemoryProfiling": true
+    }
+  }
+}

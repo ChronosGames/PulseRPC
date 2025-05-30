@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PulseRPC Benchmark Scenarios Configuration Template",
+  "description": "基准测试场景配置模板，定义各种测试场景的参数和配置",
+
+  "scenarios": [
+    {
+      "name": "ping-pong",
+      "displayName": "Ping-Pong延迟测试",
+      "description": "测量基础RPC调用的往返延迟",
+      "category": "latency",
+      "enabled": true,
+      "configuration": {
+        "messageSize": 64,
+        "warmupRequests": 100,
+        "warmupDurationSeconds": 10,
+        "testDurationSeconds": 60,
+        "targetQPS": 100,
+        "maxConcurrency": 10,
+        "timeoutMs": 5000
+      },
+      "metrics": {
+        "collectLatency": true,
+        "collectThroughput": true,
+        "collectErrorRate": true,
+        "percentiles": [50, 95, 99, 99.9]
+      }
+    },
+
+    {
+      "name": "echo-latency",
+      "displayName": "Echo回显延迟测试",
+      "description": "测试不同消息大小的回显延迟",
+      "category": "latency",
+      "enabled": true,
+      "configuration": {
+        "messageSizes": [1, 16, 64, 256, 1024, 4096],
+        "requestsPerSize": 1000,
+        "warmupDurationSeconds": 15,
+        "testDurationSeconds": 120,
+        "maxConcurrency": 20,
+        "timeoutMs": 10000
+      },
+      "metrics": {
+        "collectLatency": true,
+        "collectThroughput": true,
+        "collectErrorRate": true,
+        "collectMessageSizeBreakdown": true,
+        "percentiles": [50, 90, 95, 99, 99.9, 99.99]
+      }
+    },
+
+    {
+      "name": "throughput",
+      "displayName": "吞吐量压力测试",
+      "description": "测试最大吞吐量和系统承载能力",
+      "category": "throughput",
+      "enabled": true,
+      "configuration": {
+        "messageSize": 1024,
+        "warmupDurationSeconds": 30,
+        "testDurationSeconds": 300,
+        "startingQPS": 100,
+        "maxQPS": 10000,
+        "rampUpSteps": 10,
+        "stepDurationSeconds": 30,
+        "maxConcurrency": 100,
+        "timeoutMs": 15000
+      },
+      "metrics": {
+        "collectLatency": true,
+        "collectThroughput": true,
+        "collectErrorRate": true,
+        "collectCPUUsage": true,
+        "collectMemoryUsage": true,
+        "percentiles": [50, 95, 99]
+      }
+    },
+
+    {
+      "name": "latency-analysis",
+      "displayName": "高级延迟分析测试",
+      "description": "深度分析延迟分布和性能瓶颈",
+      "category": "analysis",
+      "enabled": true,
+      "configuration": {
+        "messageSize": 256,
+        "warmupDurationSeconds": 20,
+        "testDurationSeconds": 180,
+        "targetQPS": 500,
+        "maxConcurrency": 30,
+        "timeoutMs": 8000,
+        "enableJitterAnalysis": true,
+        "enableTailLatencyAnalysis": true,
+        "samplingInterval": 100
+      },
+      "metrics": {
+        "collectLatency": true,
+        "collectThroughput": true,
+        "collectErrorRate": true,
+        "collectJitter": true,
+        "collectTailLatency": true,
+        "percentiles": [10, 25, 50, 75, 90, 95, 99, 99.9, 99.99, 99.999]
+      }
+    },
+
+    {
+      "name": "stress-test",
+      "displayName": "压力极限测试",
+      "description": "测试系统在极限负载下的表现",
+      "category": "stress",
+      "enabled": false,
+      "configuration": {
+        "messageSize": 512,
+        "warmupDurationSeconds": 60,
+        "testDurationSeconds": 600,
+        "maxQPS": 50000,
+        "maxConcurrency": 1000,
+        "timeoutMs": 30000,
+        "enableGradualRampUp": true,
+        "rampUpDurationSeconds": 300
+      },
+      "metrics": {
+        "collectLatency": true,
+        "collectThroughput": true,
+        "collectErrorRate": true,
+        "collectResourceUsage": true,
+        "percentiles": [50, 95, 99]
+      }
+    },
+
+    {
+      "name": "burst-test",
+      "displayName": "突发流量测试",
+      "description": "测试系统对突发流量的响应能力",
+      "category": "burst",
+      "enabled": false,
+      "configuration": {
+        "messageSize": 128,
+        "baseQPS": 100,
+        "burstQPS": 2000,
+        "burstDurationSeconds": 30,
+        "burstIntervalSeconds": 120,
+        "totalBursts": 5,
+        "maxConcurrency": 200,
+        "timeoutMs": 10000
+      },
+      "metrics": {
+        "collectLatency": true,
+        "collectThroughput": true,
+        "collectErrorRate": true,
+        "collectBurstResponse": true,
+        "percentiles": [50, 95, 99]
+      }
+    }
+  ],
+
+  "globalSettings": {
+    "defaultTimeoutMs": 10000,
+    "maxRetryAttempts": 3,
+    "retryBackoffMs": 1000,
+    "enableDetailedLogging": false,
+    "outputFormat": "json",
+    "enableRealTimeMetrics": true
+  },
+
+  "reportSettings": {
+    "includeRawData": false,
+    "includeCharts": true,
+    "chartFormats": ["png", "svg"],
+    "customMetrics": [
+      "cpu_usage_percent",
+      "memory_usage_mb",
+      "network_io_bytes",
+      "gc_collections"
+    ]
+  }
+}
