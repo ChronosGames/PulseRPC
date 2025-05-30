@@ -2,6 +2,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Benchmark.Core\PulseRPC.Benchmark.Core.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MemoryPack" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
   </ItemGroup>
 
   <PropertyGroup>
