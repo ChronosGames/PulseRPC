@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using PulseRPC.Benchmark.Core.Interfaces;
+using TransportOptions = PulseRPC.Transport.TransportOptions;
 
 namespace PulseRPC.Benchmark.Core.Models
 {
@@ -299,14 +300,38 @@ namespace PulseRPC.Benchmark.Core.Models
         public string Host { get; set; } = "localhost";
 
         /// <summary>
-        /// 服务器端口
+        /// TCP端口
         /// </summary>
-        public int Port { get; set; } = 12345;
+        public int TcpPort { get; set; } = 12345;
 
         /// <summary>
-        /// 传输类型
+        /// KCP端口
+        /// </summary>
+        public int KcpPort { get; set; } = 12346;
+
+        /// <summary>
+        /// 是否启用KCP传输
+        /// </summary>
+        public bool EnableKcp { get; set; } = false;
+
+        /// <summary>
+        /// 服务器端口（保留向后兼容）
+        /// </summary>
+        public int Port
+        {
+            get => TcpPort;
+            set => TcpPort = value;
+        }
+
+        /// <summary>
+        /// 传输类型（保留向后兼容）
         /// </summary>
         public string TransportType { get; set; } = "tcp";
+
+        /// <summary>
+        /// 测试迭代次数
+        /// </summary>
+        public int Iterations { get; set; } = 1000;
 
         /// <summary>
         /// 并发连接数
@@ -317,6 +342,11 @@ namespace PulseRPC.Benchmark.Core.Models
         /// 测试持续时间（秒）
         /// </summary>
         public int DurationSeconds { get; set; } = 30;
+
+        /// <summary>
+        /// 预热迭代次数
+        /// </summary>
+        public int WarmupIterations { get; set; } = 100;
 
         /// <summary>
         /// 预热时间（秒）
@@ -334,6 +364,11 @@ namespace PulseRPC.Benchmark.Core.Models
         public int MessageSizeBytes { get; set; } = 1024;
 
         /// <summary>
+        /// 测试间隔（毫秒）
+        /// </summary>
+        public int TestIntervalMs { get; set; } = 0;
+
+        /// <summary>
         /// 请求间隔（毫秒，0表示无间隔）
         /// </summary>
         public int RequestIntervalMs { get; set; } = 0;
@@ -349,7 +384,17 @@ namespace PulseRPC.Benchmark.Core.Models
         public bool CollectResourceMetrics { get; set; } = true;
 
         /// <summary>
-        /// 传输层选项
+        /// TCP传输层选项
+        /// </summary>
+        public TransportOptions? TcpOptions { get; set; }
+
+        /// <summary>
+        /// KCP传输层选项
+        /// </summary>
+        public TransportOptions? KcpOptions { get; set; }
+
+        /// <summary>
+        /// 传输层选项（保留向后兼容）
         /// </summary>
         public TransportOptions TransportOptions { get; set; } = new();
 

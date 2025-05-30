@@ -336,17 +336,30 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
 
             if (parameter.HasExplicitDefaultValue)
             {
-                switch (parameter.ExplicitDefaultValue)
+                // 特殊处理CancellationToken类型的默认值
+                if (parameter.Type.ToDisplayString() == "System.Threading.CancellationToken" ||
+                    parameter.Type.ToDisplayString() == "CancellationToken")
                 {
-                    case null:
-                        sb.Append(" = null");
-                        break;
-                    case string strValue:
-                        sb.Append($" = \"{strValue}\"");
-                        break;
-                    default:
-                        sb.Append($" = {parameter.ExplicitDefaultValue}");
-                        break;
+                    sb.Append(" = default");
+                }
+                else
+                {
+                    switch (parameter.ExplicitDefaultValue)
+                    {
+                        case null:
+                            // 对于值类型，使用default；对于引用类型，使用null
+                            if (parameter.Type.IsValueType)
+                                sb.Append(" = default");
+                            else
+                                sb.Append(" = null");
+                            break;
+                        case string strValue:
+                            sb.Append($" = \"{strValue}\"");
+                            break;
+                        default:
+                            sb.Append($" = {parameter.ExplicitDefaultValue}");
+                            break;
+                    }
                 }
             }
         }

@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Benchmark.Core\PulseRPC.Benchmark.Core.csproj" />
     <ProjectReference Include="..\PulseRPC.Benchmark.Shared\PulseRPC.Benchmark.Shared.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
