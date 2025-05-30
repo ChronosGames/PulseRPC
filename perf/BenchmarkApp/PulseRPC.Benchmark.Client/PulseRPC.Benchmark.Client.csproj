@@ -1,5 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
+  <ItemGroup>
+    <ProjectReference Include="..\PulseRPC.Benchmark.Core\PulseRPC.Benchmark.Core.csproj" />
+    <ProjectReference Include="..\PulseRPC.Benchmark.Shared\PulseRPC.Benchmark.Shared.csproj" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
