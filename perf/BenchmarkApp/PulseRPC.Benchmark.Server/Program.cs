@@ -1,15 +1,13 @@
-using System;
 using System.CommandLine;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Benchmark.Configuration;
-using PulseRPC.Benchmark.Core.Extensions;
-using PulseRPC.Benchmark.Metrics.Core;
-using PulseRPC.Benchmark.Metrics.Models;
+using PulseRPC.Benchmark.Metrics.Abstractions;
+using PulseRPC.Benchmark.Metrics.Collectors;
 using PulseRPC.Benchmark.Server.Configuration;
+using PulseRPC.Benchmark.Server.Extensions;
 using PulseRPC.Benchmark.Server.Services;
+using PulseRPC.Server;
 
 namespace PulseRPC.Benchmark.Server;
 
@@ -144,21 +142,46 @@ internal class Program
         var hostBuilder = Host.CreateDefaultBuilder()
             .ConfigureServices((context, services) =>
             {
-                // 加载服务端配置
+                // 1. 基础配置
                 var config = LoadServerConfiguration(configPath, port, metricsPort);
                 services.AddSingleton(config);
 
-                // 注册基准测试核心服务
-                // services.AddScoped<BenchmarkServiceImpl>(); // 注释掉避免编译错误
+                // 2. 指标系统配置
+                services.AddSingleton<CollectorConfiguration>(provider =>
+                {
+                    var serverConfig = provider.GetRequiredService<ServerConfiguration>();
+                    return new CollectorConfiguration
+                    {
+                        SamplingIntervalMs = 1000,
+                        MaxHistorySnapshots = 100,
+                        EnableAutoSnapshot = true,
+                        CollectSystemMetrics = serverConfig.EnablePerformanceCounters,
+                        SnapshotIntervalMs = Math.Max(5000, serverConfig.HealthCheckIntervalSeconds * 500)
+                    };
+                });
 
-                // 注册基准测试宿主服务
+                // 3. 核心服务
+                services.AddPulseRpcServer();
+
+                // 4. 指标收集器（依赖配置）
+                services.AddSingleton<IMetricsCollector, RealTimeMetricsCollector>();
+
+                // 5. 业务服务
+                services.AddSingleton<BenchmarkServiceImpl>();
+
+                // 6. 健康检查
+                // services.AddHealthChecks()
+                //     .AddCheck<MetricsHealthCheck>("metrics")
+                //     .AddCheck<BenchmarkServiceHealthCheck>("benchmark");
+
+                // 7. 宿主服务（最后注册）
                 services.AddHostedService<BenchmarkServerHost>();
             })
             .ConfigureLogging(logging =>
             {
                 logging.ClearProviders();
                 logging.AddConsole();
-                if (Enum.TryParse<Microsoft.Extensions.Logging.LogLevel>(logLevel, out var level))
+                if (Enum.TryParse<LogLevel>(logLevel, out var level))
                 {
                     logging.SetMinimumLevel(level);
                 }
