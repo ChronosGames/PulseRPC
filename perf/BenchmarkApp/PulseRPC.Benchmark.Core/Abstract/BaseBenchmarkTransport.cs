@@ -190,6 +190,11 @@ namespace PulseRPC.Benchmark.Core.Abstract
         /// <summary>
         /// 检查是否已释放
         /// </summary>
+        protected bool IsDisposed => _disposed;
+
+        /// <summary>
+        /// 检查是否已释放
+        /// </summary>
         protected void ThrowIfDisposed()
         {
             if (_disposed)
@@ -198,10 +203,13 @@ namespace PulseRPC.Benchmark.Core.Abstract
             }
         }
 
-        /// <inheritdoc />
-        public virtual void Dispose()
+        /// <summary>
+        /// 释放资源的虚拟方法，供子类重写
+        /// </summary>
+        /// <param name="disposing">是否正在释放托管资源</param>
+        protected virtual void Dispose(bool disposing)
         {
-            if (!_disposed)
+            if (!_disposed && disposing)
             {
                 try
                 {
@@ -214,8 +222,17 @@ namespace PulseRPC.Benchmark.Core.Abstract
                 {
                     _logger.LogError(ex, "释放传输层时发生错误");
                 }
+            }
+        }
 
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            if (!_disposed)
+            {
+                Dispose(true);
                 _disposed = true;
+                GC.SuppressFinalize(this);
             }
         }
     }

@@ -1,273 +1,269 @@
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Benchmark.Core.Abstract;
-using PulseRPC.Benchmark.Core.Interfaces;
 using PulseRPC.Benchmark.Core.Models;
+using PulseRPC.Benchmark.Shared.Models;
 
-namespace PulseRPC.Benchmark.Scenarios.Basic
+namespace PulseRPC.Benchmark.Scenarios.Basic;
+
+/// <summary>
+/// Ping-Pong测试场景
+/// 连续发送Ping请求，测量网络延迟和抖动
+/// </summary>
+public class PingPongScenario : BenchmarkClientBase
 {
-    /// <summary>
-    /// Ping-Pong 基准测试场景
-    /// 测试基本的请求-响应延迟
-    /// </summary>
-    public class PingPongScenario : BaseBenchmarkScenario
+    private readonly List<double> _pingLatencies = new();
+    private readonly List<double> _intervalTimes = new();
+    private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+    private DateTime _lastPingTime;
+
+    public PingPongScenario(ILoggerFactory loggerFactory) : base(loggerFactory)
     {
-        private readonly byte[] _pingData;
-        private readonly Stopwatch _stopwatch = new();
+    }
 
-        /// <summary>
-        /// 构造函数
-        /// </summary>
-        /// <param name="logger">日志记录器</param>
-        public PingPongScenario(ILogger<PingPongScenario> logger) : base(logger)
+    public override string ScenarioName => "Ping-Pong Test";
+    public override string Description => "连续发送Ping请求，测量网络延迟和抖动";
+    public override string Category => "Basic";
+
+    public override async Task<BenchmarkResult> ExecuteScenarioAsync(BenchmarkConfiguration config, CancellationToken cancellationToken = default)
+    {
+        var result = new BenchmarkResult
         {
-            _pingData = GenerateTestData(64); // 默认64字节的ping数据
-        }
+            ScenarioName = ScenarioName,
+            StartTime = DateTime.UtcNow,
+            Configuration = config
+        };
 
-        /// <inheritdoc />
-        public override string Name => "PingPong";
-
-        /// <inheritdoc />
-        public override string Description => "基础的Ping-Pong延迟测试，测量单次请求-响应的往返时间";
-
-        /// <inheritdoc />
-        public override string Version => "1.0.0";
-
-        /// <inheritdoc />
-        public override string Category => ScenarioCategories.Latency;
-
-        /// <inheritdoc />
-        public override ScenarioRequirements GetRequirements()
+        try
         {
-            return new ScenarioRequirements
+            Logger.LogInformation("开始Ping-Pong测试，目标Ping次数: {Iterations}, 间隔: {IntervalMs}ms",
+                config.Iterations, config.TestIntervalMs);
+
+            _pingLatencies.Clear();
+            _intervalTimes.Clear();
+
+            var iterations = config.Iterations;
+            var pingInterval = Math.Max(0, config.TestIntervalMs);
+            var messageSize = config.MessageSizeBytes > 0 ? config.MessageSizeBytes : 64; // Ping通常使用较小的包
+
+            // 预热阶段
+            await WarmupPhase(config, cancellationToken);
+
+            // 主测试阶段 - 连续Ping测试
+            _lastPingTime = DateTime.UtcNow;
+
+            for (int i = 0; i < iterations; i++)
             {
-                SupportedTransports = new[] { TransportTypes.Tcp, TransportTypes.Kcp, TransportTypes.Memory },
-                MinClients = 1,
-                MaxClients = 1,
-                RequiresNetwork = true,
-                MinTestDuration = TimeSpan.FromSeconds(10),
-                MaxTestDuration = TimeSpan.FromMinutes(5)
-            };
-        }
-
-        /// <inheritdoc />
-        protected override async Task DoInitializeAsync(BenchmarkConfiguration configuration, CancellationToken cancellationToken)
-        {
-            Logger.LogInformation("初始化PingPong场景，消息大小: {MessageSize} 字节", configuration.MessageSizeBytes);
-
-            // 验证配置
-            if (configuration.ConcurrentConnections > 1)
-            {
-                Logger.LogWarning("PingPong场景建议使用单连接，当前配置: {Connections} 个连接", configuration.ConcurrentConnections);
-            }
-
-            // 等待传输层准备就绪
-            await Task.Delay(100, cancellationToken);
-        }
-
-        /// <inheritdoc />
-        protected override async Task DoWarmupAsync(BenchmarkConfiguration configuration, CancellationToken cancellationToken)
-        {
-            Logger.LogInformation("开始PingPong场景预热，预热时间: {WarmupSeconds} 秒", configuration.WarmupSeconds);
-
-            var warmupEnd = DateTime.UtcNow.AddSeconds(configuration.WarmupSeconds);
-            var warmupCount = 0;
-
-            while (DateTime.UtcNow < warmupEnd && !cancellationToken.IsCancellationRequested)
-            {
-                try
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    // 发送预热ping
-                    var success = await Transport.SendAsync(_pingData, cancellationToken);
-                    if (success)
-                    {
-                        // 等待响应
-                        var response = await Transport.ReceiveAsync(TimeSpan.FromSeconds(5), cancellationToken);
-                        if (response != null)
-                        {
-                            warmupCount++;
-                        }
-                    }
-
-                    // 预热间隔
-                    await Task.Delay(100, cancellationToken);
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogWarning(ex, "预热过程中发生错误");
-                }
-            }
-
-            Logger.LogInformation("PingPong场景预热完成，预热请求数: {WarmupCount}", warmupCount);
-        }
-
-        /// <inheritdoc />
-        protected override async Task<BenchmarkResult> DoExecuteAsync(
-            BenchmarkConfiguration configuration,
-            Action<ExecutionProgress>? progressCallback,
-            CancellationToken cancellationToken = default)
-        {
-            Logger.LogInformation("开始执行PingPong基准测试，持续时间: {Duration} 秒", configuration.DurationSeconds);
-
-            var latencyMetrics = new LatencyMetrics();
-            var throughputMetrics = new ThroughputMetrics();
-            var resourceMetrics = new ResourceMetrics();
-
-            var testData = GenerateTestData(configuration.MessageSizeBytes);
-            var latencies = new List<double>();
-
-            var startTime = DateTime.UtcNow;
-            var endTime = startTime.AddSeconds(configuration.DurationSeconds);
-            var lastProgressReport = startTime;
-
-            long totalOperations = 0;
-            long successfulOperations = 0;
-            long failedOperations = 0;
-
-            while (DateTime.UtcNow < endTime && !cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    _stopwatch.Restart();
-
-                    // 发送ping
-                    var sendSuccess = await Transport.SendAsync(testData, cancellationToken);
-                    if (!sendSuccess)
-                    {
-                        failedOperations++;
-                        totalOperations++;
-                        continue;
-                    }
-
-                    // 接收pong
-                    var response = await Transport.ReceiveAsync(TimeSpan.FromSeconds(10), cancellationToken);
-
-                    _stopwatch.Stop();
-                    var latencyMs = _stopwatch.Elapsed.TotalMilliseconds;
-
-                    if (response != null)
-                    {
-                        latencies.Add(latencyMs);
-                        successfulOperations++;
-                    }
-                    else
-                    {
-                        failedOperations++;
-                    }
-
-                    totalOperations++;
-
-                    // 报告进度
-                    var now = DateTime.UtcNow;
-                    if (now - lastProgressReport >= TimeSpan.FromSeconds(1))
-                    {
-                        var elapsed = now - startTime;
-                        var progressPercent = (elapsed.TotalSeconds / configuration.DurationSeconds) * 100;
-
-                        progressCallback?.Invoke(new ExecutionProgress
-                        {
-                            CompletedSteps = (int)totalOperations,
-                            TotalSteps = configuration.OperationsPerConnection ?? (int)(configuration.DurationSeconds * 100),
-                            CurrentOperation = "执行Ping-Pong测试",
-                            StartTime = startTime,
-                            EstimatedTimeRemaining = TimeSpan.FromSeconds(configuration.DurationSeconds - elapsed.TotalSeconds)
-                        });
-
-                        lastProgressReport = now;
-                    }
-
-                    // 请求间隔
-                    if (configuration.RequestIntervalMs > 0)
-                    {
-                        await Task.Delay(configuration.RequestIntervalMs, cancellationToken);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
+                    Logger.LogWarning("Ping-Pong测试被取消，当前完成 {Current}/{Total} 次", i, iterations);
                     break;
                 }
-                catch (Exception ex)
+
+                var currentPingTime = DateTime.UtcNow;
+
+                // 记录间隔时间（从第二次Ping开始）
+                if (i > 0)
                 {
-                    Logger.LogError(ex, "执行ping-pong操作时发生错误");
-                    failedOperations++;
-                    totalOperations++;
+                    var intervalMs = (currentPingTime - _lastPingTime).TotalMilliseconds;
+                    _intervalTimes.Add(intervalMs);
+                }
+
+                // 执行单次Ping
+                var pingLatency = await ExecuteSinglePing(i + 1, messageSize, cancellationToken);
+                _pingLatencies.Add(pingLatency);
+
+                _lastPingTime = currentPingTime;
+
+                // 等待指定间隔
+                if (pingInterval > 0 && i < iterations - 1) // 最后一次不需要等待
+                {
+                    await Task.Delay(pingInterval, cancellationToken);
+                }
+
+                // 每100次记录一次进度
+                if ((i + 1) % 100 == 0)
+                {
+                    var avgLatency = _pingLatencies.TakeLast(100).Average();
+                    Logger.LogDebug("已完成 {Current}/{Total} 次Ping，最近100次平均延迟: {AvgLatency:F2}ms",
+                        i + 1, iterations, avgLatency);
                 }
             }
 
-            var actualDuration = DateTime.UtcNow - startTime;
+            // 填充结果统计数据
+            PopulatePingPongStatistics(result);
 
-            // 计算延迟指标
-            if (latencies.Count > 0)
+            result.IsSuccessful = true;
+            result.EndTime = DateTime.UtcNow;
+
+            Logger.LogInformation("Ping-Pong测试完成，平均延迟: {AvgLatency:F2}ms, 抖动: {Jitter:F2}ms",
+                result.Latency.AverageMs, result.Latency.StandardDeviationMs);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Ping-Pong测试失败");
+            result.IsSuccessful = false;
+            result.ErrorMessage = ex.Message;
+            result.Exception = ex;
+            result.EndTime = DateTime.UtcNow;
+        }
+
+        return result;
+    }
+
+    private async Task WarmupPhase(BenchmarkConfiguration config, CancellationToken cancellationToken)
+    {
+        var warmupIterations = Math.Min(config.WarmupIterations, 20); // Ping测试预热不需要太多次
+        Logger.LogInformation("开始预热阶段，预热次数: {WarmupIterations}", warmupIterations);
+
+        for (int i = 0; i < warmupIterations; i++)
+        {
+            if (cancellationToken.IsCancellationRequested)
+                break;
+
+            await ExecuteSinglePing(i + 1, config.MessageSizeBytes, cancellationToken);
+
+            // 预热阶段也遵循间隔设置
+            if (config.TestIntervalMs > 0 && i < warmupIterations - 1)
             {
-                latencies.Sort();
-                latencyMetrics.AverageMs = latencies.Average();
-                latencyMetrics.MinMs = latencies.Min();
-                latencyMetrics.MaxMs = latencies.Max();
-                latencyMetrics.MedianMs = GetPercentile(latencies, 50);
-                latencyMetrics.P50Ms = GetPercentile(latencies, 50);
-                latencyMetrics.P90Ms = GetPercentile(latencies, 90);
-                latencyMetrics.P95Ms = GetPercentile(latencies, 95);
-                latencyMetrics.P99Ms = GetPercentile(latencies, 99);
-                latencyMetrics.P999Ms = GetPercentile(latencies, 99.9);
-                latencyMetrics.StandardDeviationMs = CalculateStandardDeviation(latencies);
-                latencyMetrics.SampleCount = latencies.Count;
+                await Task.Delay(config.TestIntervalMs, cancellationToken);
+            }
+        }
+
+        Logger.LogInformation("预热阶段完成");
+    }
+
+    private async Task<double> ExecuteSinglePing(int sequenceNumber, int messageSize, CancellationToken cancellationToken)
+    {
+        if (BenchmarkService == null)
+        {
+            throw new InvalidOperationException("BenchmarkService 未初始化，请先调用 InitializeAsync");
+        }
+
+        _stopwatch.Restart();
+
+        // 创建Ping请求
+        var request = new PingRequest
+        {
+            RequestId = sequenceNumber,
+            ClientId = "PingPongClient",
+            SequenceNumber = sequenceNumber,
+            PayloadSize = 32  // 默认32字节负载
+        };
+
+        try
+        {
+            var response = await BenchmarkService.PingAsync(request, cancellationToken);
+
+            _stopwatch.Stop();
+
+            var latency = _stopwatch.Elapsed.TotalMilliseconds;
+
+            // 验证响应
+            if (response == null)
+            {
+                Logger.LogWarning("Ping #{SequenceNumber} 响应为null", sequenceNumber);
+                return 9999.0; // 标记为失败
             }
 
-            // 计算吞吐量指标
-            throughputMetrics.TotalOperations = totalOperations;
-            throughputMetrics.SuccessfulOperations = successfulOperations;
-            throughputMetrics.FailedOperations = failedOperations;
-            throughputMetrics.OperationsPerSecond = successfulOperations / actualDuration.TotalSeconds;
+            if (!response.Success)
+            {
+                Logger.LogWarning("Ping #{SequenceNumber} 响应失败: {Error}", sequenceNumber, response.ErrorMessage);
+                return 9999.0; // 标记为失败
+            }
 
-            // 基础资源指标
-            // 这里可以添加具体的资源监控，当前仅作为占位符
+            Logger.LogTrace("Ping #{SequenceNumber}: {Latency:F2}ms", sequenceNumber, latency);
 
-            Logger.LogInformation("PingPong测试完成 - 总操作: {Total}, 成功: {Success}, 失败: {Failed}, 平均延迟: {AvgLatency:F2}ms",
-                totalOperations, successfulOperations, failedOperations, latencyMetrics.AverageMs);
-
-            return CreateResult(configuration, latencyMetrics, throughputMetrics, resourceMetrics);
+            return latency;
         }
-
-        /// <inheritdoc />
-        protected override async Task DoCleanupAsync(CancellationToken cancellationToken)
+        catch (Exception ex)
         {
-            Logger.LogInformation("清理PingPong场景资源");
-            await Task.Delay(50, cancellationToken); // 简单的清理延迟
-        }
+            _stopwatch.Stop();
+            Logger.LogWarning(ex, "Ping #{SequenceNumber} RPC调用失败: {Error}", sequenceNumber, ex.Message);
 
-        /// <summary>
-        /// 计算百分位数
-        /// </summary>
-        private static double GetPercentile(List<double> sortedValues, double percentile)
+            // 返回一个较大的延迟值表示失败，但不抛出异常以继续测试
+            return 9999.0;
+        }
+    }
+
+    private void PopulatePingPongStatistics(BenchmarkResult result)
+    {
+        if (_pingLatencies.Count == 0)
         {
-            if (sortedValues.Count == 0) return 0;
-
-            var index = (percentile / 100.0) * (sortedValues.Count - 1);
-            var lower = (int)Math.Floor(index);
-            var upper = (int)Math.Ceiling(index);
-
-            if (lower == upper)
-                return sortedValues[lower];
-
-            var weight = index - lower;
-            return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+            Logger.LogWarning("没有收集到Ping延迟数据");
+            return;
         }
 
-        /// <summary>
-        /// 计算标准差
-        /// </summary>
-        private static double CalculateStandardDeviation(List<double> values)
+        // 过滤掉失败的Ping（延迟 >= 9999ms）
+        var validLatencies = _pingLatencies.Where(l => l < 9999.0).ToArray();
+        var failedPings = _pingLatencies.Count - validLatencies.Length;
+
+        if (validLatencies.Length > 0)
         {
-            if (values.Count <= 1) return 0;
+            var sortedLatencies = validLatencies.OrderBy(x => x).ToArray();
 
-            var mean = values.Average();
-            var sumOfSquares = values.Sum(x => Math.Pow(x - mean, 2));
-            return Math.Sqrt(sumOfSquares / (values.Count - 1));
+            result.Latency.SampleCount = sortedLatencies.Length;
+            result.Latency.AverageMs = sortedLatencies.Average();
+            result.Latency.MinMs = sortedLatencies.Min();
+            result.Latency.MaxMs = sortedLatencies.Max();
+            result.Latency.MedianMs = GetPercentile(sortedLatencies, 50);
+            result.Latency.P50Ms = result.Latency.MedianMs;
+            result.Latency.P90Ms = GetPercentile(sortedLatencies, 90);
+            result.Latency.P95Ms = GetPercentile(sortedLatencies, 95);
+            result.Latency.P99Ms = GetPercentile(sortedLatencies, 99);
+            result.Latency.P999Ms = GetPercentile(sortedLatencies, 99.9);
+            result.Latency.StandardDeviationMs = CalculateStandardDeviation(sortedLatencies);
         }
+
+        // 填充吞吐量数据
+        result.Throughput.TotalOperations = _pingLatencies.Count;
+        result.Throughput.SuccessfulOperations = validLatencies.Length;
+        result.Throughput.FailedOperations = failedPings;
+
+        var totalTimeSeconds = result.Duration.TotalSeconds;
+        if (totalTimeSeconds > 0)
+        {
+            result.Throughput.OperationsPerSecond = validLatencies.Length / totalTimeSeconds;
+        }
+
+        // 计算间隔时间统计（抖动分析）
+        if (_intervalTimes.Count > 0)
+        {
+            var avgInterval = _intervalTimes.Average();
+            var intervalStdDev = CalculateStandardDeviation(_intervalTimes.ToArray());
+
+            result.SetCustomMetric("AverageIntervalMs", avgInterval);
+            result.SetCustomMetric("IntervalStandardDeviationMs", intervalStdDev);
+            result.SetCustomMetric("IntervalJitterMs", intervalStdDev); // 抖动定义为间隔的标准差
+        }
+
+        // 记录其他有用的指标
+        result.SetCustomMetric("PacketLossPercentage", (double)failedPings / _pingLatencies.Count * 100);
+        result.SetCustomMetric("TotalPingsSent", _pingLatencies.Count);
+        result.SetCustomMetric("SuccessfulPings", validLatencies.Length);
+        result.SetCustomMetric("FailedPings", failedPings);
+    }
+
+    private static double GetPercentile(double[] sortedValues, double percentile)
+    {
+        if (sortedValues.Length == 0) return 0;
+
+        var index = (percentile / 100.0) * (sortedValues.Length - 1);
+        var lower = (int)Math.Floor(index);
+        var upper = (int)Math.Ceiling(index);
+
+        if (lower == upper)
+            return sortedValues[lower];
+
+        var weight = index - lower;
+        return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+    }
+
+    private static double CalculateStandardDeviation(double[] values)
+    {
+        if (values.Length == 0) return 0;
+
+        var mean = values.Average();
+        var sumOfSquaredDifferences = values.Sum(v => Math.Pow(v - mean, 2));
+        return Math.Sqrt(sumOfSquaredDifferences / values.Length);
     }
 }
