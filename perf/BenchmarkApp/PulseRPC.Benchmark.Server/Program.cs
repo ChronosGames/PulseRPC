@@ -1,6 +1,264 @@
-var builder = WebApplication.CreateBuilder(args);
-var app = builder.Build();
+using System;
+using System.CommandLine;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using PulseRPC.Benchmark.Configuration;
+using PulseRPC.Benchmark.Core.Extensions;
+using PulseRPC.Benchmark.Metrics.Core;
+using PulseRPC.Benchmark.Metrics.Models;
+using PulseRPC.Benchmark.Server.Configuration;
+using PulseRPC.Benchmark.Server.Services;
 
-app.MapGet("/", () => "Hello World!");
+namespace PulseRPC.Benchmark.Server;
 
-app.Run();
+/// <summary>
+/// BenchmarkApp服务端主程序入口
+/// </summary>
+internal class Program
+{
+    private static async Task<int> Main(string[] args)
+    {
+        var rootCommand = new RootCommand("PulseRPC Benchmark Server - 高性能RPC基准测试服务端")
+        {
+            CreateStartCommand(),
+            CreateValidateCommand(),
+            CreateVersionCommand()
+        };
+
+        return await rootCommand.InvokeAsync(args);
+    }
+
+    /// <summary>
+    /// 创建启动服务命令
+    /// </summary>
+    private static Command CreateStartCommand()
+    {
+        var configOption = new Option<string>(
+            aliases: new[] { "--config", "-c" },
+            description: "配置文件路径",
+            getDefaultValue: () => "configs/server-config.json");
+
+        var portOption = new Option<int>(
+            aliases: new[] { "--port", "-p" },
+            description: "服务监听端口",
+            getDefaultValue: () => 8080);
+
+        var logLevelOption = new Option<string>(
+            aliases: new[] { "--log-level", "-l" },
+            description: "日志级别 (Trace|Debug|Information|Warning|Error|Critical)",
+            getDefaultValue: () => "Information");
+
+        var metricsPortOption = new Option<int>(
+            aliases: new[] { "--metrics-port", "-m" },
+            description: "指标监控端口",
+            getDefaultValue: () => 9090);
+
+        var startCommand = new Command("start", "启动基准测试服务端")
+        {
+            configOption,
+            portOption,
+            logLevelOption,
+            metricsPortOption
+        };
+
+        startCommand.SetHandler(async (configPath, port, logLevel, metricsPort) =>
+        {
+            try
+            {
+                await StartServerAsync(configPath, port, logLevel, metricsPort);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"服务端启动失败: {ex.Message}");
+                Environment.Exit(1);
+            }
+        }, configOption, portOption, logLevelOption, metricsPortOption);
+
+        return startCommand;
+    }
+
+    /// <summary>
+    /// 创建配置验证命令
+    /// </summary>
+    private static Command CreateValidateCommand()
+    {
+        var configOption = new Option<string>(
+            aliases: new[] { "--config", "-c" },
+            description: "要验证的配置文件路径",
+            getDefaultValue: () => "configs/server-config.json");
+
+        var validateCommand = new Command("validate", "验证服务端配置文件")
+        {
+            configOption
+        };
+
+        validateCommand.SetHandler(async (configPath) =>
+        {
+            try
+            {
+                await ValidateConfigurationAsync(configPath);
+                Console.WriteLine("✅ 配置文件验证通过");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ 配置文件验证失败: {ex.Message}");
+                Environment.Exit(1);
+            }
+        }, configOption);
+
+        return validateCommand;
+    }
+
+    /// <summary>
+    /// 创建版本信息命令
+    /// </summary>
+    private static Command CreateVersionCommand()
+    {
+        var versionCommand = new Command("version", "显示版本信息");
+
+        versionCommand.SetHandler(() =>
+        {
+            var version = typeof(Program).Assembly.GetName().Version;
+            Console.WriteLine($"PulseRPC Benchmark Server v{version}");
+            Console.WriteLine("Build: Release");
+            Console.WriteLine($"Runtime: {Environment.Version}");
+            Console.WriteLine($"Platform: {Environment.OSVersion}");
+        });
+
+        return versionCommand;
+    }
+
+    /// <summary>
+    /// 启动服务端
+    /// </summary>
+    private static async Task StartServerAsync(string configPath, int port, string logLevel, int metricsPort)
+    {
+        Console.WriteLine("🚀 启动PulseRPC基准测试服务端...");
+        Console.WriteLine($"📁 配置文件: {configPath}");
+        Console.WriteLine($"🌐 服务端口: {port}");
+        Console.WriteLine($"📊 指标端口: {metricsPort}");
+        Console.WriteLine($"📝 日志级别: {logLevel}");
+
+        var hostBuilder = Host.CreateDefaultBuilder()
+            .ConfigureServices((context, services) =>
+            {
+                // 加载服务端配置
+                var config = LoadServerConfiguration(configPath, port, metricsPort);
+                services.AddSingleton(config);
+
+                // 注册基准测试核心服务
+                // services.AddScoped<BenchmarkServiceImpl>(); // 注释掉避免编译错误
+
+                // 注册基准测试宿主服务
+                services.AddHostedService<BenchmarkServerHost>();
+            })
+            .ConfigureLogging(logging =>
+            {
+                logging.ClearProviders();
+                logging.AddConsole();
+                if (Enum.TryParse<Microsoft.Extensions.Logging.LogLevel>(logLevel, out var level))
+                {
+                    logging.SetMinimumLevel(level);
+                }
+            });
+
+        var host = hostBuilder.Build();
+
+        // 注册优雅关闭
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            Console.WriteLine("\n🛑 接收到关闭信号，正在优雅关闭服务端...");
+            host.StopAsync().Wait(TimeSpan.FromSeconds(30));
+        };
+
+        Console.WriteLine("✅ 服务端启动完成，按 Ctrl+C 停止服务");
+        await host.RunAsync();
+    }
+
+    /// <summary>
+    /// 加载服务端配置
+    /// </summary>
+    private static ServerConfiguration LoadServerConfiguration(string configPath, int port, int metricsPort)
+    {
+        try
+        {
+            if (File.Exists(configPath))
+            {
+                var configJson = File.ReadAllText(configPath);
+                var config = System.Text.Json.JsonSerializer.Deserialize<ServerConfiguration>(configJson)
+                    ?? new ServerConfiguration();
+
+                // 命令行参数覆盖配置文件
+                config.Port = port;
+                config.MetricsPort = metricsPort;
+
+                return config;
+            }
+            else
+            {
+                Console.WriteLine($"⚠️  配置文件 {configPath} 不存在，使用默认配置");
+                return new ServerConfiguration
+                {
+                    Port = port,
+                    MetricsPort = metricsPort
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"加载配置文件失败: {ex.Message}", ex);
+        }
+    }
+
+    /// <summary>
+    /// 验证配置文件
+    /// </summary>
+    private static async Task ValidateConfigurationAsync(string configPath)
+    {
+        if (!File.Exists(configPath))
+        {
+            throw new FileNotFoundException($"配置文件不存在: {configPath}");
+        }
+
+        var configJson = await File.ReadAllTextAsync(configPath);
+
+        try
+        {
+            var config = System.Text.Json.JsonSerializer.Deserialize<ServerConfiguration>(configJson);
+
+            if (config == null)
+            {
+                throw new InvalidOperationException("配置文件内容为空");
+            }
+
+            // 验证端口范围
+            if (config.Port <= 0 || config.Port > 65535)
+            {
+                throw new ArgumentOutOfRangeException(nameof(config.Port), "端口号必须在1-65535范围内");
+            }
+
+            if (config.MetricsPort <= 0 || config.MetricsPort > 65535)
+            {
+                throw new ArgumentOutOfRangeException(nameof(config.MetricsPort), "指标端口号必须在1-65535范围内");
+            }
+
+            // 验证其他配置项
+            if (config.MaxConnections <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(config.MaxConnections), "最大连接数必须大于0");
+            }
+
+            Console.WriteLine($"✅ 端口配置: {config.Port}");
+            Console.WriteLine($"✅ 指标端口: {config.MetricsPort}");
+            Console.WriteLine($"✅ 最大连接数: {config.MaxConnections}");
+            Console.WriteLine($"✅ 压缩启用: {config.EnableCompression}");
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            throw new InvalidOperationException($"配置文件JSON格式错误: {ex.Message}", ex);
+        }
+    }
+}

@@ -1,15 +1,38 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <ItemGroup>
-    <ProjectReference Include="..\PulseRPC.Benchmark.Core\PulseRPC.Benchmark.Core.csproj" />
-    <ProjectReference Include="..\PulseRPC.Benchmark.Shared\PulseRPC.Benchmark.Shared.csproj" />
-  </ItemGroup>
-
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <EnablePreview>true</EnablePreview>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="System.Threading.Channels" />
+    <PackageReference Include="System.Text.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PulseRPC.Benchmark.Core\PulseRPC.Benchmark.Core.csproj" />
+    <ProjectReference Include="..\PulseRPC.Benchmark.Shared\PulseRPC.Benchmark.Shared.csproj" />
+    <ProjectReference Include="..\PulseRPC.Benchmark.Configuration\PulseRPC.Benchmark.Configuration.csproj" />
+    <ProjectReference Include="..\PulseRPC.Benchmark.Metrics\PulseRPC.Benchmark.Metrics.csproj" />
+    <ProjectReference Include="..\..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="configs\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="templates\*.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 
 </Project>

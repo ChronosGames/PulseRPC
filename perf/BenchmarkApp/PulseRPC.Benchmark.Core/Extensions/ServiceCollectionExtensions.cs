@@ -11,6 +11,8 @@ using Microsoft.Extensions.Options;
 using PulseRPC.Benchmark.Core.Abstract;
 using PulseRPC.Benchmark.Core.Interfaces;
 using PulseRPC.Benchmark.Core.Models;
+using PulseRPC.Benchmark.Core.Transport;
+using System.Collections.Concurrent;
 
 namespace PulseRPC.Benchmark.Core.Extensions
 {
@@ -189,6 +191,49 @@ namespace PulseRPC.Benchmark.Core.Extensions
             where T : class
         {
             services.TryAddScoped<T>();
+            return services;
+        }
+
+        /// <summary>
+        /// 添加基准测试服务
+        /// </summary>
+        public static IServiceCollection AddBenchmarkServices(this IServiceCollection services)
+        {
+            // 注册传输工厂（使用占位符实现）
+            services.AddSingleton<ITransportFactory, DefaultTransportFactory>();
+
+            // 基准测试场景
+            // services.AddTransient<IBenchmarkScenario, PingPongScenario>();
+            // services.AddTransient<IBenchmarkScenario, EchoLatencyScenario>();
+            // services.AddTransient<IBenchmarkScenario, ThroughputScenario>();
+
+            // PulseRPC传输
+            services.AddTransient<IBenchmarkTransport, PulseRpcBenchmarkTransport>();
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加传输服务
+        /// </summary>
+        public static IServiceCollection AddBenchmarkTransports(this IServiceCollection services)
+        {
+            // services.AddTransient<IBenchmarkTransport, PulseRpcBenchmarkTransport>();
+            services.AddSingleton<ITransportFactory, DefaultTransportFactory>();
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加测试场景服务
+        /// </summary>
+        public static IServiceCollection AddBenchmarkScenarios(this IServiceCollection services)
+        {
+            // 场景暂时注释掉，避免编译错误
+            // services.AddTransient<IBenchmarkScenario, PingPongScenario>();
+            // services.AddTransient<IBenchmarkScenario, EchoLatencyScenario>();
+            // services.AddTransient<IBenchmarkScenario, ThroughputScenario>();
+
             return services;
         }
     }
