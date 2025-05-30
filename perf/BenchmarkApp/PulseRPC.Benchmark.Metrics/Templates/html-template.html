@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{title}}</title>
+    <style>
+        :root {
+            --primary-color: #007acc;
+            --secondary-color: #f8f9fa;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --danger-color: #dc3545;
+            --info-color: #17a2b8;
+            --dark-color: #343a40;
+            --light-color: #f8f9fa;
+            --border-color: #dee2e6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary-color), #0056b3);
+            color: white;
+            padding: 2rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+
+        .header .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 1rem;
+        }
+
+        .status-badges {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .badge {
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .badge.success { background-color: var(--success-color); color: white; }
+        .badge.warning { background-color: var(--warning-color); color: #333; }
+        .badge.danger { background-color: var(--danger-color); color: white; }
+        .badge.info { background-color: var(--info-color); color: white; }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .card h2 {
+            color: var(--primary-color);
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .card h3 {
+            color: var(--dark-color);
+            margin-bottom: 0.75rem;
+            font-size: 1.2rem;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .metric-item {
+            background: var(--secondary-color);
+            padding: 1rem;
+            border-radius: 6px;
+            text-align: center;
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 0.25rem;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: #666;
+            font-weight: 500;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: var(--primary-color);
+            color: white;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background-color: #f8f9fa;
+        }
+
+        .chart-container {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .chart-placeholder {
+            height: 400px;
+            background: var(--secondary-color);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 1.1rem;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: var(--secondary-color);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 0.5rem 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--success-color), var(--primary-color));
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .error-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .error-item {
+            background: #fff5f5;
+            border-left: 4px solid var(--danger-color);
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-radius: 4px;
+        }
+
+        .recommendation-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .recommendation-item {
+            background: #f0f9ff;
+            border-left: 4px solid var(--info-color);
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            border-radius: 4px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: #666;
+            border-top: 1px solid var(--border-color);
+            margin-top: 2rem;
+        }
+
+        .icon {
+            width: 1.2em;
+            height: 1.2em;
+            display: inline-block;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .status-badges {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header fade-in">
+            <h1>{{title}}</h1>
+            <div class="subtitle">生成时间: {{generatedAt}} | 版本: {{reportVersion}}</div>
+            <div class="subtitle">测试场景: {{scenarioName}}</div>
+            <div class="status-badges">
+                <span class="badge {{statusClass}}">{{statusText}}</span>
+                <span class="badge {{gradeClass}}">{{gradeText}}</span>
+            </div>
+        </div>
+
+        <!-- 测试摘要 -->
+        <div class="card fade-in">
+            <h2>📊 测试摘要</h2>
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <div class="metric-value">{{totalRequests}}</div>
+                    <div class="metric-label">总请求数</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{averageLatency}} ms</div>
+                    <div class="metric-label">平均延迟</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{averageRps}}</div>
+                    <div class="metric-label">平均RPS</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{errorRate}}%</div>
+                    <div class="metric-label">错误率</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 测试配置 -->
+        <div class="card fade-in">
+            <h2>⚙️ 测试配置</h2>
+            <div class="table-container">
+                <table>
+                    <tbody>
+                        <tr><td><strong>服务器地址</strong></td><td>{{serverAddress}}</td></tr>
+                        <tr><td><strong>测试场景</strong></td><td>{{scenarioName}}</td></tr>
+                        <tr><td><strong>测试持续时间</strong></td><td>{{durationSeconds}} 秒</td></tr>
+                        <tr><td><strong>并发连接数</strong></td><td>{{connectionCount}}</td></tr>
+                        <tr><td><strong>请求速率</strong></td><td>{{requestRate}} QPS</td></tr>
+                        <tr><td><strong>预热时间</strong></td><td>{{warmupSeconds}} 秒</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 环境信息 -->
+        <div class="card fade-in">
+            <h2>🖥️ 环境信息</h2>
+            <div class="table-container">
+                <table>
+                    <tbody>
+                        <tr><td><strong>操作系统</strong></td><td>{{operatingSystem}}</td></tr>
+                        <tr><td><strong>.NET版本</strong></td><td>{{dotnetVersion}}</td></tr>
+                        <tr><td><strong>处理器</strong></td><td>{{processorInfo}}</td></tr>
+                        <tr><td><strong>总内存</strong></td><td>{{totalMemoryMB}} MB</td></tr>
+                        <tr><td><strong>机器名称</strong></td><td>{{machineName}}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 性能指标 -->
+        <div class="card fade-in">
+            <h2>📈 性能指标</h2>
+            
+            <h3>🕐 延迟指标</h3>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr><th>百分位</th><th>延迟 (ms)</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>平均</td><td>{{latencyAverage}}</td></tr>
+                        <tr><td>最小</td><td>{{latencyMin}}</td></tr>
+                        <tr><td>最大</td><td>{{latencyMax}}</td></tr>
+                        <tr><td>P50</td><td>{{latencyP50}}</td></tr>
+                        <tr><td>P95</td><td>{{latencyP95}}</td></tr>
+                        <tr><td>P99</td><td>{{latencyP99}}</td></tr>
+                        <tr><td>P99.9</td><td>{{latencyP999}}</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3>🚀 吞吐量指标</h3>
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <div class="metric-value">{{averageRps}}</div>
+                    <div class="metric-label">平均RPS</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{peakRps}}</div>
+                    <div class="metric-label">峰值RPS</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{successfulRequests}}</div>
+                    <div class="metric-label">成功请求</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{failedRequests}}</div>
+                    <div class="metric-label">失败请求</div>
+                </div>
+            </div>
+
+            <h3>💻 资源使用</h3>
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <div class="metric-value">{{cpuUsagePercent}}%</div>
+                    <div class="metric-label">CPU使用率</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{memoryUsageMB}} MB</div>
+                    <div class="metric-label">内存使用量</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{networkSent}}</div>
+                    <div class="metric-label">网络发送</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{networkReceived}}</div>
+                    <div class="metric-label">网络接收</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图表部分 -->
+        {{#if includeCharts}}
+        <div class="card fade-in">
+            <h2>📊 图表分析</h2>
+            
+            <div class="chart-container">
+                <h3>延迟分布图</h3>
+                <div id="latencyChart" class="chart-placeholder">
+                    {{latencyChartData}}
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h3>吞吐量趋势图</h3>
+                <div id="throughputChart" class="chart-placeholder">
+                    {{throughputChartData}}
+                </div>
+            </div>
+            
+            <div class="chart-container">
+                <h3>资源使用图</h3>
+                <div id="resourceChart" class="chart-placeholder">
+                    {{resourceChartData}}
+                </div>
+            </div>
+        </div>
+        {{/if}}
+
+        <!-- 错误分析 -->
+        {{#if hasErrors}}
+        <div class="card fade-in">
+            <h2>❌ 错误分析</h2>
+            <div class="metrics-grid">
+                <div class="metric-item">
+                    <div class="metric-value">{{totalErrors}}</div>
+                    <div class="metric-label">总错误数</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{timeoutErrors}}</div>
+                    <div class="metric-label">超时错误</div>
+                </div>
+                <div class="metric-item">
+                    <div class="metric-value">{{connectionErrors}}</div>
+                    <div class="metric-label">连接错误</div>
+                </div>
+            </div>
+            
+            {{#if errorDetails}}
+            <h3>错误详情</h3>
+            <ul class="error-list">
+                {{#each errorDetails}}
+                <li class="error-item">{{this}}</li>
+                {{/each}}
+            </ul>
+            {{/if}}
+        </div>
+        {{else}}
+        <div class="card fade-in">
+            <h2>✅ 错误分析</h2>
+            <p style="color: var(--success-color); font-weight: 600; text-align: center; padding: 2rem;">
+                测试过程中未发现错误
+            </p>
+        </div>
+        {{/if}}
+
+        <!-- 建议和总结 -->
+        <div class="card fade-in">
+            <h2>💡 建议和总结</h2>
+            
+            {{#if keyFindings}}
+            <h3>🔍 主要发现</h3>
+            <ul class="recommendation-list">
+                {{#each keyFindings}}
+                <li class="recommendation-item">{{this}}</li>
+                {{/each}}
+            </ul>
+            {{/if}}
+            
+            {{#if recommendations}}
+            <h3>📋 优化建议</h3>
+            <ul class="recommendation-list">
+                {{#each recommendations}}
+                <li class="recommendation-item">{{this}}</li>
+                {{/each}}
+            </ul>
+            {{/if}}
+            
+            <h3>📊 总体评估</h3>
+            <p style="font-size: 1.1rem; line-height: 1.8;">
+                <strong>性能等级</strong>: {{gradeText}}<br>
+                {{gradeDescription}}
+            </p>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>报告生成于 {{generatedAt}} by PulseRPC BenchmarkApp</p>
+    </div>
+
+    <!-- Chart.js 库 -->
+    {{#if includeCharts}}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // 图表初始化脚本将在这里注入
+        {{chartScripts}}
+    </script>
+    {{/if}}
+</body>
+</html> 
