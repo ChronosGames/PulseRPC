@@ -154,10 +154,6 @@ namespace PulseRPC.Benchmark.Core.Extensions
         /// <param name="services">服务集合</param>
         private static void RegisterDefaultTransports(IServiceCollection services)
         {
-            // 目前注释掉传输类型注册，将在后续阶段实现
-            // TODO: 在Phase 2实现具体的传输类型
-
-            /*
             // TCP 传输
             services.AddCustomTransport(TransportTypes.Tcp, (provider, options) =>
             {
@@ -178,7 +174,6 @@ namespace PulseRPC.Benchmark.Core.Extensions
                 var logger = provider.GetRequiredService<ILogger<MemoryBenchmarkTransport>>();
                 return new MemoryBenchmarkTransport(logger, options);
             });
-            */
         }
 
         /// <summary>

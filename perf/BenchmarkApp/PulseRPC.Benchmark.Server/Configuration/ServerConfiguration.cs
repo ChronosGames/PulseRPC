@@ -24,19 +24,19 @@ public class ServerConfiguration
     /// 最大连接数
     /// </summary>
     [JsonPropertyName("maxConnections")]
-    public int MaxConnections { get; set; } = 1000;
+    public int MaxConnections { get; init; } = 1000;
 
     /// <summary>
     /// 启用压缩
     /// </summary>
     [JsonPropertyName("enableCompression")]
-    public bool EnableCompression { get; set; } = true;
+    public bool EnableCompression { get; init; } = true;
 
     /// <summary>
     /// 保活间隔（秒）
     /// </summary>
     [JsonPropertyName("keepAliveIntervalSeconds")]
-    public int KeepAliveIntervalSeconds { get; set; } = 30;
+    public int KeepAliveIntervalSeconds { get; init; } = 30;
 
     /// <summary>
     /// 连接超时（秒）
@@ -48,41 +48,41 @@ public class ServerConfiguration
     /// 启用详细日志
     /// </summary>
     [JsonPropertyName("enableVerboseLogging")]
-    public bool EnableVerboseLogging { get; set; } = false;
+    public bool EnableVerboseLogging { get; init; } = false;
 
     /// <summary>
     /// 工作线程数（0表示自动检测）
     /// </summary>
     [JsonPropertyName("workerThreads")]
-    public int WorkerThreads { get; set; } = 0;
+    public int WorkerThreads { get; init; } = 0;
 
     /// <summary>
     /// 缓冲区大小（字节）
     /// </summary>
     [JsonPropertyName("bufferSize")]
-    public int BufferSize { get; set; } = 64 * 1024; // 64KB
+    public int BufferSize { get; init; } = 64 * 1024; // 64KB
 
     /// <summary>
     /// 启用性能计数器
     /// </summary>
     [JsonPropertyName("enablePerformanceCounters")]
-    public bool EnablePerformanceCounters { get; set; } = true;
+    public bool EnablePerformanceCounters { get; init; } = true;
 
     /// <summary>
     /// 健康检查间隔（秒）
     /// </summary>
     [JsonPropertyName("healthCheckIntervalSeconds")]
-    public int HealthCheckIntervalSeconds { get; set; } = 10;
+    public int HealthCheckIntervalSeconds { get; init; } = 10;
 
     /// <summary>
     /// 验证配置的有效性
     /// </summary>
     public void Validate()
     {
-        if (Port <= 0 || Port > 65535)
+        if (Port is <= 0 or > 65535)
             throw new ArgumentOutOfRangeException(nameof(Port), "端口号必须在1-65535范围内");
 
-        if (MetricsPort <= 0 || MetricsPort > 65535)
+        if (MetricsPort is <= 0 or > 65535)
             throw new ArgumentOutOfRangeException(nameof(MetricsPort), "指标端口号必须在1-65535范围内");
 
         if (Port == MetricsPort)
