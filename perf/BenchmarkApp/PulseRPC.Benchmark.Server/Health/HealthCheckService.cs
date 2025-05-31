@@ -1,6 +1,3 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Benchmark.Metrics.Collectors;
 using PulseRPC.Benchmark.Server.Configuration;
@@ -11,23 +8,16 @@ namespace PulseRPC.Benchmark.Server.Health;
 /// <summary>
 /// 健康检查服务
 /// </summary>
-public class HealthCheckService
+public class HealthCheckService(
+    ILogger<HealthCheckService> logger,
+    RealTimeMetricsCollector metricsCollector,
+    ServerConfiguration config)
 {
-    private readonly ILogger<HealthCheckService> _logger;
-    private readonly RealTimeMetricsCollector _metricsCollector;
-    private readonly ServerConfiguration _config;
+    private readonly ILogger<HealthCheckService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly RealTimeMetricsCollector _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
+    private readonly ServerConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
     private CancellationTokenSource? _cancellationTokenSource;
     private Task? _healthCheckTask;
-
-    public HealthCheckService(
-        ILogger<HealthCheckService> logger,
-        RealTimeMetricsCollector metricsCollector,
-        ServerConfiguration config)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
-        _config = config ?? throw new ArgumentNullException(nameof(config));
-    }
 
     /// <summary>
     /// 启动健康检查

@@ -9,14 +9,9 @@ namespace PulseRPC.Benchmark.Client.Commands;
 /// <summary>
 /// 报告生成命令处理器
 /// </summary>
-public class ReportCommand
+public class ReportCommand(ILogger<ReportCommand> logger)
 {
-    private readonly ILogger<ReportCommand> _logger;
-
-    public ReportCommand(ILogger<ReportCommand> logger)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    private readonly ILogger<ReportCommand> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <summary>
     /// 创建报告命令

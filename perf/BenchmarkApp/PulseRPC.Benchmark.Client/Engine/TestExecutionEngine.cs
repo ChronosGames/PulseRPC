@@ -1,10 +1,6 @@
-using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Benchmark.Client.Configuration;
 using PulseRPC.Benchmark.Client.Transport;
 using PulseRPC.Benchmark.Core.Interfaces;
 using PulseRPC.Benchmark.Core.Models;
@@ -456,42 +452,42 @@ public class TestProgress
     public int SuccessfulRequests { get; set; }
     public int FailedRequests { get; set; }
     public double AverageLatencyMs { get; set; }
-    
+
     /// <summary>
     /// 当前成功率 (0-100)
     /// </summary>
     public double SuccessRate => TotalRequests > 0 ? (double)SuccessfulRequests / TotalRequests * 100 : 0;
-    
+
     /// <summary>
     /// 当前失败率 (0-100)
     /// </summary>
     public double FailureRate => TotalRequests > 0 ? (double)FailedRequests / TotalRequests * 100 : 0;
-    
+
     /// <summary>
     /// 最近一分钟的QPS
     /// </summary>
     public double RecentQPS { get; set; }
-    
+
     /// <summary>
     /// 峰值QPS
     /// </summary>
     public double PeakQPS { get; set; }
-    
+
     /// <summary>
     /// 最小延迟
     /// </summary>
     public double MinLatencyMs { get; set; }
-    
+
     /// <summary>
     /// 最大延迟
     /// </summary>
     public double MaxLatencyMs { get; set; }
-    
+
     /// <summary>
     /// P95延迟
     /// </summary>
     public double P95LatencyMs { get; set; }
-    
+
     /// <summary>
     /// P99延迟
     /// </summary>

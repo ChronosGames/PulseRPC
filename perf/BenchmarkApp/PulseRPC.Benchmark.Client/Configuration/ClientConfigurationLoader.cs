@@ -1,7 +1,4 @@
-using System;
-using System.IO;
 using System.Text.Json;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Benchmark.Client.Configuration;
@@ -9,15 +6,8 @@ namespace PulseRPC.Benchmark.Client.Configuration;
 /// <summary>
 /// 客户端配置加载器
 /// </summary>
-public class ClientConfigurationLoader
+public class ClientConfigurationLoader(ILogger<ClientConfigurationLoader>? logger = null)
 {
-    private readonly ILogger<ClientConfigurationLoader>? _logger;
-
-    public ClientConfigurationLoader(ILogger<ClientConfigurationLoader>? logger = null)
-    {
-        _logger = logger;
-    }
-
     /// <summary>
     /// 从文件加载配置
     /// </summary>
@@ -33,7 +23,7 @@ public class ClientConfigurationLoader
             var json = await File.ReadAllTextAsync(filePath);
             var config = JsonSerializer.Deserialize<ClientConfiguration>(json) ?? new ClientConfiguration();
 
-            _logger?.LogInformation("配置文件加载成功: {FilePath}", filePath);
+            logger?.LogInformation("配置文件加载成功: {FilePath}", filePath);
             return config;
         }
         catch (JsonException ex)
@@ -49,7 +39,7 @@ public class ClientConfigurationLoader
     /// <summary>
     /// 创建默认配置
     /// </summary>
-    public ClientConfiguration CreateDefault()
+    public static ClientConfiguration CreateDefault()
     {
         return new ClientConfiguration();
     }
@@ -63,52 +53,52 @@ public class ClientConfiguration
     /// <summary>
     /// 服务器地址
     /// </summary>
-    public string ServerAddress { get; set; } = "localhost:8080";
+    public string ServerAddress { get; init; } = "localhost:8080";
 
     /// <summary>
     /// 默认测试场景
     /// </summary>
-    public string DefaultScenario { get; set; } = "ping-pong";
+    public string DefaultScenario { get; init; } = "ping-pong";
 
     /// <summary>
     /// 连接超时（毫秒）
     /// </summary>
-    public int ConnectionTimeoutMs { get; set; } = 30000;
+    public int ConnectionTimeoutMs { get; init; } = 30000;
 
     /// <summary>
     /// 请求超时（毫秒）
     /// </summary>
-    public int RequestTimeoutMs { get; set; } = 10000;
+    public int RequestTimeoutMs { get; init; } = 10000;
 
     /// <summary>
     /// 默认并发连接数
     /// </summary>
-    public int DefaultConnections { get; set; } = 10;
+    public int DefaultConnections { get; init; } = 10;
 
     /// <summary>
     /// 默认请求速率
     /// </summary>
-    public int DefaultRequestRate { get; set; } = 100;
+    public int DefaultRequestRate { get; init; } = 100;
 
     /// <summary>
     /// 默认测试持续时间（秒）
     /// </summary>
-    public int DefaultDurationSeconds { get; set; } = 60;
+    public int DefaultDurationSeconds { get; init; } = 60;
 
     /// <summary>
     /// 启用重试
     /// </summary>
-    public bool EnableRetry { get; set; } = true;
+    public bool EnableRetry { get; init; } = true;
 
     /// <summary>
     /// 最大重试次数
     /// </summary>
-    public int MaxRetryAttempts { get; set; } = 3;
+    public int MaxRetryAttempts { get; init; } = 3;
 
     /// <summary>
     /// 重试间隔（毫秒）
     /// </summary>
-    public int RetryIntervalMs { get; set; } = 1000;
+    public int RetryIntervalMs { get; init; } = 1000;
 
     /// <summary>
     /// 验证配置

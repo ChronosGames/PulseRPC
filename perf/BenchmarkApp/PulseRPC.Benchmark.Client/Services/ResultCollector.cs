@@ -19,7 +19,7 @@ public class ResultCollector
     private readonly ConcurrentBag<TestRequestResult> _rawResults;
     private readonly ConcurrentBag<TestMetric> _metrics;
     private readonly ConcurrentDictionary<string, object> _customData;
-    private readonly object _lockObject = new();
+    private readonly Lock _lockObject = new();
 
     private volatile bool _isCollecting;
     private DateTime _collectionStartTime;
@@ -444,7 +444,7 @@ public class LiveStatistics
     public double MaxLatencyMs { get; set; }
     public double P50LatencyMs { get; set; }
     public double P95LatencyMs { get; set; }
-    public double P99LatencyMs { get; set; }
+    public double P99LatencyMs { get; init; }
     public TimeSpan ElapsedTime { get; set; }
 }
 

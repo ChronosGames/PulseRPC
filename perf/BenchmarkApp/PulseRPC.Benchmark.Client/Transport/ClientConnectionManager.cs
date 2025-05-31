@@ -10,19 +10,12 @@ namespace PulseRPC.Benchmark.Client.Transport;
 /// <summary>
 /// 客户端连接管理器
 /// </summary>
-public class ClientConnectionManager
+public class ClientConnectionManager(ILogger<ClientConnectionManager> logger)
 {
-    private readonly ILogger<ClientConnectionManager> _logger;
-    private readonly ConcurrentDictionary<string, ClientConnection> _connections;
-    private readonly SemaphoreSlim _connectionSemaphore;
+    private readonly ILogger<ClientConnectionManager> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly ConcurrentDictionary<string, ClientConnection> _connections = new();
+    private readonly SemaphoreSlim _connectionSemaphore = new(1, 1);
     private volatile bool _disposed;
-
-    public ClientConnectionManager(ILogger<ClientConnectionManager> logger)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _connections = new ConcurrentDictionary<string, ClientConnection>();
-        _connectionSemaphore = new SemaphoreSlim(1, 1);
-    }
 
     /// <summary>
     /// 创建连接

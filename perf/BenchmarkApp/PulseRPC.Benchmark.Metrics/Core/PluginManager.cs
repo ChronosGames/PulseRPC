@@ -8,20 +8,12 @@ namespace PulseRPC.Benchmark.Metrics.Core;
 /// <summary>
 /// 插件管理器 - 负责插件生命周期管理和协调
 /// </summary>
-public class PluginManager : IAsyncDisposable
+public class PluginManager(ILogger<PluginManager>? logger = null) : IAsyncDisposable
 {
-    private readonly ILogger<PluginManager>? _logger;
-    private readonly ConcurrentDictionary<string, IMetricsPlugin> _plugins;
-    private readonly ConcurrentDictionary<string, PluginMetadata> _pluginMetadata;
+    private readonly ConcurrentDictionary<string, IMetricsPlugin> _plugins = new();
+    private readonly ConcurrentDictionary<string, PluginMetadata> _pluginMetadata = new();
     private readonly object _lockObject = new();
     private bool _disposed = false;
-
-    public PluginManager(ILogger<PluginManager>? logger = null)
-    {
-        _logger = logger;
-        _plugins = new ConcurrentDictionary<string, IMetricsPlugin>();
-        _pluginMetadata = new ConcurrentDictionary<string, PluginMetadata>();
-    }
 
     #region Plugin Registration
 
@@ -46,14 +38,14 @@ public class PluginManager : IAsyncDisposable
             // 检查是否已注册
             if (_plugins.ContainsKey(pluginName))
             {
-                _logger?.LogWarning("插件 {PluginName} 已经注册", pluginName);
+                logger?.LogWarning("插件 {PluginName} 已经注册", pluginName);
                 return false;
             }
 
             // 验证配置
             if (!await plugin.ValidateConfigurationAsync(configuration))
             {
-                _logger?.LogError("插件 {PluginName} 配置验证失败", pluginName);
+                logger?.LogError("插件 {PluginName} 配置验证失败", pluginName);
                 return false;
             }
 
@@ -79,7 +71,7 @@ public class PluginManager : IAsyncDisposable
                 // 初始化插件
                 await plugin.InitializeAsync(configuration);
 
-                _logger?.LogInformation("插件 {PluginName} v{Version} 注册成功", pluginName, plugin.Version);
+                logger?.LogInformation("插件 {PluginName} v{Version} 注册成功", pluginName, plugin.Version);
                 return true;
             }
 
@@ -87,7 +79,7 @@ public class PluginManager : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "注册插件 {PluginName} 失败", plugin.Name);
+            logger?.LogError(ex, "注册插件 {PluginName} 失败", plugin.Name);
             return false;
         }
     }
@@ -124,16 +116,16 @@ public class PluginManager : IAsyncDisposable
                 // 移除元数据
                 _pluginMetadata.TryRemove(pluginName, out _);
 
-                _logger?.LogInformation("插件 {PluginName} 注销成功", pluginName);
+                logger?.LogInformation("插件 {PluginName} 注销成功", pluginName);
                 return true;
             }
 
-            _logger?.LogWarning("插件 {PluginName} 未找到", pluginName);
+            logger?.LogWarning("插件 {PluginName} 未找到", pluginName);
             return false;
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "注销插件 {PluginName} 失败", pluginName);
+            logger?.LogError(ex, "注销插件 {PluginName} 失败", pluginName);
             return false;
         }
     }
@@ -156,21 +148,21 @@ public class PluginManager : IAsyncDisposable
                 if (!plugin.IsRunning)
                 {
                     await plugin.StartAsync();
-                    _logger?.LogInformation("插件 {PluginName} 启动成功", pluginName);
+                    logger?.LogInformation("插件 {PluginName} 启动成功", pluginName);
                     return true;
                 }
 
-                _logger?.LogWarning("插件 {PluginName} 已经在运行", pluginName);
+                logger?.LogWarning("插件 {PluginName} 已经在运行", pluginName);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "启动插件 {PluginName} 失败", pluginName);
+                logger?.LogError(ex, "启动插件 {PluginName} 失败", pluginName);
                 return false;
             }
         }
 
-        _logger?.LogWarning("插件 {PluginName} 未找到", pluginName);
+        logger?.LogWarning("插件 {PluginName} 未找到", pluginName);
         return false;
     }
 
@@ -188,21 +180,21 @@ public class PluginManager : IAsyncDisposable
                 if (plugin.IsRunning)
                 {
                     await plugin.StopAsync();
-                    _logger?.LogInformation("插件 {PluginName} 停止成功", pluginName);
+                    logger?.LogInformation("插件 {PluginName} 停止成功", pluginName);
                     return true;
                 }
 
-                _logger?.LogWarning("插件 {PluginName} 未在运行", pluginName);
+                logger?.LogWarning("插件 {PluginName} 未在运行", pluginName);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "停止插件 {PluginName} 失败", pluginName);
+                logger?.LogError(ex, "停止插件 {PluginName} 失败", pluginName);
                 return false;
             }
         }
 
-        _logger?.LogWarning("插件 {PluginName} 未找到", pluginName);
+        logger?.LogWarning("插件 {PluginName} 未找到", pluginName);
         return false;
     }
 
@@ -231,11 +223,11 @@ public class PluginManager : IAsyncDisposable
             catch (Exception ex)
             {
                 result.FailedPlugins.Add(kvp.Key, ex.Message);
-                _logger?.LogError(ex, "启动插件 {PluginName} 失败", kvp.Key);
+                logger?.LogError(ex, "启动插件 {PluginName} 失败", kvp.Key);
             }
         }
 
-        _logger?.LogInformation("启动所有插件完成: 成功 {Success}, 跳过 {Skipped}, 失败 {Failed}",
+        logger?.LogInformation("启动所有插件完成: 成功 {Success}, 跳过 {Skipped}, 失败 {Failed}",
             result.SuccessfulPlugins.Count, result.SkippedPlugins.Count, result.FailedPlugins.Count);
 
         return result;
@@ -266,11 +258,11 @@ public class PluginManager : IAsyncDisposable
             catch (Exception ex)
             {
                 result.FailedPlugins.Add(kvp.Key, ex.Message);
-                _logger?.LogError(ex, "停止插件 {PluginName} 失败", kvp.Key);
+                logger?.LogError(ex, "停止插件 {PluginName} 失败", kvp.Key);
             }
         }
 
-        _logger?.LogInformation("停止所有插件完成: 成功 {Success}, 跳过 {Skipped}, 失败 {Failed}",
+        logger?.LogInformation("停止所有插件完成: 成功 {Success}, 跳过 {Skipped}, 失败 {Failed}",
             result.SuccessfulPlugins.Count, result.SkippedPlugins.Count, result.FailedPlugins.Count);
 
         return result;
@@ -380,7 +372,7 @@ public class PluginManager : IAsyncDisposable
                 });
 
                 report.UnhealthyPlugins++;
-                _logger?.LogWarning(ex, "获取插件 {PluginName} 健康状态失败", kvp.Key);
+                logger?.LogWarning(ex, "获取插件 {PluginName} 健康状态失败", kvp.Key);
             }
         }
 
@@ -393,7 +385,7 @@ public class PluginManager : IAsyncDisposable
 
     private void OnPluginStatusChanged(PluginStatusChangedEventArgs e)
     {
-        _logger?.LogDebug("插件 {PluginName} 状态变更: {OldStatus} -> {NewStatus}",
+        logger?.LogDebug("插件 {PluginName} 状态变更: {OldStatus} -> {NewStatus}",
             e.PluginName, e.OldStatus, e.NewStatus);
 
         PluginStatusChanged?.Invoke(e);
@@ -401,7 +393,7 @@ public class PluginManager : IAsyncDisposable
 
     private void OnPluginErrorOccurred(PluginErrorEventArgs e)
     {
-        _logger?.LogError(e.Exception, "插件 {PluginName} 发生错误: {Context}",
+        logger?.LogError(e.Exception, "插件 {PluginName} 发生错误: {Context}",
             e.PluginName, e.Context);
 
         PluginErrorOccurred?.Invoke(e);
@@ -427,7 +419,7 @@ public class PluginManager : IAsyncDisposable
 
         try
         {
-            _logger?.LogInformation("开始释放插件管理器");
+            logger?.LogInformation("开始释放插件管理器");
 
             // 停止并释放所有插件
             var disposeTasks = _plugins.Values.Select(async plugin =>
@@ -442,7 +434,7 @@ public class PluginManager : IAsyncDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogError(ex, "释放插件 {PluginName} 失败", plugin.Name);
+                    logger?.LogError(ex, "释放插件 {PluginName} 失败", plugin.Name);
                 }
             });
 
@@ -452,11 +444,11 @@ public class PluginManager : IAsyncDisposable
             _pluginMetadata.Clear();
 
             _disposed = true;
-            _logger?.LogInformation("插件管理器释放完成");
+            logger?.LogInformation("插件管理器释放完成");
         }
         catch (Exception ex)
         {
-            _logger?.LogError(ex, "释放插件管理器失败");
+            logger?.LogError(ex, "释放插件管理器失败");
         }
     }
 
@@ -468,11 +460,11 @@ public class PluginManager : IAsyncDisposable
 /// </summary>
 public class PluginMetadata
 {
-    public string Name { get; set; } = string.Empty;
-    public string Version { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public string Author { get; set; } = string.Empty;
-    public DateTime RegisteredAt { get; set; }
+    public required string Name { get; init; }
+    public required string Version { get; init; }
+    public required string Description { get; init; }
+    public required string Author { get; init; }
+    public required DateTime RegisteredAt { get; init; }
     public object? Configuration { get; set; }
 }
 
@@ -481,11 +473,11 @@ public class PluginMetadata
 /// </summary>
 public class PluginInfo
 {
-    public string Name { get; set; } = string.Empty;
-    public string Version { get; set; } = string.Empty;
-    public string Description { get; set; } = string.Empty;
-    public string Author { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
+    public required string Name { get; set; }
+    public required string Version { get; set; }
+    public required string Description { get; set; }
+    public required string Author { get; set; }
+    public required string Type { get; set; }
     public bool IsInitialized { get; set; }
     public bool IsRunning { get; set; }
     public DateTime RegisteredAt { get; set; }

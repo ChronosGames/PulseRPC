@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Benchmark.Metrics.Abstractions;
 using PulseRPC.Benchmark.Server.Configuration;
@@ -11,7 +12,7 @@ namespace PulseRPC.Benchmark.Server.Monitoring;
 /// <summary>
 /// 服务端指标集成
 /// </summary>
-public class ServerMetricsIntegration
+public class ServerMetricsIntegration : IHostedService
 {
     private readonly ILogger<ServerMetricsIntegration> _logger;
     private readonly IMetricsCollector _metricsCollector;
@@ -45,7 +46,7 @@ public class ServerMetricsIntegration
     /// <summary>
     /// 停止指标集成
     /// </summary>
-    public async Task StopAsync()
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("停止服务端指标集成...");
 

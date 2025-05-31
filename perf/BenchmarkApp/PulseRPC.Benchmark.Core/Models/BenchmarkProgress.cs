@@ -1,5 +1,3 @@
-using System;
-
 namespace PulseRPC.Benchmark.Core.Models;
 
 /// <summary>
