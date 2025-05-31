@@ -67,20 +67,14 @@ public abstract class BenchmarkClientBase : IDisposable
 
         _cts = new CancellationTokenSource();
 
-        // 创建序列化器
-        var serializer = PulseRPCSerializerProvider.Instance;
-
-        // 创建传输工厂
-        var transportFactory = new TransportFactory(LoggerFactory);
-
         // 创建通道管理器
-        ChannelManager = new ChannelManager();
+        ChannelManager = new ChannelManager(LoggerFactory);
 
         // 创建TCP通道
         var tcpOptions = config.TcpOptions;
         if (tcpOptions == null)
         {
-            tcpOptions = new PulseRPC.Transport.TransportOptions
+            tcpOptions = new TransportOptions
             {
                 NoDelay = true,
                 KeepAlive = true,
@@ -88,47 +82,25 @@ public abstract class BenchmarkClientBase : IDisposable
             };
         }
 
-        var tcpTransport = await transportFactory.CreateTransportAsync(
-            TransportType.Tcp, tcpOptions);
-
-        var tcpChannel = new TransportChannel(
-            "TcpChannel",
-            tcpTransport,
-            serializer,
-            LoggerFactory.CreateLogger<TransportChannel>());
-
-        ChannelManager.RegisterChannel("TcpChannel", tcpChannel, true);
+        ChannelManager.RegisterChannel("TcpChannel", TransportType.Tcp, tcpOptions, true);
 
         // 如果启用KCP，创建KCP通道
         if (config.EnableKcp)
         {
-            var kcpOptions = config.KcpOptions;
-            if (kcpOptions == null)
+            var kcpOptions = config.KcpOptions ?? new TransportOptions
             {
-                kcpOptions = new PulseRPC.Transport.TransportOptions
+                Kcp = new KcpOptions
                 {
-                    Kcp = new KcpOptions
-                    {
-                        NoDelay = 1,
-                        Interval = 10,
-                        Resend = 2,
-                        DisableFlowControl = false,
-                        SendWindow = 32,
-                        ReceiveWindow = 128
-                    }
-                };
-            }
+                    NoDelay = 1,
+                    Interval = 10,
+                    Resend = 2,
+                    DisableFlowControl = false,
+                    SendWindow = 32,
+                    ReceiveWindow = 128
+                }
+            };
 
-            var kcpTransport = await transportFactory.CreateTransportAsync(
-                TransportType.Kcp, kcpOptions);
-
-            var kcpChannel = new TransportChannel(
-                "KcpChannel",
-                kcpTransport,
-                serializer,
-                LoggerFactory.CreateLogger<TransportChannel>());
-
-            ChannelManager.RegisterChannel("KcpChannel", kcpChannel);
+            ChannelManager.RegisterChannel("KcpChannel", TransportType.Kcp, kcpOptions, false);
         }
 
         // 获取服务代理

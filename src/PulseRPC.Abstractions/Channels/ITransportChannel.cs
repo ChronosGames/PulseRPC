@@ -1,5 +1,3 @@
-using System;
-using System.Collections.Generic;
 using PulseRPC.Authentication;
 
 namespace PulseRPC.Transport

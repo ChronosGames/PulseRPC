@@ -40,28 +40,12 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
         _cts = new CancellationTokenSource();
 
-        // 创建序列化器
-        var serializer = PulseRPCSerializerProvider.Instance;
-
-        // 创建传输工厂
-        var transportFactory = new TransportFactory(loggerFactory);
-
         // 创建通道管理器
-        _channelManager = new ChannelManager();
+        _channelManager = new ChannelManager(loggerFactory);
 
         // 创建TCP通道
         var tcpOptions = new TransportOptions { NoDelay = true, KeepAlive = true, AutoReconnect = true };
-
-        var tcpTransport = await transportFactory.CreateTransportAsync(
-            TransportType.Tcp, tcpOptions);
-
-        var tcpChannel = new TransportChannel(
-            "TcpChannel",
-            tcpTransport,
-            serializer,
-            loggerFactory.CreateLogger<TransportChannel>());
-
-        _channelManager.RegisterChannel("TcpChannel", tcpChannel, true);
+        _channelManager.RegisterChannel("TcpChannel", TransportType.Tcp, tcpOptions, true);
 
         // 创建KCP通道
         var kcpOptions = new TransportOptions
@@ -76,17 +60,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
                 ReceiveWindow = 128   // 与服务端匹配
             }
         };
-
-        var kcpTransport = await transportFactory.CreateTransportAsync(
-            TransportType.Kcp, kcpOptions);
-
-        var kcpChannel = new TransportChannel(
-            "KcpChannel",
-            kcpTransport,
-            serializer,
-            loggerFactory.CreateLogger<TransportChannel>());
-
-        _channelManager.RegisterChannel("KcpChannel", kcpChannel);
+        _channelManager.RegisterChannel("KcpChannel", TransportType.Kcp, kcpOptions, false);
 
         try
         {
@@ -171,21 +145,14 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
         try
         {
-            _logger.LogDebug("创建登录请求...");
             var request = new LoginRequest { Username = username, Password = password };
-            _logger.LogDebug("发送登录请求...");
-
             var response = await _playerService!.LoginAsync(request);
-            _logger.LogDebug("收到登录响应: Success={Success}, ErrorMessage={ErrorMessage}",
-                response.Success, response.ErrorMessage);
-
             if (response.Success)
             {
                 _isLoggedIn = true;
                 _playerInfo = response.Player;
 
-                _logger.LogInformation("登录成功: {Username} (ID: {PlayerId})",
-                    _playerInfo!.Username, _playerInfo.Id);
+                _logger.LogInformation("登录成功: {Username} (ID: {PlayerId})", _playerInfo!.Username, _playerInfo.Id);
             }
             else
             {
