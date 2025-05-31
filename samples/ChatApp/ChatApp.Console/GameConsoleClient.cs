@@ -68,32 +68,11 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             _playerService = _channelManager.GetPlayerHub();
 
             // 创建事件处理器实例
-            var eventsHandler = new PlayerEventsHandler(this);
-
+            var eventsHandler = _channelManager.GetPlayerLoginEventsHandler();
             try
             {
-                // 获取事件处理器
-                var tcpClientChannel = _channelManager.GetChannel("TcpChannel");
-                var kcpClientChannel = _channelManager.GetChannel("KcpChannel");
-
-                // 登录事件 (TCP通道)
-                var loginJoinedToken = tcpClientChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined",
-                    (sender, eventData) => eventsHandler.OnPlayerJoined(eventData));
-                var loginLeftToken = tcpClientChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft",
-                    (sender, eventData) => eventsHandler.OnPlayerLeft(eventData));
-
-                // 移动事件 (KCP通道)
-                var moveToken = kcpClientChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
-                    (sender, eventData) => eventsHandler.OnPlayerMoved(eventData));
-                var moveBatchToken = kcpClientChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch",
-                    (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
-                var moveBatchToken2 = kcpClientChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
-                    (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
-
                 // 保存订阅令牌
-                _eventsSubscription = new CompositeSubscriptionToken([
-                    loginJoinedToken, loginLeftToken, moveToken, moveBatchToken, moveBatchToken2
-                ]);
+                _eventsSubscription = eventsHandler.Subscribe(new PlayerEventsHandler(this));
             }
             catch (Exception ex)
             {
@@ -455,50 +434,15 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
         public void OnPlayersMovedBatch(PlayersBatchMovedEvent eventData)
         {
-            if (eventData.Updates != null)
+            if (eventData.Updates == null)
             {
-                foreach (var update in eventData.Updates)
-                {
-                    OnPlayerMoved(update);
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// 组合订阅令牌
-    /// </summary>
-    private class CompositeSubscriptionToken : ISubscriptionToken
-    {
-        private readonly ISubscriptionToken[] _tokens;
-        private bool _isDisposed;
-
-        public CompositeSubscriptionToken(ISubscriptionToken[] tokens)
-        {
-            _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));
-        }
-
-        public Guid Id { get; } = Guid.NewGuid();
-
-        public bool IsActive => !_isDisposed;
-
-        public void Unsubscribe()
-        {
-            if (_isDisposed)
                 return;
-
-            foreach (var token in _tokens)
-            {
-                token.Unsubscribe();
             }
 
-            _isDisposed = true;
-        }
-
-        public void Dispose()
-        {
-            Unsubscribe();
-            GC.SuppressFinalize(this);
+            foreach (var update in eventData.Updates)
+            {
+                OnPlayerMoved(update);
+            }
         }
     }
 }
