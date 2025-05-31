@@ -9,14 +9,10 @@ namespace PulseRPC.Benchmark.Scenarios.Basic;
 /// Echo延迟测试场景
 /// 测量单次RPC调用的往返时间(RTT)
 /// </summary>
-public class EchoLatencyScenario : BenchmarkClientBase
+public class EchoLatencyScenario(ILoggerFactory loggerFactory) : BenchmarkClientBase(loggerFactory)
 {
-    private readonly List<double> _latencyMeasurements = new();
+    private readonly List<double> _latencyMeasurements = [];
     private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
-
-    public EchoLatencyScenario(ILoggerFactory loggerFactory) : base(loggerFactory)
-    {
-    }
 
     public override string ScenarioName => "Echo Latency Test";
     public override string Description => "测量单次RPC调用的往返时间(RTT)";

@@ -130,7 +130,7 @@ namespace ChatApp.Shared
     [MemoryPackable]
     public partial class PlayersBatchMovedEvent : IEventData
     {
-        public PlayerMovedEvent[] Updates { get; set; } = Array.Empty<PlayerMovedEvent>();
+        public PlayerMovedEvent[]? Updates { get; set; }
     }
 
     /// <summary>
