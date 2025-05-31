@@ -15,7 +15,7 @@ public class TimeWindowAggregator : IMetricsAggregator
     private readonly AggregatorConfiguration _configuration;
     private readonly ConcurrentDictionary<string, TimeWindow> _activeWindows;
     private readonly Timer? _cleanupTimer;
-    private readonly object _windowLock = new();
+    private readonly Lock _windowLock = new();
 
     private PluginStatus _status = PluginStatus.NotInitialized;
     private long _totalAggregations = 0;

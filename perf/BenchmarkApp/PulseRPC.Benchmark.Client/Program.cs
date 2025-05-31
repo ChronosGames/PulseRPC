@@ -22,16 +22,16 @@ namespace PulseRPC.Benchmark.Client;
 internal class Program
 {
     private static readonly Option<bool> VerboseOption = new(
-        aliases: new[] { "--verbose", "-v" },
+        aliases: ["--verbose", "-v"],
         description: "启用详细输出");
 
     private static readonly Option<string> ConfigOption = new(
-        aliases: new[] { "--config", "-c" },
+        aliases: ["--config", "-c"],
         description: "配置文件路径",
         getDefaultValue: () => "configs/benchmark-config.json");
 
     private static readonly Option<string> LogLevelOption = new(
-        aliases: new[] { "--log-level", "-l" },
+        aliases: ["--log-level", "-l"],
         description: "日志级别 (Trace|Debug|Information|Warning|Error|Critical)",
         getDefaultValue: () => "Information");
 
@@ -44,7 +44,7 @@ internal class Program
             CreateValidateConfigCommand(),
             CreateValidateReportConfigCommand(),
             CreateGenerateReportCommand(),
-            CreateVersionCommand()
+            CreateVersionCommand(),
         };
 
         // 全局选项
@@ -61,40 +61,40 @@ internal class Program
     private static Command CreateRunCommand()
     {
         var serverOption = new Option<string>(
-            aliases: new[] { "--server", "-s" },
+            aliases: ["--server", "-s"],
             description: "服务器地址",
             getDefaultValue: () => "localhost:8080");
 
         var scenarioOption = new Option<string>(
-            aliases: new[] { "--scenario", "--test" },
+            aliases: ["--scenario", "--test"],
             description: "测试场景名称");
 
         var durationOption = new Option<int>(
-            aliases: new[] { "--duration", "-d" },
+            aliases: ["--duration", "-d"],
             description: "测试持续时间（秒）",
             getDefaultValue: () => 60);
 
         var connectionsOption = new Option<int>(
-            aliases: new[] { "--connections", "--conn" },
+            aliases: ["--connections", "--conn"],
             description: "并发连接数",
             getDefaultValue: () => 10);
 
         var rateOption = new Option<int>(
-            aliases: new[] { "--rate", "-r" },
+            aliases: ["--rate", "-r"],
             description: "请求速率（QPS）",
             getDefaultValue: () => 100);
 
         var outputOption = new Option<string>(
-            aliases: new[] { "--output", "-o" },
+            aliases: ["--output", "-o"],
             description: "输出文件路径");
 
         var formatOption = new Option<string>(
-            aliases: new[] { "--format", "-f" },
+            aliases: ["--format", "-f"],
             description: "报告格式 (json|csv|html)",
             getDefaultValue: () => "json");
 
         var warmupOption = new Option<int>(
-            aliases: new[] { "--warmup", "-w" },
+            aliases: ["--warmup", "-w"],
             description: "预热时间（秒）",
             getDefaultValue: () => 10);
 
@@ -165,7 +165,7 @@ internal class Program
     private static Command CreateValidateConfigCommand()
     {
         var configPathOption = new Option<string>(
-            aliases: new[] { "--file", "-f" },
+            aliases: ["--file", "-f"],
             description: "要验证的配置文件路径");
 
         var validateCommand = new Command("validate-config", "验证配置文件")
@@ -197,20 +197,20 @@ internal class Program
     private static Command CreateValidateReportConfigCommand()
     {
         var formatOption = new Option<string>(
-            aliases: new[] { "--format", "-f" },
+            aliases: ["--format", "-f"],
             description: "报告格式 (html|json|csv|markdown)",
             getDefaultValue: () => "html");
 
         var outputOption = new Option<string>(
-            aliases: new[] { "--output", "-o" },
+            aliases: ["--output", "-o"],
             description: "输出路径");
 
         var templateOption = new Option<string>(
-            aliases: new[] { "--template", "-t" },
+            aliases: ["--template", "-t"],
             description: "自定义模板路径");
 
         var chartsOption = new Option<bool>(
-            aliases: new[] { "--charts", "-c" },
+            aliases: ["--charts", "-c"],
             description: "是否包含图表",
             getDefaultValue: () => true);
 
@@ -245,21 +245,21 @@ internal class Program
     private static Command CreateGenerateReportCommand()
     {
         var inputOption = new Option<string>(
-            aliases: new[] { "--input", "-i" },
+            aliases: ["--input", "-i"],
             description: "输入结果文件路径");
         inputOption.IsRequired = true;
 
         var outputOption = new Option<string>(
-            aliases: new[] { "--output", "-o" },
+            aliases: ["--output", "-o"],
             description: "输出报告文件路径");
 
         var formatOption = new Option<string>(
-            aliases: new[] { "--format", "-f" },
+            aliases: ["--format", "-f"],
             description: "报告格式 (html|pdf|json|csv)",
             getDefaultValue: () => "html");
 
         var templateOption = new Option<string>(
-            aliases: new[] { "--template", "-t" },
+            aliases: ["--template", "-t"],
             description: "报告模板名称",
             getDefaultValue: () => "default");
 
@@ -349,14 +349,14 @@ internal class Program
         testEngine.ProgressUpdated += displayManager.UpdateProgress;
         testEngine.StateChanged += displayManager.UpdateState;
 
-        TestResults? results = null;
+        TestResults? results;
         try
         {
             // 启动实时显示
             if (displayConfig.EnableRealTimeDisplay)
             {
                 await displayManager.StartDisplayAsync(testConfig);
-                
+
                 // 给用户一点时间看到界面初始化
                 await Task.Delay(1000);
             }
@@ -368,7 +368,7 @@ internal class Program
             if (displayConfig.EnableRealTimeDisplay)
             {
                 await displayManager.StopDisplayAsync();
-                
+
                 // 显示完成摘要
                 displayManager.ShowCompletionSummary(results);
             }
@@ -381,7 +381,7 @@ internal class Program
                 displayManager.SetError(ex.Message);
                 await displayManager.StopDisplayAsync();
             }
-            
+
             Console.WriteLine($"❌ 测试执行失败: {ex.Message}");
             if (verbose)
             {
@@ -394,7 +394,7 @@ internal class Program
             // 取消事件订阅
             testEngine.ProgressUpdated -= displayManager.UpdateProgress;
             testEngine.StateChanged -= displayManager.UpdateState;
-            
+
             // 释放显示管理器资源
             displayManager.Dispose();
         }
@@ -462,7 +462,7 @@ internal class Program
             throw new ArgumentException("报告配置无效");
         }
 
-        if (validationResult.Warnings.Any())
+        if (validationResult.Warnings.Count != 0)
         {
             Console.WriteLine("⚠️  配置警告:");
             foreach (var warning in validationResult.Warnings)
@@ -525,7 +525,7 @@ internal class Program
                 Format = ParseReportFormat(format),
                 OutputPath = output,
                 Title = "PulseRPC 基准测试报告",
-                IncludeCharts = format.ToLower() == "html",
+                IncludeCharts = format.Equals("html", StringComparison.OrdinalIgnoreCase),
                 IncludeDetailedData = true,
                 IncludeErrorDetails = true,
                 IncludeEnvironmentInfo = true
@@ -548,7 +548,7 @@ internal class Program
                 throw new ArgumentException("报告配置无效");
             }
 
-            if (validationResult.Warnings.Any())
+            if (validationResult.Warnings.Count != 0)
             {
                 Console.WriteLine("⚠️  配置警告:");
                 foreach (var warning in validationResult.Warnings)
@@ -827,7 +827,7 @@ internal class Program
         {
             builder.ClearProviders();
             builder.AddConsole();
-            
+
             if (Enum.TryParse<LogLevel>(logLevel, out var level))
             {
                 builder.SetMinimumLevel(level);
@@ -838,7 +838,7 @@ internal class Program
         services.AddSingleton<TestExecutionEngine>();
         services.AddSingleton<ClientConnectionManager>();
         services.AddSingleton<RealTimeMetricsCollector>();
-        
+
         // 添加UI服务
         services.AddSingleton<DisplayConfiguration>();
         services.AddTransient<RealtimeDisplayManager>();
@@ -858,15 +858,15 @@ internal class Program
 /// </summary>
 public class TestConfiguration
 {
-    public string ServerAddress { get; set; } = string.Empty;
-    public string ScenarioName { get; set; } = string.Empty;
-    public int DurationSeconds { get; set; }
-    public int ConcurrentConnections { get; set; }
-    public int RequestRate { get; set; }
-    public int WarmupSeconds { get; set; }
-    public string? OutputPath { get; set; }
-    public string ReportFormat { get; set; } = string.Empty;
-    public bool Verbose { get; set; }
+    public string ServerAddress { get; init; } = string.Empty;
+    public string ScenarioName { get; init; } = string.Empty;
+    public int DurationSeconds { get; init; }
+    public int ConcurrentConnections { get; init; }
+    public int RequestRate { get; init; }
+    public int WarmupSeconds { get; init; }
+    public string? OutputPath { get; init; }
+    public string ReportFormat { get; init; } = string.Empty;
+    public bool Verbose { get; init; }
 }
 
 /// <summary>

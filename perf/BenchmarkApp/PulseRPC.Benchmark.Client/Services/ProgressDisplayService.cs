@@ -1,6 +1,3 @@
-using System;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Benchmark.Client.Services;
@@ -13,7 +10,7 @@ public class ProgressDisplayService : IDisposable
 {
     private readonly ILogger<ProgressDisplayService> _logger;
     private readonly Timer _refreshTimer;
-    private readonly object _lockObject = new();
+    private readonly Lock _lockObject = new();
 
     private bool _isDisplaying;
     private DateTime _startTime;
@@ -72,7 +69,10 @@ public class ProgressDisplayService : IDisposable
     {
         lock (_lockObject)
         {
-            if (!_isDisplaying) return;
+            if (!_isDisplaying)
+            {
+                return;
+            }
 
             _isDisplaying = false;
             _refreshTimer.Change(Timeout.Infinite, Timeout.Infinite);

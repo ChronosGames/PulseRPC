@@ -1,4 +1,3 @@
-using System;
 using PulseRPC.Benchmark.Client.Engine;
 
 namespace PulseRPC.Benchmark.Client.UI.Models;
@@ -101,4 +100,4 @@ public class SystemResourceInfo
     /// IO完成端口线程数
     /// </summary>
     public int CompletionPortThreads { get; set; }
-} 
+}

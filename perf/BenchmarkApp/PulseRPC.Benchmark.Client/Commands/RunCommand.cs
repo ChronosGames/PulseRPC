@@ -10,21 +10,14 @@ namespace PulseRPC.Benchmark.Client.Commands;
 /// <summary>
 /// 运行测试命令处理器
 /// </summary>
-public class RunCommand
+public class RunCommand(
+    ILogger<RunCommand> logger,
+    TestExecutionEngine testEngine,
+    ClientConfigurationLoader configLoader)
 {
-    private readonly ILogger<RunCommand> _logger;
-    private readonly TestExecutionEngine _testEngine;
-    private readonly ClientConfigurationLoader _configLoader;
-
-    public RunCommand(
-        ILogger<RunCommand> logger,
-        TestExecutionEngine testEngine,
-        ClientConfigurationLoader configLoader)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _testEngine = testEngine ?? throw new ArgumentNullException(nameof(testEngine));
-        _configLoader = configLoader ?? throw new ArgumentNullException(nameof(configLoader));
-    }
+    private readonly ILogger<RunCommand> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly TestExecutionEngine _testEngine = testEngine ?? throw new ArgumentNullException(nameof(testEngine));
+    private readonly ClientConfigurationLoader _configLoader = configLoader ?? throw new ArgumentNullException(nameof(configLoader));
 
     /// <summary>
     /// 创建运行命令
