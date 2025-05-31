@@ -105,6 +105,16 @@
     "CompressResults": true,
     "AutoOpenReport": false
   },
+  "Display": {
+    "EnableRealTimeDisplay": true,
+    "RefreshIntervalMs": 500,
+    "EnableColors": true,
+    "EnableUnicodeChars": true,
+    "FallbackToSimpleDisplay": true,
+    "SimpleDisplayUpdateIntervalSeconds": 5,
+    "ShowSystemResources": true,
+    "ShowDetailedLatency": true
+  },
   "Advanced": {
     "EnableCpuProfiling": false,
     "EnableMemoryProfiling": false,

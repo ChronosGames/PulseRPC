@@ -258,12 +258,12 @@ internal class Program
             }
 
             // 验证端口范围
-            if (config.Port <= 0 || config.Port > 65535)
+            if (config.Port is <= 0 or > 65535)
             {
                 throw new ArgumentOutOfRangeException(nameof(config.Port), "端口号必须在1-65535范围内");
             }
 
-            if (config.MetricsPort <= 0 || config.MetricsPort > 65535)
+            if (config.MetricsPort is <= 0 or > 65535)
             {
                 throw new ArgumentOutOfRangeException(nameof(config.MetricsPort), "指标端口号必须在1-65535范围内");
             }

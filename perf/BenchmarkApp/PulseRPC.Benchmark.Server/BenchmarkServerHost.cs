@@ -12,14 +12,19 @@ namespace PulseRPC.Benchmark.Server;
 /// 基准测试服务端宿主服务
 /// 负责管理PulseRPC服务器的完整生命周期
 /// </summary>
-public class BenchmarkServerHost : BackgroundService
+public class BenchmarkServerHost(
+    ILogger<BenchmarkServerHost> logger,
+    IServiceProvider serviceProvider,
+    ServerConfiguration config,
+    IMetricsCollector metricsCollector)
+    : BackgroundService
 {
-    private readonly ILogger<BenchmarkServerHost> _logger;
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ServerConfiguration _config;
-    private readonly IMetricsCollector _metricsCollector;
+    private readonly ILogger<BenchmarkServerHost> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly IServiceProvider _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+    private readonly ServerConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
+    private readonly IMetricsCollector _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
 
-    private readonly object _stateLock = new();
+    private readonly Lock _stateLock = new();
     private ServerState _currentState = ServerState.Stopped;
 
     /// <summary>
@@ -55,19 +60,6 @@ public class BenchmarkServerHost : BackgroundService
     /// 服务器状态变更事件
     /// </summary>
     public event Action<ServerState, ServerState>? StateChanged;
-
-    public BenchmarkServerHost(
-        ILogger<BenchmarkServerHost> logger,
-        IServiceProvider serviceProvider,
-        ServerConfiguration config,
-        IMetricsCollector metricsCollector)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-        _config = config ?? throw new ArgumentNullException(nameof(config));
-        _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
-    }
-
 
 
     /// <summary>
@@ -162,7 +154,7 @@ public class BenchmarkServerHost : BackgroundService
     /// <summary>
     /// 等待关闭信号
     /// </summary>
-    private async Task WaitForShutdownAsync(CancellationToken cancellationToken)
+    private static async Task WaitForShutdownAsync(CancellationToken cancellationToken)
     {
         try
         {

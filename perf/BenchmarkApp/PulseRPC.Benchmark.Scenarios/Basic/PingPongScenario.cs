@@ -9,16 +9,12 @@ namespace PulseRPC.Benchmark.Scenarios.Basic;
 /// Ping-Pong测试场景
 /// 连续发送Ping请求，测量网络延迟和抖动
 /// </summary>
-public class PingPongScenario : BenchmarkClientBase
+public class PingPongScenario(ILoggerFactory loggerFactory) : BenchmarkClientBase(loggerFactory)
 {
     private readonly List<double> _pingLatencies = new();
     private readonly List<double> _intervalTimes = new();
     private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
     private DateTime _lastPingTime;
-
-    public PingPongScenario(ILoggerFactory loggerFactory) : base(loggerFactory)
-    {
-    }
 
     public override string ScenarioName => "Ping-Pong Test";
     public override string Description => "连续发送Ping请求，测量网络延迟和抖动";

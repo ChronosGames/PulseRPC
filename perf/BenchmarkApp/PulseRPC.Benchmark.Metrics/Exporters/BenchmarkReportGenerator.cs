@@ -56,7 +56,7 @@ public class BenchmarkReportGenerator : IBenchmarkReportGenerator
             // 生成报告
             var result = await generator.GenerateReportAsync(processedData, config);
 
-            _logger.LogInformation("成功生成 {Format} 格式报告，长度: {Length} 字符", 
+            _logger.LogInformation("成功生成 {Format} 格式报告，长度: {Length} 字符",
                 config.Format, result.Length);
 
             return result;
@@ -435,4 +435,4 @@ public class BenchmarkReportGenerator : IBenchmarkReportGenerator
             _ => 999
         };
     }
-} 
+}

@@ -12,6 +12,7 @@ using PulseRPC.Benchmark.Core.Extensions;
 using PulseRPC.Benchmark.Metrics.Collectors;
 using PulseRPC.Benchmark.Metrics.Exporters;
 using PulseRPC.Benchmark.Metrics.Models;
+using PulseRPC.Benchmark.Client.UI;
 
 namespace PulseRPC.Benchmark.Client;
 
@@ -340,11 +341,66 @@ internal class Program
             Verbose = verbose
         };
 
-        // 执行测试
-        var results = await testEngine.ExecuteTestAsync(testConfig);
+        // 创建实时显示管理器
+        var displayConfig = new DisplayConfiguration();
+        var displayManager = new RealtimeDisplayManager(displayConfig, serviceProvider.GetService<ILogger<RealtimeDisplayManager>>());
+
+        // 订阅测试引擎事件
+        testEngine.ProgressUpdated += displayManager.UpdateProgress;
+        testEngine.StateChanged += displayManager.UpdateState;
+
+        TestResults? results = null;
+        try
+        {
+            // 启动实时显示
+            if (displayConfig.EnableRealTimeDisplay)
+            {
+                await displayManager.StartDisplayAsync(testConfig);
+                
+                // 给用户一点时间看到界面初始化
+                await Task.Delay(1000);
+            }
+
+            // 执行测试
+            results = await testEngine.ExecuteTestAsync(testConfig);
+
+            // 停止实时显示
+            if (displayConfig.EnableRealTimeDisplay)
+            {
+                await displayManager.StopDisplayAsync();
+                
+                // 显示完成摘要
+                displayManager.ShowCompletionSummary(results);
+            }
+        }
+        catch (Exception ex)
+        {
+            // 发生错误时也要停止显示
+            if (displayConfig.EnableRealTimeDisplay)
+            {
+                displayManager.SetError(ex.Message);
+                await displayManager.StopDisplayAsync();
+            }
+            
+            Console.WriteLine($"❌ 测试执行失败: {ex.Message}");
+            if (verbose)
+            {
+                Console.WriteLine(ex.StackTrace);
+            }
+            throw;
+        }
+        finally
+        {
+            // 取消事件订阅
+            testEngine.ProgressUpdated -= displayManager.UpdateProgress;
+            testEngine.StateChanged -= displayManager.UpdateState;
+            
+            // 释放显示管理器资源
+            displayManager.Dispose();
+        }
 
         // 生成报告
-        if (!string.IsNullOrEmpty(output))
+        if (!string.IsNullOrEmpty(output) && results != null)
         {
             await GenerateReportFromResultsAsync(results, output, format, serviceProvider);
             Console.WriteLine($"📄 测试报告已保存到: {output}");
@@ -550,19 +606,21 @@ internal class Program
     {
         try
         {
-            if (File.Exists(filePath))
+            if (!File.Exists(filePath))
             {
-                var fileInfo = new FileInfo(filePath);
-                var sizeInBytes = fileInfo.Length;
-
-                if (sizeInBytes < 1024)
-                    return $"{sizeInBytes} B";
-                else if (sizeInBytes < 1024 * 1024)
-                    return $"{sizeInBytes / 1024.0:F1} KB";
-                else
-                    return $"{sizeInBytes / (1024.0 * 1024.0):F1} MB";
+                return "未知";
             }
-            return "未知";
+
+            var fileInfo = new FileInfo(filePath);
+            var sizeInBytes = fileInfo.Length;
+
+            return sizeInBytes switch
+            {
+                < 1024 => $"{sizeInBytes} B",
+                < 1024 * 1024 => $"{sizeInBytes / 1024.0:F1} KB",
+                < 1024 * 1024 * 1024 => $"{sizeInBytes / (1024.0 * 1024.0):F1} MB",
+                _ => $"{sizeInBytes / (1024.0 * 1024.0 * 1024):F1} GB"
+            };
         }
         catch
         {
@@ -769,25 +827,27 @@ internal class Program
         {
             builder.ClearProviders();
             builder.AddConsole();
+            
             if (Enum.TryParse<LogLevel>(logLevel, out var level))
             {
                 builder.SetMinimumLevel(level);
             }
         });
 
-        // 注册指标收集器
-        services.AddSingleton<RealTimeMetricsCollector>();
-
-        // 注册报告生成器
-        services.AddSingleton<IBenchmarkReportGenerator, BenchmarkReportGenerator>();
-
-        // 注册客户端服务
+        // 添加核心服务
         services.AddSingleton<TestExecutionEngine>();
         services.AddSingleton<ClientConnectionManager>();
+        services.AddSingleton<RealTimeMetricsCollector>();
+        
+        // 添加UI服务
+        services.AddSingleton<DisplayConfiguration>();
+        services.AddTransient<RealtimeDisplayManager>();
+
+        // 添加配置加载器
         services.AddSingleton<ClientConfigurationLoader>();
 
-        // 注册基准测试服务（注释掉避免编译错误）
-        services.AddBenchmarkServices();
+        // 添加报告生成器
+        services.AddSingleton<BenchmarkReportGenerator>();
 
         return services.BuildServiceProvider();
     }

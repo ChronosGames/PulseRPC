@@ -9,16 +9,12 @@ namespace PulseRPC.Benchmark.Scenarios.Basic;
 /// 吞吐量测试场景
 /// 测量系统的吞吐量和处理能力
 /// </summary>
-public class ThroughputScenario : BenchmarkClientBase
+public class ThroughputScenario(ILoggerFactory loggerFactory) : BenchmarkClientBase(loggerFactory)
 {
     private readonly List<double> _operationTimes = new();
     private readonly object _lock = new object();
     private volatile int _completedOperations = 0;
     private volatile int _failedOperations = 0;
-
-    public ThroughputScenario(ILoggerFactory loggerFactory) : base(loggerFactory)
-    {
-    }
 
     public override string ScenarioName => "Throughput Test";
     public override string Description => "测量系统的吞吐量和处理能力";

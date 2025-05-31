@@ -299,7 +299,16 @@ public class TestExecutionEngine
                     ElapsedTime = DateTime.UtcNow - results.StartTime,
                     TotalRequests = requestCount,
                     RequestsPerSecond = requestCount / Math.Max((DateTime.UtcNow - results.StartTime).TotalSeconds, 1),
-                    ActiveConnections = config.ConcurrentConnections
+                    ActiveConnections = config.ConcurrentConnections,
+                    SuccessfulRequests = results.SuccessfulRequests,
+                    FailedRequests = results.FailedRequests,
+                    AverageLatencyMs = results.TotalRequests > 0 ? results.AverageLatencyMs : 0,
+                    RecentQPS = requestCount / Math.Max((DateTime.UtcNow - results.StartTime).TotalSeconds, 1),
+                    PeakQPS = Math.Max(requestCount / Math.Max((DateTime.UtcNow - results.StartTime).TotalSeconds, 1), 0),
+                    MinLatencyMs = results.MinLatencyMs,
+                    MaxLatencyMs = results.MaxLatencyMs,
+                    P95LatencyMs = results.P95LatencyMs,
+                    P99LatencyMs = results.P99LatencyMs
                 };
                 ProgressUpdated?.Invoke(progress);
             }
@@ -447,6 +456,46 @@ public class TestProgress
     public int SuccessfulRequests { get; set; }
     public int FailedRequests { get; set; }
     public double AverageLatencyMs { get; set; }
+    
+    /// <summary>
+    /// 当前成功率 (0-100)
+    /// </summary>
+    public double SuccessRate => TotalRequests > 0 ? (double)SuccessfulRequests / TotalRequests * 100 : 0;
+    
+    /// <summary>
+    /// 当前失败率 (0-100)
+    /// </summary>
+    public double FailureRate => TotalRequests > 0 ? (double)FailedRequests / TotalRequests * 100 : 0;
+    
+    /// <summary>
+    /// 最近一分钟的QPS
+    /// </summary>
+    public double RecentQPS { get; set; }
+    
+    /// <summary>
+    /// 峰值QPS
+    /// </summary>
+    public double PeakQPS { get; set; }
+    
+    /// <summary>
+    /// 最小延迟
+    /// </summary>
+    public double MinLatencyMs { get; set; }
+    
+    /// <summary>
+    /// 最大延迟
+    /// </summary>
+    public double MaxLatencyMs { get; set; }
+    
+    /// <summary>
+    /// P95延迟
+    /// </summary>
+    public double P95LatencyMs { get; set; }
+    
+    /// <summary>
+    /// P99延迟
+    /// </summary>
+    public double P99LatencyMs { get; set; }
 }
 
 /// <summary>
