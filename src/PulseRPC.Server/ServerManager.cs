@@ -33,25 +33,17 @@ public interface IServerManager : IDisposable
 /// <summary>
 /// 高性能服务器管理器 - 负责处理所有网络连接和消息路由
 /// </summary>
-public class ServerManager : IServerManager
+public class ServerManager(
+    IServerChannelManager serverChannelManager,
+    ILoggerFactory loggerFactory)
+    : IServerManager
 {
-    private readonly ILoggerFactory _loggerFactory;
-    private readonly ILogger<ServerManager> _logger;
+    private readonly ILoggerFactory _loggerFactory = loggerFactory;
+    private readonly ILogger<ServerManager> _logger = loggerFactory.CreateLogger<ServerManager>();
     private readonly Dictionary<string, TransportInfo> _transports = new();
     private readonly Dictionary<string, IServerListener> _listeners = new();
-    private readonly IServerChannelManager _channelManager;
-    private readonly IServerTransportFactory _transportFactory;
+    private readonly IServerTransportFactory _transportFactory = new ServerTransportFactory(loggerFactory);
     private bool _isRunning;
-
-    public ServerManager(
-        IServerChannelManager serverChannelManager,
-        ILoggerFactory loggerFactory)
-    {
-        _loggerFactory = loggerFactory;
-        _logger = loggerFactory.CreateLogger<ServerManager>();
-        _channelManager = serverChannelManager;
-        _transportFactory = new ServerTransportFactory(loggerFactory);
-    }
 
     /// <summary>
     /// 添加传输层
@@ -85,8 +77,7 @@ public class ServerManager : IServerManager
 
         _transports.Add(channelName, transportInfo);
 
-        _logger.LogInformation("已添加 {Type} 传输: {Name}, 端口: {Port}",
-            transportType, channelName, port);
+        _logger.LogInformation("已添加 {Type} 传输: {Name}, 端口: {Port}", transportType, channelName, port);
     }
 
     /// <summary>
@@ -167,7 +158,7 @@ public class ServerManager : IServerManager
         _listeners.Clear();
 
         // 释放通道资源
-        _channelManager.Dispose();
+        serverChannelManager.Dispose();
 
         _logger.LogInformation("服务器已停止");
     }
@@ -183,7 +174,7 @@ public class ServerManager : IServerManager
                 e.Transport.ConnectionId, e.Transport.RemoteEndPoint);
 
             // 将连接添加到通道管理器
-            var channel = _channelManager.AddChannel(e.Transport);
+            var channel = serverChannelManager.AddChannel(e.Transport);
 
             _logger.LogDebug("已为连接 {ConnectionId} 创建传输通道", e.Transport.ConnectionId);
         }
@@ -230,7 +221,7 @@ public class ServerManager : IServerManager
         _listeners.Clear();
 
         // 释放通道资源
-        _channelManager.Dispose();
+        serverChannelManager.Dispose();
     }
 
     /// <summary>
@@ -238,7 +229,7 @@ public class ServerManager : IServerManager
     /// </summary>
     private class TransportInfo
     {
-        public string Name { get; set; } = string.Empty;
+        public required string Name { get; init; }
         public TransportType Type { get; set; }
         public int Port { get; set; }
         public TransportOptions Options { get; set; } = new();

@@ -1,7 +1,8 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using Microsoft.Extensions.Logging;
+using PulseRPC.Client.Channels;
+using PulseRPC.Client.Transport;
 using PulseRPC.Messaging;
+using PulseRPC.Serialization;
 
 namespace PulseRPC.Transport
 {
@@ -11,29 +12,34 @@ namespace PulseRPC.Transport
     public interface IChannelManager : IDisposable
     {
         /// <summary>
-        /// 获取通道
-        /// </summary>
-        IClientChannel GetChannel(string channelName);
-
-        /// <summary>
         /// 获取默认通道
         /// </summary>
         IClientChannel GetDefaultChannel();
 
         /// <summary>
-        /// 注册通道
+        /// 获取通道
         /// </summary>
-        void RegisterChannel(string channelName, IClientChannel channel, bool isDefault = false);
-
-        /// <summary>
-        /// 注销通道
-        /// </summary>
-        void UnregisterChannel(string channelName);
+        IClientChannel GetChannel(string channelName);
 
         /// <summary>
         /// 检查通道是否存在
         /// </summary>
         bool HasChannel(string channelName);
+
+        /// <summary>
+        /// 注册通道
+        /// </summary>
+        void RegisterChannel(string name, IClientChannel channel, bool isDefault = false);
+
+        /// <summary>
+        /// 注册通道
+        /// </summary>
+        void RegisterChannel(string name, TransportType type, TransportOptions options, bool isDefault = false);
+
+        /// <summary>
+        /// 注销通道
+        /// </summary>
+        void UnregisterChannel(string channelName);
     }
 
     /// <summary>
@@ -41,9 +47,15 @@ namespace PulseRPC.Transport
     /// </summary>
     public class ChannelManager : IChannelManager
     {
+        private readonly ILoggerFactory _loggerFactory;
         private readonly Dictionary<string, IClientChannel> _channels = new();
         private string? _defaultChannelName;
         private readonly object _syncLock = new object();
+
+        public ChannelManager(ILoggerFactory loggerFactory)
+        {
+            _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+        }
 
         public IClientChannel GetChannel(string channelName)
         {
@@ -71,18 +83,18 @@ namespace PulseRPC.Transport
             }
         }
 
-        public void RegisterChannel(string channelName, IClientChannel channel, bool isDefault = false)
+        public void RegisterChannel(string name, IClientChannel channel, bool isDefault = false)
         {
             lock (_syncLock)
             {
-                if (!_channels.TryAdd(channelName, channel))
+                if (!_channels.TryAdd(name, channel))
                 {
-                    throw new ArgumentException($"Channel already registered: {channelName}");
+                    throw new ArgumentException($"Channel already registered: {name}");
                 }
 
                 if (isDefault || string.IsNullOrEmpty(_defaultChannelName))
                 {
-                    _defaultChannelName = channelName;
+                    _defaultChannelName = name;
                 }
             }
         }
@@ -118,6 +130,24 @@ namespace PulseRPC.Transport
                 _channels.Clear();
                 _defaultChannelName = null;
             }
+        }
+
+        public void RegisterChannel(string name, TransportType type, TransportOptions options, bool isDefault = false)
+        {
+            IClientTransport transport = type switch
+            {
+                TransportType.Tcp => new TcpClientTransport(options, _loggerFactory.CreateLogger<TcpClientTransport>()),
+                TransportType.Kcp => new KcpClientTransport(options, _loggerFactory.CreateLogger<KcpClientTransport>()),
+                _ => throw new NotSupportedException($"不支持的传输类型: {type}")
+            };
+
+            var channel = new TransportChannel(
+                name,
+                transport,
+                PulseRPCSerializerProvider.Instance,
+                _loggerFactory.CreateLogger<TransportChannel>());
+
+            RegisterChannel(name, channel, isDefault);
         }
     }
 }
