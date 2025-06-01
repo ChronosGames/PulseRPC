@@ -1,10 +1,51 @@
 ﻿namespace PulseRPC.Server;
 
+
 /// <summary>
 /// 服务器配置选项
 /// </summary>
 public class ServerOptions
 {
+    /// <summary>
+    /// 服务名称
+    /// </summary>
+    public string ServiceName { get; set; } = "PulseRPC-Service";
+
+    /// <summary>
+    /// 服务版本
+    /// </summary>
+    public string ServiceVersion { get; set; } = "1.0.0";
+
+    /// <summary>
+    /// 服务标签
+    /// </summary>
+    public Dictionary<string, string> ServiceTags { get; set; } = new();
+
+    /// <summary>
+    /// 服务元数据
+    /// </summary>
+    public Dictionary<string, object> ServiceMetadata { get; set; } = new();
+
+    /// <summary>
+    /// 是否启用服务注册
+    /// </summary>
+    public bool EnableServiceRegistry { get; set; } = false;
+
+    /// <summary>
+    /// 服务实例权重
+    /// </summary>
+    public int ServiceWeight { get; set; } = 1;
+
+    /// <summary>
+    /// 自动获取本机IP地址
+    /// </summary>
+    public bool AutoDetectAddress { get; set; } = true;
+
+    /// <summary>
+    /// 手动指定服务地址 (当AutoDetectAddress为false时使用)
+    /// </summary>
+    public string? ServiceAddress { get; set; }
+
     /// <summary>
     /// 监听IP地址
     /// </summary>

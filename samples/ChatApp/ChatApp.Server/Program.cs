@@ -111,9 +111,7 @@ namespace GameServer
                 var serverChannelManager = sp.GetRequiredService<PulseRPC.Server.Transport.IServerChannelManager>();
 
                 // 创建服务器管理器
-                var serverManager = new ServerManager(
-                    serverChannelManager,
-                    loggerFactory);
+                var serverManager = new ServerManager(serverChannelManager, loggerFactory);
 
                 // 添加TCP传输 (端口7000)
                 serverManager.AddTransport(
