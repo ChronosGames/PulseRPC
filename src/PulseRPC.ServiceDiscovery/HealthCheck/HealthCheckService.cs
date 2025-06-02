@@ -157,6 +157,86 @@ public class HealthCheckService : IHealthChecker, IDisposable
     }
 
     /// <summary>
+    /// 开始监控服务健康状态
+    /// </summary>
+    /// <param name="endpoint">服务端点</param>
+    /// <param name="interval">检查间隔</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>健康检查结果流</returns>
+    public async IAsyncEnumerable<HealthCheckResult> MonitorHealthAsync(
+        ServiceEndpoint endpoint,
+        TimeSpan interval,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        if (endpoint == null)
+            throw new ArgumentNullException(nameof(endpoint));
+
+        if (interval <= TimeSpan.Zero)
+            throw new ArgumentException("检查间隔必须大于零", nameof(interval));
+
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(HealthCheckService));
+
+        _logger.LogInformation("开始监控服务健康状态: {ServiceId} @ {EndPoint}, 间隔: {Interval}",
+            endpoint.ServiceId, endpoint.EndPoint, interval);
+
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                HealthCheckResult? result;
+
+                try
+                {
+                    // 执行健康检查
+                    result = await CheckHealthAsync(endpoint, cancellationToken);
+
+                    _logger.LogDebug("健康检查完成: {ServiceId}, 状态: {Status}, 响应时间: {ResponseTime}ms",
+                        endpoint.ServiceId, result.Status, result.ResponseTimeMs);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogDebug("健康监控已取消: {ServiceId}", endpoint.ServiceId);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "健康检查失败: {ServiceId}", endpoint.ServiceId);
+
+                    // 即使健康检查失败，也要返回失败结果
+                    result = new HealthCheckResult
+                    {
+                        ServiceId = endpoint.ServiceId,
+                        Status = HealthStatus.Unhealthy,
+                        CheckTime = DateTime.UtcNow,
+                        ResponseTime = TimeSpan.Zero,
+                        ErrorMessage = ex.Message,
+                        Attempts = 1,
+                        Data = { ["exception"] = ex.GetType().Name }
+                    };
+                }
+
+                yield return result;
+
+                try
+                {
+                    // 等待下一次检查间隔
+                    await Task.Delay(interval, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogDebug("健康监控延迟已取消: {ServiceId}", endpoint.ServiceId);
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            _logger.LogInformation("停止监控服务健康状态: {ServiceId}", endpoint.ServiceId);
+        }
+    }
+
+    /// <summary>
     /// 检查服务端点健康状态
     /// </summary>
     /// <param name="endpoint">服务端点</param>
@@ -210,7 +290,12 @@ public class HealthCheckService : IHealthChecker, IDisposable
         _logger.LogDebug("批量健康检查完成，健康端点: {HealthyCount}/{TotalCount}",
             results.Count(r => r.Status == HealthStatus.Healthy), results.Length);
 
-        return results;
+        Dictionary<string, HealthCheckResult> dict = new();
+        foreach (var result in results)
+        {
+            dict[result.ServiceId] = result;
+        }
+        return dict;
     }
 
     /// <summary>
@@ -449,7 +534,7 @@ public class HealthCheckService : IHealthChecker, IDisposable
                     Status = lastCheckDetails.IsSuccess ? HealthStatus.Healthy : HealthStatus.Unhealthy,
                     CheckTime = lastCheckDetails.CheckTime,
                     ResponseTime = lastCheckDetails.ResponseTime,
-                    Details = lastCheckDetails.ErrorMessage,
+                    ErrorMessage = lastCheckDetails.ErrorMessage,
                     Attempts = attempts
                 };
 
@@ -487,7 +572,7 @@ public class HealthCheckService : IHealthChecker, IDisposable
                         Status = HealthStatus.Unhealthy,
                         CheckTime = startTime,
                         ResponseTime = DateTime.UtcNow - startTime,
-                        Details = ex.Message,
+                        ErrorMessage = ex.Message,
                         Attempts = attempts
                     };
 
@@ -506,7 +591,7 @@ public class HealthCheckService : IHealthChecker, IDisposable
             Status = HealthStatus.Unhealthy,
             CheckTime = startTime,
             ResponseTime = DateTime.UtcNow - startTime,
-            Details = lastCheckDetails?.ErrorMessage ?? "健康检查失败",
+            ErrorMessage = lastCheckDetails?.ErrorMessage ?? "健康检查失败",
             Attempts = attempts
         };
 

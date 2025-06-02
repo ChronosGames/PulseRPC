@@ -167,6 +167,8 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         {
             while (!newCts.Token.IsCancellationRequested)
             {
+                var endpoints = new List<ServiceEndpoint>();
+
                 try
                 {
                     var queryOptions = new QueryOptions
@@ -182,7 +184,6 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
                         currentIndex = response.LastIndex;
                         _watchIndexes[watchKey] = currentIndex;
 
-                        var endpoints = new List<ServiceEndpoint>();
                         foreach (var service in response.Response)
                         {
                             var endpoint = ConvertToServiceEndpoint(service);
@@ -191,8 +192,6 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
                                 endpoints.Add(endpoint);
                             }
                         }
-
-                        yield return endpoints.ToArray();
                     }
                 }
                 catch (OperationCanceledException)
@@ -204,6 +203,8 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
                     _logger.LogError(ex, "监听服务 {ServiceName} 时发生错误", serviceName);
                     await Task.Delay(TimeSpan.FromSeconds(5), newCts.Token);
                 }
+
+                yield return endpoints.ToArray();
             }
         }
         finally
@@ -382,7 +383,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
                 }
             }
 
-            var healthStatus = serviceEntry.Checks?.All(c => c.Status == HealthStatus.Passing) == true
+            var healthStatus = serviceEntry.Checks?.All(c => c.Status == global::Consul.HealthStatus.Passing) == true
                 ? HealthStatus.Healthy
                 : HealthStatus.Unhealthy;
 

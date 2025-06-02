@@ -17,7 +17,7 @@ namespace PulseRPC.ServiceDiscovery.Implementations
         private readonly ILogger<DnsServiceDiscovery> _logger;
         private readonly ConcurrentDictionary<string, ServiceEndpoint[]> _serviceCache;
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _watchCancellations;
-        private readonly Timer _refreshTimer;
+        private readonly Timer? _refreshTimer;
         private readonly SemaphoreSlim _refreshSemaphore;
         private volatile bool _disposed;
 
@@ -43,6 +43,11 @@ namespace PulseRPC.ServiceDiscovery.Implementations
         }
 
         #region IServiceDiscovery Implementation
+
+        public Task<IReadOnlyList<string>> GetServiceNamesAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
 
         /// <summary>
         /// 发现指定名称的所有服务端点
@@ -84,7 +89,7 @@ namespace PulseRPC.ServiceDiscovery.Implementations
         /// </summary>
         public async Task<IReadOnlyList<ServiceEndpoint>> DiscoverByTagsAsync(
             string serviceName,
-            IDictionary<string, string> tags,
+            Dictionary<string, string> tags,
             CancellationToken cancellationToken = default)
         {
             // DNS 服务发现不直接支持标签过滤，可以通过 TXT 记录实现
@@ -159,31 +164,33 @@ namespace PulseRPC.ServiceDiscovery.Implementations
                 // 定期轮询检查变化
                 while (!watchCts.Token.IsCancellationRequested)
                 {
+                    List<ServiceEndpoint>? updatedEndpoints = null;
                     try
                     {
                         await Task.Delay(_options.WatchPollInterval, watchCts.Token);
 
-                        var updatedEndpoints = await QueryServiceEndpointsAsync(serviceName, cancellationToken);
+                        updatedEndpoints = await QueryServiceEndpointsAsync(serviceName, cancellationToken);
                         var currentEndpointsHash = GetEndpointsHash(updatedEndpoints);
 
                         // 检查是否有变化
-                        if (currentEndpointsHash != lastEndpointsHash)
+                        if (currentEndpointsHash == lastEndpointsHash)
                         {
-                            _logger.LogDebug("检测到 DNS 服务变化: {ServiceName}, 当前端点数: {Count}",
-                                serviceName, updatedEndpoints.Count);
-
-                            // 清除缓存
-                            InvalidateServiceCache(serviceName);
-
-                            // 更新缓存
-                            if (_options.EnableCaching)
-                            {
-                                _serviceCache.TryUpdate(serviceName, updatedEndpoints.ToArray(), _serviceCache.GetValueOrDefault(serviceName, Array.Empty<ServiceEndpoint>()));
-                            }
-
-                            yield return updatedEndpoints.ToArray();
-                            lastEndpointsHash = currentEndpointsHash;
+                            continue;
                         }
+
+                        _logger.LogDebug("检测到 DNS 服务变化: {ServiceName}, 当前端点数: {Count}",
+                            serviceName, updatedEndpoints.Count);
+
+                        // 清除缓存
+                        InvalidateServiceCache(serviceName);
+
+                        // 更新缓存
+                        if (_options.EnableCaching)
+                        {
+                            _serviceCache.TryUpdate(serviceName, updatedEndpoints.ToArray(), _serviceCache.GetValueOrDefault(serviceName, Array.Empty<ServiceEndpoint>()));
+                        }
+
+                        lastEndpointsHash = currentEndpointsHash;
                     }
                     catch (OperationCanceledException)
                     {
@@ -193,6 +200,11 @@ namespace PulseRPC.ServiceDiscovery.Implementations
                     {
                         _logger.LogWarning(ex, "DNS Watch 监听出错: {ServiceName}", serviceName);
                         await Task.Delay(TimeSpan.FromSeconds(5), watchCts.Token);
+                    }
+
+                    if (updatedEndpoints != null)
+                    {
+                        yield return updatedEndpoints.ToArray();
                     }
                 }
             }

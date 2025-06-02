@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 
 namespace ChatApp.Console;
 
-class Program
+internal abstract class Program
 {
     static async Task Main(string[] args)
     {
