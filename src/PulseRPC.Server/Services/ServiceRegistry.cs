@@ -9,20 +9,6 @@ using PulseRPC.Server.Transport;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using PulseRPC.Network;
-using System.Text.Json;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Logging;
-using PulseRPC.Messaging;
-using PulseRPC.Serialization;
-using PulseRPC.Server.Transport;
-using PulseRPC.Transport;
-using System.ComponentModel;
-using System.IO;
-using MemoryPack;
 
 namespace PulseRPC.Server.Services;
 
@@ -639,7 +625,7 @@ public partial class ServiceRegistry
 
         // 获取 MemoryPackSerializer.Deserialize<T>(byte[]) 方法
         var deserializeMethod = typeof(MemoryPackSerializer)
-            .GetMethod(nameof(MemoryPackSerializer.Deserialize), new Type[] { typeof(byte[]) })!
+            .GetMethod(nameof(MemoryPackSerializer.Deserialize), [typeof(byte[])])!
             .MakeGenericMethod(type);
 
         // 创建方法调用表达式

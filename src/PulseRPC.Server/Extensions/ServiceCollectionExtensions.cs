@@ -121,7 +121,7 @@ public static class ServiceCollectionExtensions
         where TService : class
         where TImplementation : class, TService
     {
-        services.Add(new ServiceDescriptor(typeof(TService), typeof(TImplementation), lifetime));
+        services.Add(new Microsoft.Extensions.DependencyInjection.ServiceDescriptor(typeof(TService), typeof(TImplementation), lifetime));
 
         // 注册服务描述符
         services.Configure<PulseRpcServiceOptions>(options =>
@@ -327,7 +327,7 @@ public static class ServiceCollectionExtensions
 
         // 添加核心服务
         services.TryAddSingleton<ServiceRegistrar>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ServiceRegistrar>(provider =>
+        services.TryAddEnumerable(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IHostedService, ServiceRegistrar>(provider =>
             provider.GetRequiredService<ServiceRegistrar>()));
 
         return services;
@@ -353,7 +353,7 @@ public static class ServiceCollectionExtensions
             var serviceId = GenerateServiceId(serviceName, port, options.IdGenerationStrategy, options.ServiceIdPrefix);
 
             // 自动添加服务信息
-            var serviceInfo = new ServiceInfo
+            var serviceInfo = new ServiceRegistration.ServiceInfo
             {
                 ServiceId = serviceId,
                 ServiceName = serviceName,
@@ -381,7 +381,7 @@ public static class ServiceCollectionExtensions
     /// <returns>服务集合</returns>
     public static IServiceCollection AddPulseRpcServiceRegistrations(
         this IServiceCollection services,
-        IEnumerable<ServiceInfo> servicesInfo,
+        IEnumerable<ServiceRegistration.ServiceInfo> servicesInfo,
         Action<ServiceRegistrationOptions>? configureOptions = null)
     {
         services.Configure<ServiceRegistrationOptions>(options =>
@@ -413,7 +413,7 @@ public static class ServiceCollectionExtensions
         });
 
         // 添加 Consul 服务注册
-        services.AddConsulServiceRegistry(configuration => { });
+        // services.AddConsulServiceRegistry(configuration => { });
 
         return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
     }
@@ -438,7 +438,7 @@ public static class ServiceCollectionExtensions
         });
 
         // 添加 Etcd 服务注册
-        services.AddEtcdServiceRegistry(configuration => { });
+        // services.AddEtcdServiceRegistry(configuration => { });
 
         return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
     }
@@ -516,7 +516,7 @@ public static class ServiceCollectionExtensions
 
         // 添加服务注册器
         services.TryAddSingleton<ServiceRegistrar>();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ServiceRegistrar>(provider =>
+        services.TryAddEnumerable(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IHostedService, ServiceRegistrar>(provider =>
             provider.GetRequiredService<ServiceRegistrar>()));
     }
 
@@ -527,21 +527,23 @@ public static class ServiceCollectionExtensions
     {
         switch (type)
         {
-            case ServiceRegistryType.Consul:
-                services.AddConsulServiceRegistry(configuration => { });
-                break;
-            case ServiceRegistryType.Etcd:
-                services.AddEtcdServiceRegistry(configuration => { });
-                break;
-            case ServiceRegistryType.Zookeeper:
-                services.AddZookeeperServiceRegistry(configuration => { });
-                break;
+            // case ServiceRegistryType.Consul:
+            //     services.AddConsulServiceRegistry(configuration => { });
+            //     break;
+            // case ServiceRegistryType.Etcd:
+            //     services.AddEtcdServiceRegistry(configuration => { });
+            //     break;
+            // case ServiceRegistryType.Zookeeper:
+            //     services.AddZookeeperServiceRegistry(configuration => { });
+            //     break;
             case ServiceRegistryType.Dns:
                 // DNS 注册通常不需要额外配置
                 break;
             case ServiceRegistryType.Custom:
                 // 自定义实现由用户手动注册
                 break;
+            default:
+                throw new NotSupportedException();
         }
     }
 

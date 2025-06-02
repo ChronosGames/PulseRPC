@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Net.Http;
+using System.Net;
 using System.Text;
 using PulseRPC.Client.ServiceDiscovery;
 using PulseRPC.Server.ServiceDiscovery;
@@ -20,7 +21,7 @@ namespace PulseRPC.ServiceDiscovery.Implementations
         private readonly HttpClient _httpClient;
         private readonly ConcurrentDictionary<string, ServiceEndpoint[]> _serviceCache;
         private readonly ConcurrentDictionary<string, CancellationTokenSource> _watchCancellations;
-        private readonly Timer _refreshTimer;
+        private readonly Timer? _refreshTimer;
         private readonly SemaphoreSlim _refreshSemaphore;
         private volatile bool _disposed;
 
@@ -83,6 +84,21 @@ namespace PulseRPC.ServiceDiscovery.Implementations
                 _logger.LogError(ex, "注册服务到 Etcd 失败: {ServiceId}", endpoint.ServiceId);
                 throw;
             }
+        }
+
+        public Task UnregisterAsync(string serviceId, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task UpdateHealthAsync(string serviceId, HealthStatus status, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
+        public Task<IReadOnlyList<ServiceEndpoint>> GetRegisteredServicesAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
         }
 
         /// <summary>
@@ -208,12 +224,17 @@ namespace PulseRPC.ServiceDiscovery.Implementations
             }
         }
 
+        public Task<IReadOnlyList<string>> GetServiceNamesAsync(CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
+        }
+
         /// <summary>
         /// 根据标签发现服务端点
         /// </summary>
         public async Task<IReadOnlyList<ServiceEndpoint>> DiscoverByTagsAsync(
             string serviceName,
-            IDictionary<string, string> tags,
+            Dictionary<string, string> tags,
             CancellationToken cancellationToken = default)
         {
             var allEndpoints = await DiscoverAsync(serviceName, cancellationToken);
@@ -256,7 +277,7 @@ namespace PulseRPC.ServiceDiscovery.Implementations
                 // 开始监听变化
                 await foreach (var changeEvent in WatchKeyPrefixAsync(keyPrefix, watchCts.Token))
                 {
-                    if (changeEvent.Type == EtcdEventType.Put || changeEvent.Type == EtcdEventType.Delete)
+                    if (changeEvent.Type is EtcdEventType.Put or EtcdEventType.Delete)
                     {
                         // 服务发生变化，重新获取端点
                         InvalidateServiceCache(serviceName);
@@ -288,11 +309,13 @@ namespace PulseRPC.ServiceDiscovery.Implementations
         {
             _httpClient.Timeout = _options.RequestTimeout;
 
-            if (!string.IsNullOrEmpty(_options.Username) && !string.IsNullOrEmpty(_options.Password))
+            if (string.IsNullOrEmpty(_options.Username) || string.IsNullOrEmpty(_options.Password))
             {
-                var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_options.Username}:{_options.Password}"));
-                _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                return;
             }
+
+            var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_options.Username}:{_options.Password}"));
+            _httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
         }
 
         /// <summary>
@@ -310,13 +333,15 @@ namespace PulseRPC.ServiceDiscovery.Implementations
                 try
                 {
                     var record = JsonSerializer.Deserialize<EtcdServiceRecord>(kvPair.Value);
-                    if (record != null)
+                    if (record == null)
                     {
-                        var endpoint = ConvertToServiceEndpoint(record);
-                        if (endpoint != null)
-                        {
-                            endpoints.Add(endpoint);
-                        }
+                        continue;
+                    }
+
+                    var endpoint = ConvertToServiceEndpoint(record);
+                    if (endpoint != null)
+                    {
+                        endpoints.Add(endpoint);
                     }
                 }
                 catch (Exception ex)
@@ -653,6 +678,7 @@ namespace PulseRPC.ServiceDiscovery.Implementations
 
             while (!cancellationToken.IsCancellationRequested)
             {
+                List<EtcdWatchEvent> results = [];
                 try
                 {
                     await Task.Delay(_options.WatchPollInterval, cancellationToken);
@@ -661,15 +687,7 @@ namespace PulseRPC.ServiceDiscovery.Implementations
                     var kvPairs = await GetKeyPrefixAsync(keyPrefix, cancellationToken);
 
                     // 模拟变化事件
-                    foreach (var kvPair in kvPairs)
-                    {
-                        yield return new EtcdWatchEvent
-                        {
-                            Type = EtcdEventType.Put,
-                            Key = kvPair.Key,
-                            Value = kvPair.Value
-                        };
-                    }
+                    results.AddRange(kvPairs.Select(kvPair => new EtcdWatchEvent { Type = EtcdEventType.Put, Key = kvPair.Key, Value = kvPair.Value }));
                 }
                 catch (OperationCanceledException)
                 {
@@ -679,6 +697,16 @@ namespace PulseRPC.ServiceDiscovery.Implementations
                 {
                     _logger.LogWarning(ex, "Watch 监听出错: {KeyPrefix}", keyPrefix);
                     await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+                }
+
+                if (results.Count <= 0)
+                {
+                    continue;
+                }
+
+                foreach (var result in results)
+                {
+                    yield return result;
                 }
             }
         }

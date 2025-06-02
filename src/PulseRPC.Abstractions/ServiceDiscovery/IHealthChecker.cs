@@ -5,6 +5,8 @@ namespace PulseRPC.ServiceDiscovery
     /// </summary>
     public class HealthCheckResult
     {
+        public string ServiceId { get; set; } = string.Empty;
+
         /// <summary>
         /// 健康状态
         /// </summary>
@@ -13,7 +15,12 @@ namespace PulseRPC.ServiceDiscovery
         /// <summary>
         /// 检查时间
         /// </summary>
-        public DateTime CheckedAt { get; set; } = DateTime.UtcNow;
+        public DateTime CheckTime { get; set; }
+
+        /// <summary>
+        /// 响应时间
+        /// </summary>
+        public TimeSpan ResponseTime { get; set; }
 
         /// <summary>
         /// 错误信息
@@ -23,7 +30,9 @@ namespace PulseRPC.ServiceDiscovery
         /// <summary>
         /// 响应时间 (毫秒)
         /// </summary>
-        public long ResponseTimeMs { get; set; }
+        public long ResponseTimeMs => (long)ResponseTime.TotalMilliseconds;
+
+        public int Attempts { get; set; }
 
         /// <summary>
         /// 额外的检查数据
