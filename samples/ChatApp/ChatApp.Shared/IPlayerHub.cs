@@ -6,7 +6,7 @@ using PulseRPC;
 
 #nullable enable
 
-namespace ChatApp.Shared
+namespace ChatApp
 {
     /// <summary>
     /// 指定默认使用TCP通道

@@ -319,10 +319,9 @@ public class HealthCheckService : IHealthChecker, IDisposable
             using var client = new TcpClient();
             var connectTask = client.ConnectAsync(endpoint.Address, endpoint.Port);
             var completedTask = await Task.WhenAny(connectTask, Task.Delay(checkTimeout, cancellationToken));
-
+            stopwatch.Stop();
             if (completedTask == connectTask && client.Connected)
             {
-                stopwatch.Stop();
                 return new HealthCheckDetails
                 {
                     CheckType = HealthCheckType.TcpConnection,
@@ -334,7 +333,6 @@ public class HealthCheckService : IHealthChecker, IDisposable
             }
             else
             {
-                stopwatch.Stop();
                 return new HealthCheckDetails
                 {
                     CheckType = HealthCheckType.TcpConnection,

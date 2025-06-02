@@ -4,7 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 
-namespace PulseRPC.Tracing.Extensions;
+namespace PulseRPC.Tracing;
 
 /// <summary>
 /// 链路追踪系统依赖注入扩展方法

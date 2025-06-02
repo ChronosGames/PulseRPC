@@ -14,7 +14,6 @@ public class ServerChannelManager : IServerChannelManager
     private readonly ILogger<ServerChannelManager> _logger;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly Timer _cleanupTimer;
-    private readonly object _lockObject = new object();
     private volatile bool _disposed;
 
     /// <summary>
@@ -64,8 +63,8 @@ public class ServerChannelManager : IServerChannelManager
     /// <returns>创建的传输通道</returns>
     public IServerChannel AddChannel(IServerTransport transport)
     {
-        if (transport == null) throw new ArgumentNullException(nameof(transport));
-        if (_disposed) throw new ObjectDisposedException(nameof(ServerChannelManager));
+        ArgumentNullException.ThrowIfNull(transport);
+        ObjectDisposedException.ThrowIf(_disposed, nameof(ServerChannelManager));
 
         // 创建通道专用的日志器
         var channelLogger = _loggerFactory?.CreateLogger<ServerTransportChannel>();
@@ -112,24 +111,28 @@ public class ServerChannelManager : IServerChannelManager
     /// <returns>是否成功移除</returns>
     public bool RemoveChannel(string connectionId)
     {
-        if (string.IsNullOrEmpty(connectionId)) return false;
-
-        if (_channels.TryRemove(connectionId, out var channel))
+        if (string.IsNullOrEmpty(connectionId))
         {
-            _logger.LogInformation("已移除传输通道: {ConnectionId}", connectionId);
-
-            // 取消订阅事件
-            channel.StateChanged -= OnChannelStateChanged;
-
-            // 触发断开事件
-            ChannelDisconnected?.Invoke(this, new ChannelEventArgs(channel));
-
-            // 释放通道资源
-            channel.Dispose();
-            return true;
+            return false;
         }
 
-        return false;
+        if (!_channels.TryRemove(connectionId, out var channel))
+        {
+            return false;
+        }
+
+        _logger.LogInformation("已移除传输通道: {ConnectionId}", connectionId);
+
+        // 取消订阅事件
+        channel.StateChanged -= OnChannelStateChanged;
+
+        // 触发断开事件
+        ChannelDisconnected?.Invoke(this, new ChannelEventArgs(channel));
+
+        // 释放通道资源
+        channel.Dispose();
+
+        return true;
     }
 
     /// <summary>
@@ -157,7 +160,10 @@ public class ServerChannelManager : IServerChannelManager
     /// <returns>用户的传输通道集合</returns>
     public IEnumerable<IServerChannel> GetChannelsByUser(string username)
     {
-        if (string.IsNullOrEmpty(username)) return Enumerable.Empty<IServerChannel>();
+        if (string.IsNullOrEmpty(username))
+        {
+            return Enumerable.Empty<IServerChannel>();
+        }
 
         return _channels.Values
             .Where(c => c.IsAuthenticated &&
@@ -196,7 +202,10 @@ public class ServerChannelManager : IServerChannelManager
     /// </summary>
     private void OnChannelStateChanged(object? sender, TransportStateEventArgs e)
     {
-        if (sender is not ITransportChannel channel) return;
+        if (sender is not ITransportChannel channel)
+        {
+            return;
+        }
 
         _logger.LogDebug("通道状态变更: {ConnectionId} - {OldState} -> {NewState}",
             channel.ConnectionId, e.PreviousState, e.CurrentState);
@@ -213,7 +222,10 @@ public class ServerChannelManager : IServerChannelManager
     /// </summary>
     private void CleanupExpiredChannels(object? state)
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
 
         try
         {
@@ -246,12 +258,15 @@ public class ServerChannelManager : IServerChannelManager
     /// </summary>
     public void Dispose()
     {
-        if (_disposed) return;
+        if (_disposed)
+        {
+            return;
+        }
 
         _disposed = true;
 
         // 停止清理定时器
-        _cleanupTimer?.Dispose();
+        _cleanupTimer.Dispose();
 
         // 关闭所有通道
         var allChannels = _channels.Values.ToList();
@@ -277,26 +292,16 @@ public class ServerChannelManager : IServerChannelManager
 /// <summary>
 /// 通道事件参数
 /// </summary>
-public class ChannelEventArgs : EventArgs
+public class ChannelEventArgs(ITransportChannel channel) : EventArgs
 {
-    public ITransportChannel Channel { get; }
-
-    public ChannelEventArgs(ITransportChannel channel)
-    {
-        Channel = channel ?? throw new ArgumentNullException(nameof(channel));
-    }
+    public ITransportChannel Channel { get; } = channel ?? throw new ArgumentNullException(nameof(channel));
 }
 
 /// <summary>
 /// 通道认证事件参数
 /// </summary>
-public class ChannelAuthenticatedEventArgs : ChannelEventArgs
+public class ChannelAuthenticatedEventArgs(ITransportChannel channel, IAuthenticationContext authContext)
+    : ChannelEventArgs(channel)
 {
-    public IAuthenticationContext AuthenticationContext { get; }
-
-    public ChannelAuthenticatedEventArgs(ITransportChannel channel, IAuthenticationContext authContext)
-        : base(channel)
-    {
-        AuthenticationContext = authContext ?? throw new ArgumentNullException(nameof(authContext));
-    }
+    public IAuthenticationContext AuthenticationContext { get; } = authContext ?? throw new ArgumentNullException(nameof(authContext));
 }

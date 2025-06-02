@@ -5,7 +5,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Client.ServiceDiscovery;
 using PulseRPC.Server.ServiceDiscovery;
-using PulseRPC.ServiceDiscovery.Consul;
 using PulseRPC.ServiceDiscovery.HealthCheck;
 using PulseRPC.ServiceDiscovery.Implementations;
 
