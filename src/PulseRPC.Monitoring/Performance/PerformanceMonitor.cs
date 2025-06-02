@@ -5,6 +5,7 @@ using PulseRPC.Monitoring.Metrics;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Management;
+using System.Runtime.Versioning;
 
 namespace PulseRPC.Monitoring.Performance;
 
@@ -93,6 +94,7 @@ public class PerformanceMonitor : BackgroundService
     /// <summary>
     /// 收集系统级别指标
     /// </summary>
+    [SupportedOSPlatform("windows")]
     private async Task CollectSystemMetrics()
     {
         var tags = new Dictionary<string, string>

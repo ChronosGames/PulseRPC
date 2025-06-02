@@ -21,12 +21,14 @@ public class Span : ISpan
         StartTime = startTime;
         Status = SpanStatus.Unset;
 
-        if (initialTags != null)
+        if (initialTags == null)
         {
-            foreach (var tag in initialTags)
-            {
-                _tags.TryAdd(tag.Key, tag.Value);
-            }
+            return;
+        }
+
+        foreach (var tag in initialTags)
+        {
+            _tags.TryAdd(tag.Key, tag.Value);
         }
     }
 
