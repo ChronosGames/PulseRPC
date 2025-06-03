@@ -1,20 +1,12 @@
 #nullable enable
-PulseRPC.Client.ConnectionStateChangedEventArgs.ConnectionStateChangedEventArgs(bool isConnected, string? disconnectReason = null) -> void
-PulseRPC.Client.ConnectionStateChangedEventArgs.DisconnectReason.get -> string?
-PulseRPC.Client.ConnectionStateChangedEventArgs.IsConnected.get -> bool
+PulseRPC.Client.ClientOptions
+PulseRPC.Client.ClientOptions.ClientOptions() -> void
+PulseRPC.Client.ClientOptions.ConnectionTimeout.get -> System.TimeSpan
+PulseRPC.Client.ClientOptions.ConnectionTimeout.set -> void
+PulseRPC.Client.ClientOptions.ReceiveBufferSize.get -> int
+PulseRPC.Client.ClientOptions.ReceiveBufferSize.set -> void
+PulseRPC.Client.ClientOptions.SendBufferSize.get -> int
+PulseRPC.Client.ClientOptions.SendBufferSize.set -> void
 PulseRPC.Client.Events.EventBusFactory.CreateForChannel(PulseRPC.Messaging.IClientChannel! channel) -> PulseRPC.IEventBus!
 PulseRPC.Client.Events.EventBusFactory.CreateInMemory(string! name = "memory") -> PulseRPC.IEventBus!
 PulseRPC.Client.Events.EventBusFactory.EventBusFactory(PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
-PulseRPC.Client.Platform.Net.NetPlatformAdapter.ConfigureThreading() -> void
-PulseRPC.Client.Platform.Net.NetPlatformAdapter.InvokeOnMainThread(System.Action! action) -> void
-PulseRPC.Client.Platform.Unity.UnityPlatformAdapter
-PulseRPC.Client.PulseRPCClient.ConnectionStateChanged -> PulseRPC.EventHandler<PulseRPC.Client.ConnectionStateChangedEventArgs!>?
-PulseRPC.Client.PulseRPCClient.ErrorOccurred -> PulseRPC.EventHandler<PulseRPC.Client.ErrorEventArgs!>?
-PulseRPC.Client.PulseRPCClientOptions.AutoReconnect.get -> bool
-PulseRPC.Client.PulseRPCClientOptions.AutoReconnect.set -> void
-PulseRPC.Client.PulseRPCClientOptions.HeartbeatIntervalMs.get -> int
-PulseRPC.Client.PulseRPCClientOptions.HeartbeatIntervalMs.set -> void
-PulseRPC.Client.PulseRPCClientOptions.PulseRPCClientOptions() -> void
-PulseRPC.Client.PulseRPCClientOptions.ServerAddress.get -> string!
-PulseRPC.Client.PulseRPCClientOptions.ServerAddress.set -> void
-static PulseRPC.Client.PulseRPCClient.CreateAsync(PulseRPC.Client.PulseRPCClientOptions! options) -> System.Threading.Tasks.Task<PulseRPC.Client.IPulseRPCClient!>!

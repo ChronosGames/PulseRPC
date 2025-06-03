@@ -575,23 +575,23 @@ namespace PulseRPC.Client.Extensions
     /// <summary>
     /// 连接池配置选项
     /// </summary>
-    public class ConnectionPoolOptions
-    {
-        /// <summary>
-        /// 最大连接数
-        /// </summary>
-        public int MaxConnections { get; set; } = 100;
-
-        /// <summary>
-        /// 连接空闲超时时间
-        /// </summary>
-        public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
-
-        /// <summary>
-        /// 连接获取超时时间
-        /// </summary>
-        public TimeSpan AcquireTimeout { get; set; } = TimeSpan.FromSeconds(30);
-    }
+    // public class ConnectionPoolOptions
+    // {
+    //     /// <summary>
+    //     /// 最大连接数
+    //     /// </summary>
+    //     public int MaxConnections { get; set; } = 100;
+    //
+    //     /// <summary>
+    //     /// 连接空闲超时时间
+    //     /// </summary>
+    //     public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(5);
+    //
+    //     /// <summary>
+    //     /// 连接获取超时时间
+    //     /// </summary>
+    //     public TimeSpan AcquireTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    // }
 
     /// <summary>
     /// 重试策略配置选项

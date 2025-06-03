@@ -19,7 +19,7 @@
 
 ```
 PulseRPC/
-├── src/                           # 核心源代码
+├── src/                          # 核心源代码
 │   ├── PulseRPC/                 # 主要RPC框架
 │   ├── PulseRPC.Abstractions/    # 抽象接口和基础类型
 │   ├── PulseRPC.Client/          # 客户端实现

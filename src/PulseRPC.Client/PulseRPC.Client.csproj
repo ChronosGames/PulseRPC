@@ -47,6 +47,7 @@
     <!-- 条件依赖 - 仅 .NET 环境 -->
     <PackageReference Include="Microsoft.Extensions.Logging" Condition="$(TargetFramework) != 'netstandard2.1'" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="$(TargetFramework) != 'netstandard2.1'" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
 
     <PackageReference Include="PolySharp" Condition="$(TargetFramework) != 'netstandard2.1'">
       <PrivateAssets>all</PrivateAssets>
