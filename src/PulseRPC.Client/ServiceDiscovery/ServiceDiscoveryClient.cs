@@ -195,7 +195,7 @@ namespace PulseRPC.Client.ServiceDiscovery
                 _logger.LogError(ex, "从服务发现获取服务 {ServiceName} 端点失败", serviceName);
 
                 // 返回缓存的端点 (如果有)
-                if (cachedInfo != null)
+                if (_serviceCache.TryGetValue(serviceName, out cachedInfo))
                 {
                     _logger.LogWarning("使用过期缓存返回服务 {ServiceName} 端点", serviceName);
                     return cachedInfo.Endpoints;
@@ -215,7 +215,7 @@ namespace PulseRPC.Client.ServiceDiscovery
         /// <returns>符合条件的服务端点列表</returns>
         public async Task<IReadOnlyList<ServiceEndpoint>> GetServiceEndpointsByTagsAsync(
             string serviceName,
-            IDictionary<string, string> tags,
+            Dictionary<string, string> tags,
             CancellationToken cancellationToken = default)
         {
             if (_disposed) throw new ObjectDisposedException(nameof(ServiceDiscoveryClient));
@@ -288,6 +288,7 @@ namespace PulseRPC.Client.ServiceDiscovery
 
             await foreach (var endpoints in _serviceDiscovery.WatchAsync(serviceName, cancellationToken))
             {
+                var endpointArray = Array.Empty<ServiceEndpoint>();
                 try
                 {
                     // 应用标签过滤
@@ -299,7 +300,7 @@ namespace PulseRPC.Client.ServiceDiscovery
                                 e.Tags.TryGetValue(filter.Key, out var value) && value == filter.Value));
                     }
 
-                    var endpointArray = filteredEndpoints.ToArray();
+                    endpointArray = filteredEndpoints.ToArray();
 
                     // 更新缓存
                     if (_options.ServiceDiscoveryOptions.EnableCaching)
@@ -313,11 +314,15 @@ namespace PulseRPC.Client.ServiceDiscovery
                     }
 
                     _logger.LogDebug("服务 {ServiceName} 端点发生变化，当前 {Count} 个端点", serviceName, endpointArray.Length);
-                    yield return endpointArray;
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "处理服务变化事件失败: {ServiceName}", serviceName);
+                }
+
+                if (endpointArray.Length > 0)
+                {
+                    yield return endpointArray;
                 }
             }
         }
@@ -525,7 +530,9 @@ namespace PulseRPC.Client.ServiceDiscovery
                 var newStatus = result switch
                 {
                     LoadBalancingResult.Success => HealthStatus.Healthy,
-                    LoadBalancingResult.Error => HealthStatus.Unhealthy,
+                    LoadBalancingResult.ConnectionFailed => HealthStatus.Unhealthy,
+                    LoadBalancingResult.ServerError => HealthStatus.Unhealthy,
+                    LoadBalancingResult.ClientError => HealthStatus.Unhealthy,
                     LoadBalancingResult.Timeout => HealthStatus.Unhealthy,
                     _ => HealthStatus.Unknown
                 };
@@ -534,11 +541,13 @@ namespace PulseRPC.Client.ServiceDiscovery
                 foreach (var cachedInfo in _serviceCache.Values)
                 {
                     var cachedEndpoint = cachedInfo.Endpoints.FirstOrDefault(e => e.ServiceId == endpoint.ServiceId);
-                    if (cachedEndpoint != null)
+                    if (cachedEndpoint == null)
                     {
-                        cachedEndpoint.HealthStatus = newStatus;
-                        cachedEndpoint.LastHealthCheck = DateTime.UtcNow;
+                        continue;
                     }
+
+                    cachedEndpoint.HealthStatus = newStatus;
+                    cachedEndpoint.LastHealthCheck = DateTime.UtcNow;
                 }
             }
             catch (Exception ex)
@@ -575,16 +584,16 @@ namespace PulseRPC.Client.ServiceDiscovery
                     // 更新缓存中的健康状态
                     foreach (var cachedInfo in _serviceCache.Values)
                     {
-                        var endpoint = cachedInfo.Endpoints.FirstOrDefault(e => e.ServiceId == result.ServiceId);
+                        var endpoint = cachedInfo.Endpoints.FirstOrDefault(e => e.ServiceId == result.Value.ServiceId);
                         if (endpoint != null)
                         {
-                            endpoint.HealthStatus = result.Status;
+                            endpoint.HealthStatus = result.Value.Status;
                             endpoint.LastHealthCheck = DateTime.UtcNow;
                         }
                     }
                 }
 
-                var healthyCount = healthResults.Count(r => r.Status == HealthStatus.Healthy);
+                var healthyCount = healthResults.Count(r => r.Value.Status == HealthStatus.Healthy);
                 _logger.LogDebug("健康检查完成，健康端点: {Healthy}/{Total}", healthyCount, healthResults.Count);
             }
             catch (Exception ex)

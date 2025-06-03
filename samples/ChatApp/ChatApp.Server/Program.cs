@@ -7,8 +7,12 @@ using GameServer.World;
 using System;
 using System.Threading.Tasks;
 using ChatApp;
+using Microsoft.Extensions.Options;
+using PulseRPC.Client;
+using PulseRPC.Monitoring;
 using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Services;
+using PulseRPC.Tracing;
 
 namespace GameServer;
 
@@ -82,8 +86,41 @@ internal abstract class Program
         services.AddSingleton<IGameWorld, GameWorld>();
         services.AddSingleton<IPlayerManager, PlayerManager>();
 
-        // 添加PulseRPC服务器的相关服务
+        // 添加PulseRPC服务器
         services.AddPulseRpcServer();
+        // services.AddPulseRpcServer(options =>
+        // {
+        //     options.Host = "localhost";
+        //     options.Port = 8080;
+        //     options.MaxConnections = 1000;
+        // });
+
+        // 添加服务注册 (使用内存注册中心进行演示)
+        services.AddPulseRpcServiceRegistration(options =>
+        {
+            options.ServiceIdPrefix = "GameServer";
+            // options.ServiceName = "UserService";
+            // options.ServiceVersion = "1.0.0";
+            // options.Host = "localhost";
+            // options.Port = 8080;
+            // options.DiscoveryType = ServiceDiscoveryType.InMemory; // 简单起见使用内存注册
+        });
+
+        // 添加性能监控
+        services.AddPulseRpcMonitoring(options =>
+        {
+            options.Performance.Enabled = true;
+            options.Performance.SamplingInterval = TimeSpan.FromSeconds(10);
+        });
+
+        // 添加链路追踪
+        services.AddPulseRpcTracing(options =>
+        {
+            options.Enabled = true;
+            options.ServiceName = "UserService";
+            options.SamplingRate = 1.0; // 100%采样用于演示
+            options.Exporter.Type = TracingExporterType.Console;
+        });
 
         // 覆盖默认的认证提供程序，使用ChatApp专用的SimpleAuthenticationProvider
         services.AddSingleton<IAuthenticationProvider, SimpleAuthenticationProvider>();
@@ -109,7 +146,8 @@ internal abstract class Program
             var serverChannelManager = sp.GetRequiredService<PulseRPC.Server.Transport.IServerChannelManager>();
 
             // 创建服务器管理器
-            var serverManager = new ServerManager(serverChannelManager, loggerFactory);
+            var serverOptions = sp.GetRequiredService<IOptions<ServerOptions>>();
+            var serverManager = new ServerManager(serverChannelManager, loggerFactory, serverOptions);
 
             // 添加TCP传输 (端口7000)
             serverManager.AddTransport(

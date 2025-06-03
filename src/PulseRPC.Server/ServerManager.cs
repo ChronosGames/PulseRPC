@@ -2,6 +2,7 @@
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Transport;
 using PulseRPC.Server.ServiceDiscovery;
+using PulseRPC.ServiceDiscovery;
 using PulseRPC.Transport;
 using System.Net;
 
@@ -43,15 +44,14 @@ public interface IServerManager : IDisposable
 /// </summary>
 public class ServerManager : IServerManager
 {
+    private readonly ILoggerFactory _loggerFactory;
     private readonly IServerChannelManager _serverChannelManager;
     private readonly IServiceRegistry? _serviceRegistry;
     private readonly ServerOptions _serverOptions;
-    private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<ServerManager> _logger;
     private readonly Dictionary<string, TransportInfo> _transports = new();
     private readonly Dictionary<string, IServerListener> _listeners = new();
     private readonly Dictionary<string, string> _registeredServiceIds = new(); // 传输名称 -> 服务ID
-    private readonly IServerTransportFactory _transportFactory;
     private bool _isRunning;
 
     public ServerManager(
@@ -60,12 +60,11 @@ public class ServerManager : IServerManager
         IOptions<ServerOptions> serverOptions,
         IServiceRegistry? serviceRegistry = null)
     {
+        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _serverChannelManager = serverChannelManager;
         _serviceRegistry = serviceRegistry;
         _serverOptions = serverOptions.Value;
-        _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ServerManager>();
-        _transportFactory = new ServerTransportFactory(loggerFactory);
 
         _logger.LogInformation("ServerManager 已初始化，服务注册: {ServiceRegistryEnabled}, 服务名称: {ServiceName}",
             _serverOptions.EnableServiceRegistry && _serviceRegistry != null, _serverOptions.ServiceName);
@@ -112,20 +111,24 @@ public class ServerManager : IServerManager
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         if (_isRunning)
+        {
             return;
+        }
 
         _logger.LogInformation("正在启动服务器...");
 
         try
         {
             // 为每个传输创建并启动监听器
-            foreach (var transportInfo in _transports.Values)
+            foreach (var info in _transports.Values)
             {
                 // 创建监听器
-                var listener = await _transportFactory.CreateListenerAsync(
-                    transportInfo.Type,
-                    transportInfo.Port,
-                    transportInfo.Options);
+                IServerListener listener = info.Type switch
+                {
+                    TransportType.Tcp => new TcpServerListener(info.Port, info.Options, _loggerFactory.CreateLogger<TcpServerListener>()),
+                    TransportType.Kcp => new KcpServerListener(info.Port, info.Options, _loggerFactory.CreateLogger<KcpServerListener>()),
+                    _ => throw new NotSupportedException($"不支持的传输类型: {info.Type}")
+                };
 
                 // 注册连接接受事件
                 listener.ConnectionAccepted += OnConnectionAccepted;
@@ -134,13 +137,12 @@ public class ServerManager : IServerManager
                 await listener.StartAsync(cancellationToken);
 
                 // 添加到监听器集合
-                _listeners.Add(transportInfo.Name, listener);
+                _listeners.Add(info.Name, listener);
 
-                _logger.LogInformation("已启动 {Type} 监听器: {Name}, 端口: {Port}",
-                    transportInfo.Type, transportInfo.Name, transportInfo.Port);
+                _logger.LogInformation("已启动 {Type} 监听器: {Name}, 端口: {Port}", info.Type, info.Name, info.Port);
 
                 // 注册服务到服务发现
-                await RegisterServiceAsync(transportInfo, cancellationToken);
+                await RegisterServiceAsync(info, cancellationToken);
             }
 
             _isRunning = true;
@@ -198,11 +200,11 @@ public class ServerManager : IServerManager
     /// <summary>
     /// 获取已注册的服务端点
     /// </summary>
-    public async Task<IReadOnlyList<PulseRPC.ServiceDiscovery.ServiceEndpoint>> GetRegisteredServicesAsync()
+    public async Task<IReadOnlyList<ServiceEndpoint>> GetRegisteredServicesAsync()
     {
         if (_serviceRegistry == null)
         {
-            return Array.Empty<PulseRPC.ServiceDiscovery.ServiceEndpoint>();
+            return Array.Empty<ServiceEndpoint>();
         }
 
         try
@@ -212,7 +214,7 @@ public class ServerManager : IServerManager
         catch (Exception ex)
         {
             _logger.LogError(ex, "获取已注册服务列表失败");
-            return Array.Empty<PulseRPC.ServiceDiscovery.ServiceEndpoint>();
+            return Array.Empty<ServiceEndpoint>();
         }
     }
 
@@ -267,7 +269,7 @@ public class ServerManager : IServerManager
             var serviceId = $"{_serverOptions.ServiceName}-{transportInfo.Name}-{Environment.MachineName}-{transportInfo.Port}";
 
             // 创建服务端点
-            var serviceEndpoint = new PulseRPC.ServiceDiscovery.ServiceEndpoint
+            var serviceEndpoint = new ServiceEndpoint
             {
                 ServiceId = serviceId,
                 ServiceName = _serverOptions.ServiceName,
@@ -279,7 +281,7 @@ public class ServerManager : IServerManager
                     ["transport"] = transportInfo.Type.ToString().ToLower(),
                     ["channel"] = transportInfo.Name,
                     ["machine"] = Environment.MachineName,
-                    ["framework"] = "pulserpc"
+                    ["framework"] = nameof(PulseRPC)
                 },
                 Metadata = new Dictionary<string, object>(_serverOptions.ServiceMetadata)
             };
@@ -341,7 +343,7 @@ public class ServerManager : IServerManager
         try
         {
             // 优先使用非回环地址
-            var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
+            var host = Dns.GetHostEntry(Dns.GetHostName());
             var localIp = host.AddressList
                 .FirstOrDefault(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip));
 
@@ -349,15 +351,14 @@ public class ServerManager : IServerManager
             {
                 return localIp.ToString();
             }
-
-            // 降级到回环地址
-            return "127.0.0.1";
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "自动检测IP地址失败，使用回环地址");
-            return "127.0.0.1";
         }
+
+        // 降级到回环地址
+        return "127.0.0.1";
     }
 
     /// <summary>
