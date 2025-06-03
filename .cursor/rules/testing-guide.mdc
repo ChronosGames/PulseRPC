@@ -1,0 +1,83 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# 测试指南
+
+## 测试结构
+
+### 单元测试
+- [PulseRPC.Client.Tests](mdc:tests/PulseRPC.Client.Tests) - 客户端单元测试
+- [PulseRPC.Client.Unity.Tests](mdc:tests/PulseRPC.Client.Unity.Tests) - Unity 客户端测试
+- [PulseRPC.Server.Tests](mdc:tests/PulseRPC.Server.Tests) - 服务器端单元测试
+- [PulseRPC.Generators.Tests](mdc:tests/PulseRPC.Generators.Tests) - 代码生成器测试
+
+### 集成测试
+- [PulseRPC.Tests](mdc:tests/PulseRPC.Tests) - 主要集成测试套件
+  - `Integration/` - 集成测试场景
+  - `Protocol/Network/` - 网络协议测试
+  - `Serialization/` - 序列化测试
+  - `Transport/` - 传输层测试
+
+## 性能测试
+
+### 微基准测试
+- [Microbenchmark](mdc:perf/Microbenchmark) - 细粒度性能测试
+  - 测量特定组件的性能表现
+  - 使用 BenchmarkDotNet 进行精确测量
+
+### 完整基准测试
+- [BenchmarkApp](mdc:perf/BenchmarkApp) - 端到端性能测试
+  - `PulseRPC.Benchmark.Client/` - 基准测试客户端
+  - `PulseRPC.Benchmark.Server/` - 基准测试服务器
+  - `PulseRPC.Benchmark.Core/` - 基准测试核心组件
+  - `PulseRPC.Benchmark.Metrics/` - 性能指标收集
+  - `PulseRPC.Benchmark.Scenarios/` - 测试场景定义
+
+### 源代码生成器性能测试
+- [SourceGeneratorPerf](mdc:perf/SourceGeneratorPerf) - 代码生成器性能测试
+
+## 测试最佳实践
+
+### 测试命名
+- 使用描述性的测试方法名
+- 格式：`MethodName_Scenario_ExpectedResult`
+- 示例：`SendMessage_WhenClientConnected_ShouldReturnSuccess`
+
+### 测试组织
+- 每个功能模块对应一个测试类
+- 使用 `[TestFixture]` 或 `[TestClass]` 组织相关测试
+- 使用 `[SetUp]` 和 `[TearDown]` 管理测试环境
+
+### 断言原则
+- 每个测试应该有明确的断言
+- 优先使用具体的断言方法而非通用的 `Assert.IsTrue`
+- 提供有意义的失败消息
+
+### 模拟和测试替身
+- 使用 Moq 或类似框架创建模拟对象
+- 隔离被测试的单元，避免外部依赖
+- 测试边界条件和异常情况
+
+## 运行测试
+
+### 命令行运行
+```bash
+# 运行所有测试
+dotnet test
+
+# 运行特定项目的测试
+dotnet test tests/PulseRPC.Client.Tests
+
+# 运行性能测试
+dotnet run --project perf/BenchmarkApp/PulseRPC.Benchmark.Client
+```
+
+### IDE 集成
+- 使用 Rider 内置的测试运行器
+- 支持调试和覆盖率分析
+- 可以运行单个测试或测试套件
+
+## 持续集成
+测试自动化通过 GitHub Actions 实现，配置位于 `.github/workflows/` 目录。
