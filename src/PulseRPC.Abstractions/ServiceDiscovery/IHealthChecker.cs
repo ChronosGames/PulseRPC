@@ -1,3 +1,5 @@
+using PulseRPC.ServiceDiscovery;
+
 namespace PulseRPC.ServiceDiscovery
 {
     /// <summary>

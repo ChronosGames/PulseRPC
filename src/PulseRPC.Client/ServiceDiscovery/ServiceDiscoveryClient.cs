@@ -547,7 +547,7 @@ namespace PulseRPC.Client.ServiceDiscovery
                     }
 
                     cachedEndpoint.HealthStatus = newStatus;
-                    cachedEndpoint.LastHealthCheck = DateTime.UtcNow;
+                    cachedEndpoint.LastUpdatedAt = DateTime.UtcNow;
                 }
             }
             catch (Exception ex)
@@ -588,7 +588,7 @@ namespace PulseRPC.Client.ServiceDiscovery
                         if (endpoint != null)
                         {
                             endpoint.HealthStatus = result.Value.Status;
-                            endpoint.LastHealthCheck = DateTime.UtcNow;
+                            endpoint.LastUpdatedAt = DateTime.UtcNow;
                         }
                     }
                 }
