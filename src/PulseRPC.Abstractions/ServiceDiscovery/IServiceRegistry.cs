@@ -1,6 +1,4 @@
-using PulseRPC.ServiceDiscovery;
-
-namespace PulseRPC.Server.ServiceDiscovery;
+namespace PulseRPC.ServiceDiscovery;
 
 /// <summary>
 /// 服务注册接口

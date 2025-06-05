@@ -39,4 +39,4 @@ namespace PulseRPC.Client.LoadBalancing
         /// <returns>统计信息字典</returns>
         Dictionary<string, object> GetStatistics();
     }
-} 
+}

@@ -3,6 +3,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using PulseRPC.Client.ServiceDiscovery;
+using Microsoft.Extensions.Logging;
+using PulseRPC.LoadBalancing;
+using PulseRPC.ServiceDiscovery;
+using PulseRPC.Client.LoadBalancing;
 
 namespace PulseRPC.Client.Extensions
 {
@@ -281,6 +285,183 @@ namespace PulseRPC.Client.Extensions
                 // 暂时返回占位符实现
                 return (TService)(object)new PulseRpcServiceProxy(serviceName, serviceDiscoveryClient);
             });
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加服务发现
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="configuration">配置</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddServiceDiscovery(this IServiceCollection services, IConfiguration configuration)
+        {
+            // 默认DNS实现
+            services.Configure<DnsOptions>(configuration.GetSection(DnsOptions.SectionName));
+            services.TryAddSingleton<IServiceDiscovery, DnsServiceDiscovery>();
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加自定义服务发现实现
+        /// </summary>
+        /// <typeparam name="TImplementation">实现类型</typeparam>
+        /// <param name="services">服务集合</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddServiceDiscovery<TImplementation>(this IServiceCollection services)
+            where TImplementation : class, IServiceDiscovery
+        {
+            services.RemoveAll<IServiceDiscovery>();
+            services.AddSingleton<IServiceDiscovery, TImplementation>();
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加自定义服务发现实现
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="implementationFactory">实现工厂</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddServiceDiscovery(this IServiceCollection services,
+            Func<IServiceProvider, IServiceDiscovery> implementationFactory)
+        {
+            services.RemoveAll<IServiceDiscovery>();
+            services.AddSingleton(implementationFactory);
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加服务注册
+        /// </summary>
+        /// <typeparam name="TImplementation">实现类型</typeparam>
+        /// <param name="services">服务集合</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddServiceRegistry<TImplementation>(this IServiceCollection services)
+            where TImplementation : class, IServiceRegistry
+        {
+            services.TryAddSingleton<IServiceRegistry, TImplementation>();
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加自定义服务注册实现
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="implementationFactory">实现工厂</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddServiceRegistry(this IServiceCollection services,
+            Func<IServiceProvider, IServiceRegistry> implementationFactory)
+        {
+            services.RemoveAll<IServiceRegistry>();
+            services.AddSingleton(implementationFactory);
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加负载均衡
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="strategy">负载均衡策略</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddLoadBalancing(this IServiceCollection services,
+            LoadBalancingStrategy strategy = LoadBalancingStrategy.RoundRobin)
+        {
+            return strategy switch
+            {
+                LoadBalancingStrategy.RoundRobin => services.AddLoadBalancing<RoundRobinLoadBalancer>(),
+                _ => throw new NotSupportedException($"负载均衡策略 {strategy} 尚未实现")
+            };
+        }
+
+        /// <summary>
+        /// 添加自定义负载均衡实现
+        /// </summary>
+        /// <typeparam name="TImplementation">实现类型</typeparam>
+        /// <param name="services">服务集合</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddLoadBalancing<TImplementation>(this IServiceCollection services)
+            where TImplementation : class, ILoadBalancer
+        {
+            services.TryAddSingleton<ILoadBalancer, TImplementation>();
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加自定义负载均衡实现
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="implementationFactory">实现工厂</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddLoadBalancing(this IServiceCollection services,
+            Func<IServiceProvider, ILoadBalancer> implementationFactory)
+        {
+            services.RemoveAll<ILoadBalancer>();
+            services.AddSingleton(implementationFactory);
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加链路追踪（可选）
+        /// </summary>
+        /// <typeparam name="TImplementation">实现类型</typeparam>
+        /// <param name="services">服务集合</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddTracing<TImplementation>(this IServiceCollection services)
+            where TImplementation : class, ITracer
+        {
+            services.TryAddSingleton<ITracer, TImplementation>();
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加自定义链路追踪实现
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="implementationFactory">实现工厂</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddTracing(this IServiceCollection services,
+            Func<IServiceProvider, ITracer> implementationFactory)
+        {
+            services.RemoveAll<ITracer>();
+            services.AddSingleton(implementationFactory);
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加监控指标（可选）
+        /// </summary>
+        /// <typeparam name="TImplementation">实现类型</typeparam>
+        /// <param name="services">服务集合</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddMonitoring<TImplementation>(this IServiceCollection services)
+            where TImplementation : class, IMetricsCollector
+        {
+            services.TryAddSingleton<IMetricsCollector, TImplementation>();
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加自定义监控指标实现
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="implementationFactory">实现工厂</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddMonitoring(this IServiceCollection services,
+            Func<IServiceProvider, IMetricsCollector> implementationFactory)
+        {
+            services.RemoveAll<IMetricsCollector>();
+            services.AddSingleton(implementationFactory);
 
             return services;
         }

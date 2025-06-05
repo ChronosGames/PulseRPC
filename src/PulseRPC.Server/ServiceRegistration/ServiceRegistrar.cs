@@ -140,7 +140,7 @@ public class ServiceRegistrar(
 
             // 更新端点健康状态
             registeredInfo.ServiceEndpoint.HealthStatus = status;
-            registeredInfo.ServiceEndpoint.LastHealthCheck = DateTime.UtcNow;
+            registeredInfo.ServiceEndpoint.LastUpdatedAt = DateTime.UtcNow;
             registeredInfo.HealthStatus = status;
             registeredInfo.LastHealthCheck = DateTime.UtcNow;
 
@@ -290,7 +290,7 @@ public class ServiceRegistrar(
                 service.HealthStatus = result.Status;
                 service.LastHealthCheck = DateTime.UtcNow;
                 service.ServiceEndpoint.HealthStatus = result.Status;
-                service.ServiceEndpoint.LastHealthCheck = DateTime.UtcNow;
+                service.ServiceEndpoint.LastUpdatedAt = DateTime.UtcNow;
 
                 // 状态变化时记录日志
                 if (oldStatus != result.Status)

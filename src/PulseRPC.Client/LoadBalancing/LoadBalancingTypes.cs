@@ -86,10 +86,9 @@ namespace PulseRPC.Client.LoadBalancing
         /// </summary>
         ClientError,
 
-        /// <summary>
-        /// 未知错误
-        /// </summary>
-        UnknownError
+        Failure,
+
+        ServiceUnavailable,
     }
 
     /// <summary>
