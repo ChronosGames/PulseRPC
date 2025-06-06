@@ -1,10 +1,15 @@
+# Define macros (only works in top-level gitattributes files)
+[attr]lfs      filter=lfs diff=lfs merge=lfs -text
+
 # 自动处理文本文件换行符（跨平台兼容）
 *              text=auto
 
 # 明确声明常用文本文件类型
 *.cs           text diff=csharp eol=lf working-tree-encoding=UTF-8
-*.csproj       text
-*.sln          text
+*.cshtml       text diff=html
+*.csx          text diff=csharp
+*.csproj       text eol=crlf
+*.sln          text eol=crlf
 *.config       text
 *.xml          text
 *.xaml         text
@@ -14,22 +19,22 @@
 *.yaml         text
 
 # 常见的二进制文件类型（不会被Git处理换行符）
-*.dll          binary
-*.exe          binary
-*.png          binary
-*.jpg          binary
-*.jpeg         binary
-*.gif          binary
-*.ico          binary
-*.pdf          binary
-*.zip          binary
-*.tar          binary
-*.gz           binary
-*.7z           binary
+*.dll          lfs
+*.exe          lfs
+*.png          lfs
+*.jpg          lfs
+*.jpeg         lfs
+*.gif          lfs
+*.ico          lfs
+*.pdf          lfs
+*.zip          lfs
+*.tar          lfs
+*.gz           lfs
+*.7z           lfs
 
 # NuGet 包文件
-*.nupkg        binary
-*.snupkg       binary
+*.nupkg        lfs
+*.snupkg       lfs
 
 # Visual Studio 用户及临时文件
 *.suo          binary
@@ -37,6 +42,23 @@
 *.userosscache text
 *.sdf          binary
 *.cache        binary
+*.sln          text eol=crlf
+*.csproj       text eol=crlf
+*.vbproj       text eol=crlf
+*.vcxproj      text eol=crlf
+*.vcproj       text eol=crlf
+*.dbproj       text eol=crlf
+*.fsproj       text eol=crlf
+*.lsproj       text eol=crlf
+*.wixproj      text eol=crlf
+*.modelproj    text eol=crlf
+*.sqlproj      text eol=crlf
+*.wwaproj      text eol=crlf
+
+*.xproj        text eol=crlf
+*.props        text eol=crlf
+*.filters      text eol=crlf
+*.vcxitems     text eol=crlf
 
 # Rider/JetBrains 临时文件
 *.DotSettings  text
