@@ -3,10 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using PulseRPC.Client.ServiceDiscovery;
-using Microsoft.Extensions.Logging;
 using PulseRPC.LoadBalancing;
 using PulseRPC.ServiceDiscovery;
 using PulseRPC.Client.LoadBalancing;
+using PulseRPC.Monitoring;
+using PulseRPC.Tracing;
 
 namespace PulseRPC.Client.Extensions
 {
@@ -185,33 +186,6 @@ namespace PulseRPC.Client.Extensions
 
                 // 创建类型化客户端实例
                 return (TClient)Activator.CreateInstance(typeof(TImplementation), client)!;
-            });
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加 HTTP 客户端集成
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="name">HTTP 客户端名称</param>
-        /// <param name="serviceName">服务名称</param>
-        /// <param name="configureClient">HTTP 客户端配置回调</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddPulseRpcHttpClient(
-            this IServiceCollection services,
-            string name,
-            string serviceName,
-            Action<HttpClient>? configureClient = null)
-        {
-            services.AddHttpClient(name, client =>
-            {
-                configureClient?.Invoke(client);
-            }).ConfigurePrimaryHttpMessageHandler(provider =>
-            {
-                return new ServiceDiscoveryHttpMessageHandler(
-                    provider.GetRequiredService<ServiceDiscoveryClient>(),
-                    serviceName);
             });
 
             return services;
@@ -480,10 +454,10 @@ namespace PulseRPC.Client.Extensions
             services.TryAddSingleton<IPulseRpcClientFactory, PulseRpcClientFactory>();
 
             // 添加服务发现工厂
-            services.AddServiceDiscoveryFactory();
+            // services.AddServiceDiscoveryFactory();
 
             // 添加负载均衡工厂
-            services.AddLoadBalancerFactory();
+            // services.AddLoadBalancerFactory();
         }
 
         /// <summary>
@@ -493,15 +467,15 @@ namespace PulseRPC.Client.Extensions
         {
             switch (type)
             {
-                case ServiceDiscoveryType.Consul:
-                    services.AddConsulServiceDiscovery(configuration);
-                    break;
-                case ServiceDiscoveryType.Etcd:
-                    services.AddEtcdServiceDiscovery(configuration);
-                    break;
-                case ServiceDiscoveryType.Dns:
-                    services.AddDnsServiceDiscovery(configuration);
-                    break;
+                // case ServiceDiscoveryType.Consul:
+                //     services.AddConsulServiceDiscovery(configuration);
+                //     break;
+                // case ServiceDiscoveryType.Etcd:
+                //     services.AddEtcdServiceDiscovery(configuration);
+                //     break;
+                // case ServiceDiscoveryType.Dns:
+                //     services.AddDnsServiceDiscovery(configuration);
+                //     break;
                 case ServiceDiscoveryType.Static:
                     // 静态配置不需要额外的服务
                     break;
@@ -514,26 +488,27 @@ namespace PulseRPC.Client.Extensions
         /// <summary>
         /// 根据负载均衡策略添加相应的服务
         /// </summary>
-        private static void AddLoadBalancingByStrategy(IServiceCollection services, LoadBalancing.LoadBalancingStrategy strategy)
+        private static void AddLoadBalancingByStrategy(IServiceCollection services, LoadBalancingStrategy strategy)
         {
             switch (strategy)
             {
-                case LoadBalancing.LoadBalancingStrategy.RoundRobin:
-                    services.AddRoundRobinLoadBalancing();
-                    break;
-                case LoadBalancing.LoadBalancingStrategy.Random:
-                    services.AddRandomLoadBalancing();
-                    break;
-                case LoadBalancing.LoadBalancingStrategy.WeightedRoundRobin:
-                    services.AddWeightedRoundRobinLoadBalancing();
-                    break;
-                case LoadBalancing.LoadBalancingStrategy.LeastConnections:
-                    services.AddLeastConnectionsLoadBalancing();
-                    break;
-                case LoadBalancing.LoadBalancingStrategy.ConsistentHash:
-                    services.AddConsistentHashLoadBalancing();
-                    break;
-                // 其他策略...
+                // case LoadBalancingStrategy.RoundRobin:
+                //     services.AddRoundRobinLoadBalancing();
+                //     break;
+                // case LoadBalancingStrategy.Random:
+                //     services.AddRandomLoadBalancing();
+                //     break;
+                // case LoadBalancingStrategy.WeightedRoundRobin:
+                //     services.AddWeightedRoundRobinLoadBalancing();
+                //     break;
+                // case LoadBalancingStrategy.LeastConnections:
+                //     services.AddLeastConnectionsLoadBalancing();
+                //     break;
+                // case LoadBalancingStrategy.ConsistentHash:
+                //     services.AddConsistentHashLoadBalancing();
+                //     break;
+                default:
+                    throw new NotSupportedException($"<UNK> {strategy} <UNK>");
             }
         }
 
@@ -680,76 +655,6 @@ namespace PulseRPC.Client.Extensions
         public Task<TResponse> InvokeAsync<TRequest, TResponse>(string methodName, TRequest request, CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException("PulseRPC服务客户端实现尚未完成");
-        }
-    }
-
-    /// <summary>
-    /// 服务发现 HTTP 消息处理器
-    /// </summary>
-    internal class ServiceDiscoveryHttpMessageHandler : HttpMessageHandler
-    {
-        private readonly ServiceDiscoveryClient _serviceDiscoveryClient;
-        private readonly string _serviceName;
-        private readonly HttpMessageHandler _innerHandler;
-
-        public ServiceDiscoveryHttpMessageHandler(
-            ServiceDiscoveryClient serviceDiscoveryClient,
-            string serviceName,
-            HttpMessageHandler? innerHandler = null)
-        {
-            _serviceDiscoveryClient = serviceDiscoveryClient;
-            _serviceName = serviceName;
-            _innerHandler = innerHandler ?? new HttpClientHandler();
-        }
-
-        protected override async Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request,
-            CancellationToken cancellationToken)
-        {
-            // 从服务发现获取端点
-            var endpoint = await _serviceDiscoveryClient.GetServiceEndpointAsync(_serviceName, cancellationToken: cancellationToken);
-            if (endpoint == null)
-            {
-                throw new HttpRequestException($"无法发现服务: {_serviceName}");
-            }
-
-            // 更新请求URI
-            var uriBuilder = new UriBuilder(request.RequestUri!)
-            {
-                Host = endpoint.EndPoint.Address.ToString(),
-                Port = endpoint.EndPoint.Port
-            };
-            request.RequestUri = uriBuilder.Uri;
-
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            try
-            {
-                var response = await _innerHandler.SendAsync(request, cancellationToken);
-                stopwatch.Stop();
-
-                // 报告成功结果
-                _serviceDiscoveryClient.ReportResult(endpoint, LoadBalancing.LoadBalancingResult.Success, stopwatch.Elapsed);
-
-                return response;
-            }
-            catch (Exception)
-            {
-                stopwatch.Stop();
-
-                // 报告失败结果
-                _serviceDiscoveryClient.ReportResult(endpoint, LoadBalancing.LoadBalancingResult.Error, stopwatch.Elapsed);
-
-                throw;
-            }
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-            {
-                _innerHandler?.Dispose();
-            }
-            base.Dispose(disposing);
         }
     }
 

@@ -1,6 +1,3 @@
-using PulseRPC.Server.ServiceRegistration;
-using PulseRPC.ServiceDiscovery;
-
 namespace PulseRPC.Server;
 
 /// <summary>

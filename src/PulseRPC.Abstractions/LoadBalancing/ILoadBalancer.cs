@@ -78,53 +78,22 @@ public enum LoadBalancingStrategy
     /// <summary>
     /// 故障转移
     /// </summary>
-    Failover
-}
-
-/// <summary>
-/// 负载均衡上下文
-/// </summary>
-public class LoadBalancingContext
-{
-    /// <summary>
-    /// 请求标识
-    /// </summary>
-    public string RequestId { get; set; } = Guid.NewGuid().ToString();
+    Failover,
 
     /// <summary>
-    /// 客户端标识
+    /// 加权最少连接
     /// </summary>
-    public string? ClientId { get; set; }
+    WeightedLeastConnections,
 
     /// <summary>
-    /// 用户标识
+    /// 加权随机
     /// </summary>
-    public string? UserId { get; set; }
+    WeightedRandom,
 
     /// <summary>
-    /// 会话标识
+    /// 自定义
     /// </summary>
-    public string? SessionId { get; set; }
-
-    /// <summary>
-    /// 请求路径
-    /// </summary>
-    public string? RequestPath { get; set; }
-
-    /// <summary>
-    /// 请求方法
-    /// </summary>
-    public string? RequestMethod { get; set; }
-
-    /// <summary>
-    /// 一致性哈希键
-    /// </summary>
-    public string? ConsistencyKey { get; set; }
-
-    /// <summary>
-    /// 扩展属性
-    /// </summary>
-    public Dictionary<string, object> Properties { get; set; } = new();
+    Custom
 }
 
 /// <summary>
@@ -180,5 +149,5 @@ public enum LoadBalancingResult
     /// <summary>
     /// 一般错误
     /// </summary>
-    Error
+    Error,
 }

@@ -202,20 +202,19 @@ public class ServerManager : IServerManager
     /// </summary>
     public async Task<IReadOnlyList<ServiceEndpoint>> GetRegisteredServicesAsync()
     {
-        if (_serviceRegistry == null)
+        if (_serviceRegistry != null)
         {
-            return Array.Empty<ServiceEndpoint>();
+            try
+            {
+                return await _serviceRegistry.GetRegisteredServicesAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "获取已注册服务列表失败");
+            }
         }
 
-        try
-        {
-            return await _serviceRegistry.GetRegisteredServicesAsync();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "获取已注册服务列表失败");
-            return Array.Empty<ServiceEndpoint>();
-        }
+        return Array.Empty<ServiceEndpoint>();
     }
 
     /// <summary>

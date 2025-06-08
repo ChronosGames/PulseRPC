@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.ServiceDiscovery;
-using PulseRPC.Client.LoadBalancing;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using PulseRPC.LoadBalancing;
 
 namespace PulseRPC.Client.ServiceDiscovery
 {

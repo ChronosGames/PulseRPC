@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using PulseRPC.Server.ServiceRegistration;
 using System.Net;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Serialization;
@@ -12,6 +11,7 @@ using PulseRPC.Server.Events;
 using PulseRPC.Server.ServiceDiscovery;
 using PulseRPC.Server.Services;
 using PulseRPC.Server.Transport;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.Server;
 
@@ -353,7 +353,7 @@ public static class ServiceCollectionExtensions
             var serviceId = GenerateServiceId(serviceName, port, options.IdGenerationStrategy, options.ServiceIdPrefix);
 
             // 自动添加服务信息
-            var serviceInfo = new ServiceRegistration.ServiceInfo
+            var serviceInfo = new ServiceInfo
             {
                 ServiceId = serviceId,
                 ServiceName = serviceName,
@@ -381,7 +381,7 @@ public static class ServiceCollectionExtensions
     /// <returns>服务集合</returns>
     public static IServiceCollection AddPulseRpcServiceRegistrations(
         this IServiceCollection services,
-        IEnumerable<ServiceRegistration.ServiceInfo> servicesInfo,
+        IEnumerable<ServiceInfo> servicesInfo,
         Action<ServiceRegistrationOptions>? configureOptions = null)
     {
         services.Configure<ServiceRegistrationOptions>(options =>
@@ -543,7 +543,7 @@ public static class ServiceCollectionExtensions
                 // 自定义实现由用户手动注册
                 break;
             default:
-                throw new NotSupportedException();
+                throw new NotSupportedException($"未注册的服务中心类型：{type}");
         }
     }
 
@@ -869,32 +869,6 @@ public interface IPulseRpcContext
     /// 上下文数据
     /// </summary>
     Dictionary<string, object> Items { get; }
-}
-
-/// <summary>
-/// 健康检查配置选项
-/// </summary>
-public class HealthCheckOptions
-{
-    /// <summary>
-    /// 是否启用健康检查
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// 健康检查间隔
-    /// </summary>
-    public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// 健康检查超时时间
-    /// </summary>
-    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
-
-    /// <summary>
-    /// 健康检查路径
-    /// </summary>
-    public string Path { get; set; } = "/health";
 }
 
 /// <summary>

@@ -1,4 +1,5 @@
 ﻿using PulseRPC.Client.LoadBalancing;
+using PulseRPC.LoadBalancing;
 
 namespace PulseRPC.Client
 {

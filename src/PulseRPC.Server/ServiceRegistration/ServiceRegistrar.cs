@@ -4,9 +4,8 @@ using Microsoft.Extensions.Options;
 using PulseRPC.ServiceDiscovery;
 using System.Collections.Concurrent;
 using System.Net;
-using PulseRPC.Server.ServiceDiscovery;
 
-namespace PulseRPC.Server.ServiceRegistration;
+namespace PulseRPC.Server;
 
 /// <summary>
 /// 服务注册器 - 负责服务的注册与注销
