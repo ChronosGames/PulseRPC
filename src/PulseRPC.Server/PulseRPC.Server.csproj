@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
-    <ProjectReference Include="..\PulseRPC.Shared\PulseRPC.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,18 +23,6 @@
     <PackageReference Include="System.Diagnostics.PerformanceCounter" />
     <PackageReference Include="System.IO.Pipelines" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Remove="Service\**" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <EmbeddedResource Remove="Service\**" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="Service\**" />
   </ItemGroup>
 
 </Project>

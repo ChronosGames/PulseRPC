@@ -1,5 +1,3 @@
-using PulseRPC.ServiceDiscovery;
-
 namespace PulseRPC.ServiceDiscovery
 {
     /// <summary>
@@ -40,6 +38,77 @@ namespace PulseRPC.ServiceDiscovery
         /// 额外的检查数据
         /// </summary>
         public Dictionary<string, object> Data { get; set; } = new();
+    }
+
+    /// <summary>
+    /// 健康检查配置选项
+    /// </summary>
+    public class HealthCheckOptions
+    {
+        /// <summary>
+        /// 配置节名称
+        /// </summary>
+        public const string SectionName = "HealthCheck";
+
+        /// <summary>
+        /// 默认健康检查超时时间
+        /// </summary>
+        public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// TCP连接检查超时时间
+        /// </summary>
+        public TimeSpan TcpCheckTimeout { get; set; } = TimeSpan.FromSeconds(3);
+
+        /// <summary>
+        /// HTTP健康检查超时时间
+        /// </summary>
+        public TimeSpan HttpCheckTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// Ping检查超时时间
+        /// </summary>
+        public TimeSpan PingTimeout { get; set; } = TimeSpan.FromSeconds(2);
+
+        /// <summary>
+        /// 健康检查重试次数
+        /// </summary>
+        public int RetryCount { get; set; } = 2;
+
+        /// <summary>
+        /// 健康检查重试延迟
+        /// </summary>
+        public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(500);
+
+        /// <summary>
+        /// 是否启用并发健康检查
+        /// </summary>
+        public bool EnableConcurrentChecks { get; set; } = true;
+
+        /// <summary>
+        /// 最大并发健康检查数量
+        /// </summary>
+        public int MaxConcurrentChecks { get; set; } = 50;
+
+        /// <summary>
+        /// 是否启用健康检查
+        /// </summary>
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>
+        /// 健康检查间隔
+        /// </summary>
+        public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// 健康检查超时时间
+        /// </summary>
+        public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
+
+        /// <summary>
+        /// 健康检查路径
+        /// </summary>
+        public string Path { get; set; } = "/health";
     }
 
     /// <summary>

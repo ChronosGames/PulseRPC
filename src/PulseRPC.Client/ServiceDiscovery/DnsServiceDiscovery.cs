@@ -3,7 +3,6 @@ using Microsoft.Extensions.Options;
 using PulseRPC.ServiceDiscovery;
 using System.Collections.Concurrent;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using System.Text;
 
@@ -165,11 +164,12 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
             // 定期轮询检查变化
             while (!watchCts.Token.IsCancellationRequested)
             {
+                List<ServiceEndpoint> updatedEndpoints = new List<ServiceEndpoint>();
                 try
                 {
                     await Task.Delay(_options.WatchPollInterval, watchCts.Token);
 
-                    var updatedEndpoints = await QueryServiceEndpointsAsync(serviceName, cancellationToken);
+                    updatedEndpoints = await QueryServiceEndpointsAsync(serviceName, cancellationToken);
                     var currentEndpointsHash = GetEndpointsHash(updatedEndpoints);
 
                     // 检查是否有变化
@@ -187,11 +187,10 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
                     // 更新缓存
                     if (_options.EnableCaching)
                     {
-                        _serviceCache.TryUpdate(serviceName, updatedEndpoints.ToArray(), 
+                        _serviceCache.TryUpdate(serviceName, updatedEndpoints.ToArray(),
                             _serviceCache.GetValueOrDefault(serviceName, Array.Empty<ServiceEndpoint>()));
                     }
 
-                    yield return updatedEndpoints.ToArray();
                     lastEndpointsHash = currentEndpointsHash;
                 }
                 catch (OperationCanceledException)
@@ -202,6 +201,11 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
                 {
                     _logger.LogWarning(ex, "DNS 监听过程中发生异常: {ServiceName}", serviceName);
                     await Task.Delay(TimeSpan.FromSeconds(5), watchCts.Token);
+                }
+
+                if (updatedEndpoints.Count > 0)
+                {
+                    yield return updatedEndpoints.ToArray();
                 }
             }
         }
@@ -427,7 +431,7 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
                 try
                 {
                     var endpoints = await QueryServiceEndpointsAsync(serviceName, CancellationToken.None);
-                    _serviceCache.TryUpdate(serviceName, endpoints.ToArray(), 
+                    _serviceCache.TryUpdate(serviceName, endpoints.ToArray(),
                         _serviceCache.GetValueOrDefault(serviceName, Array.Empty<ServiceEndpoint>()));
 
                     _logger.LogDebug("已刷新服务缓存: {ServiceName}, 端点数量: {Count}", serviceName, endpoints.Count);
@@ -569,4 +573,4 @@ internal class SrvRecord
     public int Weight { get; set; }
     public int Port { get; set; }
     public string Target { get; set; } = string.Empty;
-} 
+}

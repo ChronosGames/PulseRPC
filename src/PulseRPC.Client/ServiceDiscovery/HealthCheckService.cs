@@ -5,58 +5,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
-namespace PulseRPC.ServiceDiscovery.HealthCheck;
-
-/// <summary>
-/// 健康检查配置选项
-/// </summary>
-public class HealthCheckOptions
-{
-    /// <summary>
-    /// 配置节名称
-    /// </summary>
-    public const string SectionName = "HealthCheck";
-
-    /// <summary>
-    /// 默认健康检查超时时间
-    /// </summary>
-    public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(5);
-
-    /// <summary>
-    /// TCP连接检查超时时间
-    /// </summary>
-    public TimeSpan TcpCheckTimeout { get; set; } = TimeSpan.FromSeconds(3);
-
-    /// <summary>
-    /// HTTP健康检查超时时间
-    /// </summary>
-    public TimeSpan HttpCheckTimeout { get; set; } = TimeSpan.FromSeconds(5);
-
-    /// <summary>
-    /// Ping检查超时时间
-    /// </summary>
-    public TimeSpan PingTimeout { get; set; } = TimeSpan.FromSeconds(2);
-
-    /// <summary>
-    /// 健康检查重试次数
-    /// </summary>
-    public int RetryCount { get; set; } = 2;
-
-    /// <summary>
-    /// 健康检查重试延迟
-    /// </summary>
-    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(500);
-
-    /// <summary>
-    /// 是否启用并发健康检查
-    /// </summary>
-    public bool EnableConcurrentChecks { get; set; } = true;
-
-    /// <summary>
-    /// 最大并发健康检查数量
-    /// </summary>
-    public int MaxConcurrentChecks { get; set; } = 50;
-}
+namespace PulseRPC.ServiceDiscovery;
 
 /// <summary>
 /// 健康检查类型
@@ -537,11 +486,7 @@ public class HealthCheckService : IHealthChecker, IDisposable
                 };
 
                 // 更新缓存
-                _healthCache[checkKey] = new CachedHealthResult
-                {
-                    Result = result,
-                    CheckTime = startTime
-                };
+                _healthCache[checkKey] = new CachedHealthResult(result, startTime);
 
                 // 更新统计信息
                 UpdateStatistics(endpoint.ServiceId, result);
@@ -640,8 +585,14 @@ public class HealthCheckService : IHealthChecker, IDisposable
     /// </summary>
     private class CachedHealthResult
     {
-        public required HealthCheckResult Result { get; init; }
-        public DateTime CheckTime { get; init; }
+        public HealthCheckResult Result { get; set; }
+        public DateTime CheckTime { get; set; }
+
+        public CachedHealthResult(HealthCheckResult result, DateTime checkTime)
+        {
+            this.Result = result;
+            this.CheckTime = checkTime;
+        }
     }
 
     /// <summary>
