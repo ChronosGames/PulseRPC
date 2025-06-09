@@ -39,7 +39,7 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
         }
 
         _logger.LogInformation("DnsServiceDiscovery 已初始化，DNS服务器: {DnsServers}, 查询类型: {QueryType}",
-            string.Join(", ", _options.DnsServers ?? ["系统默认"]),
+            string.Join(", ", _options.DnsServers ?? new[] { "系统默认" }),
             _options.QueryType);
     }
 

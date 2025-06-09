@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <!-- 根据Unity环境动态设置目标框架 -->
-    <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
+    <TargetFrameworks>netstandard2.1;net9.0</TargetFrameworks>
 
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

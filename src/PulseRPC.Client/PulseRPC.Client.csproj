@@ -7,10 +7,11 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <TargetFrameworks>net8.0;netstandard2.1</TargetFrameworks>
 
+    <TargetFrameworks>net9.0;netstandard2.1</TargetFrameworks>
     <!-- 包配置 -->
     <IsPackable>true</IsPackable>
     <PackageId>PulseRPC.Client</PackageId>
-    <Description>PulseRPC client library for .NET and Unity</Description>
+    <Description>PulseRPC Client library with integrated ServiceDiscovery and LoadBalancing</Description>
 
     <!-- This project is meta package -->
     <IncludeBuildOutput>true</IncludeBuildOutput>
