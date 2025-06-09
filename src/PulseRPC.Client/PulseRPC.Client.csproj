@@ -16,17 +16,6 @@
     <IncludeContentInPack>true</IncludeContentInPack>
   </PropertyGroup>
 
-  <!-- Unity 特定的条件编译 -->
-  <PropertyGroup Condition="$(TargetFramework) == 'netstandard2.1'">
-    <DefineConstants>$(DefineConstants);UNITY</DefineConstants>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Debug|netstandard2.1|AnyCPU'">
-    <WarningLevel>5</WarningLevel>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(TargetFramework)|$(Platform)'=='Release|netstandard2.1|AnyCPU'">
-    <WarningLevel>5</WarningLevel>
-  </PropertyGroup>
-
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
     <ProjectReference Include="..\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />

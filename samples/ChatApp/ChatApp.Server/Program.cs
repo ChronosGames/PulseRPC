@@ -87,25 +87,9 @@ internal abstract class Program
 
         // 添加PulseRPC服务器
         services.AddPulseRpcServer();
-        // services.AddPulseRpcServer(options =>
-        // {
-        //     options.Host = "localhost";
-        //     options.Port = 8080;
-        //     options.MaxConnections = 1000;
-        // });
 
-        // 添加服务注册 (使用内存注册中心进行演示)
-        services.AddPulseRpcServiceRegistration(options =>
-        {
-            options.ServiceIdPrefix = "GameServer";
-            options.Enabled = false;
-            options.RegistryType = ServiceRegistryType.Dns;
-            // options.ServiceName = "UserService";
-            // options.ServiceVersion = "1.0.0";
-            // options.Host = "localhost";
-            // options.Port = 8080;
-            // options.DiscoveryType = ServiceDiscoveryType.InMemory; // 简单起见使用内存注册
-        });
+        // 添加服务注册
+        services.AddPulseRpcServiceRegistration(context.Configuration);
 
         // 添加性能监控
         services.AddPulseRpcMonitoring(options =>

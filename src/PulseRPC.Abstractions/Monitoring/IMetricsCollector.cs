@@ -95,4 +95,4 @@ public interface IHistogram
     /// 获取总和
     /// </summary>
     double Sum { get; }
-} 
+}

@@ -1,6 +1,5 @@
 ﻿namespace PulseRPC.Server;
 
-
 /// <summary>
 /// 服务器配置选项
 /// </summary>

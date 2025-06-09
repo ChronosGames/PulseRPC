@@ -16,7 +16,8 @@ public static class ServiceCollectionExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configuration">配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddConsulServiceDiscovery(this IServiceCollection services, IConfiguration configuration)
+    public static IServiceCollection AddConsulServiceDiscovery(this IServiceCollection services,
+        IConfiguration configuration)
     {
         services.Configure<ConsulOptions>(configuration.GetSection(ConsulOptions.SectionName));
         services.RemoveAll<IServiceDiscovery>();
@@ -34,7 +35,7 @@ public static class ServiceCollectionExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置委托</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddConsulServiceDiscovery(this IServiceCollection services, 
+    public static IServiceCollection AddConsulServiceDiscovery(this IServiceCollection services,
         Action<ConsulOptions> configureOptions)
     {
         services.Configure(configureOptions);
@@ -46,4 +47,4 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
-} 
+}
