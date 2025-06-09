@@ -29,7 +29,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     /// <summary>
     /// 初始化客户端
     /// </summary>
-    public async Task InitializeAsync()
+    public Task InitializeAsync()
     {
         _logger.LogInformation("正在初始化游戏客户端...");
 
@@ -39,7 +39,12 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         _channelManager = new ChannelManager(loggerFactory);
 
         // 创建TCP通道
-        var tcpOptions = new TransportOptions { NoDelay = true, KeepAlive = true, AutoReconnect = true };
+        var tcpOptions = new TransportOptions
+        {
+            NoDelay = true,
+            KeepAlive = true,
+            AutoReconnect = true
+        };
         _channelManager.RegisterChannel("TcpChannel", TransportType.Tcp, tcpOptions, true);
 
         // 创建KCP通道
@@ -82,6 +87,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         }
 
         _logger.LogInformation("客户端初始化完成");
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -196,7 +202,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         System.Console.WriteLine();
 
         // 处理用户输入
-        bool running = true;
+        var running = true;
         while (running && !_cts!.IsCancellationRequested)
         {
             System.Console.Write("> ");
@@ -233,9 +239,9 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
                         }
                         else if (_isLoggedIn)
                         {
-                            float x = float.Parse(parts[1]);
-                            float y = float.Parse(parts[2]);
-                            float z = float.Parse(parts[3]);
+                            var x = float.Parse(parts[1]);
+                            var y = float.Parse(parts[2]);
+                            var z = float.Parse(parts[3]);
                             await MoveAsync(x, y, z);
                             System.Console.WriteLine($"已移动到 ({x}, {y}, {z})");
                         }

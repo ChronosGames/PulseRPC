@@ -24,7 +24,8 @@ public class RoundRobinLoadBalancer : ILoadBalancer
     /// <summary>
     /// 选择服务端点 - 使用轮询算法
     /// </summary>
-    public async Task<ServiceEndpoint?> SelectAsync(IReadOnlyList<ServiceEndpoint> endpoints, LoadBalancingContext context)
+    public async Task<ServiceEndpoint?> SelectAsync(IReadOnlyList<ServiceEndpoint> endpoints,
+        LoadBalancingContext context)
     {
         if (endpoints.Count == 0)
         {
@@ -137,6 +138,7 @@ public class RoundRobinLoadBalancer : ILoadBalancer
                     : 0
             };
         }
+
         stats["EndpointStatistics"] = endpointStats;
 
         return stats;

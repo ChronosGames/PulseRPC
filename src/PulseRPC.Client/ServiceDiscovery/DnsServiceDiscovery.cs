@@ -52,7 +52,8 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
     /// <summary>
     /// 发现指定名称的所有服务端点
     /// </summary>
-    public async Task<IReadOnlyList<ServiceEndpoint>> DiscoverAsync(string serviceName, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ServiceEndpoint>> DiscoverAsync(string serviceName,
+        CancellationToken cancellationToken = default)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(DnsServiceDiscovery));
 
@@ -122,6 +123,7 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
                     {
                         endpoint.Tags[tag.Key] = tag.Value;
                     }
+
                     filteredEndpoints.Add(endpoint);
                 }
             }
@@ -218,7 +220,8 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
 
     #region Private Methods
 
-    private async Task<List<ServiceEndpoint>> QueryServiceEndpointsAsync(string serviceName, CancellationToken cancellationToken)
+    private async Task<List<ServiceEndpoint>> QueryServiceEndpointsAsync(string serviceName,
+        CancellationToken cancellationToken)
     {
         var endpoints = new List<ServiceEndpoint>();
 
@@ -250,13 +253,15 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
                     // SRV 查询失败，降级到 A 记录
                     endpoints.AddRange(await QueryARecordsAsync(serviceName, cancellationToken));
                 }
+
                 break;
         }
 
         return endpoints;
     }
 
-    private async Task<List<ServiceEndpoint>> QueryARecordsAsync(string serviceName, CancellationToken cancellationToken)
+    private async Task<List<ServiceEndpoint>> QueryARecordsAsync(string serviceName,
+        CancellationToken cancellationToken)
     {
         var endpoints = new List<ServiceEndpoint>();
         var hostname = BuildHostname(serviceName);
@@ -279,11 +284,7 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
                     ServiceName = serviceName,
                     EndPoint = new IPEndPoint(address, _options.DefaultPort),
                     HealthStatus = HealthStatus.Unknown,
-                    Tags = new Dictionary<string, string>
-                    {
-                        ["source"] = "dns-a",
-                        ["hostname"] = hostname
-                    }
+                    Tags = new Dictionary<string, string> { ["source"] = "dns-a", ["hostname"] = hostname }
                 };
 
                 endpoints.Add(endpoint);
@@ -299,7 +300,8 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
         return endpoints;
     }
 
-    private async Task<List<ServiceEndpoint>> QuerySrvRecordsAsync(string serviceName, CancellationToken cancellationToken)
+    private async Task<List<ServiceEndpoint>> QuerySrvRecordsAsync(string serviceName,
+        CancellationToken cancellationToken)
     {
         var endpoints = new List<ServiceEndpoint>();
         var srvName = BuildSrvName(serviceName);
@@ -316,7 +318,8 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
 
                     foreach (var address in addresses)
                     {
-                        if (!_options.EnableIPv6 && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+                        if (!_options.EnableIPv6 &&
+                            address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
                         {
                             continue;
                         }
@@ -362,7 +365,8 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
         return new List<string>();
     }
 
-    private async Task<List<SrvRecord>> QuerySrvRecordsUsingNslookup(string srvName, CancellationToken cancellationToken)
+    private async Task<List<SrvRecord>> QuerySrvRecordsUsingNslookup(string srvName,
+        CancellationToken cancellationToken)
     {
         // 简化实现，实际应该使用DNS库进行查询
         await Task.Delay(1, cancellationToken);
@@ -375,6 +379,7 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
         {
             return $"{serviceName}.{_options.DnsDomain}";
         }
+
         return serviceName;
     }
 
@@ -385,6 +390,7 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
         {
             return $"_{serviceName}._{protocol}.{_options.DnsDomain}";
         }
+
         return $"_{serviceName}._{protocol}";
     }
 
@@ -462,6 +468,7 @@ public class DnsServiceDiscovery : IServiceDiscovery, IDisposable
             cts.Cancel();
             cts.Dispose();
         }
+
         _watchCancellations.Clear();
 
         // 清理资源

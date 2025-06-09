@@ -32,7 +32,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         };
 
         _consulClient = new ConsulClient(config);
-        
+
         _logger.LogInformation("ConsulServiceDiscovery 已初始化，地址: {Address}, 数据中心: {Datacenter}",
             _options.Address, _options.Datacenter);
     }
@@ -61,9 +61,9 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         try
         {
             var tagStrings = tags.Select(kvp => $"{kvp.Key}={kvp.Value}").ToArray();
-            var result = await _consulClient.Health.Service(serviceName, string.Empty, false, 
+            var result = await _consulClient.Health.Service(serviceName, string.Empty, false,
                 QueryOptions.Default with { Filter = BuildTagFilter(tags) }, cancellationToken);
-            
+
             return ParseServiceEndpoints(result.Response).AsReadOnly();
         }
         catch (Exception ex)
@@ -109,14 +109,14 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
                         WaitTime = _options.WatchTimeout
                     };
 
-                    var result = await _consulClient.Health.Service(serviceName, 
+                    var result = await _consulClient.Health.Service(serviceName,
                         cancellationToken: watchCts.Token, q: query);
 
                     if (result.LastIndex > lastIndex)
                     {
                         lastIndex = result.LastIndex;
                         var endpoints = ParseServiceEndpoints(result.Response);
-                        
+
                         _logger.LogDebug("检测到 Consul 服务变化: {ServiceName}, 端点数量: {Count}",
                             serviceName, endpoints.Count);
 
@@ -160,7 +160,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
             };
 
             await _consulClient.Agent.ServiceRegister(registration, cancellationToken);
-            
+
             _logger.LogInformation("服务已注册到 Consul: {ServiceId} @ {EndPoint}",
                 endpoint.ServiceId, endpoint.EndPoint);
         }
@@ -190,7 +190,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         try
         {
             var checkId = $"service:{serviceId}";
-            
+
             switch (status)
             {
                 case HealthStatus.Healthy:
@@ -226,7 +226,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
                     ServiceId = service.ID,
                     ServiceName = service.Service,
                     EndPoint = new System.Net.IPEndPoint(
-                        System.Net.IPAddress.Parse(service.Address), 
+                        System.Net.IPAddress.Parse(service.Address),
                         service.Port),
                     HealthStatus = HealthStatus.Unknown,
                     Tags = ParseTags(service.Tags)
@@ -261,7 +261,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
                     ServiceId = entry.Service.ID,
                     ServiceName = entry.Service.Service,
                     EndPoint = new System.Net.IPEndPoint(
-                        System.Net.IPAddress.Parse(entry.Service.Address), 
+                        System.Net.IPAddress.Parse(entry.Service.Address),
                         entry.Service.Port),
                     HealthStatus = MapHealthStatus(entry.Checks),
                     Tags = ParseTags(entry.Service.Tags)
@@ -283,10 +283,10 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         if (checks == null || checks.Length == 0)
             return HealthStatus.Unknown;
 
-        if (checks.All(c => c.Status == HealthStatus.Passing))
+        if (checks.All(c => c.Status.Equals(global::Consul.HealthStatus.Passing)))
             return HealthStatus.Healthy;
 
-        if (checks.Any(c => c.Status == HealthStatus.Critical))
+        if (checks.Any(c => c.Status.Equals(global::Consul.HealthStatus.Critical)))
             return HealthStatus.Unhealthy;
 
         return HealthStatus.Unknown;
@@ -320,7 +320,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         return string.Join(" and ", filters);
     }
 
-    private AgentServiceCheck CreateHealthCheck(ServiceEndpoint endpoint)
+    private AgentServiceCheck? CreateHealthCheck(ServiceEndpoint endpoint)
     {
         if (!_options.EnableHealthCheck)
             return null;
@@ -328,7 +328,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         return new AgentServiceCheck
         {
             TTL = _options.HealthCheckTTL,
-            Status = HealthStatus.Passing,
+            Status = global::Consul.HealthStatus.Passing,
             DeregisterCriticalServiceAfter = _options.DeregisterCriticalServiceAfter
         };
     }
@@ -350,7 +350,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         _watchTokens.Clear();
 
         _consulClient?.Dispose();
-        
+
         _logger.LogInformation("ConsulServiceDiscovery 已释放资源");
     }
 }
@@ -399,4 +399,4 @@ public class ConsulOptions
     /// 关键服务自动注销时间
     /// </summary>
     public TimeSpan DeregisterCriticalServiceAfter { get; set; } = TimeSpan.FromMinutes(1);
-} 
+}
