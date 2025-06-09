@@ -8,7 +8,6 @@ using System;
 using System.Threading.Tasks;
 using ChatApp;
 using Microsoft.Extensions.Options;
-using PulseRPC.Client;
 using PulseRPC.Monitoring;
 using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Services;
@@ -99,6 +98,8 @@ internal abstract class Program
         services.AddPulseRpcServiceRegistration(options =>
         {
             options.ServiceIdPrefix = "GameServer";
+            options.Enabled = false;
+            options.RegistryType = ServiceRegistryType.Dns;
             // options.ServiceName = "UserService";
             // options.ServiceVersion = "1.0.0";
             // options.Host = "localhost";

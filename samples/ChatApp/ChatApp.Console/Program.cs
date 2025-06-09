@@ -4,7 +4,7 @@ namespace ChatApp.Console;
 
 internal abstract class Program
 {
-    static async Task Main(string[] args)
+    private static async Task Main(string[] args)
     {
         // 设置日志工厂
         var loggerFactory = LoggerFactory.Create(builder =>
