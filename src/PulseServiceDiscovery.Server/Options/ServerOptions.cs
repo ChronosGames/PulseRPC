@@ -91,6 +91,11 @@ public class ServerHealthCheckOptions
     /// 连续成功多少次后标记为健康
     /// </summary>
     public int SuccessThreshold { get; set; } = 1;
+
+    /// <summary>
+    /// 是否自动移除不健康的服务
+    /// </summary>
+    public bool RemoveUnhealthyServices { get; set; } = false;
 }
 
 /// <summary>

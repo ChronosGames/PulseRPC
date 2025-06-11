@@ -73,8 +73,8 @@ public class ServerHealthChecker : BackgroundService
             var serviceRegistry = scope.ServiceProvider.GetRequiredService<IServiceRegistry>();
             var healthChecker = scope.ServiceProvider.GetRequiredService<IHealthChecker>();
 
-            var allServices = await serviceRegistry.GetAllServicesAsync(cancellationToken);
-            var servicesToCheck = allServices.Where(s => s.Endpoint.HealthCheck != null).ToList();
+            var allServices = await serviceRegistry.GetRegistrationsAsync(cancellationToken);
+            var servicesToCheck = allServices.Where(s => s.HealthCheck != null).ToList();
 
             if (!servicesToCheck.Any())
             {
@@ -119,7 +119,7 @@ public class ServerHealthChecker : BackgroundService
     {
         try
         {
-            var endpoint = service.Endpoint;
+            var endpoint = service.ToEndpoint();
             var currentHealth = await healthChecker.CheckHealthAsync(endpoint, cancellationToken);
 
             var state = _healthStates.AddOrUpdate(service.Id,
