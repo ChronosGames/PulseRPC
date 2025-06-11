@@ -44,7 +44,16 @@ public interface IServiceCache : IDisposable
     /// 获取缓存统计信息
     /// </summary>
     /// <returns>统计信息</returns>
-    CacheStatistics GetStatistics();
+    CacheStatistics GetStatistics() => new(0, 0, 0, 0, TimeSpan.Zero);
+
+    /// <summary>
+    /// 释放资源
+    /// </summary>
+    void IDisposable.Dispose()
+    {
+        // 默认空实现，子类可以重写
+        GC.SuppressFinalize(this);
+    }
 }
 
 /// <summary>

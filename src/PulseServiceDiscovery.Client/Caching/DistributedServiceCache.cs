@@ -4,6 +4,9 @@ using Microsoft.Extensions.Options;
 using PulseServiceDiscovery.Abstractions.Models;
 using PulseServiceDiscovery.Client.Options;
 using System.Text.Json;
+using System.Collections.Concurrent;
+using System.Threading;
+using System.Linq;
 
 namespace PulseServiceDiscovery.Client.Caching;
 
@@ -16,6 +19,10 @@ public class DistributedServiceCache : IServiceCache
     private readonly ILogger<DistributedServiceCache> _logger;
     private readonly CacheOptions _options;
     private readonly JsonSerializerOptions _jsonOptions;
+    private readonly ConcurrentDictionary<string, CacheEntry> _accessLog = new();
+    private long _hitCount = 0;
+    private long _missCount = 0;
+    private bool _disposed = false;
 
     public DistributedServiceCache(
         IDistributedCache distributedCache,
@@ -24,7 +31,7 @@ public class DistributedServiceCache : IServiceCache
     {
         _distributedCache = distributedCache ?? throw new ArgumentNullException(nameof(distributedCache));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _options = clientOptions?.Value?.Cache ?? throw new ArgumentNullException(nameof(clientOptions));
+        _options = clientOptions?.Value?.CacheOptions ?? throw new ArgumentNullException(nameof(clientOptions));
 
         _jsonOptions = new JsonSerializerOptions
         {
@@ -50,6 +57,7 @@ public class DistributedServiceCache : IServiceCache
                 var endpoints = JsonSerializer.Deserialize<List<ServiceEndpoint>>(cachedData, _jsonOptions);
                 _logger.LogDebug("Cache hit for service: {ServiceName}, found {Count} endpoints",
                     serviceName, endpoints?.Count ?? 0);
+                UpdateStatistics(serviceName, true);
                 return endpoints?.AsReadOnly();
             }
         }
@@ -59,6 +67,7 @@ public class DistributedServiceCache : IServiceCache
         }
 
         _logger.LogDebug("Cache miss for service: {ServiceName}", serviceName);
+        UpdateStatistics(serviceName, false);
         return null;
     }
 
@@ -96,11 +105,8 @@ public class DistributedServiceCache : IServiceCache
                 AbsoluteExpirationRelativeToNow = ttl
             };
 
-            // 如果配置了滑动过期，也设置滑动过期
-            if (_options.SlidingExpiration.HasValue)
-            {
-                options.SlidingExpiration = _options.SlidingExpiration.Value;
-            }
+            // 设置滑动过期为TTL的一半
+            options.SlidingExpiration = ttl / 2;
 
             await _distributedCache.SetStringAsync(key, json, options, cancellationToken);
 
@@ -186,8 +192,8 @@ public class DistributedServiceCache : IServiceCache
         {
             ["CacheType"] = "Distributed",
             ["DefaultTtl"] = _options.DefaultTtl.ToString(),
-            ["SlidingExpiration"] = _options.SlidingExpiration?.ToString() ?? "None",
-            ["KeyPrefix"] = _options.KeyPrefix,
+            ["SlidingExpiration"] = (_options.DefaultTtl / 2).ToString(),
+            ["KeyPrefix"] = "pulse",
             ["SerializerOptions"] = new Dictionary<string, object>
             {
                 ["PropertyNamingPolicy"] = _jsonOptions.PropertyNamingPolicy?.GetType().Name ?? "None",
@@ -201,6 +207,73 @@ public class DistributedServiceCache : IServiceCache
 
     private string GetCacheKey(string serviceName)
     {
-        return $"{_options.KeyPrefix}:services:{serviceName}";
+        return $"pulse:services:{serviceName}"; // 使用固定前缀
+    }
+
+    /// <summary>
+    /// 获取缓存统计信息 - 分布式一致性优先实现
+    /// </summary>
+    public CacheStatistics GetStatistics()
+    {
+        var avgLoadTime = TimeSpan.Zero;
+        if (_accessLog.Count > 0)
+        {
+            var totalMs = _accessLog.Values.Select(entry => entry.LoadTime.TotalMilliseconds).Average();
+            avgLoadTime = TimeSpan.FromMilliseconds(totalMs);
+        }
+
+        return new CacheStatistics(
+            HitCount: Interlocked.Read(ref _hitCount),
+            MissCount: Interlocked.Read(ref _missCount),
+            EvictionCount: 0, // 分布式缓存不容易追踪eviction
+            CurrentSize: _accessLog.Count,
+            AverageLoadTime: avgLoadTime
+        );
+    }
+
+    /// <summary>
+    /// 释放资源
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+
+        try
+        {
+            _accessLog.Clear();
+            // 分布式缓存本身通常由DI容器管理，这里不直接释放
+            _logger.LogDebug("DistributedServiceCache disposed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error disposing DistributedServiceCache");
+        }
+        finally
+        {
+            _disposed = true;
+            GC.SuppressFinalize(this);
+        }
+    }
+
+    private void UpdateStatistics(string serviceName, bool hit, TimeSpan loadTime = default)
+    {
+        if (hit)
+        {
+            Interlocked.Increment(ref _hitCount);
+        }
+        else
+        {
+            Interlocked.Increment(ref _missCount);
+        }
+
+        _accessLog.AddOrUpdate(serviceName, 
+            new CacheEntry { LastAccess = DateTime.UtcNow, LoadTime = loadTime },
+            (key, oldValue) => new CacheEntry { LastAccess = DateTime.UtcNow, LoadTime = loadTime });
+    }
+
+    private record CacheEntry
+    {
+        public DateTime LastAccess { get; init; }
+        public TimeSpan LoadTime { get; init; }
     }
 }

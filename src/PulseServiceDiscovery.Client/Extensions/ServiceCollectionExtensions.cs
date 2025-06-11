@@ -93,7 +93,7 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<ClientOptions>(options =>
         {
-            options.LoadBalancing.DefaultStrategy = defaultStrategy;
+            options.LoadBalancingOptions.Strategy = defaultStrategy;
         });
 
         return services;
@@ -111,7 +111,7 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<ClientOptions>(options =>
         {
-            configureCache(options.Cache);
+            configureCache(options.CacheOptions);
         });
 
         return services;
@@ -129,7 +129,7 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<ClientOptions>(options =>
         {
-            configureHealthCheck(options.HealthCheck);
+            configureHealthCheck(options.HealthCheckOptions);
         });
 
         return services;
@@ -186,7 +186,7 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<ClientOptions>(options =>
         {
-            options.HealthCheck.Enabled = false;
+            options.HealthCheckOptions.Enabled = false;
         });
 
         return services;
