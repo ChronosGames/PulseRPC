@@ -77,8 +77,8 @@ public class ServerHealthCheckService : BackgroundService
             var healthChecker = scope.ServiceProvider.GetRequiredService<IHealthChecker>();
 
             // 获取所有已注册的服务
-            var allServices = await serviceRegistry.GetAllServicesAsync(cancellationToken);
-            var servicesToCheck = allServices.Where(s => s.Endpoint.HealthCheck != null).ToList();
+            var allServices = await serviceRegistry.GetRegistrationsAsync(cancellationToken);
+            var servicesToCheck = allServices.Where(s => s.HealthCheck != null).ToList();
 
             if (!servicesToCheck.Any())
             {
@@ -124,7 +124,7 @@ public class ServerHealthCheckService : BackgroundService
     {
         try
         {
-            var endpoint = service.Endpoint;
+            var endpoint = service.ToEndpoint();
             var currentHealth = await healthChecker.CheckHealthAsync(endpoint, cancellationToken);
 
             var state = _healthStates.AddOrUpdate(service.Id,
@@ -169,7 +169,6 @@ public class ServerHealthCheckService : BackgroundService
         IServiceRegistry serviceRegistry,
         CancellationToken cancellationToken)
     {
-        // 如果连续失败次数达到阈值，且配置了移除不健康服务
         if (_options.RemoveUnhealthyServices &&
             state.ConsecutiveFailures >= _options.FailureThreshold)
         {
@@ -186,8 +185,6 @@ public class ServerHealthCheckService : BackgroundService
                 _logger.LogError(ex, "Failed to remove unhealthy service {ServiceId}", service.Id);
             }
         }
-
-        // 如果从不健康恢复到健康状态
         else if (state.ConsecutiveSuccesses >= _options.SuccessThreshold &&
                  state.PreviousHealth != HealthStatus.Healthy &&
                  state.CurrentHealth == HealthStatus.Healthy)
@@ -230,8 +227,9 @@ public class ServerHealthCheckService : BackgroundService
             var serviceRegistry = scope.ServiceProvider.GetRequiredService<IServiceRegistry>();
             var healthChecker = scope.ServiceProvider.GetRequiredService<IHealthChecker>();
 
-            var service = await serviceRegistry.GetServiceAsync(serviceId, cancellationToken);
-            if (service == null || service.Endpoint.HealthCheck == null)
+            var allServices = await serviceRegistry.GetRegistrationsAsync(cancellationToken);
+            var service = allServices.FirstOrDefault(s => s.Id == serviceId);
+            if (service == null || service.HealthCheck == null)
             {
                 return null;
             }

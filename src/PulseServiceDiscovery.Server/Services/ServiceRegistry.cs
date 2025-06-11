@@ -45,23 +45,19 @@ public class ServiceRegistry : IServiceRegistry
 
         if (string.IsNullOrEmpty(registration.Id))
         {
-            registration = registration with { Id = GenerateServiceId(registration) };
+            registration.Id = GenerateServiceId(registration);
         }
 
-        registration = registration with
-        {
-            RegisteredAt = DateTime.UtcNow,
-            LastHeartbeat = DateTime.UtcNow
-        };
+        registration.RegisteredAt = DateTime.UtcNow;
+        registration.LastHeartbeat = DateTime.UtcNow;
 
         await _storage.StoreServiceAsync(registration, cancellationToken);
         _lastHeartbeat[registration.Id] = DateTime.UtcNow;
 
-        _logger.LogInformation("Service registered: {ServiceName} at {Endpoint} (ID: {ServiceId})",
-            registration.ServiceName, registration.Endpoint.Address, registration.Id);
+        _logger.LogInformation("Service registered: {ServiceName} at {Host}:{Port} (ID: {ServiceId})",
+            registration.ServiceName, registration.Host, registration.Port, registration.Id);
 
         await TriggerServiceRegisteredEvent(registration);
-        return registration;
     }
 
     public async Task UnregisterAsync(string serviceId, CancellationToken cancellationToken = default)
@@ -105,23 +101,20 @@ public class ServiceRegistry : IServiceRegistry
 
         ValidateRegistration(registration);
 
-        var updatedRegistration = registration with
-        {
-            Id = serviceId,
-            RegisteredAt = existingRegistration.RegisteredAt,
-            LastHeartbeat = DateTime.UtcNow
-        };
+        registration.Id = serviceId;
+        registration.RegisteredAt = existingRegistration.RegisteredAt;
+        registration.LastHeartbeat = DateTime.UtcNow;
 
-        await _storage.StoreServiceAsync(updatedRegistration, cancellationToken);
+        await _storage.StoreServiceAsync(registration, cancellationToken);
         _lastHeartbeat[serviceId] = DateTime.UtcNow;
 
         _logger.LogInformation("Service updated: {ServiceName} (ID: {ServiceId})",
             registration.ServiceName, serviceId);
 
-        return updatedRegistration;
+        return registration;
     }
 
-    public async Task<bool> HeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
+    public async Task HeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(serviceId))
             throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
@@ -130,17 +123,44 @@ public class ServiceRegistry : IServiceRegistry
         if (registration == null)
         {
             _logger.LogWarning("Heartbeat received for non-existent service: {ServiceId}", serviceId);
-            return false;
+            return;
         }
 
-        var updatedRegistration = registration with { LastHeartbeat = DateTime.UtcNow };
-        await _storage.StoreServiceAsync(updatedRegistration, cancellationToken);
+        registration.LastHeartbeat = DateTime.UtcNow;
+        await _storage.StoreServiceAsync(registration, cancellationToken);
         _lastHeartbeat[serviceId] = DateTime.UtcNow;
 
         _logger.LogDebug("Heartbeat received for service: {ServiceName} (ID: {ServiceId})",
             registration.ServiceName, serviceId);
+    }
 
-        return true;
+    public async Task UpdateHealthAsync(string serviceId, HealthStatus status, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceId))
+            throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
+
+        var registration = await _storage.GetServiceAsync(serviceId, cancellationToken);
+        if (registration == null)
+        {
+            _logger.LogWarning("Attempted to update health for non-existent service: {ServiceId}", serviceId);
+            return;
+        }
+
+        var endpoint = registration.ToEndpoint();
+        var oldStatus = endpoint.Health;
+        
+        registration.LastHeartbeat = DateTime.UtcNow;
+        await _storage.StoreServiceAsync(registration, cancellationToken);
+        _lastHeartbeat[serviceId] = DateTime.UtcNow;
+
+        _logger.LogInformation("Service health updated: {ServiceName} (ID: {ServiceId}) from {OldStatus} to {NewStatus}",
+            registration.ServiceName, serviceId, oldStatus, status);
+
+        // 如果健康状态发生变化，触发事件
+        if (oldStatus != status)
+        {
+            await TriggerServiceHealthChangedEvent(registration, oldStatus, status);
+        }
     }
 
     public async Task<ServiceRegistration?> GetServiceAsync(string serviceId, CancellationToken cancellationToken = default)
@@ -247,19 +267,16 @@ public class ServiceRegistry : IServiceRegistry
         if (string.IsNullOrWhiteSpace(registration.ServiceName))
             throw new ArgumentException("Service name cannot be null or empty");
 
-        if (registration.Endpoint == null)
-            throw new ArgumentException("Service endpoint cannot be null");
+        if (string.IsNullOrWhiteSpace(registration.Host))
+            throw new ArgumentException("Service host cannot be null or empty");
 
-        if (string.IsNullOrWhiteSpace(registration.Endpoint.Host))
-            throw new ArgumentException("Service endpoint host cannot be null or empty");
-
-        if (registration.Endpoint.Port <= 0 || registration.Endpoint.Port > 65535)
-            throw new ArgumentException("Service endpoint port must be between 1 and 65535");
+        if (registration.Port <= 0 || registration.Port > 65535)
+            throw new ArgumentException("Service port must be between 1 and 65535");
     }
 
     private static string GenerateServiceId(ServiceRegistration registration)
     {
-        var baseId = $"{registration.ServiceName}:{registration.Endpoint.Host}:{registration.Endpoint.Port}";
+        var baseId = $"{registration.ServiceName}:{registration.Host}:{registration.Port}";
         return $"{baseId}:{Guid.NewGuid():N}";
     }
 
@@ -269,15 +286,7 @@ public class ServiceRegistry : IServiceRegistry
 
         try
         {
-            var eventArgs = new ServiceRegisteredEvent
-            {
-                ServiceName = registration.ServiceName,
-                ServiceId = registration.Id,
-                Endpoint = registration.Endpoint,
-                Metadata = registration.Metadata,
-                Timestamp = DateTime.UtcNow
-            };
-
+            var eventArgs = ServiceRegisteredEvent.CreateSuccess(registration, "ServiceRegistry");
             await ServiceRegistered.Invoke(eventArgs);
         }
         catch (Exception ex)
@@ -296,7 +305,7 @@ public class ServiceRegistry : IServiceRegistry
             {
                 ServiceName = registration.ServiceName,
                 ServiceId = registration.Id,
-                Endpoint = registration.Endpoint,
+                Endpoint = registration.ToEndpoint(),
                 Timestamp = DateTime.UtcNow
             };
 
@@ -306,5 +315,35 @@ public class ServiceRegistry : IServiceRegistry
         {
             _logger.LogError(ex, "Error triggering ServiceUnregistered event for service: {ServiceId}", registration.Id);
         }
+    }
+
+    private async Task TriggerServiceHealthChangedEvent(ServiceRegistration registration, HealthStatus oldStatus, HealthStatus newStatus)
+    {
+        if (ServiceHealthChanged == null) return;
+
+        try
+        {
+            var eventArgs = new ServiceHealthChangedEvent
+            {
+                ServiceId = registration.Id,
+                ServiceName = registration.ServiceName,
+                Endpoint = registration.ToEndpoint(newStatus),
+                OldStatus = oldStatus,
+                NewStatus = newStatus,
+                CheckTime = DateTime.UtcNow,
+                Timestamp = DateTime.UtcNow
+            };
+
+            await ServiceHealthChanged.Invoke(eventArgs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error triggering ServiceHealthChanged event for service: {ServiceId}", registration.Id);
+        }
+    }
+
+    public async Task<IReadOnlyList<ServiceRegistration>> GetRegistrationsAsync(CancellationToken cancellationToken = default)
+    {
+        return await GetAllServicesAsync(cancellationToken);
     }
 }
