@@ -31,7 +31,7 @@ public class HealthCheckService : BackgroundService
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _options = clientOptions?.Value?.HealthCheck ?? throw new ArgumentNullException(nameof(clientOptions));
+        _options = clientOptions?.Value?.HealthCheckOptions ?? throw new ArgumentNullException(nameof(clientOptions));
     }
 
     /// <summary>
@@ -47,7 +47,7 @@ public class HealthCheckService : BackgroundService
         if (endpoints == null)
             throw new ArgumentNullException(nameof(endpoints));
 
-        var endpointList = endpoints.Where(e => e.HealthCheck != null).ToList();
+        var endpointList = endpoints.ToList(); // 所有端点都可以进行健康检查
 
         _serviceEndpoints.AddOrUpdate(serviceName, endpointList, (_, _) => endpointList);
 
@@ -188,10 +188,10 @@ public class HealthCheckService : BackgroundService
             using var scope = _serviceProvider.CreateScope();
             var healthChecker = scope.ServiceProvider.GetRequiredService<IHealthChecker>();
 
-            var healthResults = await healthChecker.CheckHealthAsync(endpoints, cancellationToken);
+            var healthResults = await healthChecker.CheckHealthAsync(endpoints.ToList(), cancellationToken);
 
             // 处理健康状态变化
-            await ProcessHealthChangesAsync(endpoints, healthResults);
+            await ProcessHealthChangesAsync(healthResults);
 
             _logger.LogDebug("Health check completed for service: {ServiceName}, checked {EndpointCount} endpoints",
                 serviceName, endpoints.Count);
@@ -203,15 +203,14 @@ public class HealthCheckService : BackgroundService
     }
 
     private async Task ProcessHealthChangesAsync(
-        IEnumerable<ServiceEndpoint> endpoints,
-        Dictionary<string, HealthStatus> healthResults)
+        IReadOnlyDictionary<ServiceEndpoint, HealthStatus> healthResults)
     {
         var healthChangedEvents = new List<ServiceHealthChangedEvent>();
 
-        foreach (var endpoint in endpoints)
+        foreach (var kvp in healthResults)
         {
-            if (!healthResults.TryGetValue(endpoint.Id, out var newStatus))
-                continue;
+            var endpoint = kvp.Key;
+            var newStatus = kvp.Value;
 
             var oldStatus = _lastHealthStates.GetValueOrDefault(endpoint.Id, HealthStatus.Unknown);
 
@@ -221,15 +220,13 @@ public class HealthCheckService : BackgroundService
             // 如果状态发生变化，触发事件
             if (oldStatus != newStatus)
             {
-                var healthChangedEvent = new ServiceHealthChangedEvent
-                {
-                    ServiceName = endpoint.ServiceName,
-                    EndpointId = endpoint.Id,
-                    EndpointAddress = endpoint.Address,
-                    OldStatus = oldStatus,
-                    NewStatus = newStatus,
-                    Timestamp = DateTime.UtcNow
-                };
+                var healthChangedEvent = ServiceHealthChangedEvent.Create(
+                    serviceId: endpoint.Id,
+                    serviceName: endpoint.ServiceName,
+                    endpoint: endpoint,
+                    oldStatus: oldStatus,
+                    newStatus: newStatus,
+                    source: "HealthCheckService");
 
                 healthChangedEvents.Add(healthChangedEvent);
 
@@ -260,7 +257,7 @@ public class HealthCheckService : BackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error invoking health changed event for endpoint: {Endpoint}",
-                healthChangedEvent.EndpointAddress);
+                healthChangedEvent.Endpoint?.Address ?? "Unknown");
         }
     }
 
@@ -282,7 +279,7 @@ public class HealthCheckService : BackgroundService
             ["DegradedEndpoints"] = _lastHealthStates.Count(kvp => kvp.Value == HealthStatus.Degraded),
             ["CheckInterval"] = _options.Interval.ToString(),
             ["CheckTimeout"] = _options.Timeout.ToString(),
-            ["MaxConcurrentChecks"] = _options.MaxConcurrentChecks,
+            ["MaxConcurrentChecks"] = 10, // 使用固定值
             ["ServiceEndpoints"] = _serviceEndpoints.ToDictionary(
                 kvp => kvp.Key,
                 kvp => kvp.Value.Count)

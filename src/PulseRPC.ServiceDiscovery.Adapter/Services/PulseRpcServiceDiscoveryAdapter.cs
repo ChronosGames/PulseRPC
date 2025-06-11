@@ -10,14 +10,17 @@ namespace PulseRPC.ServiceDiscovery.Adapter.Services;
 public class PulseRpcServiceDiscoveryAdapter
 {
     private readonly IServiceDiscovery _serviceDiscovery;
+    private readonly ILoadBalancer? _loadBalancer;
     private readonly ILogger<PulseRpcServiceDiscoveryAdapter> _logger;
 
     public PulseRpcServiceDiscoveryAdapter(
         IServiceDiscovery serviceDiscovery,
-        ILogger<PulseRpcServiceDiscoveryAdapter> logger)
+        ILogger<PulseRpcServiceDiscoveryAdapter> logger,
+        ILoadBalancer? loadBalancer = null)
     {
         _serviceDiscovery = serviceDiscovery ?? throw new ArgumentNullException(nameof(serviceDiscovery));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _loadBalancer = loadBalancer;
     }
 
     /// <summary>
@@ -32,7 +35,8 @@ public class PulseRpcServiceDiscoveryAdapter
     {
         try
         {
-            var endpoints = await _serviceDiscovery.DiscoverServicesAsync(serviceName, cancellationToken);
+            // 修正：使用正确的方法调用
+            var endpoints = await _serviceDiscovery.DiscoverAllAsync(serviceName, cancellationToken);
 
             var pulseRpcEndpoints = endpoints.Select(ConvertToPulseRpcEndpoint).ToList();
 
@@ -44,12 +48,14 @@ public class PulseRpcServiceDiscoveryAdapter
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to discover PulseRPC endpoints for service: {ServiceName}", serviceName);
-            throw;
+            
+            // 快速失败策略：立即抛出异常
+            throw new ServiceDiscoveryException($"Failed to discover endpoints for service '{serviceName}'", ex);
         }
     }
 
     /// <summary>
-    /// 获取最佳端点（基于负载均衡）
+    /// 获取最佳端点（集成负载均衡器）
     /// </summary>
     /// <param name="serviceName">服务名称</param>
     /// <param name="cancellationToken">取消令牌</param>
@@ -66,9 +72,33 @@ public class PulseRpcServiceDiscoveryAdapter
             return null;
         }
 
-        // 简单的轮询选择，实际应该集成PulseServiceDiscovery的负载均衡器
-        var selectedEndpoint = endpoints.First();
+        // 如果有负载均衡器，使用负载均衡器选择
+        if (_loadBalancer != null)
+        {
+            try
+            {
+                var serviceEndpoints = endpoints.Select(ConvertToServiceEndpoint).ToList();
+                var selectedServiceEndpoint = await _loadBalancer.SelectAsync(
+                    serviceEndpoints,
+                    LoadBalancingContext.Default(),
+                    cancellationToken);
 
+                if (selectedServiceEndpoint != null)
+                {
+                    var selectedEndpoint = ConvertToPulseRpcEndpoint(selectedServiceEndpoint);
+                    _logger.LogDebug("Load balancer selected endpoint {Host}:{Port} for service: {ServiceName}",
+                        selectedEndpoint.Host, selectedEndpoint.Port, serviceName);
+                    return selectedEndpoint;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Load balancer failed, falling back to simple selection for service: {ServiceName}", serviceName);
+            }
+        }
+
+        // 简单轮询选择作为fallback
+        var selectedEndpoint = endpoints.First();
         _logger.LogDebug("Selected endpoint {Host}:{Port} for service: {ServiceName}",
             selectedEndpoint.Host, selectedEndpoint.Port, serviceName);
 
@@ -88,10 +118,32 @@ public class PulseRpcServiceDiscoveryAdapter
             Host = endpoint.Host,
             Port = endpoint.Port,
             Weight = endpoint.Weight,
-            IsHealthy = true, // 假设从服务发现获取的都是健康的
-            Metadata = endpoint.Metadata.Properties?.ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString() ?? string.Empty)
+            IsHealthy = endpoint.IsHealthy,
+            Metadata = endpoint.Metadata?.Properties?.ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString() ?? string.Empty)
                       ?? new Dictionary<string, string>()
         };
+    }
+
+    /// <summary>
+    /// 将PulseRpcEndpoint转换为ServiceEndpoint（用于负载均衡器）
+    /// </summary>
+    private static ServiceEndpoint ConvertToServiceEndpoint(PulseRpcEndpoint endpoint)
+    {
+        var metadata = new ServiceMetadata();
+        foreach (var kvp in endpoint.Metadata)
+        {
+            metadata.SetValue(kvp.Key, kvp.Value);
+        }
+
+        return new ServiceEndpoint(
+            Id: endpoint.Id,
+            ServiceName: "unknown", // 服务名称在这个上下文中不可用
+            Host: endpoint.Host,
+            Port: endpoint.Port,
+            Protocol: "tcp",
+            Metadata: metadata,
+            Health: endpoint.IsHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy,
+            Weight: endpoint.Weight);
     }
 }
 
@@ -214,4 +266,13 @@ public class PulseRpcEndpointProvider
             return Array.Empty<string>();
         }
     }
+}
+
+/// <summary>
+/// 服务发现异常
+/// </summary>
+public class ServiceDiscoveryException : Exception
+{
+    public ServiceDiscoveryException(string message) : base(message) { }
+    public ServiceDiscoveryException(string message, Exception innerException) : base(message, innerException) { }
 }

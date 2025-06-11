@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using PulseServiceDiscovery.Abstractions;
 using PulseServiceDiscovery.Server.HealthCheck;
 using PulseServiceDiscovery.Server.Options;
@@ -334,7 +335,7 @@ public class CleanupService : BackgroundService
 
     private async Task PerformManualCleanupAsync(CancellationToken cancellationToken)
     {
-        var allServices = await _serviceRegistry.GetAllServicesAsync(cancellationToken);
+        var allServices = await _serviceRegistry.GetRegistrationsAsync(cancellationToken);
         var expiredThreshold = DateTime.UtcNow - _options.ServiceExpiration;
         var expiredServices = allServices.Where(s => s.LastHeartbeat < expiredThreshold).ToList();
 

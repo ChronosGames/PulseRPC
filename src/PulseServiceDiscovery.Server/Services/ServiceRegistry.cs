@@ -34,7 +34,7 @@ public class ServiceRegistry : IServiceRegistry
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     }
 
-    public async Task<ServiceRegistration> RegisterAsync(
+    public async Task RegisterAsync(
         ServiceRegistration registration,
         CancellationToken cancellationToken = default)
     {

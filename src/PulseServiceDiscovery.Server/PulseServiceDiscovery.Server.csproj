@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PulseServiceDiscovery.Abstractions\PulseServiceDiscovery.Abstractions.csproj" />
+    <ProjectReference Include="..\PulseServiceDiscovery.Client\PulseServiceDiscovery.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>
