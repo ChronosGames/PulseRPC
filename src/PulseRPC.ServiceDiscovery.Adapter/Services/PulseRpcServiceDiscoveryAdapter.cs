@@ -1,6 +1,10 @@
 using Microsoft.Extensions.Logging;
 using PulseServiceDiscovery.Abstractions;
 using PulseServiceDiscovery.Abstractions.Models;
+using PulseRPC.LoadBalancing;
+using ServiceDiscoveryEndpoint = PulseServiceDiscovery.Abstractions.Models.ServiceEndpoint;
+using PulseRpcHealthStatus = PulseRPC.ServiceDiscovery.HealthStatus;
+using ServiceDiscoveryLoadBalancer = PulseServiceDiscovery.Abstractions.ILoadBalancer;
 
 namespace PulseRPC.ServiceDiscovery.Adapter.Services;
 
@@ -10,17 +14,23 @@ namespace PulseRPC.ServiceDiscovery.Adapter.Services;
 public class PulseRpcServiceDiscoveryAdapter
 {
     private readonly IServiceDiscovery _serviceDiscovery;
-    private readonly ILoadBalancer? _loadBalancer;
+    private readonly ServiceDiscoveryLoadBalancer? _loadBalancer;
     private readonly ILogger<PulseRpcServiceDiscoveryAdapter> _logger;
 
+    /// <summary>
+    /// 初始化PulseRPC服务发现适配器
+    /// </summary>
+    /// <param name="serviceDiscovery">服务发现实例</param>
+    /// <param name="loadBalancer">负载均衡器（可选）</param>
+    /// <param name="logger">日志记录器</param>
     public PulseRpcServiceDiscoveryAdapter(
         IServiceDiscovery serviceDiscovery,
-        ILogger<PulseRpcServiceDiscoveryAdapter> logger,
-        ILoadBalancer? loadBalancer = null)
+        ServiceDiscoveryLoadBalancer? loadBalancer,
+        ILogger<PulseRpcServiceDiscoveryAdapter> logger)
     {
         _serviceDiscovery = serviceDiscovery ?? throw new ArgumentNullException(nameof(serviceDiscovery));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _loadBalancer = loadBalancer;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>
@@ -85,10 +95,10 @@ public class PulseRpcServiceDiscoveryAdapter
 
                 if (selectedServiceEndpoint != null)
                 {
-                    var selectedEndpoint = ConvertToPulseRpcEndpoint(selectedServiceEndpoint);
+                    var selectedRpcEndpoint = ConvertToPulseRpcEndpoint(selectedServiceEndpoint);
                     _logger.LogDebug("Load balancer selected endpoint {Host}:{Port} for service: {ServiceName}",
-                        selectedEndpoint.Host, selectedEndpoint.Port, serviceName);
-                    return selectedEndpoint;
+                        selectedRpcEndpoint.Host, selectedRpcEndpoint.Port, serviceName);
+                    return selectedRpcEndpoint;
                 }
             }
             catch (Exception ex)
@@ -110,8 +120,21 @@ public class PulseRpcServiceDiscoveryAdapter
     /// </summary>
     /// <param name="endpoint">服务端点</param>
     /// <returns>PulseRPC端点</returns>
-    private static PulseRpcEndpoint ConvertToPulseRpcEndpoint(ServiceEndpoint endpoint)
+    private static PulseRpcEndpoint ConvertToPulseRpcEndpoint(ServiceDiscoveryEndpoint endpoint)
     {
+        var metadata = new Dictionary<string, string>();
+        if (endpoint.Metadata != null)
+        {
+            foreach (var key in endpoint.Metadata.Keys)
+            {
+                var value = endpoint.Metadata.GetValue(key);
+                if (value != null)
+                {
+                    metadata[key] = value;
+                }
+            }
+        }
+
         return new PulseRpcEndpoint
         {
             Id = endpoint.Id,
@@ -119,15 +142,14 @@ public class PulseRpcServiceDiscoveryAdapter
             Port = endpoint.Port,
             Weight = endpoint.Weight,
             IsHealthy = endpoint.IsHealthy,
-            Metadata = endpoint.Metadata?.Properties?.ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString() ?? string.Empty)
-                      ?? new Dictionary<string, string>()
+            Metadata = metadata
         };
     }
 
     /// <summary>
     /// 将PulseRpcEndpoint转换为ServiceEndpoint（用于负载均衡器）
     /// </summary>
-    private static ServiceEndpoint ConvertToServiceEndpoint(PulseRpcEndpoint endpoint)
+    private static ServiceDiscoveryEndpoint ConvertToServiceEndpoint(PulseRpcEndpoint endpoint)
     {
         var metadata = new ServiceMetadata();
         foreach (var kvp in endpoint.Metadata)
@@ -135,15 +157,15 @@ public class PulseRpcServiceDiscoveryAdapter
             metadata.SetValue(kvp.Key, kvp.Value);
         }
 
-        return new ServiceEndpoint(
-            Id: endpoint.Id,
-            ServiceName: "unknown", // 服务名称在这个上下文中不可用
-            Host: endpoint.Host,
-            Port: endpoint.Port,
-            Protocol: "tcp",
-            Metadata: metadata,
-            Health: endpoint.IsHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy,
-            Weight: endpoint.Weight);
+        return new ServiceDiscoveryEndpoint(
+            endpoint.Id,
+            "unknown", // 服务名称在这个上下文中不可用
+            endpoint.Host,
+            endpoint.Port,
+            "tcp",
+            metadata,
+            endpoint.IsHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy,
+            endpoint.Weight);
     }
 }
 

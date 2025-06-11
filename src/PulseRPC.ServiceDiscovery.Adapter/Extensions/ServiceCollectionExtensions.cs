@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using PulseRPC.ServiceDiscovery.Adapter.Services;
 using PulseServiceDiscovery.Client.Extensions;
 using PulseServiceDiscovery.Server.Extensions;
@@ -81,13 +82,17 @@ public static class ServiceCollectionExtensions
         string host,
         int port)
     {
-        services.Configure<PulseRpcAutoRegistrationOptions>(options =>
+        // 直接创建配置对象而不是使用Configure
+        var options = new PulseRpcAutoRegistrationOptions
         {
-            options.ServiceName = serviceName;
-            options.Host = host;
-            options.Port = port;
-            options.Enabled = true;
-        });
+            ServiceName = serviceName,
+            Host = host,
+            Port = port,
+            Enabled = true
+        };
+
+        services.AddSingleton<IOptions<PulseRpcAutoRegistrationOptions>>(
+            new OptionsWrapper<PulseRpcAutoRegistrationOptions>(options));
 
         services.AddHostedService<PulseRpcAutoRegistrationService>();
 
@@ -106,7 +111,11 @@ public static class ServiceCollectionExtensions
     {
         services.Configure<PulseServiceDiscovery.Client.Options.ClientOptions>(options =>
         {
-            options.LoadBalancing.Strategy = strategy;
+            // 假设LoadBalancingOptions是正确的属性名，如果不对需要根据实际定义调整
+            options.LoadBalancingOptions = new PulseServiceDiscovery.Client.Options.LoadBalancingOptions
+            {
+                Strategy = strategy
+            };
         });
 
         return services;

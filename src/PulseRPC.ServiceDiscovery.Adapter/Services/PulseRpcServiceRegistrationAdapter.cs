@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseServiceDiscovery.Abstractions;
 using PulseServiceDiscovery.Abstractions.Models;
+using ServiceDiscoveryEndpoint = PulseServiceDiscovery.Abstractions.Models.ServiceEndpoint;
 
 namespace PulseRPC.ServiceDiscovery.Adapter.Services;
 
@@ -40,20 +41,24 @@ public class PulseRpcServiceRegistrationAdapter
     {
         var serviceId = GenerateServiceId(serviceName, host, port);
 
-        var endpoint = new ServiceEndpoint
+        var serviceMetadata = new ServiceMetadata();
+        if (metadata != null)
         {
-            Id = serviceId,
-            Host = host,
-            Port = port,
-            Weight = 1,
-            Metadata = new ServiceMetadata(metadata ?? new Dictionary<string, object>())
-        };
+            foreach (var kvp in metadata)
+            {
+                serviceMetadata.SetValue(kvp.Key, kvp.Value?.ToString() ?? string.Empty);
+            }
+        }
 
         var registration = new ServiceRegistration
         {
             Id = serviceId,
             ServiceName = serviceName,
-            Endpoint = endpoint,
+            Host = host,
+            Port = port,
+            Protocol = "tcp",
+            Weight = 1,
+            Metadata = serviceMetadata,
             RegisteredAt = DateTime.UtcNow,
             LastHeartbeat = DateTime.UtcNow
         };
@@ -85,7 +90,7 @@ public class PulseRpcServiceRegistrationAdapter
     /// <param name="cancellationToken">取消令牌</param>
     public async Task UpdateHeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
     {
-        await _serviceRegistry.UpdateHeartbeatAsync(serviceId, cancellationToken);
+        await _serviceRegistry.HeartbeatAsync(serviceId, cancellationToken);
 
         _logger.LogDebug("Updated heartbeat for PulseRPC service: {ServiceId}", serviceId);
     }
