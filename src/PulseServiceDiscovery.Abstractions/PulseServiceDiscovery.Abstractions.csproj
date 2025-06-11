@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>PulseServiceDiscovery.Abstractions</PackageId>
+    <PackageVersion>1.0.0</PackageVersion>
+    <Description>Core abstractions for PulseServiceDiscovery - service discovery and registry interfaces</Description>
+    <Authors>PulseRPC Team</Authors>
+  </PropertyGroup>
+
+</Project>
