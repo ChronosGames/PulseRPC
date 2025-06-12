@@ -2,7 +2,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
-using PulseRPC.Client.ServiceDiscovery;
 using PulseRPC.LoadBalancing;
 using PulseRPC.ServiceDiscovery;
 using PulseRPC.Client.LoadBalancing;
@@ -16,181 +15,6 @@ namespace PulseRPC.Client.Extensions
     /// </summary>
     public static class ServiceCollectionExtensions
     {
-        /// <summary>
-        /// 添加 PulseRPC 客户端
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="configuration">配置</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddPulseRpcClient(
-            this IServiceCollection services,
-            IConfiguration configuration)
-        {
-            // 注册客户端选项
-            services.Configure<ClientOptions>(configuration.GetSection("PulseRPC:Client"));
-
-            // 添加基础服务
-            AddPulseRpcClientCore(services);
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加 PulseRPC 客户端 (使用配置回调)
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="configureOptions">配置回调</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddPulseRpcClient(
-            this IServiceCollection services,
-            Action<ClientOptions> configureOptions)
-        {
-            services.Configure(configureOptions);
-
-            // 添加基础服务
-            AddPulseRpcClientCore(services);
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加 PulseRPC 客户端（完整配置）
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="configuration">配置</param>
-        /// <param name="configureClient">客户端配置回调</param>
-        /// <param name="configureServiceDiscovery">服务发现配置回调</param>
-        /// <param name="configureLoadBalancing">负载均衡配置回调</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddPulseRpcClient(
-            this IServiceCollection services,
-            IConfiguration configuration,
-            Action<ClientOptions>? configureClient = null,
-            Action<ServiceDiscoveryOptions>? configureServiceDiscovery = null,
-            Action<LoadBalancingOptions>? configureLoadBalancing = null)
-        {
-            // 基础配置
-            services.Configure<ClientOptions>(configuration.GetSection("PulseRPC:Client"));
-
-            // 应用额外配置
-            if (configureClient != null)
-            {
-                services.Configure(configureClient);
-            }
-
-            if (configureServiceDiscovery != null)
-            {
-                services.Configure<ClientOptions>(options => configureServiceDiscovery(options.ServiceDiscoveryOptions));
-            }
-
-            if (configureLoadBalancing != null)
-            {
-                services.Configure<ClientOptions>(options => configureLoadBalancing(options.LoadBalancingOptions));
-            }
-
-            // 根据服务发现类型添加相应的服务
-            var clientOptions = new ClientOptions();
-            configuration.GetSection("PulseRPC:Client").Bind(clientOptions);
-            configureClient?.Invoke(clientOptions);
-
-            AddServiceDiscoveryByType(services, clientOptions.ServiceDiscoveryOptions.Type, configuration);
-            AddLoadBalancingByStrategy(services, clientOptions.LoadBalancingOptions.Strategy);
-
-            // 添加基础服务
-            AddPulseRpcClientCore(services);
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加命名的 PulseRPC 客户端
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="name">客户端名称</param>
-        /// <param name="configureOptions">配置回调</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddPulseRpcClient(
-            this IServiceCollection services,
-            string name,
-            Action<ClientOptions> configureOptions)
-        {
-            services.Configure<ClientOptions>(name, configureOptions);
-
-            // 注册命名客户端工厂
-            services.TryAddSingleton<IPulseRpcClientFactory, PulseRpcClientFactory>();
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加服务发现客户端
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="configuration">配置</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddServiceDiscoveryClient(
-            this IServiceCollection services,
-            IConfiguration? configuration = null)
-        {
-            if (configuration != null)
-            {
-                services.Configure<ClientOptions>(configuration.GetSection("PulseRPC:Client"));
-            }
-
-            services.TryAddSingleton<ServiceDiscoveryClient>();
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加服务发现客户端 (使用配置回调)
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="configureOptions">配置回调</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddServiceDiscoveryClient(
-            this IServiceCollection services,
-            Action<ClientOptions> configureOptions)
-        {
-            services.Configure(configureOptions);
-            services.TryAddSingleton<ServiceDiscoveryClient>();
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加类型化客户端
-        /// </summary>
-        /// <typeparam name="TClient">客户端接口类型</typeparam>
-        /// <typeparam name="TImplementation">客户端实现类型</typeparam>
-        /// <param name="services">服务集合</param>
-        /// <param name="serviceName">服务名称</param>
-        /// <param name="configureOptions">配置回调</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddPulseRpcTypedClient<TClient, TImplementation>(
-            this IServiceCollection services,
-            string serviceName,
-            Action<ClientOptions>? configureOptions = null)
-            where TClient : class
-            where TImplementation : class, TClient
-        {
-            if (configureOptions != null)
-            {
-                services.Configure<ClientOptions>(serviceName, configureOptions);
-            }
-
-            services.TryAddTransient<TClient>(provider =>
-            {
-                var factory = provider.GetRequiredService<IPulseRpcClientFactory>();
-                var client = factory.CreateClient(serviceName);
-
-                // 创建类型化客户端实例
-                return (TClient)Activator.CreateInstance(typeof(TImplementation), client)!;
-            });
-
-            return services;
-        }
-
         /// <summary>
         /// 配置连接池选项
         /// </summary>
@@ -230,81 +54,6 @@ namespace PulseRPC.Client.Extensions
             Action<TimeoutPolicyOptions> configureOptions)
         {
             services.Configure(configureOptions);
-            return services;
-        }
-
-        /// <summary>
-        /// 添加PulseRPC服务代理
-        /// </summary>
-        /// <typeparam name="TService">服务接口类型</typeparam>
-        /// <param name="services">服务集合</param>
-        /// <param name="serviceName">服务名称</param>
-        /// <param name="configureOptions">配置回调</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddPulseRpcService<TService>(
-            this IServiceCollection services,
-            string serviceName,
-            Action<ClientOptions>? configureOptions = null)
-            where TService : class
-        {
-            if (configureOptions != null)
-            {
-                services.Configure<ClientOptions>(serviceName, configureOptions);
-            }
-
-            services.TryAddTransient<TService>(provider =>
-            {
-                var serviceDiscoveryClient = provider.GetRequiredService<ServiceDiscoveryClient>();
-                // 这里应该返回动态代理实例
-                // 暂时返回占位符实现
-                return (TService)(object)new PulseRpcServiceProxy(serviceName, serviceDiscoveryClient);
-            });
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加服务发现
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="configuration">配置</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddServiceDiscovery(this IServiceCollection services, IConfiguration configuration)
-        {
-            // 默认DNS实现
-            services.Configure<DnsOptions>(configuration.GetSection(DnsOptions.SectionName));
-            services.TryAddSingleton<IServiceDiscovery, DnsServiceDiscovery>();
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加自定义服务发现实现
-        /// </summary>
-        /// <typeparam name="TImplementation">实现类型</typeparam>
-        /// <param name="services">服务集合</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddServiceDiscovery<TImplementation>(this IServiceCollection services)
-            where TImplementation : class, IServiceDiscovery
-        {
-            services.RemoveAll<IServiceDiscovery>();
-            services.AddSingleton<IServiceDiscovery, TImplementation>();
-
-            return services;
-        }
-
-        /// <summary>
-        /// 添加自定义服务发现实现
-        /// </summary>
-        /// <param name="services">服务集合</param>
-        /// <param name="implementationFactory">实现工厂</param>
-        /// <returns>服务集合</returns>
-        public static IServiceCollection AddServiceDiscovery(this IServiceCollection services,
-            Func<IServiceProvider, IServiceDiscovery> implementationFactory)
-        {
-            services.RemoveAll<IServiceDiscovery>();
-            services.AddSingleton(implementationFactory);
-
             return services;
         }
 
@@ -443,24 +192,6 @@ namespace PulseRPC.Client.Extensions
         #region Private Methods
 
         /// <summary>
-        /// 添加PulseRPC客户端核心服务
-        /// </summary>
-        private static void AddPulseRpcClientCore(IServiceCollection services)
-        {
-            // 注册服务发现客户端
-            services.TryAddSingleton<ServiceDiscoveryClient>();
-
-            // 注册默认客户端工厂
-            services.TryAddSingleton<IPulseRpcClientFactory, PulseRpcClientFactory>();
-
-            // 添加服务发现工厂
-            // services.AddServiceDiscoveryFactory();
-
-            // 添加负载均衡工厂
-            // services.AddLoadBalancerFactory();
-        }
-
-        /// <summary>
         /// 根据服务发现类型添加相应的服务
         /// </summary>
         private static void AddServiceDiscoveryByType(IServiceCollection services, ServiceDiscoveryType type, IConfiguration configuration)
@@ -513,58 +244,6 @@ namespace PulseRPC.Client.Extensions
         }
 
         #endregion
-    }
-
-    /// <summary>
-    /// PulseRPC 客户端工厂接口
-    /// </summary>
-    public interface IPulseRpcClientFactory
-    {
-        /// <summary>
-        /// 创建客户端
-        /// </summary>
-        /// <param name="name">客户端名称</param>
-        /// <returns>客户端实例</returns>
-        IPulseRpcClient CreateClient(string name = "");
-
-        /// <summary>
-        /// 创建服务客户端
-        /// </summary>
-        /// <param name="serviceName">服务名称</param>
-        /// <returns>服务客户端实例</returns>
-        IPulseRpcServiceClient CreateServiceClient(string serviceName);
-    }
-
-    /// <summary>
-    /// PulseRPC 客户端工厂实现
-    /// </summary>
-    internal class PulseRpcClientFactory : IPulseRpcClientFactory
-    {
-        private readonly IServiceProvider _serviceProvider;
-        private readonly IOptionsMonitor<ClientOptions> _optionsMonitor;
-
-        public PulseRpcClientFactory(
-            IServiceProvider serviceProvider,
-            IOptionsMonitor<ClientOptions> optionsMonitor)
-        {
-            _serviceProvider = serviceProvider;
-            _optionsMonitor = optionsMonitor;
-        }
-
-        public IPulseRpcClient CreateClient(string name = "")
-        {
-            var options = string.IsNullOrEmpty(name) ? _optionsMonitor.CurrentValue : _optionsMonitor.Get(name);
-
-            // 这里应该创建实际的 PulseRPC 客户端实例
-            // 目前返回一个占位符实现
-            return new PulseRpcClientPlaceholder(options);
-        }
-
-        public IPulseRpcServiceClient CreateServiceClient(string serviceName)
-        {
-            var serviceDiscoveryClient = _serviceProvider.GetRequiredService<ServiceDiscoveryClient>();
-            return new PulseRpcServiceClientPlaceholder(serviceName, serviceDiscoveryClient);
-        }
     }
 
     /// <summary>
@@ -638,23 +317,6 @@ namespace PulseRPC.Client.Extensions
         public Task<TResponse> SendAsync<TRequest, TResponse>(TRequest request, CancellationToken cancellationToken = default)
         {
             throw new NotImplementedException("PulseRPC客户端实现尚未完成");
-        }
-    }
-
-    internal class PulseRpcServiceClientPlaceholder : IPulseRpcServiceClient
-    {
-        private readonly string _serviceName;
-        private readonly ServiceDiscoveryClient _serviceDiscoveryClient;
-
-        public PulseRpcServiceClientPlaceholder(string serviceName, ServiceDiscoveryClient serviceDiscoveryClient)
-        {
-            _serviceName = serviceName;
-            _serviceDiscoveryClient = serviceDiscoveryClient;
-        }
-
-        public Task<TResponse> InvokeAsync<TRequest, TResponse>(string methodName, TRequest request, CancellationToken cancellationToken = default)
-        {
-            throw new NotImplementedException("PulseRPC服务客户端实现尚未完成");
         }
     }
 
@@ -734,23 +396,5 @@ namespace PulseRPC.Client.Extensions
         /// 超时警告阈值
         /// </summary>
         public double TimeoutWarningThreshold { get; set; } = 0.8;
-    }
-
-    /// <summary>
-    /// PulseRPC 服务代理（占位符实现）
-    /// </summary>
-    public class PulseRpcServiceProxy
-    {
-        private readonly string _serviceName;
-        private readonly ServiceDiscoveryClient _serviceDiscoveryClient;
-
-        public PulseRpcServiceProxy(string serviceName, ServiceDiscoveryClient serviceDiscoveryClient)
-        {
-            _serviceName = serviceName;
-            _serviceDiscoveryClient = serviceDiscoveryClient;
-        }
-
-        // 这里应该实现动态代理逻辑
-        // 拦截接口方法调用并通过PulseRPC协议发送请求
     }
 }

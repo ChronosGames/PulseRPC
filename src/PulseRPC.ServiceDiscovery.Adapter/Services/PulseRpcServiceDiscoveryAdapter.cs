@@ -1,10 +1,9 @@
 using Microsoft.Extensions.Logging;
+using ServiceDiscoveryEndpoint = PulseServiceDiscovery.Abstractions.Models.ServiceEndpoint;
+using ServiceDiscoveryLoadBalancer = PulseServiceDiscovery.Abstractions.ILoadBalancer;
+using ServiceDiscoveryLoadBalancingContext = PulseServiceDiscovery.Abstractions.Models.LoadBalancingContext;
 using PulseServiceDiscovery.Abstractions;
 using PulseServiceDiscovery.Abstractions.Models;
-using PulseRPC.LoadBalancing;
-using ServiceDiscoveryEndpoint = PulseServiceDiscovery.Abstractions.Models.ServiceEndpoint;
-using PulseRpcHealthStatus = PulseRPC.ServiceDiscovery.HealthStatus;
-using ServiceDiscoveryLoadBalancer = PulseServiceDiscovery.Abstractions.ILoadBalancer;
 
 namespace PulseRPC.ServiceDiscovery.Adapter.Services;
 
@@ -45,7 +44,7 @@ public class PulseRpcServiceDiscoveryAdapter
     {
         try
         {
-            // 修正：使用正确的方法调用
+            // 修正：使用正确的方法调用 - PulseServiceDiscovery使用DiscoverAllAsync
             var endpoints = await _serviceDiscovery.DiscoverAllAsync(serviceName, cancellationToken);
 
             var pulseRpcEndpoints = endpoints.Select(ConvertToPulseRpcEndpoint).ToList();
@@ -58,7 +57,7 @@ public class PulseRpcServiceDiscoveryAdapter
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to discover PulseRPC endpoints for service: {ServiceName}", serviceName);
-            
+
             // 快速失败策略：立即抛出异常
             throw new ServiceDiscoveryException($"Failed to discover endpoints for service '{serviceName}'", ex);
         }
@@ -90,7 +89,7 @@ public class PulseRpcServiceDiscoveryAdapter
                 var serviceEndpoints = endpoints.Select(ConvertToServiceEndpoint).ToList();
                 var selectedServiceEndpoint = await _loadBalancer.SelectAsync(
                     serviceEndpoints,
-                    LoadBalancingContext.Default(),
+                    ServiceDiscoveryLoadBalancingContext.Default(),
                     cancellationToken);
 
                 if (selectedServiceEndpoint != null)
@@ -157,6 +156,11 @@ public class PulseRpcServiceDiscoveryAdapter
             metadata.SetValue(kvp.Key, kvp.Value);
         }
 
+        // 修正：正确的HealthStatus类型转换
+        var healthStatus = endpoint.IsHealthy
+            ? PulseServiceDiscovery.Abstractions.Models.HealthStatus.Healthy
+            : PulseServiceDiscovery.Abstractions.Models.HealthStatus.Unhealthy;
+
         return new ServiceDiscoveryEndpoint(
             endpoint.Id,
             "unknown", // 服务名称在这个上下文中不可用
@@ -164,7 +168,7 @@ public class PulseRpcServiceDiscoveryAdapter
             endpoint.Port,
             "tcp",
             metadata,
-            endpoint.IsHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy,
+            healthStatus,
             endpoint.Weight);
     }
 }
