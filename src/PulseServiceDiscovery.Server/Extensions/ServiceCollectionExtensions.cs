@@ -38,7 +38,7 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<IServiceStorage, MemoryServiceStorage>();
 
         // 注册健康检查相关服务
-        services.TryAddSingleton<IHealthChecker, PulseServiceDiscovery.Client.HealthCheck.HealthChecker>();
+        // services.TryAddSingleton<IHealthChecker, PulseServiceDiscovery.Client.HealthCheck.HealthChecker>();
         services.TryAddSingleton<ServerHealthChecker>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService>(provider =>
             provider.GetRequiredService<ServerHealthChecker>()));

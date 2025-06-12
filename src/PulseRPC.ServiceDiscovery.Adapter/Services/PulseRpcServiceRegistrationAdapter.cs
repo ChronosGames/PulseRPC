@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -12,11 +16,11 @@ namespace PulseRPC.ServiceDiscovery.Adapter.Services;
 /// </summary>
 public class PulseRpcServiceRegistrationAdapter
 {
-    private readonly IServiceRegistry _serviceRegistry;
+    private readonly PulseServiceDiscovery.Abstractions.IServiceRegistry _serviceRegistry;
     private readonly ILogger<PulseRpcServiceRegistrationAdapter> _logger;
 
     public PulseRpcServiceRegistrationAdapter(
-        IServiceRegistry serviceRegistry,
+        PulseServiceDiscovery.Abstractions.IServiceRegistry serviceRegistry,
         ILogger<PulseRpcServiceRegistrationAdapter> logger)
     {
         _serviceRegistry = serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
@@ -90,7 +94,7 @@ public class PulseRpcServiceRegistrationAdapter
     /// <param name="cancellationToken">取消令牌</param>
     public async Task UpdateHeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
     {
-        await _serviceRegistry.HeartbeatAsync(serviceId, cancellationToken);
+        await _serviceRegistry.UpdateHealthAsync(serviceId, PulseServiceDiscovery.Abstractions.Models.HealthStatus.Healthy, cancellationToken);
 
         _logger.LogDebug("Updated heartbeat for PulseRPC service: {ServiceId}", serviceId);
     }
