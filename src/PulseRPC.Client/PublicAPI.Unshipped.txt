@@ -10,3 +10,4 @@ PulseRPC.Client.ClientOptions.SendBufferSize.set -> void
 PulseRPC.Client.Events.EventBusFactory.CreateForChannel(PulseRPC.Messaging.IClientChannel! channel) -> PulseRPC.IEventBus!
 PulseRPC.Client.Events.EventBusFactory.CreateInMemory(string! name = "memory") -> PulseRPC.IEventBus!
 PulseRPC.Client.Events.EventBusFactory.EventBusFactory(PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+PulseRPC.Transport.IChannelManager

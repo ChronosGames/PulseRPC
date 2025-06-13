@@ -1,5 +1,40 @@
 #nullable enable
+PulseRPC.Transport.Tcp.ChunkHeader
+PulseRPC.Transport.Tcp.ChunkHeader.ChunkHeader() -> void
+PulseRPC.Transport.Tcp.ChunkHeader.ChunkHeader(int chunkId, int chunkIndex, int totalChunks, int chunkSize) -> void
+PulseRPC.Transport.Tcp.LargePacketState
+PulseRPC.Transport.Tcp.LargePacketState.AddChunk(int index, byte[]! data) -> bool
+PulseRPC.Transport.Tcp.LargePacketState.ChunkId.get -> int
+PulseRPC.Transport.Tcp.LargePacketState.GetCompleteData() -> byte[]?
+PulseRPC.Transport.Tcp.LargePacketState.LargePacketState(int chunkId, int totalChunks, ushort messageId) -> void
+PulseRPC.Transport.Tcp.LargePacketState.MessageId.get -> ushort
+PulseRPC.Transport.Tcp.LargePacketState.Progress.get -> float
+PulseRPC.Transport.Tcp.LargePacketState.StartTime.get -> System.DateTime
+PulseRPC.Transport.Tcp.LargePacketState.TotalChunks.get -> int
+PulseRPC.Transport.Tcp.MessageHeader
+PulseRPC.Transport.Tcp.MessageHeader.IsChunked.get -> bool
+PulseRPC.Transport.Tcp.MessageHeader.IsCompressed.get -> bool
+PulseRPC.Transport.Tcp.MessageHeader.IsEndOfChunk.get -> bool
+PulseRPC.Transport.Tcp.MessageHeader.IsLargePacket.get -> bool
+PulseRPC.Transport.Tcp.MessageHeader.MessageHeader() -> void
+PulseRPC.Transport.Tcp.MessageHeader.MessageHeader(int length, ushort messageId, ushort flags = 0) -> void
+PulseRPC.Transport.Tcp.TcpTransport.ChangeState(PulseRPC.Transport.ConnectionState newState, string? reason = null, System.Exception? exception = null) -> void
+PulseRPC.Transport.Tcp.TcpTransport.CloseAsync() -> System.Threading.Tasks.ValueTask
+PulseRPC.Transport.Tcp.TcpTransport.DisconnectAsync() -> System.Threading.Tasks.ValueTask
+PulseRPC.Transport.Tcp.TcpTransport.ReadExactBytesAsync(byte[]! buffer, int offset, int count) -> System.Threading.Tasks.Task<bool>!
+PulseRPC.Transport.Tcp.TcpTransport._cts -> System.Threading.CancellationTokenSource!
+PulseRPC.Transport.Tcp.TcpTransport._nextChunkId -> int
+PulseRPC.Transport.Tcp.TcpTransport._socket -> System.Net.Sockets.Socket?
+PulseRPC.Transport.Tcp.TcpTransport._totalBytesReceived -> long
+PulseRPC.Transport.Tcp.TcpTransport._totalBytesSent -> long
 abstract PulseRPC.EventSubscription.Invoke(object! sender, byte[]! data, PulseRPC.Serialization.ISerializerProvider! serializerProvider) -> void
+const PulseRPC.Transport.Tcp.ChunkHeader.Size = 16 -> int
+const PulseRPC.Transport.Tcp.MessageHeader.FlagChunked = 4 -> ushort
+const PulseRPC.Transport.Tcp.MessageHeader.FlagCompressed = 2 -> ushort
+const PulseRPC.Transport.Tcp.MessageHeader.FlagEndOfChunk = 8 -> ushort
+const PulseRPC.Transport.Tcp.MessageHeader.FlagLargePacket = 1 -> ushort
+const PulseRPC.Transport.Tcp.MessageHeader.FlagNone = 0 -> ushort
+const PulseRPC.Transport.Tcp.MessageHeader.Size = 8 -> int
 override PulseRPC.EventSubscription<T>.GetDynamicInvoker() -> System.Action<object!, object!>!
 override PulseRPC.EventSubscription<T>.Invoke(object! sender, byte[]? data, PulseRPC.Serialization.ISerializerProvider? serializerProvider) -> void
 override PulseRPC.Transport.Kcp.KcpClientTransport.Dispose() -> void
@@ -61,7 +96,6 @@ PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMaximumTransmissionUnit(int m
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetMtu(int mtu) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.SetWindowSize(int sndwnd, int rcvwnd) -> void
 PulseRPC.Transport.Kcp.KcpTransport.KcpInternal.Update(uint currentTimeMilliseconds) -> void
-PulseRPC.Transport.Tcp.TcpServerListener.Dispose() -> void
 PulseRPC.Transport.Tcp.TcpTransport.IsConnected.get -> bool
 PulseRPC.Transport.Tcp.TcpTransport.LocalEndPoint.get -> System.Net.EndPoint!
 PulseRPC.Transport.Tcp.TcpTransport.ReceiveLoopAsync() -> System.Threading.Tasks.Task!
@@ -69,6 +103,17 @@ PulseRPC.Transport.Tcp.TcpTransport.RemoteEndPoint.get -> System.Net.EndPoint!
 PulseRPC.Transport.Tcp.TcpTransport.State.get -> PulseRPC.Transport.ConnectionState
 PulseRPC.Transport.Tcp.TcpTransport.TotalBytesReceived.get -> long
 PulseRPC.Transport.Tcp.TcpTransport.TotalBytesSent.get -> long
+readonly PulseRPC.Transport.Tcp.ChunkHeader.ChunkId -> int
+readonly PulseRPC.Transport.Tcp.ChunkHeader.ChunkIndex -> int
+readonly PulseRPC.Transport.Tcp.ChunkHeader.ChunkSize -> int
+readonly PulseRPC.Transport.Tcp.ChunkHeader.TotalChunks -> int
+readonly PulseRPC.Transport.Tcp.MessageHeader.Flags -> ushort
+readonly PulseRPC.Transport.Tcp.MessageHeader.Length -> int
+readonly PulseRPC.Transport.Tcp.MessageHeader.MessageId -> ushort
+readonly PulseRPC.Transport.Tcp.TcpTransport._cleanupTask -> System.Threading.Tasks.Task!
+readonly PulseRPC.Transport.Tcp.TcpTransport._largePacketStates -> System.Collections.Concurrent.ConcurrentDictionary<int, PulseRPC.Transport.Tcp.LargePacketState!>!
+readonly PulseRPC.Transport.Tcp.TcpTransport._receiveBuffer -> byte[]!
+readonly PulseRPC.Transport.Tcp.TcpTransport._stateLock -> object!
 static PulseRPC.Serialization.PulseRPCSerializerProvider.Instance.get -> PulseRPC.Serialization.PulseRPCSerializerProvider!
 virtual PulseRPC.EventSubscription.GetDynamicInvoker() -> System.Action<object!, object!>?
-virtual PulseRPC.Transport.Tcp.TcpTransport.SendAsync<T>(PulseRPC.Messaging.MessageHeader! header, T? payload, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+virtual PulseRPC.Transport.Tcp.TcpTransport.SendAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!

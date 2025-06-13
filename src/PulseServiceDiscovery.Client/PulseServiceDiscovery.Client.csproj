@@ -5,9 +5,7 @@
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>PulseServiceDiscovery.Client</PackageId>
-    <PackageVersion>1.0.0</PackageVersion>
     <Description>Client implementation for PulseServiceDiscovery - optimized for service consumption</Description>
-    <Authors>PulseRPC Team</Authors>
     <TargetFramework>net9.0</TargetFramework>
   </PropertyGroup>
 

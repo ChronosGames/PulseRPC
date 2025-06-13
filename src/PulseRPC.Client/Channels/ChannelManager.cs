@@ -145,7 +145,7 @@ namespace PulseRPC.Transport
                 name,
                 transport,
                 PulseRPCSerializerProvider.Instance,
-                _loggerFactory.CreateLogger<TransportChannel>());
+                logger: _loggerFactory.CreateLogger<TransportChannel>());
 
             RegisterChannel(name, channel, isDefault);
         }

@@ -89,7 +89,7 @@ internal abstract class Program
         services.AddPulseRpcServer();
 
         // 添加服务注册
-        services.AddPulseRpcServiceRegistration(context.Configuration);
+        // services.AddPulseRpcServiceRegistration(context.Configuration);
 
         // 添加性能监控
         services.AddPulseRpcMonitoring(options =>

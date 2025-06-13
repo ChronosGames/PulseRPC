@@ -47,7 +47,7 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
-  
+
   <!-- 包含 Source Generator -->
   <ItemGroup>
     <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\cs" Pack="true" Visible="false" />

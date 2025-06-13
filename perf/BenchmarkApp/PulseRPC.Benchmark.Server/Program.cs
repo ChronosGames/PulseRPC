@@ -2,18 +2,14 @@ using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Benchmark.Core.Interfaces;
 using PulseRPC.Benchmark.Metrics.Abstractions;
 using PulseRPC.Benchmark.Metrics.Collectors;
 using PulseRPC.Benchmark.Metrics.Core;
 using PulseRPC.Benchmark.Server.Configuration;
-using PulseRPC.Benchmark.Server.Extensions;
-using PulseRPC.Benchmark.Server.Health;
 using PulseRPC.Benchmark.Server.Services;
 using PulseRPC.Server;
 using CollectorConfiguration = PulseRPC.Benchmark.Metrics.Abstractions.CollectorConfiguration;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
-using PulseRPC.Benchmark.Metrics.Abstractions;
 
 namespace PulseRPC.Benchmark.Server;
 
@@ -179,7 +175,7 @@ internal class Program
                 services.AddSingleton<BenchmarkServiceImpl>();
 
                 // 6. 健康检查
-                services.AddSingleton<HealthCheckService>();
+                // services.AddSingleton<HealthCheckService>();
                 // services.AddHealthChecks()
                 //     .AddCheck<MetricsHealthCheck>("metrics")
                 //     .AddCheck<BenchmarkServiceHealthCheck>("benchmark");
