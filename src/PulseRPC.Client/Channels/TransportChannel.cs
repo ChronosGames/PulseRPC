@@ -1,4 +1,15 @@
+using System;
 using System.Buffers;
+using System.Buffers.Binary;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Messaging;
@@ -16,7 +27,8 @@ public class ConnectionStateChangedEventArgs : EventArgs
     public ConnectionState NewState { get; }
     public Exception? Exception { get; }
 
-    public ConnectionStateChangedEventArgs(ConnectionState oldState, ConnectionState newState, Exception? exception = null)
+    public ConnectionStateChangedEventArgs(ConnectionState oldState, ConnectionState newState,
+        Exception? exception = null)
     {
         OldState = oldState;
         NewState = newState;
@@ -27,15 +39,23 @@ public class ConnectionStateChangedEventArgs : EventArgs
 /// <summary>
 /// 基于传输层的消息通道
 /// </summary>
-public partial class TransportChannel : IClientChannel
+public class TransportChannel : IClientChannel
 {
     private readonly string _name;
     private readonly IClientTransport _transport;
     private readonly ISerializerProvider _serializerProvider;
+    private readonly TransportChannelOptions _options;
     private readonly Dictionary<Guid, TaskCompletionSource<NetworkMessage>> _pendingRequests = new();
     private readonly Dictionary<string, List<EventSubscription>> _eventSubscriptions = new();
     private readonly object _syncRoot = new object();
     private readonly ILogger<TransportChannel> _logger;
+    private readonly Channel<NetworkMessage> _messageQueue;
+    private readonly Task[] _messageProcessingTasks;
+    private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+    private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+    private DateTime _lastHeartbeatTime;
+    private Task? _heartbeatTask;
+    private bool _disposed;
 
     public string Name => _name;
     public bool IsConnected => _transport.IsConnected;
@@ -46,16 +66,39 @@ public partial class TransportChannel : IClientChannel
 
     public event System.EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
 
-    public TransportChannel(string name, IClientTransport transport, ISerializerProvider serializerProvider, ILogger<TransportChannel>? logger = null)
+    public TransportChannel(
+        string name,
+        IClientTransport transport,
+        ISerializerProvider serializerProvider,
+        TransportChannelOptions? options = null,
+        ILogger<TransportChannel>? logger = null)
     {
         _name = name;
         _transport = transport;
         _serializerProvider = serializerProvider;
+        _options = options ?? new TransportChannelOptions();
         _logger = logger ?? NullLogger<TransportChannel>.Instance;
+        _messageQueue = Channel.CreateBounded<NetworkMessage>(new BoundedChannelOptions(_options.MessageQueueCapacity)
+        {
+            FullMode = BoundedChannelFullMode.Wait
+        });
+
+        // 启动消息处理任务
+        _messageProcessingTasks = new Task[_options.MessageProcessingConcurrency];
+        for (var i = 0; i < _options.MessageProcessingConcurrency; i++)
+        {
+            _messageProcessingTasks[i] = Task.Run(ProcessMessageQueueAsync);
+        }
 
         // 注册传输事件
         _transport.DataReceived += OnTransportDataReceived;
         _transport.StateChanged += OnTransportStateChanged;
+
+        // 启动心跳任务
+        if (_options.HeartbeatInterval > TimeSpan.Zero)
+        {
+            _heartbeatTask = Task.Run(SendHeartbeatAsync);
+        }
     }
 
     /// <summary>
@@ -83,14 +126,123 @@ public partial class TransportChannel : IClientChannel
     }
 
     /// <summary>
+    /// 处理消息队列
+    /// </summary>
+    private async Task ProcessMessageQueueAsync()
+    {
+        try
+        {
+            while (!_cts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    // 从队列中读取消息
+                    var message = await _messageQueue.Reader.ReadAsync(_cts.Token);
+
+                    // 使用超时处理消息
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+                    timeoutCts.CancelAfter(_options.MessageProcessingTimeout);
+
+                    try
+                    {
+                        await Task.Run(() => ProcessMessage(message), timeoutCts.Token);
+                    }
+                    catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+                    {
+                        _logger.LogWarning("[TransportChannel] 消息处理超时: Type={MessageType}, MessageId={MessageId}",
+                            message.Header.Type, message.Header.MessageId);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[TransportChannel] 处理消息队列时发生异常");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TransportChannel] 消息处理任务异常退出");
+        }
+    }
+
+    /// <summary>
+    /// 发送心跳
+    /// </summary>
+    private async Task SendHeartbeatAsync()
+    {
+        try
+        {
+            while (!_cts.Token.IsCancellationRequested)
+            {
+                try
+                {
+                    await Task.Delay(_options.HeartbeatInterval, _cts.Token);
+
+                    if (!IsConnected)
+                    {
+                        continue;
+                    }
+
+                    // 检查是否需要发送心跳
+                    var now = DateTime.UtcNow;
+                    if (now - _lastHeartbeatTime < _options.HeartbeatInterval)
+                    {
+                        continue;
+                    }
+
+                    await SendHeartbeatAsync(_cts.Token);
+                    _lastHeartbeatTime = now;
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[TransportChannel] 发送心跳时发生异常");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TransportChannel] 心跳任务异常退出");
+        }
+    }
+
+    /// <summary>
+    /// 发送心跳消息
+    /// </summary>
+    private async Task SendHeartbeatAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var header = new MessageHeader { Type = MessageType.Ping, MessageId = Guid.NewGuid() };
+
+            var serializedMessage = SerializeAndPackMessage<object>(header, null);
+            await _transport.SendAsync(serializedMessage, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TransportChannel] 发送心跳消息失败");
+        }
+    }
+
+    /// <summary>
     /// 发送请求并等待响应
     /// </summary>
     public async Task<TResponse> SendRequestAsync<TRequest, TResponse>(
         string serviceName, string methodName, TRequest request, CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("[TransportChannel] 开始发送请求: Service={ServiceName}, Method={MethodName}",
+            serviceName, methodName);
+
         // 创建消息头
         var messageId = Guid.NewGuid();
-        var header = new Messaging.MessageHeader
+        var header = new MessageHeader
         {
             Type = MessageType.Request,
             MessageId = messageId,
@@ -108,12 +260,66 @@ public partial class TransportChannel : IClientChannel
         try
         {
             // 序列化并发送请求
-            var serializedMessage = await SerializeAndPackMessage(header, request);
-            await _transport.SendAsync(serializedMessage, cancellationToken);
+            _logger.LogDebug("[TransportChannel] 序列化请求数据: MessageId={MessageId}", messageId);
+            var serializedMessage = SerializeAndPackMessage(header, request);
+
+            // 重试机制
+            var retryCount = 0;
+            var sendSuccess = false;
+            var lastException = default(Exception);
+
+            while (retryCount < _options.MaxRetryCount && !sendSuccess)
+            {
+                try
+                {
+                    _logger.LogDebug(
+                        "[TransportChannel] 尝试发送请求 (尝试 {RetryCount}/{MaxRetryCount}): MessageId={MessageId}",
+                        retryCount + 1, _options.MaxRetryCount, messageId);
+
+                    await _sendLock.WaitAsync(cancellationToken);
+                    try
+                    {
+                        sendSuccess = await _transport.SendAsync(serializedMessage, cancellationToken);
+                    }
+                    finally
+                    {
+                        _sendLock.Release();
+                    }
+
+                    if (!sendSuccess)
+                    {
+                        throw new IOException("发送请求失败");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                    retryCount++;
+
+                    if (retryCount < _options.MaxRetryCount)
+                    {
+                        _logger.LogWarning(ex,
+                            "[TransportChannel] 发送请求失败，准备重试: MessageId={MessageId}, RetryCount={RetryCount}",
+                            messageId, retryCount);
+
+                        // 指数退避
+                        await Task.Delay(TimeSpan.FromSeconds(Math.Pow(_options.RetryBaseDelay, retryCount)),
+                            cancellationToken);
+                    }
+                }
+            }
+
+            if (!sendSuccess)
+            {
+                throw new IOException($"发送请求失败，已重试 {_options.MaxRetryCount} 次", lastException);
+            }
 
             // 等待响应，设置超时
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(TimeSpan.FromSeconds(30)); // 可配置超时时间
+            timeoutCts.CancelAfter(_options.DefaultTimeout);
+
+            _logger.LogDebug("[TransportChannel] 等待响应: MessageId={MessageId}, Timeout={Timeout}ms",
+                messageId, _options.DefaultTimeout.TotalMilliseconds);
 
             NetworkMessage response;
             try
@@ -122,8 +328,13 @@ public partial class TransportChannel : IClientChannel
             }
             catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
             {
+                _logger.LogError(
+                    "[TransportChannel] 请求超时: Service={ServiceName}, Method={MethodName}, MessageId={MessageId}",
+                    serviceName, methodName, messageId);
                 throw new TimeoutException($"请求 {methodName} 超时");
             }
+
+            _logger.LogDebug("[TransportChannel] 收到响应: MessageId={MessageId}", messageId);
 
             // 反序列化响应
             if (typeof(TResponse) == typeof(EmptyResponse))
@@ -132,12 +343,33 @@ public partial class TransportChannel : IClientChannel
             }
             else
             {
-                return _serializerProvider.Create(MethodType.Unary, null).Deserialize<TResponse>(new ReadOnlySequence<byte>(response.Body));
+                try
+                {
+                    var result = _serializerProvider.Create(MethodType.Unary, null)
+                        .Deserialize<TResponse>(new ReadOnlySequence<byte>(response.Body));
+
+                    _logger.LogInformation(
+                        "[TransportChannel] 请求处理完成: Service={ServiceName}, Method={MethodName}, MessageId={MessageId}",
+                        serviceName, methodName, messageId);
+
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[TransportChannel] 反序列化响应失败: MessageId={MessageId}", messageId);
+                    throw new InvalidOperationException("反序列化响应失败", ex);
+                }
             }
+        }
+        catch (Exception ex) when (ex is not TimeoutException && ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex,
+                "[TransportChannel] 处理请求时发生异常: Service={ServiceName}, Method={MethodName}, MessageId={MessageId}",
+                serviceName, methodName, messageId);
+            throw;
         }
         finally
         {
-            // 清理请求
             lock (_syncRoot)
             {
                 _pendingRequests.Remove(messageId);
@@ -153,14 +385,11 @@ public partial class TransportChannel : IClientChannel
         // 创建消息头
         var header = new MessageHeader
         {
-            Type = MessageType.Event,
-            MessageId = Guid.NewGuid(),
-            ServiceName = string.Empty,
-            MethodName = eventName
+            Type = MessageType.Event, MessageId = Guid.NewGuid(), ServiceName = string.Empty, MethodName = eventName
         };
 
         // 序列化并发送事件
-        var serializedMessage = await SerializeAndPackMessage(header, eventData);
+        var serializedMessage = SerializeAndPackMessage(header, eventData);
         await _transport.SendAsync(serializedMessage, cancellationToken);
     }
 
@@ -180,7 +409,8 @@ public partial class TransportChannel : IClientChannel
             var subscription = new EventSubscription<T>(eventName, handler);
             subscriptions.Add(subscription);
 
-            return new SubscriptionToken(subscription.Id, eventName, typeof(T), () => UnsubscribeEvent(eventName, subscription.Id));
+            return new SubscriptionToken(subscription.Id, eventName, typeof(T),
+                () => UnsubscribeEvent(eventName, subscription.Id));
         }
     }
 
@@ -215,44 +445,101 @@ public partial class TransportChannel : IClientChannel
     /// <summary>
     /// 序列化并打包消息
     /// </summary>
-    private async Task<ReadOnlyMemory<byte>> SerializeAndPackMessage<T>(MessageHeader header, T? payload)
+    private ReadOnlyMemory<byte> SerializeAndPackMessage<T>(MessageHeader header, T? payload)
     {
-        return await Task.Run(() =>
+        // 序列化消息头
+        var serializer = _serializerProvider.Create(MethodType.Unary, null);
+
+        var headerWriter = new ArrayBufferWriter<byte>();
+        serializer.Serialize(headerWriter, in header);
+        var headerSpan = headerWriter.WrittenSpan;
+
+        // 序列化载荷
+        var payloadWriter = new ArrayBufferWriter<byte>();
+        ReadOnlySpan<byte> payloadSpan = default;
+        if (payload != null)
         {
-            // 序列化消息头
-            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+            serializer.Serialize(payloadWriter, in payload);
+            payloadSpan = payloadWriter.WrittenSpan;
+        }
 
-            var headerWriter = new ArrayBufferWriter<byte>();
-            serializer.Serialize(headerWriter, in header);
-            var headerBytes = headerWriter.WrittenMemory.ToArray();
+        // 计算总大小并一次性分配
+        var headerSize = headerSpan.Length;
+        var payloadSize = payloadSpan.Length;
+        var totalSize = sizeof(int) + headerSize + payloadSize;
 
-            // 序列化载荷
-            var payloadBytes = Array.Empty<byte>();
-            if (payload != null)
-            {
-                var payloadWriter = new ArrayBufferWriter<byte>();
-                serializer.Serialize(payloadWriter, in payload);
-                payloadBytes = payloadWriter.WrittenMemory.ToArray();
-            }
+        var result = new byte[totalSize];
+        PackMessage(result.AsSpan(), headerSpan, payloadSpan);
+        return result;
+    }
 
-            // 组装完整消息：[HeaderLength(4)] + [Header] + [Payload]
-            using var messageStream = new MemoryStream();
-            using var writer = new BinaryWriter(messageStream);
+    private void SerializeAndPackMessage<T>(IBufferWriter<byte> writer, MessageHeader header, T? payload)
+    {
+        // 序列化消息头
+        var serializer = _serializerProvider.Create(MethodType.Unary, null);
 
-            // 写入头部长度
-            writer.Write(headerBytes.Length);
+        // 序列化头部
+        var headerWriter = new ArrayBufferWriter<byte>();
+        serializer.Serialize(headerWriter, in header);
+        var headerSpan = headerWriter.WrittenSpan;
 
-            // 写入头部
-            writer.Write(headerBytes);
+        // 序列化载荷
+        var payloadWriter = new ArrayBufferWriter<byte>();
+        ReadOnlySpan<byte> payloadSpan = default;
 
-            // 写入载荷
-            if (payloadBytes.Length > 0)
-            {
-                writer.Write(payloadBytes);
-            }
+        if (payload != null)
+        {
+            serializer.Serialize(payloadWriter, in payload);
+            payloadSpan = payloadWriter.WrittenSpan;
+        }
 
-            return new ReadOnlyMemory<byte>(messageStream.ToArray());
-        });
+        // 计算所需空间并获取目标缓冲区
+        var totalSize = sizeof(int) + headerSpan.Length + payloadSpan.Length;
+        var targetSpan = writer.GetSpan(totalSize);
+
+        // 直接打包到目标缓冲区
+        var bytesWritten = PackMessage(targetSpan, headerSpan, payloadSpan);
+        writer.Advance(bytesWritten);
+    }
+
+    /// <summary>
+    /// 将消息头和载荷打包到目标缓冲区
+    /// </summary>
+    /// <param name="destination">目标缓冲区</param>
+    /// <param name="headerSpan">序列化后的消息头</param>
+    /// <param name="payloadSpan">序列化后的载荷</param>
+    /// <returns>写入的字节数</returns>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int PackMessage(Span<byte> destination, ReadOnlySpan<byte> headerSpan,
+        ReadOnlySpan<byte> payloadSpan)
+    {
+        var headerSize = headerSpan.Length;
+        var payloadSize = payloadSpan.Length;
+        var totalSize = sizeof(int) + headerSize + payloadSize;
+
+        if (destination.Length < totalSize)
+        {
+            throw new ArgumentException($"目标缓冲区太小。需要 {totalSize} 字节，但只有 {destination.Length} 字节", nameof(destination));
+        }
+
+        var offset = 0;
+
+        // 写入消息头长度 (Little Endian)
+        BinaryPrimitives.WriteInt32LittleEndian(destination.Slice(offset), headerSize);
+        offset += sizeof(int);
+
+        // 写入消息头
+        headerSpan.CopyTo(destination.Slice(offset));
+        offset += headerSize;
+
+        // 写入载荷
+        if (payloadSize > 0)
+        {
+            payloadSpan.CopyTo(destination.Slice(offset));
+            offset += payloadSize;
+        }
+
+        return offset;
     }
 
     /// <summary>
@@ -285,7 +572,8 @@ public partial class TransportChannel : IClientChannel
 
             // 读取头部
             var headerBytes = data.Slice(4, headerLength).ToArray();
-            var header = _serializerProvider.Create(MethodType.Unary, null).Deserialize<Messaging.MessageHeader>(new ReadOnlySequence<byte>(headerBytes));
+            var header = _serializerProvider.Create(MethodType.Unary, null)
+                .Deserialize<Messaging.MessageHeader>(new ReadOnlySequence<byte>(headerBytes));
 
             // 读取消息体
             var bodyStartIndex = 4 + headerLength;
@@ -296,11 +584,91 @@ public partial class TransportChannel : IClientChannel
             var message = new NetworkMessage(header, bodyBytes);
 
             // 处理消息
-            ProcessMessage(message);
+            // ProcessMessage(message);
+
+            // 将消息加入队列
+            if (!_messageQueue.Writer.TryWrite(message))
+            {
+                _logger.LogWarning("消息队列已满，丢弃消息: Type={MessageType}, MessageId={MessageId}",
+                    message.Header.Type, message.Header.MessageId);
+            }
+            else
+            {
+                _logger.LogDebug("接收到新消息: Type={MessageType}, MessageId={MessageId}",
+                    message.Header.Type, message.Header.MessageId);
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "处理接收数据失败");
+        }
+    }
+
+
+    /// <summary>
+    /// 处理传输层数据接收
+    /// </summary>
+    // private void OnTransportDataReceived(object? sender, TransportDataEventArgs e)
+    // {
+    //     try
+    //     {
+    //         // 解析消息
+    //         var message = ParseMessage(e.Data);
+    //         if (message == null)
+    //         {
+    //             _logger.LogWarning("[TransportChannel] 无法解析接收到的数据");
+    //             return;
+    //         }
+    //
+    //         // 将消息加入队列
+    //         if (!_messageQueue.Writer.TryWrite(message))
+    //         {
+    //             _logger.LogWarning("[TransportChannel] 消息队列已满，丢弃消息: Type={MessageType}, MessageId={MessageId}",
+    //                 message.Header.Type, message.Header.MessageId);
+    //         }
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger.LogError(ex, "[TransportChannel] 处理接收数据时发生异常");
+    //     }
+    // }
+
+    /// <summary>
+    /// 处理传输层状态变化
+    /// </summary>
+    private void OnTransportStateChanged(object? sender, TransportStateEventArgs e)
+    {
+        try
+        {
+            // 转换为通道状态事件
+            var eventArgs = new ConnectionStateChangedEventArgs(
+                e.PreviousState,
+                e.CurrentState,
+                e.Exception);
+
+            // 触发状态变化事件
+            ConnectionStateChanged?.Invoke(this, eventArgs);
+
+            // 如果断开连接，取消所有待处理请求
+            if (e.CurrentState == ConnectionState.Disconnected)
+            {
+                Dictionary<Guid, TaskCompletionSource<NetworkMessage>> pendingRequests;
+                lock (_syncRoot)
+                {
+                    pendingRequests = new Dictionary<Guid, TaskCompletionSource<NetworkMessage>>(_pendingRequests);
+                    _pendingRequests.Clear();
+                }
+
+                // 设置所有请求失败
+                foreach (var request in pendingRequests.Values)
+                {
+                    request.TrySetException(new IOException("连接断开"));
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TransportChannel] 处理状态变化时发生异常");
         }
     }
 
@@ -309,23 +677,35 @@ public partial class TransportChannel : IClientChannel
     /// </summary>
     private void ProcessMessage(NetworkMessage message)
     {
-        switch (message.Header.Type)
+        _logger.LogDebug("[TransportChannel] 开始处理消息: Type={MessageType}, MessageId={MessageId}",
+            message.Header.Type, message.Header.MessageId);
+
+        try
         {
-            case MessageType.Response:
-                ProcessResponse(message);
-                break;
+            switch (message.Header.Type)
+            {
+                case MessageType.Response:
+                    ProcessResponse(message);
+                    break;
 
-            case MessageType.Event:
-                ProcessEvent(message);
-                break;
+                case MessageType.Event:
+                    ProcessEvent(message);
+                    break;
 
-            case MessageType.Ping:
-                ProcessPing(message);
-                break;
+                case MessageType.Ping:
+                    ProcessPing(message);
+                    break;
 
-            default:
-                _logger.LogWarning("收到未支持的消息类型: {Type}", message.Header.Type);
-                break;
+                default:
+                    _logger.LogWarning("[TransportChannel] 收到未支持的消息类型: {Type}, MessageId={MessageId}",
+                        message.Header.Type, message.Header.MessageId);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TransportChannel] 处理消息时发生异常: Type={MessageType}, MessageId={MessageId}",
+                message.Header.Type, message.Header.MessageId);
         }
     }
 
@@ -334,6 +714,8 @@ public partial class TransportChannel : IClientChannel
     /// </summary>
     private void ProcessResponse(NetworkMessage message)
     {
+        _logger.LogDebug("[TransportChannel] 处理响应消息: MessageId={MessageId}", message.Header.MessageId);
+
         TaskCompletionSource<NetworkMessage>? tcs = null;
 
         lock (_syncRoot)
@@ -344,7 +726,22 @@ public partial class TransportChannel : IClientChannel
             }
         }
 
-        tcs?.TrySetResult(message);
+        if (tcs == null)
+        {
+            _logger.LogWarning("[TransportChannel] 收到未匹配的响应消息: MessageId={MessageId}", message.Header.MessageId);
+            return;
+        }
+
+        try
+        {
+            tcs.TrySetResult(message);
+            _logger.LogDebug("[TransportChannel] 响应消息处理完成: MessageId={MessageId}", message.Header.MessageId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TransportChannel] 设置响应结果时发生异常: MessageId={MessageId}", message.Header.MessageId);
+            tcs.TrySetException(ex);
+        }
     }
 
     /// <summary>
@@ -353,33 +750,48 @@ public partial class TransportChannel : IClientChannel
     private void ProcessEvent(NetworkMessage message)
     {
         var eventName = message.Header.MethodName;
+        _logger.LogDebug("[TransportChannel] 处理事件消息: EventName={EventName}, MessageId={MessageId}",
+            eventName, message.Header.MessageId);
 
-        // 调用事件回调
-        _eventCallback?.Invoke(eventName, message.Body);
-
-        List<EventSubscription>? subscriptions;
-        lock (_syncRoot)
+        try
         {
-            if (!_eventSubscriptions.TryGetValue(eventName, out subscriptions))
+            // 调用事件回调
+            _eventCallback?.Invoke(eventName, message.Body);
+
+            List<EventSubscription>? subscriptions;
+            lock (_syncRoot)
             {
-                return; // 没有订阅者
+                if (!_eventSubscriptions.TryGetValue(eventName, out subscriptions))
+                {
+                    _logger.LogDebug("[TransportChannel] 没有找到事件订阅者: EventName={EventName}", eventName);
+                    return;
+                }
+
+                // 复制列表，避免回调期间修改集合
+                subscriptions = new List<EventSubscription>(subscriptions);
             }
 
-            // 复制列表，避免回调期间修改集合
-            subscriptions = new List<EventSubscription>(subscriptions);
+            // 通知所有订阅者
+            foreach (var subscription in subscriptions)
+            {
+                try
+                {
+                    subscription.Invoke(message.Body, _serializerProvider);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[TransportChannel] 事件处理异常: EventName={EventName}, MessageId={MessageId}",
+                        eventName, message.Header.MessageId);
+                }
+            }
+
+            _logger.LogDebug("[TransportChannel] 事件消息处理完成: EventName={EventName}, MessageId={MessageId}",
+                eventName, message.Header.MessageId);
         }
-
-        // 通知所有订阅者
-        foreach (var subscription in subscriptions)
+        catch (Exception ex)
         {
-            try
-            {
-                subscription.Invoke(message.Body, _serializerProvider);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "事件处理异常: {EventName}", eventName);
-            }
+            _logger.LogError(ex, "[TransportChannel] 处理事件消息时发生异常: EventName={EventName}, MessageId={MessageId}",
+                eventName, message.Header.MessageId);
         }
     }
 
@@ -391,14 +803,10 @@ public partial class TransportChannel : IClientChannel
         try
         {
             // 创建Pong响应
-            var header = new Messaging.MessageHeader
-            {
-                Type = MessageType.Pong,
-                MessageId = message.Header.MessageId
-            };
+            var header = new MessageHeader { Type = MessageType.Pong, MessageId = message.Header.MessageId };
 
             // 序列化并发送Pong
-            var serializedMessage = await SerializeAndPackMessage(header, (object?)null);
+            var serializedMessage = SerializeAndPackMessage<object>(header, null);
             await _transport.SendAsync(serializedMessage, CancellationToken.None);
         }
         catch (Exception ex)
@@ -408,67 +816,37 @@ public partial class TransportChannel : IClientChannel
     }
 
     /// <summary>
-    /// 处理传输层状态变化
-    /// </summary>
-    private void OnTransportStateChanged(object? sender, TransportStateEventArgs e)
-    {
-        // 转换为通道状态事件
-        var eventArgs = new ConnectionStateChangedEventArgs(
-            ConvertState(e.PreviousState),
-            ConvertState(e.CurrentState),
-            e.Exception);
-
-        // 触发状态变化事件
-        ConnectionStateChanged?.Invoke(this, eventArgs);
-
-        // 如果断开连接，取消所有待处理请求
-        if (e.CurrentState != ConnectionState.Disconnected)
-        {
-            return;
-        }
-
-        Dictionary<Guid, TaskCompletionSource<NetworkMessage>> pendingRequests;
-        lock (_syncRoot)
-        {
-            pendingRequests = new Dictionary<Guid, TaskCompletionSource<NetworkMessage>>(_pendingRequests);
-            _pendingRequests.Clear();
-        }
-
-        // 设置所有请求失败
-        foreach (var request in pendingRequests.Values)
-        {
-            request.TrySetException(new IOException("连接断开"));
-        }
-    }
-
-    /// <summary>
-    /// 转换状态类型
-    /// </summary>
-    private static PulseRPC.Transport.ConnectionState ConvertState(ConnectionState state)
-    {
-        return state switch
-        {
-            ConnectionState.Connected => PulseRPC.Transport.ConnectionState.Connected,
-            ConnectionState.Connecting => PulseRPC.Transport.ConnectionState.Connecting,
-            ConnectionState.Disconnected => PulseRPC.Transport.ConnectionState.Disconnected,
-            ConnectionState.Disconnecting => PulseRPC.Transport.ConnectionState.Disconnecting,
-            ConnectionState.Reconnecting => PulseRPC.Transport.ConnectionState.Reconnecting,
-            ConnectionState.Failed => PulseRPC.Transport.ConnectionState.Failed,
-            _ => PulseRPC.Transport.ConnectionState.Disconnected
-        };
-    }
-
-    /// <summary>
     /// 释放资源
     /// </summary>
     public void Dispose()
     {
-        // 取消事件订阅
-        _transport.DataReceived -= OnTransportDataReceived;
-        _transport.StateChanged -= OnTransportStateChanged;
+        if (_disposed)
+            return;
 
-        // 释放传输层
-        _transport.Dispose();
+        _disposed = true;
+
+        try
+        {
+            // 取消所有任务
+            _cts.Cancel();
+
+            // 等待消息处理任务完成
+            Task.WaitAll(_messageProcessingTasks, TimeSpan.FromSeconds(5));
+
+            // 关闭消息队列
+            _messageQueue.Writer.Complete();
+
+            // 取消心跳任务
+            _heartbeatTask?.Wait(TimeSpan.FromSeconds(5));
+
+            // 释放资源
+            _sendLock.Dispose();
+            _cts.Dispose();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[TransportChannel] 释放资源时发生异常");
+        }
     }
 
     // 内部类：事件订阅基类
@@ -498,7 +876,8 @@ public partial class TransportChannel : IClientChannel
 
         public override void Invoke(byte[] data, ISerializerProvider serializerProvider)
         {
-            var eventData = serializerProvider.Create(MethodType.Unary, null).Deserialize<T>(new ReadOnlySequence<byte>(data));
+            var eventData = serializerProvider.Create(MethodType.Unary, null)
+                .Deserialize<T>(new ReadOnlySequence<byte>(data));
             _handler.Invoke(this, eventData);
         }
     }

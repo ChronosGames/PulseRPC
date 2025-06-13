@@ -20,53 +20,36 @@ namespace GameServer;
 /// <summary>
 /// 玩家服务实现
 /// </summary>
-public class PlayerHub : IPlayerHub
+public class PlayerHub(
+    IGameWorld gameWorld,
+    IPlayerManager playerManager,
+    IEventPublisher eventPublisher,
+    PlayerMovementBatcher movementBatcher,
+    IServerChannelManager channelManager,
+    IAuthenticationProvider authProvider,
+    ILogger<PlayerHub> logger,
+    ISerializerProvider serializerProvider)
+    : IPlayerHub
 {
-    private readonly IGameWorld _gameWorld;
-    private readonly IPlayerManager _playerManager;
-    private readonly IEventPublisher _eventPublisher;
-    private readonly PlayerMovementBatcher _movementBatcher;
-    private readonly IServerChannelManager _channelManager;
-    private readonly IAuthenticationProvider _authProvider;
-    private readonly ILogger<PlayerHub> _logger;
-    private readonly ISerializerProvider _serializerProvider;
-
-    public PlayerHub(
-        IGameWorld gameWorld,
-        IPlayerManager playerManager,
-        IEventPublisher eventPublisher,
-        PlayerMovementBatcher movementBatcher,
-        IServerChannelManager channelManager,
-        IAuthenticationProvider authProvider,
-        ILogger<PlayerHub> logger,
-        ISerializerProvider serializerProvider)
-    {
-        _gameWorld = gameWorld;
-        _playerManager = playerManager;
-        _eventPublisher = eventPublisher;
-        _movementBatcher = movementBatcher;
-        _channelManager = channelManager;
-        _authProvider = authProvider;
-        _logger = logger;
-        _serializerProvider = serializerProvider;
-    }
+    private readonly IGameWorld _gameWorld = gameWorld;
+    private readonly IEventPublisher _eventPublisher = eventPublisher;
 
     /// <summary>
     /// 处理玩家登录
     /// </summary>
     public async ValueTask<LoginResponse> LoginAsync(LoginRequest request)
     {
-        _logger.LogInformation("玩家登录请求: {Username}", request.Username);
+        logger.LogInformation("玩家登录请求: {Username}", request.Username);
 
         try
         {
             // 使用认证提供程序验证凭证
             var credentials = $"{request.Username}:{request.Password}";
-            var authResult = await _authProvider.AuthenticateAsync(credentials);
+            var authResult = await authProvider.AuthenticateAsync(credentials);
 
             if (!authResult.IsAuthenticated || authResult.User == null)
             {
-                _logger.LogWarning("玩家 {Username} 认证失败: {Error}", request.Username, authResult.ErrorMessage);
+                logger.LogWarning("玩家 {Username} 认证失败: {Error}", request.Username, authResult.ErrorMessage);
                 return new LoginResponse
                 {
                     Success = false,
@@ -80,7 +63,7 @@ public class PlayerHub : IPlayerHub
 
             if (userIdClaim == null || !Guid.TryParse(userIdClaim.Value, out var playerId) || usernameClaim == null)
             {
-                _logger.LogError("认证成功但无法获取有效的用户信息");
+                logger.LogError("认证成功但无法获取有效的用户信息");
                 return new LoginResponse
                 {
                     Success = false,
@@ -89,10 +72,10 @@ public class PlayerHub : IPlayerHub
             }
 
             // 获取玩家对象
-            var player = await _playerManager.GetPlayerAsync(playerId);
+            var player = await playerManager.GetPlayerAsync(playerId);
             if (player == null)
             {
-                _logger.LogError("找不到玩家: {PlayerId}", playerId);
+                logger.LogError("找不到玩家: {PlayerId}", playerId);
                 return new LoginResponse
                 {
                     Success = false,
@@ -124,17 +107,17 @@ public class PlayerHub : IPlayerHub
             if (connection != null)
             {
                 // 通过 ChannelManager 获取传输通道
-                var channel = _channelManager.GetChannel(connection.ConnectionId);
+                var channel = channelManager.GetChannel(connection.ConnectionId);
                 if (channel != null)
                 {
                     // 创建认证上下文
-                    var authContext = new PulseRPC.Server.Authentication.AuthenticationContext(connection.ConnectionId);
+                    var authContext = new AuthenticationContext(connection.ConnectionId);
                     authContext.SetClientAuthentication(player.Id.ToString(), player.Username, token, authResult.User);
 
                     // 设置通道的认证信息
                     channel.SetAuthentication(authContext);
 
-                    _logger.LogInformation("已为通道设置认证信息: UserId={UserId}, Username={Username}, ConnectionId={ConnectionId}",
+                    logger.LogInformation("已为通道设置认证信息: UserId={UserId}, Username={Username}, ConnectionId={ConnectionId}",
                         player.Id, player.Username, connection.ConnectionId);
 
                     // 认证设置完成后，通知其他玩家
@@ -144,27 +127,27 @@ public class PlayerHub : IPlayerHub
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "发布玩家加入事件失败，但不影响登录: {Username}", player.Username);
+                        logger.LogWarning(ex, "发布玩家加入事件失败，但不影响登录: {Username}", player.Username);
                     }
                 }
                 else
                 {
-                    _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
+                    logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
                 }
             }
             else
             {
-                _logger.LogWarning("无法获取当前连接，无法设置认证信息");
+                logger.LogWarning("无法获取当前连接，无法设置认证信息");
             }
 
-            _logger.LogInformation("玩家 {Username} (ID: {PlayerId}) 登录成功",
+            logger.LogInformation("玩家 {Username} (ID: {PlayerId}) 登录成功",
                 player.Username, player.Id);
 
             return response;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "玩家 {Username} 登录过程中发生异常", request.Username);
+            logger.LogError(ex, "玩家 {Username} 登录过程中发生异常", request.Username);
 
             return new LoginResponse
             {
@@ -180,49 +163,49 @@ public class PlayerHub : IPlayerHub
     [PulseRPC.Authorize]
     public async ValueTask MoveAsync(MoveRequest request)
     {
-        _logger.LogInformation("开始处理玩家移动请求");
+        logger.LogInformation("开始处理玩家移动请求");
 
         // 通过请求上下文获取当前连接（已由AuthenticationMiddleware验证）
         var connection = RequestContext.Current;
-        _logger.LogInformation("RequestContext.Current: {IsNull}", connection == null ? "null" : "not null");
+        logger.LogInformation("RequestContext.Current: {IsNull}", connection == null ? "null" : "not null");
 
         if (connection == null)
         {
-            _logger.LogError("RequestContext.Current 返回 null");
+            logger.LogError("RequestContext.Current 返回 null");
             throw new InvalidOperationException("无法获取当前请求连接");
         }
 
         // 通过 ChannelManager 获取传输通道
-        var channel = _channelManager.GetChannel(connection.ConnectionId);
+        var channel = channelManager.GetChannel(connection.ConnectionId);
         if (channel == null)
         {
-            _logger.LogError("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
+            logger.LogError("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
             throw new InvalidOperationException("无法获取传输通道");
         }
 
-        _logger.LogInformation("连接信息: ConnectionId={ConnectionId}, Channel={ChannelType}",
+        logger.LogInformation("连接信息: ConnectionId={ConnectionId}, Channel={ChannelType}",
             connection.ConnectionId, channel.GetType().Name);
 
         var authContext = channel.AuthenticationContext;
         if (authContext == null || !authContext.IsAuthenticated)
         {
-            _logger.LogError("通道未认证");
+            logger.LogError("通道未认证");
             throw new UnauthorizedAccessException("用户未认证");
         }
 
-        _logger.LogInformation("认证信息: Type={AuthType}, Identity={Identity}",
+        logger.LogInformation("认证信息: Type={AuthType}, Identity={Identity}",
             authContext.Type, authContext.Identity);
 
         // 从认证上下文中获取用户ID
         if (string.IsNullOrEmpty(authContext.Identity) || !Guid.TryParse(authContext.Identity, out var playerId))
         {
-            _logger.LogError("认证上下文中未包含有效的用户ID: {Identity}", authContext.Identity);
+            logger.LogError("认证上下文中未包含有效的用户ID: {Identity}", authContext.Identity);
             throw new InvalidOperationException("用户信息无效");
         }
 
-        _logger.LogInformation("从认证上下文获取到玩家ID: {PlayerId}", playerId);
+        logger.LogInformation("从认证上下文获取到玩家ID: {PlayerId}", playerId);
 
-        var player = await _playerManager.GetPlayerAsync(playerId);
+        var player = await playerManager.GetPlayerAsync(playerId);
 
         if (player != null)
         {
@@ -235,7 +218,7 @@ public class PlayerHub : IPlayerHub
             };
 
             // 添加到批处理队列
-            _movementBatcher.AddMovementUpdate(new PlayerMovedEvent
+            movementBatcher.AddMovementUpdate(new PlayerMovedEvent
             {
                 PlayerId = player.Id,
                 X = player.Position.X,
@@ -245,12 +228,12 @@ public class PlayerHub : IPlayerHub
                 IsRunning = false // 可以根据速度判断
             });
 
-            _logger.LogDebug("玩家 {Username} (ID: {PlayerId}) 移动到 ({X}, {Y}, {Z})",
+            logger.LogDebug("玩家 {Username} (ID: {PlayerId}) 移动到 ({X}, {Y}, {Z})",
                 player.Username, player.Id, request.X, request.Y, request.Z);
         }
         else
         {
-            _logger.LogWarning("找不到玩家 {PlayerId}", playerId);
+            logger.LogWarning("找不到玩家 {PlayerId}", playerId);
             throw new KeyNotFoundException($"找不到玩家 {playerId}");
         }
     }
@@ -284,18 +267,18 @@ public class PlayerHub : IPlayerHub
         var currentConnectionId = currentConnection?.ConnectionId;
 
         // 获取所有已认证的通道，但排除当前连接
-        var channels = _channelManager.GetAuthenticatedChannels()
+        var channels = channelManager.GetAuthenticatedChannels()
             .Where(c => c.ConnectionId != currentConnectionId)
             .ToList();
 
         if (!channels.Any())
         {
-            _logger.LogDebug("没有其他已认证的连接，跳过玩家加入事件广播: {Username}", player.Username);
+            logger.LogDebug("没有其他已认证的连接，跳过玩家加入事件广播: {Username}", player.Username);
             return;
         }
 
         // 序列化事件数据
-        var serializer = _serializerProvider.Create(MethodType.Unary, null);
+        var serializer = serializerProvider.Create(MethodType.Unary, null);
         var writer = new System.Buffers.ArrayBufferWriter<byte>();
         serializer.Serialize(writer, in joinEvent);
         var eventDataBytes = writer.WrittenMemory.ToArray();
@@ -306,12 +289,12 @@ public class PlayerHub : IPlayerHub
             try
             {
                 await channel.SendAsync(eventDataBytes, CancellationToken.None);
-                _logger.LogTrace("玩家加入事件已发送到连接: {ConnectionId}", channel.ConnectionId);
+                logger.LogTrace("玩家加入事件已发送到连接: {ConnectionId}", channel.ConnectionId);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "向连接 {ConnectionId} 发送玩家加入事件时失败", channel.ConnectionId);
+                logger.LogWarning(ex, "向连接 {ConnectionId} 发送玩家加入事件时失败", channel.ConnectionId);
                 return false;
             }
         });
@@ -319,7 +302,7 @@ public class PlayerHub : IPlayerHub
         var results = await Task.WhenAll(tasks);
         var successCount = results.Count(r => r);
 
-        _logger.LogInformation("已广播玩家 {Username} 加入事件到 {SuccessCount}/{TotalCount} 个连接",
+        logger.LogInformation("已广播玩家 {Username} 加入事件到 {SuccessCount}/{TotalCount} 个连接",
             player.Username, successCount, channels.Count);
     }
 
@@ -338,7 +321,7 @@ public class PlayerHub : IPlayerHub
     [PulseRPC.AllowAnonymous]
     public async ValueTask<string> PingAsync(PingRequest request)
     {
-        _logger.LogInformation("收到Ping请求: {Message}", request.Message);
+        logger.LogInformation("收到Ping请求: {Message}", request.Message);
         await Task.Delay(10); // 模拟一些处理时间
         return $"Pong: {request.Message} at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss}";
     }
@@ -400,7 +383,9 @@ public class PlayerMovementBatcher : BackgroundService
             lock (_syncLock)
             {
                 if (_pendingUpdates.Count == 0)
+                {
                     continue;
+                }
 
                 updates = _pendingUpdates.ToArray();
                 _pendingUpdates.Clear();

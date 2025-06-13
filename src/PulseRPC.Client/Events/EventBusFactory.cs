@@ -52,7 +52,7 @@ namespace PulseRPC.Client.Events
         /// </summary>
         public IEventBus CreateInMemory(string name = "memory")
         {
-            string key = $"memory:{name}";
+            var key = $"memory:{name}";
 
             if (_eventBuses.TryGetValue(key, out var existingBus))
                 return existingBus;

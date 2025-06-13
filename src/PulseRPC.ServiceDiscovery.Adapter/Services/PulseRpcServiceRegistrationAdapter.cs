@@ -1,13 +1,7 @@
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PulseServiceDiscovery.Abstractions;
 using PulseServiceDiscovery.Abstractions.Models;
-using ServiceDiscoveryEndpoint = PulseServiceDiscovery.Abstractions.Models.ServiceEndpoint;
 
 namespace PulseRPC.ServiceDiscovery.Adapter.Services;
 

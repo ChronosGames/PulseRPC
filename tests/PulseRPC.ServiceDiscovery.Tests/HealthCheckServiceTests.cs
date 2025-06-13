@@ -1,9 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
-using PulseRPC.ServiceDiscovery;
-using PulseRPC.ServiceDiscovery.HealthCheck;
 using System.Net;
+using PulseServiceDiscovery.Client.HealthCheck;
 
 namespace PulseRPC.ServiceDiscovery.Tests;
 
@@ -173,9 +172,9 @@ public class HealthCheckServiceTests : IDisposable
         {
             var actualInterval = timestamps[i] - timestamps[i - 1];
             // 允许一定的时间误差（±50ms）
-            Assert.True(actualInterval >= TimeSpan.FromMilliseconds(150), 
+            Assert.True(actualInterval >= TimeSpan.FromMilliseconds(150),
                 $"间隔太短: {actualInterval.TotalMilliseconds}ms");
-            Assert.True(actualInterval <= TimeSpan.FromMilliseconds(300), 
+            Assert.True(actualInterval <= TimeSpan.FromMilliseconds(300),
                 $"间隔太长: {actualInterval.TotalMilliseconds}ms");
         }
     }
@@ -241,20 +240,20 @@ public class HealthCheckServiceTests : IDisposable
     }
 
     private async Task<List<HealthCheckResult>> CollectResultsAsync(
-        ServiceEndpoint endpoint, 
-        TimeSpan interval, 
-        CancellationToken cancellationToken, 
+        ServiceEndpoint endpoint,
+        TimeSpan interval,
+        CancellationToken cancellationToken,
         int maxResults)
     {
         var results = new List<HealthCheckResult>();
-        
+
         await foreach (var result in _healthCheckService.MonitorHealthAsync(endpoint, interval, cancellationToken))
         {
             results.Add(result);
             if (results.Count >= maxResults)
                 break;
         }
-        
+
         return results;
     }
 
@@ -267,4 +266,4 @@ public class HealthCheckServiceTests : IDisposable
             EndPoint = new IPEndPoint(IPAddress.Loopback, 80) // 使用回环地址，通常会快速失败
         };
     }
-} 
+}

@@ -7,7 +7,6 @@
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>PulseServiceDiscovery.Server</PackageId>
     <Description>服务端服务发现和注册实现</Description>
-    <Authors>PulseRPC Team</Authors>
     <PackageTags>servicediscovery;server;registry;pulse;rpc</PackageTags>
   </PropertyGroup>
 

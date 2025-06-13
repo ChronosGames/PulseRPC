@@ -6,9 +6,7 @@
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>PulseServiceDiscovery.Abstractions</PackageId>
-    <PackageVersion>1.0.0</PackageVersion>
     <Description>Core abstractions for PulseServiceDiscovery - service discovery and registry interfaces</Description>
-    <Authors>PulseRPC Team</Authors>
     <RootNamespace>PulseServiceDiscovery</RootNamespace>
   </PropertyGroup>
 
