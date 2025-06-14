@@ -8,18 +8,12 @@ namespace PulseRPC.ServiceDiscovery.Adapter.Services;
 /// <summary>
 /// PulseRPC服务注册适配器
 /// </summary>
-public class PulseRpcServiceRegistrationAdapter
+public class PulseRpcServiceRegistrationAdapter(
+    PulseServiceDiscovery.Abstractions.IServiceRegistry serviceRegistry,
+    ILogger<PulseRpcServiceRegistrationAdapter> logger)
 {
-    private readonly PulseServiceDiscovery.Abstractions.IServiceRegistry _serviceRegistry;
-    private readonly ILogger<PulseRpcServiceRegistrationAdapter> _logger;
-
-    public PulseRpcServiceRegistrationAdapter(
-        PulseServiceDiscovery.Abstractions.IServiceRegistry serviceRegistry,
-        ILogger<PulseRpcServiceRegistrationAdapter> logger)
-    {
-        _serviceRegistry = serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    private readonly PulseServiceDiscovery.IServiceRegistry _serviceRegistry = serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
+    private readonly ILogger<PulseRpcServiceRegistrationAdapter> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <summary>
     /// 注册PulseRPC服务
@@ -63,8 +57,7 @@ public class PulseRpcServiceRegistrationAdapter
 
         await _serviceRegistry.RegisterAsync(registration, cancellationToken);
 
-        _logger.LogInformation("Registered PulseRPC service: {ServiceName} at {Host}:{Port} (ID: {ServiceId})",
-            serviceName, host, port, serviceId);
+        _logger.LogInformation("Registered PulseRPC service: {ServiceName} at {Host}:{Port} (ID: {ServiceId})", serviceName, host, port, serviceId);
 
         return serviceId;
     }
@@ -88,7 +81,7 @@ public class PulseRpcServiceRegistrationAdapter
     /// <param name="cancellationToken">取消令牌</param>
     public async Task UpdateHeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
     {
-        await _serviceRegistry.UpdateHealthAsync(serviceId, PulseServiceDiscovery.Abstractions.Models.HealthStatus.Healthy, cancellationToken);
+        await _serviceRegistry.UpdateHealthAsync(serviceId, HealthStatus.Healthy, cancellationToken);
 
         _logger.LogDebug("Updated heartbeat for PulseRPC service: {ServiceId}", serviceId);
     }
@@ -150,22 +143,16 @@ public record PulseRpcAutoRegistrationOptions
 /// <summary>
 /// PulseRPC自动注册服务
 /// </summary>
-public class PulseRpcAutoRegistrationService : BackgroundService
+public class PulseRpcAutoRegistrationService(
+    PulseRpcServiceRegistrationAdapter adapter,
+    ILogger<PulseRpcAutoRegistrationService> logger,
+    IOptions<PulseRpcAutoRegistrationOptions> options)
+    : BackgroundService
 {
-    private readonly PulseRpcServiceRegistrationAdapter _adapter;
-    private readonly ILogger<PulseRpcAutoRegistrationService> _logger;
-    private readonly PulseRpcAutoRegistrationOptions _options;
+    private readonly PulseRpcServiceRegistrationAdapter _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
+    private readonly ILogger<PulseRpcAutoRegistrationService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly PulseRpcAutoRegistrationOptions _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
     private string? _serviceId;
-
-    public PulseRpcAutoRegistrationService(
-        PulseRpcServiceRegistrationAdapter adapter,
-        ILogger<PulseRpcAutoRegistrationService> logger,
-        IOptions<PulseRpcAutoRegistrationOptions> options)
-    {
-        _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
-    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

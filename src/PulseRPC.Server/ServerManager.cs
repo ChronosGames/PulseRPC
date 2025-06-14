@@ -1,8 +1,8 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Transport;
-using PulseRPC.Server.ServiceDiscovery;
-using PulseRPC.ServiceDiscovery;
+// using PulseRPC.Server.ServiceDiscovery;
+// using PulseRPC.ServiceDiscovery;
 using PulseRPC.Transport;
 using System.Net;
 
@@ -36,7 +36,7 @@ public interface IServerManager : IDisposable
     /// <summary>
     /// 获取已注册的服务端点
     /// </summary>
-    Task<IReadOnlyList<PulseRPC.ServiceDiscovery.ServiceEndpoint>> GetRegisteredServicesAsync();
+    // Task<IReadOnlyList<PulseRPC.ServiceDiscovery.ServiceEndpoint>> GetRegisteredServicesAsync();
 }
 
 /// <summary>
@@ -46,7 +46,7 @@ public class ServerManager : IServerManager
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly IServerChannelManager _serverChannelManager;
-    private readonly IServiceRegistry? _serviceRegistry;
+    // private readonly IServiceRegistry? _serviceRegistry;
     private readonly ServerOptions _serverOptions;
     private readonly ILogger<ServerManager> _logger;
     private readonly Dictionary<string, TransportInfo> _transports = new();
@@ -57,17 +57,17 @@ public class ServerManager : IServerManager
     public ServerManager(
         IServerChannelManager serverChannelManager,
         ILoggerFactory loggerFactory,
-        IOptions<ServerOptions> serverOptions,
-        IServiceRegistry? serviceRegistry = null)
+        IOptions<ServerOptions> serverOptions/*,
+        IServiceRegistry? serviceRegistry = null*/)
     {
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _serverChannelManager = serverChannelManager;
-        _serviceRegistry = serviceRegistry;
+        // _serviceRegistry = serviceRegistry;
         _serverOptions = serverOptions.Value;
         _logger = loggerFactory.CreateLogger<ServerManager>();
 
-        _logger.LogInformation("ServerManager 已初始化，服务注册: {ServiceRegistryEnabled}, 服务名称: {ServiceName}",
-            _serverOptions.EnableServiceRegistry && _serviceRegistry != null, _serverOptions.ServiceName);
+        // _logger.LogInformation("ServerManager 已初始化，服务注册: {ServiceRegistryEnabled}, 服务名称: {ServiceName}",
+        //     _serverOptions.EnableServiceRegistry && _serviceRegistry != null, _serverOptions.ServiceName);
     }
 
     /// <summary>
@@ -142,7 +142,7 @@ public class ServerManager : IServerManager
                 _logger.LogInformation("已启动 {Type} 监听器: {Name}, 端口: {Port}", info.Type, info.Name, info.Port);
 
                 // 注册服务到服务发现
-                await RegisterServiceAsync(info, cancellationToken);
+                // await RegisterServiceAsync(info, cancellationToken);
             }
 
             _isRunning = true;
@@ -169,7 +169,7 @@ public class ServerManager : IServerManager
         _isRunning = false;
 
         // 注销所有已注册的服务
-        await UnregisterAllServicesAsync(cancellationToken);
+        // await UnregisterAllServicesAsync(cancellationToken);
 
         // 停止所有监听器
         foreach (var kvp in _listeners)
@@ -200,22 +200,22 @@ public class ServerManager : IServerManager
     /// <summary>
     /// 获取已注册的服务端点
     /// </summary>
-    public async Task<IReadOnlyList<ServiceEndpoint>> GetRegisteredServicesAsync()
-    {
-        if (_serviceRegistry != null)
-        {
-            try
-            {
-                return await _serviceRegistry.GetRegisteredServicesAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "获取已注册服务列表失败");
-            }
-        }
-
-        return Array.Empty<ServiceEndpoint>();
-    }
+    // public async Task<IReadOnlyList<ServiceEndpoint>> GetRegisteredServicesAsync()
+    // {
+    //     if (_serviceRegistry != null)
+    //     {
+    //         try
+    //         {
+    //             return await _serviceRegistry.GetRegisteredServicesAsync();
+    //         }
+    //         catch (Exception ex)
+    //         {
+    //             _logger.LogError(ex, "获取已注册服务列表失败");
+    //         }
+    //     }
+    //
+    //     return Array.Empty<ServiceEndpoint>();
+    // }
 
     /// <summary>
     /// 处理新连接
@@ -251,82 +251,82 @@ public class ServerManager : IServerManager
     /// <summary>
     /// 注册服务到服务发现
     /// </summary>
-    private async Task RegisterServiceAsync(TransportInfo transportInfo, CancellationToken cancellationToken)
-    {
-        if (!_serverOptions.EnableServiceRegistry || _serviceRegistry == null)
-        {
-            return;
-        }
-
-        try
-        {
-            // 获取服务地址
-            var serviceAddress = GetServiceAddress();
-            var endpoint = new IPEndPoint(IPAddress.Parse(serviceAddress), transportInfo.Port);
-
-            // 生成服务ID
-            var serviceId = $"{_serverOptions.ServiceName}-{transportInfo.Name}-{Environment.MachineName}-{transportInfo.Port}";
-
-            // 创建服务端点
-            var serviceEndpoint = new ServiceEndpoint
-            {
-                ServiceId = serviceId,
-                ServiceName = _serverOptions.ServiceName,
-                Version = _serverOptions.ServiceVersion,
-                EndPoint = endpoint,
-                Weight = _serverOptions.ServiceWeight,
-                Tags = new Dictionary<string, string>(_serverOptions.ServiceTags)
-                {
-                    ["transport"] = transportInfo.Type.ToString().ToLower(),
-                    ["channel"] = transportInfo.Name,
-                    ["machine"] = Environment.MachineName,
-                    ["framework"] = nameof(PulseRPC)
-                },
-                Metadata = new Dictionary<string, object>(_serverOptions.ServiceMetadata)
-            };
-
-            // 注册服务
-            await _serviceRegistry.RegisterAsync(serviceEndpoint, cancellationToken);
-
-            // 记录已注册的服务ID
-            _registeredServiceIds[transportInfo.Name] = serviceId;
-
-            _logger.LogInformation("已注册服务: {ServiceName}({ServiceId}) @ {EndPoint}",
-                _serverOptions.ServiceName, serviceId, endpoint);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "注册服务失败: {TransportName}", transportInfo.Name);
-            // 不抛出异常，允许服务器继续启动
-        }
-    }
+    // private async Task RegisterServiceAsync(TransportInfo transportInfo, CancellationToken cancellationToken)
+    // {
+    //     if (!_serverOptions.EnableServiceRegistry || _serviceRegistry == null)
+    //     {
+    //         return;
+    //     }
+    //
+    //     try
+    //     {
+    //         // 获取服务地址
+    //         var serviceAddress = GetServiceAddress();
+    //         var endpoint = new IPEndPoint(IPAddress.Parse(serviceAddress), transportInfo.Port);
+    //
+    //         // 生成服务ID
+    //         var serviceId = $"{_serverOptions.ServiceName}-{transportInfo.Name}-{Environment.MachineName}-{transportInfo.Port}";
+    //
+    //         // 创建服务端点
+    //         var serviceEndpoint = new ServiceEndpoint
+    //         {
+    //             ServiceId = serviceId,
+    //             ServiceName = _serverOptions.ServiceName,
+    //             Version = _serverOptions.ServiceVersion,
+    //             EndPoint = endpoint,
+    //             Weight = _serverOptions.ServiceWeight,
+    //             Tags = new Dictionary<string, string>(_serverOptions.ServiceTags)
+    //             {
+    //                 ["transport"] = transportInfo.Type.ToString().ToLower(),
+    //                 ["channel"] = transportInfo.Name,
+    //                 ["machine"] = Environment.MachineName,
+    //                 ["framework"] = nameof(PulseRPC)
+    //             },
+    //             Metadata = new Dictionary<string, object>(_serverOptions.ServiceMetadata)
+    //         };
+    //
+    //         // 注册服务
+    //         await _serviceRegistry.RegisterAsync(serviceEndpoint, cancellationToken);
+    //
+    //         // 记录已注册的服务ID
+    //         _registeredServiceIds[transportInfo.Name] = serviceId;
+    //
+    //         _logger.LogInformation("已注册服务: {ServiceName}({ServiceId}) @ {EndPoint}",
+    //             _serverOptions.ServiceName, serviceId, endpoint);
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         _logger.LogError(ex, "注册服务失败: {TransportName}", transportInfo.Name);
+    //         // 不抛出异常，允许服务器继续启动
+    //     }
+    // }
 
     /// <summary>
     /// 注销所有已注册的服务
     /// </summary>
-    private async Task UnregisterAllServicesAsync(CancellationToken cancellationToken)
-    {
-        if (_serviceRegistry == null || _registeredServiceIds.Count == 0)
-        {
-            return;
-        }
-
-        var unregisterTasks = _registeredServiceIds.Values.Select(async serviceId =>
-        {
-            try
-            {
-                await _serviceRegistry.UnregisterAsync(serviceId, cancellationToken);
-                _logger.LogInformation("已注销服务: {ServiceId}", serviceId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "注销服务 {ServiceId} 失败", serviceId);
-            }
-        });
-
-        await Task.WhenAll(unregisterTasks);
-        _registeredServiceIds.Clear();
-    }
+    // private async Task UnregisterAllServicesAsync(CancellationToken cancellationToken)
+    // {
+    //     if (_serviceRegistry == null || _registeredServiceIds.Count == 0)
+    //     {
+    //         return;
+    //     }
+    //
+    //     var unregisterTasks = _registeredServiceIds.Values.Select(async serviceId =>
+    //     {
+    //         try
+    //         {
+    //             await _serviceRegistry.UnregisterAsync(serviceId, cancellationToken);
+    //             _logger.LogInformation("已注销服务: {ServiceId}", serviceId);
+    //         }
+    //         catch (Exception ex)
+    //         {
+    //             _logger.LogError(ex, "注销服务 {ServiceId} 失败", serviceId);
+    //         }
+    //     });
+    //
+    //     await Task.WhenAll(unregisterTasks);
+    //     _registeredServiceIds.Clear();
+    // }
 
     /// <summary>
     /// 获取服务地址

@@ -716,32 +716,19 @@ public class TransportChannel : IClientChannel
     {
         _logger.LogDebug("[TransportChannel] 处理响应消息: MessageId={MessageId}", message.Header.MessageId);
 
-        TaskCompletionSource<NetworkMessage>? tcs = null;
+        TaskCompletionSource<NetworkMessage>? tcs;
 
         lock (_syncRoot)
         {
-            if (_pendingRequests.TryGetValue(message.Header.MessageId, out tcs))
+            if (!_pendingRequests.Remove(message.Header.MessageId, out tcs))
             {
-                _pendingRequests.Remove(message.Header.MessageId);
+                _logger.LogWarning("[TransportChannel] 收到未匹配的响应消息: MessageId={MessageId}", message.Header.MessageId);
+                return;
             }
         }
 
-        if (tcs == null)
-        {
-            _logger.LogWarning("[TransportChannel] 收到未匹配的响应消息: MessageId={MessageId}", message.Header.MessageId);
-            return;
-        }
-
-        try
-        {
-            tcs.TrySetResult(message);
-            _logger.LogDebug("[TransportChannel] 响应消息处理完成: MessageId={MessageId}", message.Header.MessageId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[TransportChannel] 设置响应结果时发生异常: MessageId={MessageId}", message.Header.MessageId);
-            tcs.TrySetException(ex);
-        }
+        tcs.TrySetResult(message);
+        _logger.LogDebug("[TransportChannel] 响应消息处理完成: MessageId={MessageId}", message.Header.MessageId);
     }
 
     /// <summary>

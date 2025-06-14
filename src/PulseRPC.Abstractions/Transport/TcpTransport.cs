@@ -187,7 +187,7 @@ namespace PulseRPC.Transport.Tcp
         public TcpTransport(TransportOptions? options = null, ILogger? logger = null)
         {
             _options = options ?? new TransportOptions();
-            _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+            _logger = logger ?? NullLogger.Instance;
             _receiveBuffer = new byte[_options.ReadBufferSize];
             _largePacketStates = new ConcurrentDictionary<int, LargePacketState>();
             _nextChunkId = 1;
@@ -203,7 +203,9 @@ namespace PulseRPC.Transport.Tcp
         public virtual async Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
         {
             if (!IsConnected)
+            {
                 return false;
+            }
 
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
 
@@ -255,7 +257,7 @@ namespace PulseRPC.Transport.Tcp
 
             try
             {
-                for (int i = 0; i < totalChunks; i++)
+                for (var i = 0; i < totalChunks; i++)
                 {
                     var offset = i * _options.ChunkSize;
                     var chunkSize = Math.Min(_options.ChunkSize, data.Length - offset);
@@ -316,13 +318,15 @@ namespace PulseRPC.Transport.Tcp
         {
             try
             {
-                byte[] headerBuffer = new byte[MessageHeader.Size];
+                var headerBuffer = new byte[MessageHeader.Size];
 
                 while (!_cts.IsCancellationRequested && IsConnected)
                 {
                     // 读取传输层消息头
                     if (!await ReadExactBytesAsync(headerBuffer, 0, MessageHeader.Size))
+                    {
                         break;
+                    }
 
                     // 解析传输层消息头
                     var header = ReadMessageHeader(headerBuffer, 0);
@@ -335,11 +339,13 @@ namespace PulseRPC.Transport.Tcp
                     }
 
                     // 读取消息内容
-                    byte[] messageBuffer = header.Length <= _receiveBuffer.Length
+                    var messageBuffer = header.Length <= _receiveBuffer.Length
                         ? _receiveBuffer : new byte[header.Length];
 
                     if (!await ReadExactBytesAsync(messageBuffer, 0, header.Length))
+                    {
                         break;
+                    }
 
                     Interlocked.Add(ref _totalBytesReceived, MessageHeader.Size + header.Length);
 
@@ -406,19 +412,23 @@ namespace PulseRPC.Transport.Tcp
 
                 // 添加分块
                 var chunkDataArray = chunkData.ToArray();
-                if (state.AddChunk(chunkHeader.ChunkIndex, chunkDataArray))
+                if (!state.AddChunk(chunkHeader.ChunkIndex, chunkDataArray))
                 {
-                    // 大包接收完成
-                    var completeData = state.GetCompleteData();
-                    if (completeData != null)
-                    {
-                        // 移除状态
-                        _largePacketStates.TryRemove(chunkHeader.ChunkId, out _);
-
-                        // 触发数据接收事件（完整的大包数据）
-                        DataReceived?.Invoke(this, new TransportDataEventArgs(new ReadOnlyMemory<byte>(completeData)));
-                    }
+                    return;
                 }
+
+                // 大包接收完成
+                var completeData = state.GetCompleteData();
+                if (completeData == null)
+                {
+                    return;
+                }
+
+                // 移除状态
+                _largePacketStates.TryRemove(chunkHeader.ChunkId, out _);
+
+                // 触发数据接收事件（完整的大包数据）
+                DataReceived?.Invoke(this, new TransportDataEventArgs(new ReadOnlyMemory<byte>(completeData)));
             }
             catch (Exception ex)
             {
@@ -469,14 +479,18 @@ namespace PulseRPC.Transport.Tcp
         protected async Task<bool> ReadExactBytesAsync(byte[] buffer, int offset, int count)
         {
             if (_stream == null)
+            {
                 return false;
+            }
 
-            int totalRead = 0;
+            var totalRead = 0;
             while (totalRead < count)
             {
-                int read = await _stream.ReadAsync(buffer, offset + totalRead, count - totalRead, _cts.Token);
+                var read = await _stream.ReadAsync(buffer, offset + totalRead, count - totalRead, _cts.Token);
                 if (read == 0)
+                {
                     return false; // 连接关闭
+                }
 
                 totalRead += read;
             }

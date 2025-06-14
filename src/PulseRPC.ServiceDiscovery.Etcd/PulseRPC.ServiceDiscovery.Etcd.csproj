@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <PackageId>PulseRPC.ServiceDiscovery.Etcd</PackageId>
+    <Title>PulseServiceDiscovery Etcd Plugin</Title>
+    <Description>Etcd plugin for PulseServiceDiscovery framework</Description>
+    <Authors>PulseRPC Team</Authors>
+    <Company>PulseRPC</Company>
+    <Product>PulseServiceDiscovery</Product>
+    <Copyright>Copyright © PulseRPC Team</Copyright>
+    <PackageTags>pulserpc;servicediscovery;etcd;microservices;dotnet</PackageTags>
+    <RepositoryUrl>https://github.com/PulseRPC/PulseRPC</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RootNamespace>PulseServiceDiscovery.Etcd</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="dotnet-etcd" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PulseRPC.Cluster\PulseRPC.Cluster.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -20,9 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Client\PulseRPC.Client.csproj" />
     <ProjectReference Include="..\PulseRPC.Server\PulseRPC.Server.csproj" />
-    <ProjectReference Include="..\PulseServiceDiscovery.Abstractions\PulseServiceDiscovery.Abstractions.csproj" />
-    <ProjectReference Include="..\PulseServiceDiscovery.Client\PulseServiceDiscovery.Client.csproj" />
-    <ProjectReference Include="..\PulseServiceDiscovery.Server\PulseServiceDiscovery.Server.csproj" />
   </ItemGroup>
 
   <ItemGroup>

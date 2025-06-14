@@ -14,6 +14,9 @@
     <PackageId>PulseRPC.Abstractions</PackageId>
     <Description>PulseRPC abstractions and interfaces shared between client and server</Description>
     <RootNamespace>PulseRPC</RootNamespace>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <ItemGroup>
