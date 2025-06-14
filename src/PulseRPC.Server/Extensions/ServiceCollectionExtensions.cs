@@ -1,17 +1,13 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
-using System.Net;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Serialization;
 using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Events;
-using PulseRPC.Server.ServiceDiscovery;
 using PulseRPC.Server.Services;
 using PulseRPC.Server.Transport;
-using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.Server;
 
@@ -74,9 +70,6 @@ public static class ServiceCollectionExtensions
         // 注册服务器管理器
         services.TryAddSingleton<ServerManager>();
 
-        // 注册服务注册管理器为后台服务
-        services.AddHostedService<ServiceRegistryManager>();
-
         // 注册服务工厂
         services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
 
@@ -97,9 +90,6 @@ public static class ServiceCollectionExtensions
 
         // 注册服务器管理器
         services.TryAddSingleton<ServerManager>();
-
-        // 注册服务注册管理器为后台服务
-        services.AddHostedService<ServiceRegistryManager>();
 
         // 注册服务工厂
         services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
@@ -198,20 +188,6 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
-    /// 配置服务注册选项
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="configureOptions">配置回调</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection ConfigurePulseRpcServiceRegistry(
-        this IServiceCollection services,
-        Action<ServiceRegistryOptions> configureOptions)
-    {
-        services.Configure(configureOptions);
-        return services;
-    }
-
-    /// <summary>
     /// 配置服务器选项
     /// </summary>
     /// <param name="services">服务集合</param>
@@ -286,302 +262,6 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
-
-    /// <summary>
-    /// 添加 PulseRPC 服务注册
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="configuration">配置</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServiceRegistration(
-        this IServiceCollection services,
-        IConfiguration configuration)
-    {
-        // 注册配置选项
-        services.Configure<ServiceRegistrationOptions>(configuration.GetSection("PulseRPC:ServiceRegistration"));
-
-        // 添加核心服务
-        AddServiceRegistrationCore(services, configuration);
-
-        return services;
-    }
-
-    /// <summary>
-    /// 添加 PulseRPC 服务注册 (使用配置回调)
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="configureOptions">配置回调</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServiceRegistration(
-        this IServiceCollection services,
-        Action<ServiceRegistrationOptions> configureOptions)
-    {
-        services.Configure(configureOptions);
-
-        // 获取配置以确定服务注册类型
-        var options = new ServiceRegistrationOptions();
-        configureOptions(options);
-
-        // 根据配置添加相应的服务注册中心
-        AddServiceRegistryByType(services, options.RegistryType, options);
-
-        // 添加核心服务
-        services.TryAddSingleton<ServiceRegistrar>();
-        services.TryAddEnumerable(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IHostedService, ServiceRegistrar>(provider =>
-            provider.GetRequiredService<ServiceRegistrar>()));
-
-        return services;
-    }
-
-    /// <summary>
-    /// 添加服务注册（自动配置）
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="serviceName">服务名称</param>
-    /// <param name="port">服务端口</param>
-    /// <param name="configureOptions">配置回调</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServiceRegistration(
-        this IServiceCollection services,
-        string serviceName,
-        int port,
-        Action<ServiceRegistrationOptions>? configureOptions = null)
-    {
-        services.Configure<ServiceRegistrationOptions>(options =>
-        {
-            // 生成服务ID
-            var serviceId = GenerateServiceId(serviceName, port, options.IdGenerationStrategy, options.ServiceIdPrefix);
-
-            // 自动添加服务信息
-            var serviceInfo = new ServiceInfo
-            {
-                ServiceId = serviceId,
-                ServiceName = serviceName,
-                Host = GetLocalIPAddress(),
-                Port = port,
-                Tags = new Dictionary<string, string>(options.DefaultTags),
-                Metadata = new Dictionary<string, object>(options.DefaultMetadata)
-            };
-
-            options.AutoRegisterServices.Add(serviceInfo);
-
-            // 应用额外配置
-            configureOptions?.Invoke(options);
-        });
-
-        return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
-    }
-
-    /// <summary>
-    /// 添加多个服务注册
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="servicesInfo">服务信息列表</param>
-    /// <param name="configureOptions">配置回调</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServiceRegistrations(
-        this IServiceCollection services,
-        IEnumerable<ServiceInfo> servicesInfo,
-        Action<ServiceRegistrationOptions>? configureOptions = null)
-    {
-        services.Configure<ServiceRegistrationOptions>(options =>
-        {
-            options.AutoRegisterServices.AddRange(servicesInfo);
-            configureOptions?.Invoke(options);
-        });
-
-        return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
-    }
-
-    /// <summary>
-    /// 配置 Consul 服务注册
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="consulAddress">Consul 地址</param>
-    /// <param name="configureOptions">配置回调</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcConsulRegistration(
-        this IServiceCollection services,
-        string consulAddress = "http://localhost:8500",
-        Action<ServiceRegistrationOptions>? configureOptions = null)
-    {
-        services.Configure<ServiceRegistrationOptions>(options =>
-        {
-            options.RegistryType = ServiceRegistryType.Consul;
-            options.ConsulAddress = consulAddress;
-            configureOptions?.Invoke(options);
-        });
-
-        // 添加 Consul 服务注册
-        // services.AddConsulServiceRegistry(configuration => { });
-
-        return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
-    }
-
-    /// <summary>
-    /// 配置 Etcd 服务注册
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="etcdEndpoints">Etcd 端点</param>
-    /// <param name="configureOptions">配置回调</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcEtcdRegistration(
-        this IServiceCollection services,
-        string[] etcdEndpoints,
-        Action<ServiceRegistrationOptions>? configureOptions = null)
-    {
-        services.Configure<ServiceRegistrationOptions>(options =>
-        {
-            options.RegistryType = ServiceRegistryType.Etcd;
-            options.EtcdEndpoints = etcdEndpoints;
-            configureOptions?.Invoke(options);
-        });
-
-        // 添加 Etcd 服务注册
-        // services.AddEtcdServiceRegistry(configuration => { });
-
-        return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
-    }
-
-    /// <summary>
-    /// 配置健康检查选项
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="configureOptions">配置回调</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection ConfigurePulseRpcHealthCheck(
-        this IServiceCollection services,
-        Action<HealthCheckOptions> configureOptions)
-    {
-        services.Configure<ServiceRegistrationOptions>(options =>
-        {
-            var healthCheckOptions = new HealthCheckOptions();
-            configureOptions(healthCheckOptions);
-
-            options.EnableHealthCheck = healthCheckOptions.Enabled;
-            options.HealthCheckInterval = healthCheckOptions.Interval;
-            options.HealthCheckTimeout = healthCheckOptions.Timeout;
-            options.HealthCheckPath = healthCheckOptions.Path;
-        });
-
-        return services;
-    }
-
-    /// <summary>
-    /// 配置心跳选项
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="configureOptions">配置回调</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection ConfigurePulseRpcHeartbeat(
-        this IServiceCollection services,
-        Action<HeartbeatOptions> configureOptions)
-    {
-        services.Configure<ServiceRegistrationOptions>(options =>
-        {
-            var heartbeatOptions = new HeartbeatOptions();
-            configureOptions(heartbeatOptions);
-
-            options.EnableHeartbeat = heartbeatOptions.Enabled;
-            options.HeartbeatInterval = heartbeatOptions.Interval;
-            options.HeartbeatTimeout = heartbeatOptions.Timeout;
-        });
-
-        return services;
-    }
-
-    /// <summary>
-    /// 获取服务注册器
-    /// </summary>
-    /// <param name="serviceProvider">服务提供者</param>
-    /// <returns>服务注册器</returns>
-    public static ServiceRegistrar GetServiceRegistrar(this IServiceProvider serviceProvider)
-    {
-        return serviceProvider.GetRequiredService<ServiceRegistrar>();
-    }
-
-    #region Private Methods
-
-    /// <summary>
-    /// 添加服务注册核心服务
-    /// </summary>
-    private static void AddServiceRegistrationCore(IServiceCollection services, IConfiguration configuration)
-    {
-        // 获取配置以确定服务注册类型
-        var options = new ServiceRegistrationOptions();
-        configuration.GetSection("PulseRPC:ServiceRegistration").Bind(options);
-
-        // 根据配置添加相应的服务注册中心
-        AddServiceRegistryByType(services, options.RegistryType, options);
-
-        // 添加服务注册器
-        services.TryAddSingleton<ServiceRegistrar>();
-        services.TryAddEnumerable(Microsoft.Extensions.DependencyInjection.ServiceDescriptor.Singleton<IHostedService, ServiceRegistrar>(provider =>
-            provider.GetRequiredService<ServiceRegistrar>()));
-    }
-
-    /// <summary>
-    /// 根据类型添加服务注册中心
-    /// </summary>
-    private static void AddServiceRegistryByType(IServiceCollection services, ServiceRegistryType type, ServiceRegistrationOptions options)
-    {
-        switch (type)
-        {
-            // case ServiceRegistryType.Consul:
-            //     services.AddConsulServiceRegistry(configuration => { });
-            //     break;
-            // case ServiceRegistryType.Etcd:
-            //     services.AddEtcdServiceRegistry(configuration => { });
-            //     break;
-            // case ServiceRegistryType.Zookeeper:
-            //     services.AddZookeeperServiceRegistry(configuration => { });
-            //     break;
-            case ServiceRegistryType.Dns:
-                // DNS 注册通常不需要额外配置
-                break;
-            case ServiceRegistryType.Custom:
-                // 自定义实现由用户手动注册
-                break;
-            default:
-                throw new NotSupportedException($"未注册的服务中心类型：{type}");
-        }
-    }
-
-    /// <summary>
-    /// 生成服务ID
-    /// </summary>
-    private static string GenerateServiceId(string serviceName, int port, ServiceIdGenerationStrategy strategy, string? prefix)
-    {
-        var id = strategy switch
-        {
-            ServiceIdGenerationStrategy.HostNameAndPort => $"{Environment.MachineName}:{port}",
-            ServiceIdGenerationStrategy.IpAddressAndPort => $"{GetLocalIPAddress()}:{port}",
-            ServiceIdGenerationStrategy.Guid => Guid.NewGuid().ToString("N"),
-            ServiceIdGenerationStrategy.Custom => $"{serviceName}-{Guid.NewGuid().ToString("N")[..8]}",
-            _ => $"{serviceName}-{Environment.MachineName}:{port}"
-        };
-
-        return string.IsNullOrEmpty(prefix) ? $"{serviceName}-{id}" : $"{prefix}-{serviceName}-{id}";
-    }
-
-    /// <summary>
-    /// 获取本地IP地址
-    /// </summary>
-    private static string GetLocalIPAddress()
-    {
-        try
-        {
-            var host = Dns.GetHostEntry(Dns.GetHostName());
-            var ipAddress = host.AddressList.FirstOrDefault(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
-            return ipAddress?.ToString() ?? "127.0.0.1";
-        }
-        catch
-        {
-            return "127.0.0.1";
-        }
-    }
-
-    #endregion
 }
 
 /// <summary>
@@ -869,25 +549,4 @@ public interface IPulseRpcContext
     /// 上下文数据
     /// </summary>
     Dictionary<string, object> Items { get; }
-}
-
-/// <summary>
-/// 心跳配置选项
-/// </summary>
-public class HeartbeatOptions
-{
-    /// <summary>
-    /// 是否启用心跳
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// 心跳间隔
-    /// </summary>
-    public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(15);
-
-    /// <summary>
-    /// 心跳超时时间
-    /// </summary>
-    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
 }

@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <PackageId>PulseRPC.ServiceDiscovery.Zookeeper</PackageId>
+    <Title>PulseServiceDiscovery Zookeeper Plugin</Title>
+    <Description>Zookeeper plugin for PulseServiceDiscovery framework</Description>
+    <Authors>PulseRPC Team</Authors>
+    <Company>PulseRPC</Company>
+    <Product>PulseServiceDiscovery</Product>
+    <Copyright>Copyright © PulseRPC Team</Copyright>
+    <PackageTags>pulserpc;servicediscovery;zookeeper;microservices;dotnet</PackageTags>
+    <RepositoryUrl>https://github.com/PulseRPC/PulseRPC</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RootNamespace>PulseServiceDiscovery.Zookeeper</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ZooKeeperNetEx" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+</Project>

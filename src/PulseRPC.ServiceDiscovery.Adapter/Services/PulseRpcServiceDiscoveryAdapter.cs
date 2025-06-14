@@ -2,7 +2,6 @@ using Microsoft.Extensions.Logging;
 using ServiceDiscoveryEndpoint = PulseServiceDiscovery.Abstractions.Models.ServiceEndpoint;
 using ServiceDiscoveryLoadBalancer = PulseServiceDiscovery.Abstractions.ILoadBalancer;
 using ServiceDiscoveryLoadBalancingContext = PulseServiceDiscovery.Abstractions.Models.LoadBalancingContext;
-using PulseServiceDiscovery.Abstractions;
 using PulseServiceDiscovery.Abstractions.Models;
 
 namespace PulseRPC.ServiceDiscovery.Adapter.Services;
@@ -157,9 +156,7 @@ public class PulseRpcServiceDiscoveryAdapter
         }
 
         // 修正：正确的HealthStatus类型转换
-        var healthStatus = endpoint.IsHealthy
-            ? PulseServiceDiscovery.Abstractions.Models.HealthStatus.Healthy
-            : PulseServiceDiscovery.Abstractions.Models.HealthStatus.Unhealthy;
+        var healthStatus = endpoint.IsHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
 
         return new ServiceDiscoveryEndpoint(
             endpoint.Id,
@@ -221,18 +218,12 @@ public record PulseRpcEndpoint
 /// <summary>
 /// PulseRPC端点提供器
 /// </summary>
-public class PulseRpcEndpointProvider
+public class PulseRpcEndpointProvider(
+    PulseRpcServiceDiscoveryAdapter adapter,
+    ILogger<PulseRpcEndpointProvider> logger)
 {
-    private readonly PulseRpcServiceDiscoveryAdapter _adapter;
-    private readonly ILogger<PulseRpcEndpointProvider> _logger;
-
-    public PulseRpcEndpointProvider(
-        PulseRpcServiceDiscoveryAdapter adapter,
-        ILogger<PulseRpcEndpointProvider> logger)
-    {
-        _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
+    private readonly PulseRpcServiceDiscoveryAdapter _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
+    private readonly ILogger<PulseRpcEndpointProvider> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <summary>
     /// 为PulseRPC客户端提供端点

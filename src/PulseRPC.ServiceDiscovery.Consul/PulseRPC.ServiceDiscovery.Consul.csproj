@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <PackageId>PulseServiceDiscovery.Consul</PackageId>
+    <Title>PulseServiceDiscovery Consul Plugin</Title>
+    <Description>Consul plugin for PulseServiceDiscovery framework</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Consul" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PulseRPC.Cluster\PulseRPC.Cluster.csproj" />
+  </ItemGroup>
+
+</Project>

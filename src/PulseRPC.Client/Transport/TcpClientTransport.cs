@@ -10,13 +10,12 @@ namespace PulseRPC.Client.Transport
     /// </summary>
     public class TcpClientTransport : TcpTransport, IClientTransport
     {
-        private int _reconnectAttempts = 0;
+        private int _reconnectAttempts;
         private Timer? _reconnectTimer;
 
         public TcpClientTransport(TransportOptions? options = null, ILogger? logger = null)
             : base(options, logger)
-        {
-        }
+        { }
 
         /// <summary>
         /// 连接到服务器
@@ -24,7 +23,9 @@ namespace PulseRPC.Client.Transport
         public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
         {
             if (_state == ConnectionState.Connected)
+            {
                 return;
+            }
 
             ChangeState(ConnectionState.Connecting);
 
@@ -41,7 +42,7 @@ namespace PulseRPC.Client.Transport
 #if NET5_0_OR_GREATER
                 await _socket.ConnectAsync(host, port, linkedCts.Token);
 #else
-                    await _socket.ConnectAsync(host, port);
+                await _socket.ConnectAsync(host, port);
 #endif
 
                 // 创建网络流
@@ -79,8 +80,10 @@ namespace PulseRPC.Client.Transport
         /// </summary>
         public Task DisconnectAsync(CancellationToken cancellationToken = default)
         {
-            if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
+            if (_state is ConnectionState.Disconnected or ConnectionState.Disconnecting)
+            {
                 return Task.CompletedTask;
+            }
 
             ChangeState(ConnectionState.Disconnecting);
 
@@ -130,7 +133,7 @@ namespace PulseRPC.Client.Transport
             ChangeState(ConnectionState.Reconnecting, $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
 
             _reconnectTimer?.Dispose();
-            _reconnectTimer = new Timer(async _ =>
+            _reconnectTimer = new Timer(async void (_) =>
             {
                 try
                 {

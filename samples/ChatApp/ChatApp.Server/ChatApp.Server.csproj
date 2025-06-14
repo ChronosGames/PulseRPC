@@ -8,8 +8,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\src\PulseRPC.Monitoring\PulseRPC.Monitoring.csproj" />
-    <ProjectReference Include="..\..\..\src\PulseRPC.Tracing\PulseRPC.Tracing.csproj" />
     <ProjectReference Include="..\..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
     <ProjectReference Include="..\ChatApp.Shared\ChatApp.Shared.csproj" />
     <PackageReference Include="MemoryPack" />

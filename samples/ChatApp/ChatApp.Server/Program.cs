@@ -8,10 +8,10 @@ using System;
 using System.Threading.Tasks;
 using ChatApp;
 using Microsoft.Extensions.Options;
-using PulseRPC.Monitoring;
+// using PulseRPC.Monitoring;
 using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Services;
-using PulseRPC.Tracing;
+// using PulseRPC.Tracing;
 
 namespace GameServer;
 
@@ -92,20 +92,20 @@ internal abstract class Program
         // services.AddPulseRpcServiceRegistration(context.Configuration);
 
         // 添加性能监控
-        services.AddPulseRpcMonitoring(options =>
-        {
-            options.Performance.Enabled = true;
-            options.Performance.SamplingInterval = TimeSpan.FromSeconds(10);
-        });
+        // services.AddPulseRpcMonitoring(options =>
+        // {
+        //     options.Performance.Enabled = true;
+        //     options.Performance.SamplingInterval = TimeSpan.FromSeconds(10);
+        // });
 
         // 添加链路追踪
-        services.AddPulseRpcTracing(options =>
-        {
-            options.Enabled = true;
-            options.ServiceName = "UserService";
-            options.SamplingRate = 1.0; // 100%采样用于演示
-            options.Exporter.Type = TracingExporterType.Console;
-        });
+        // services.AddPulseRpcTracing(options =>
+        // {
+        //     options.Enabled = true;
+        //     options.ServiceName = "UserService";
+        //     options.SamplingRate = 1.0; // 100%采样用于演示
+        //     options.Exporter.Type = TracingExporterType.Console;
+        // });
 
         // 覆盖默认的认证提供程序，使用ChatApp专用的SimpleAuthenticationProvider
         services.AddSingleton<IAuthenticationProvider, SimpleAuthenticationProvider>();
