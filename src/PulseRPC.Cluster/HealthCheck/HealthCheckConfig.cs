@@ -72,7 +72,7 @@ public class HealthCheckResult
     /// <summary>
     /// 额外的检查数据
     /// </summary>
-    public Dictionary<string, object> Data { get; set; } = new();
+    public Dictionary<string, object>? Data { get; set; }
 
 
     /// <summary>
@@ -97,6 +97,36 @@ public class HealthCheckResult
     public ServiceEndpoint ToEndpoint()
     {
         return new ServiceEndpoint();
+    }
+
+    public static HealthCheckResult Healthy(string message, Dictionary<string, object>? data = null)
+    {
+        return new HealthCheckResult()
+        {
+            Status = HealthStatus.Healthy,
+            ErrorMessage = message,
+            Data = data,
+        };
+    }
+
+    public static HealthCheckResult Unhealthy(string message, Exception ex, Dictionary<string, object>? data = null)
+    {
+        return new HealthCheckResult()
+        {
+            Status = HealthStatus.Unhealthy,
+            ErrorMessage = ex.Message,
+            Data = data,
+        };
+    }
+
+    public static HealthCheckResult Degraded(string message, Dictionary<string, object>? data = null)
+    {
+        return new HealthCheckResult()
+        {
+            Status = HealthStatus.Degraded,
+            ErrorMessage = message,
+            Data = data,
+        };
     }
 }
 
