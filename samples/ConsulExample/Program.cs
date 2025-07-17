@@ -5,6 +5,7 @@ using PulseRPC.Client;
 using PulseRPC.HealthCheck;
 using PulseRPC.LoadBalancing;
 using PulseRPC.Server;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.Samples.ConsulExample;
 
@@ -59,14 +60,14 @@ public class Program
         });
 
         // 2. 配置 Consul 服务发现
-        services.AddConsulServiceDiscovery(options =>
+        services.AddServiceDiscovery(options =>
         {
-            options.Address = "http://localhost:8500";
-            options.Datacenter = "dc1";
-            options.EnableHealthCheck = true;
-            options.HealthCheckInterval = TimeSpan.FromSeconds(10);
-            options.HealthCheckTimeout = TimeSpan.FromSeconds(5);
-            options.DeregisterOnShutdown = true;
+            // options.Address = "http://localhost:8500";
+            // options.Datacenter = "dc1";
+            // options.EnableHealthCheck = true;
+            // options.HealthCheckInterval = TimeSpan.FromSeconds(10);
+            // options.HealthCheckTimeout = TimeSpan.FromSeconds(5);
+            // options.DeregisterOnShutdown = true;
         });
 
         // 3. 配置故障转移负载均衡
