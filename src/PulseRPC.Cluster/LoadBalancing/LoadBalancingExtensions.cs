@@ -64,6 +64,22 @@ public static class LoadBalancingExtensions
     }
 
     /// <summary>
+    /// 添加负载均衡 (使用配置回调)
+    /// </summary>
+    /// <param name="services"></param>
+    /// <param name="configureOptions"></param>
+    /// <returns></returns>
+    public static IServiceCollection AddLoadBalancing(
+        this IServiceCollection services,
+        Action<LoadBalancingOptions> configureOptions)
+    {
+        // 注册配置选项
+        services.Configure(configureOptions);
+
+        return AddLoadBalancingCore(services);
+    }
+
+    /// <summary>
     /// 添加自定义负载均衡实现
     /// </summary>
     /// <param name="services">服务集合</param>
@@ -75,6 +91,11 @@ public static class LoadBalancingExtensions
         services.RemoveAll<ILoadBalancer>();
         services.AddSingleton(implementationFactory);
 
+        return services;
+    }
+
+    private static IServiceCollection AddLoadBalancingCore(IServiceCollection services)
+    {
         return services;
     }
 }

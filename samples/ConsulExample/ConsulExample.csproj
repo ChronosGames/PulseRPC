@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>PulseRPC.Samples.ConsulExample</AssemblyName>
+    <RootNamespace>PulseRPC.Samples.ConsulExample</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Cluster\PulseRPC.Cluster.csproj" />
+<!--    <ProjectReference Include="..\..\src\PulseRPC.ServiceDiscovery.Consul\PulseRPC.ServiceDiscovery.Consul.csproj" />-->
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+  </ItemGroup>
+
+</Project>
