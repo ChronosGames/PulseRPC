@@ -8,7 +8,7 @@ using PulseServiceDiscovery.Consul;
 
 namespace PulseRPC.ServiceDiscovery.Consul;
 
-public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisposable
+public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
 {
     private readonly IConsulClient _consulClient;
     private readonly ILogger<ConsulServiceDiscovery> _logger;
@@ -77,7 +77,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         }
     }
 
-    public async Task RegisterAsync(ServiceRegistration registration, CancellationToken cancellationToken = default)
+    public async Task RegisterAsync(ServiceRegistration.ServiceRegistration registration, CancellationToken cancellationToken = default)
     {
         if (registration == null)
             throw new ArgumentNullException(nameof(registration));
@@ -153,7 +153,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         try
         {
             var response = await _consulClient.Agent.Services(cancellationToken);
-            var registrations = new List<ServiceRegistration>();
+            var registrations = new List<ServiceRegistration.ServiceRegistration>();
 
             foreach (var service in response.Response.Values)
             {
@@ -265,7 +265,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
             Metadata = new ServiceMetadata(metadata)
         };
 
-        return new ServiceRegistration
+        return new ServiceRegistration.ServiceRegistration
         {
             Id = consulService.ID,
             ServiceName = consulService.Service,
