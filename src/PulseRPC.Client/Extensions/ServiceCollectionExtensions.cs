@@ -1,12 +1,26 @@
 using Microsoft.Extensions.DependencyInjection;
 
-namespace PulseRPC.Client.Extensions
+namespace PulseRPC.Client
 {
     /// <summary>
     /// 客户端依赖注入扩展方法
     /// </summary>
     public static class ServiceCollectionExtensions
     {
+        public static IServiceCollection AddPulseRpcClient(
+            this IServiceCollection services,
+            Action<ClientOptions> configureOptions)
+        {
+            // 配置客户端选项
+            services.Configure(configureOptions);
+
+            // 注册 PulseRPC 客户端
+            // services.AddSingleton<IPulseRpcClient, PulseRpcClient>();
+            // services.AddSingleton<IPulseRpcServiceClient, PulseRpcServiceClient>();
+
+            return services;
+        }
+
         /// <summary>
         /// 配置连接池选项
         /// </summary>

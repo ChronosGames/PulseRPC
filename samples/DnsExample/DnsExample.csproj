@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>PulseRPC.Samples.DnsExample</AssemblyName>
+    <RootNamespace>PulseRPC.Samples.DnsExample</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.ServiceDiscovery\PulseRPC.ServiceDiscovery.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.LoadBalancing\PulseRPC.LoadBalancing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" />
+  </ItemGroup>
+
+</Project> 
