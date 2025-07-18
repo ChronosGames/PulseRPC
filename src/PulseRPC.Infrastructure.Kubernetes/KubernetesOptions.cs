@@ -1,4 +1,4 @@
-namespace PulseServiceDiscovery.Kubernetes;
+namespace PulseRPC.Infrastructure.Kubernetes;
 
 public record KubernetesOptions
 {

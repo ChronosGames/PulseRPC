@@ -5,28 +5,28 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-    <PackageId>PulseRPC.ServiceDiscovery.Etcd</PackageId>
-    <Title>PulseServiceDiscovery Etcd Plugin</Title>
-    <Description>Etcd plugin for PulseServiceDiscovery framework</Description>
+    <PackageId>PulseRPC.Infrastructure.Kubernetes</PackageId>
+    <Title>PulseRPC Infrastructure Kubernetes Plugin</Title>
+    <Description>Kubernetes plugin for PulseRPC Infrastructure framework</Description>
     <Authors>PulseRPC Team</Authors>
     <Company>PulseRPC</Company>
-    <Product>PulseServiceDiscovery</Product>
+    <Product>PulseRPC.Infrastructure</Product>
     <Copyright>Copyright © PulseRPC Team</Copyright>
-    <PackageTags>pulserpc;servicediscovery;etcd;microservices;dotnet</PackageTags>
+    <PackageTags>pulserpc;infrastructure;kubernetes;k8s;microservices;dotnet</PackageTags>
     <RepositoryUrl>https://github.com/PulseRPC/PulseRPC</RepositoryUrl>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RootNamespace>PulseServiceDiscovery.Etcd</RootNamespace>
+    <RootNamespace>PulseRPC.Infrastructure.Kubernetes</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="dotnet-etcd" />
+    <PackageReference Include="KubernetesClient" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\PulseRPC.Cluster\PulseRPC.Cluster.csproj" />
+    <ProjectReference Include="..\PulseRPC.Infrastructure\PulseRPC.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

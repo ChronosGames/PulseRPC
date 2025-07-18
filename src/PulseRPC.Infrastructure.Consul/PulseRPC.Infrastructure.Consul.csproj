@@ -5,9 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
-    <PackageId>PulseServiceDiscovery.Consul</PackageId>
-    <Title>PulseServiceDiscovery Consul Plugin</Title>
-    <Description>Consul plugin for PulseServiceDiscovery framework</Description>
+    <PackageId>PulseRPC.Infrastructure.Consul</PackageId>
+    <Title>PulseRPC Infrastructure Consul Plugin</Title>
+    <Description>Consul plugin for PulseRPC Infrastructure framework</Description>
   </PropertyGroup>
 
   <ItemGroup>
@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\PulseRPC.Cluster\PulseRPC.Cluster.csproj" />
+    <ProjectReference Include="..\PulseRPC.Infrastructure\PulseRPC.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

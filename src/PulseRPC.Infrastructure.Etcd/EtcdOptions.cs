@@ -1,4 +1,4 @@
-namespace PulseServiceDiscovery.Etcd;
+namespace PulseRPC.Infrastructure.Etcd;
 
 public record EtcdOptions
 {

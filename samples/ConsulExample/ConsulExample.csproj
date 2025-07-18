@@ -12,8 +12,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
     <ProjectReference Include="..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
-    <ProjectReference Include="..\..\src\PulseRPC.Cluster\PulseRPC.Cluster.csproj" />
-<!--    <ProjectReference Include="..\..\src\PulseRPC.ServiceDiscovery.Consul\PulseRPC.ServiceDiscovery.Consul.csproj" />-->
+    <ProjectReference Include="..\..\src\PulseRPC.Infrastructure\PulseRPC.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Infrastructure.Consul\PulseRPC.Infrastructure.Consul.csproj" />
   </ItemGroup>
 
   <ItemGroup>

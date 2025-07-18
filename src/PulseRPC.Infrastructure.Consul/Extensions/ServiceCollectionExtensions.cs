@@ -2,9 +2,9 @@ using Consul;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PulseRPC.ServiceRegistration;
-using PulseServiceDiscovery.Consul;
+using PulseRPC.Infrastructure.Consul;
 
-namespace PulseRPC.ServiceDiscovery.Consul;
+namespace PulseRPC.Infrastructure.Consul;
 
 public static class ServiceCollectionExtensions
 {
