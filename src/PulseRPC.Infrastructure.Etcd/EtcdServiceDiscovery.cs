@@ -7,7 +7,7 @@ using System.Text.Json;
 using PulseRPC.ServiceDiscovery;
 using PulseRPC.ServiceRegistration;
 
-namespace PulseServiceDiscovery.Etcd;
+namespace PulseRPC.Infrastructure.Etcd;
 
 public class EtcdServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisposable
 {

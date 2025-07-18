@@ -4,9 +4,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
 using PulseRPC.ServiceRegistration;
-using PulseServiceDiscovery.Kubernetes;
+using PulseRPC.Infrastructure.Kubernetes;
 
-namespace PulseRPC.ServiceDiscovery.Kubernetes;
+namespace PulseRPC.Infrastructure.Kubernetes;
 
 public class KubernetesServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisposable
 {

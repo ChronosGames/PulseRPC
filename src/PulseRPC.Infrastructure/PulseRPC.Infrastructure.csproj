@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>PulseRPC</RootNamespace>
+    <AssemblyName>PulseRPC.Infrastructure</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

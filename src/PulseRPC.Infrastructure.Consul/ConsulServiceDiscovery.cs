@@ -4,9 +4,9 @@ using Microsoft.Extensions.Options;
 using System.Text.Json;
 using PulseRPC.HealthCheck;
 using PulseRPC.ServiceRegistration;
-using PulseServiceDiscovery.Consul;
+using PulseRPC.Infrastructure.Consul;
 
-namespace PulseRPC.ServiceDiscovery.Consul;
+namespace PulseRPC.Infrastructure.Consul;
 
 public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
 {

@@ -45,10 +45,10 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "workflows", "workflows", "{
 	ProjectSection(SolutionItems) = preProject
 		.github\workflows\build-canary.yml = .github\workflows\build-canary.yml
 		.github\workflows\build-docs.yml = .github\workflows\build-docs.yml
-		.github\workflows\prevent-github-change.yml = .github\workflows\prevent-github-change.yml
 		.github\workflows\build.yml = .github\workflows\build.yml
-		.github\workflows\stale.yml = .github\workflows\stale.yml
+		.github\workflows\prevent-github-change.yml = .github\workflows\prevent-github-change.yml
 		.github\workflows\release.yml = .github\workflows\release.yml
+		.github\workflows\stale.yml = .github\workflows\stale.yml
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "perf", "perf", "{A0CED9FB-5B18-4EE3-859F-CE3A6F90A82A}"
@@ -101,19 +101,13 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Benchmark.Configur
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.ServiceDiscovery.Tests", "tests\PulseRPC.ServiceDiscovery.Tests\PulseRPC.ServiceDiscovery.Tests.csproj", "{EE4FE755-E7BC-4BD7-B9E1-CDE4A238733F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.ServiceDiscovery.Etcd", "src\PulseRPC.ServiceDiscovery.Etcd\PulseRPC.ServiceDiscovery.Etcd.csproj", "{D4905C59-7BEB-43B5-B820-595390C93169}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Infrastructure.Etcd", "src\PulseRPC.Infrastructure.Etcd\PulseRPC.Infrastructure.Etcd.csproj", "{D4905C59-7BEB-43B5-B820-595390C93169}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.ServiceDiscovery.Kubernetes", "src\PulseRPC.ServiceDiscovery.Kubernetes\PulseRPC.ServiceDiscovery.Kubernetes.csproj", "{E5905D59-7BEB-43B5-B820-595390C93170}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Infrastructure.Kubernetes", "src\PulseRPC.Infrastructure.Kubernetes\PulseRPC.Infrastructure.Kubernetes.csproj", "{E5905D59-7BEB-43B5-B820-595390C93170}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.ServiceDiscovery.Redis", "src\PulseRPC.ServiceDiscovery.Redis\PulseRPC.ServiceDiscovery.Redis.csproj", "{F6905E59-7BEB-43B5-B820-595390C93171}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Infrastructure", "src\PulseRPC.Infrastructure\PulseRPC.Infrastructure.csproj", "{2CDC05FE-E518-40AF-B341-01705D4910B8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.ServiceDiscovery.Zookeeper", "src\PulseRPC.ServiceDiscovery.Zookeeper\PulseRPC.ServiceDiscovery.Zookeeper.csproj", "{A7905F59-7BEB-43B5-B820-595390C93172}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.ServiceDiscovery.Adapter", "src\PulseRPC.ServiceDiscovery.Adapter\PulseRPC.ServiceDiscovery.Adapter.csproj", "{B8905A59-7BEB-43B5-B820-595390C93173}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Cluster", "src\PulseRPC.Cluster\PulseRPC.Cluster.csproj", "{2CDC05FE-E518-40AF-B341-01705D4910B8}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.ServiceDiscovery.Consul", "src\PulseRPC.ServiceDiscovery.Consul\PulseRPC.ServiceDiscovery.Consul.csproj", "{1855EFD4-3578-45D3-952B-4AF0B161644A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Infrastructure.Consul", "src\PulseRPC.Infrastructure.Consul\PulseRPC.Infrastructure.Consul.csproj", "{1855EFD4-3578-45D3-952B-4AF0B161644A}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsulExample", "samples\ConsulExample\ConsulExample.csproj", "{36FB9282-5301-40BA-A61A-ED7C2D751EAF}"
 EndProject
@@ -427,10 +421,30 @@ Global
 		{EE4FE755-E7BC-4BD7-B9E1-CDE4A238733F}.Release|x64.Build.0 = Release|Any CPU
 		{EE4FE755-E7BC-4BD7-B9E1-CDE4A238733F}.Release|x86.ActiveCfg = Release|Any CPU
 		{EE4FE755-E7BC-4BD7-B9E1-CDE4A238733F}.Release|x86.Build.0 = Release|Any CPU
-		{B8905A59-7BEB-43B5-B820-595390C93173}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{B8905A59-7BEB-43B5-B820-595390C93173}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{B8905A59-7BEB-43B5-B820-595390C93173}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{B8905A59-7BEB-43B5-B820-595390C93173}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Debug|x64.Build.0 = Debug|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Debug|x86.Build.0 = Debug|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Release|x64.ActiveCfg = Release|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Release|x64.Build.0 = Release|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Release|x86.ActiveCfg = Release|Any CPU
+		{D4905C59-7BEB-43B5-B820-595390C93169}.Release|x86.Build.0 = Release|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Debug|x64.Build.0 = Debug|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Debug|x86.Build.0 = Debug|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Release|x64.ActiveCfg = Release|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Release|x64.Build.0 = Release|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Release|x86.ActiveCfg = Release|Any CPU
+		{E5905D59-7BEB-43B5-B820-595390C93170}.Release|x86.Build.0 = Release|Any CPU
 		{2CDC05FE-E518-40AF-B341-01705D4910B8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{2CDC05FE-E518-40AF-B341-01705D4910B8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{2CDC05FE-E518-40AF-B341-01705D4910B8}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -504,11 +518,8 @@ Global
 		{B8810DF9-74A0-472A-B20C-F36F69B66499} = {2FF12B46-BA5C-4B6C-BD94-3556C3F25722}
 		{296EF358-2B0B-4324-BA8B-69EF8E14D032} = {2FF12B46-BA5C-4B6C-BD94-3556C3F25722}
 		{EE4FE755-E7BC-4BD7-B9E1-CDE4A238733F} = {7ACC27E8-8FBE-4807-B91F-B89AF3CFF7E0}
-		{B8905A59-7BEB-43B5-B820-595390C93173} = {1987061F-8970-4018-8D58-6932961C9EB4}
 		{D4905C59-7BEB-43B5-B820-595390C93169} = {1987061F-8970-4018-8D58-6932961C9EB4}
 		{E5905D59-7BEB-43B5-B820-595390C93170} = {1987061F-8970-4018-8D58-6932961C9EB4}
-		{F6905E59-7BEB-43B5-B820-595390C93171} = {1987061F-8970-4018-8D58-6932961C9EB4}
-		{A7905F59-7BEB-43B5-B820-595390C93172} = {1987061F-8970-4018-8D58-6932961C9EB4}
 		{2CDC05FE-E518-40AF-B341-01705D4910B8} = {1987061F-8970-4018-8D58-6932961C9EB4}
 		{1855EFD4-3578-45D3-952B-4AF0B161644A} = {1987061F-8970-4018-8D58-6932961C9EB4}
 		{36FB9282-5301-40BA-A61A-ED7C2D751EAF} = {5A3F5158-7B17-4586-9885-9E60C1393185}

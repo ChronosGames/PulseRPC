@@ -1,4 +1,4 @@
-namespace PulseServiceDiscovery.Consul;
+namespace PulseRPC.Infrastructure.Consul;
 
 public record ConsulOptions
 {

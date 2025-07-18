@@ -6,6 +6,7 @@ using PulseRPC.HealthCheck;
 using PulseRPC.LoadBalancing;
 using PulseRPC.Server;
 using PulseRPC.ServiceDiscovery;
+using PulseRPC.Infrastructure.Consul;
 
 namespace PulseRPC.Samples.ConsulExample;
 
