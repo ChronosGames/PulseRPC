@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Cluster.Registry;
+using PulseRPC.Infrastructure.Registry;
 using PulseRPC.LoadBalancing;
 
-namespace PulseRPC.Cluster.Routing;
+namespace PulseRPC.Infrastructure.Routing;
 
 /// <summary>
 /// 智能服务路由器实现

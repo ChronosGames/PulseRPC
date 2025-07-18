@@ -1,13 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PulseRPC.Cluster.Registry;
-using PulseRPC.Cluster.Routing;
+using PulseRPC.Infrastructure.Registry;
+using PulseRPC.Infrastructure.Routing;
 using PulseRPC.LoadBalancing;
 using PulseRPC.HealthCheck;
 using PulseRPC.ServiceDiscovery;
 using PulseServiceDiscovery.Client.LoadBalancing;
 
-namespace PulseRPC.Cluster.Extensions;
+namespace PulseRPC.Infrastructure;
 
 /// <summary>
 /// PulseRPC 集群功能依赖注入扩展

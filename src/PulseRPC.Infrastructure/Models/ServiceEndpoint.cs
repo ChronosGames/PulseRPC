@@ -1,6 +1,6 @@
 using PulseRPC.HealthCheck;
 
-namespace PulseRPC.Cluster;
+namespace PulseRPC;
 
 /// <summary>
 /// 服务端点 - 表示一个服务实例及其承载的传输通道

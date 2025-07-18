@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
-using PulseRPC.Cluster;
+using PulseRPC.Infrastructure;
 
 namespace PulseRPC.LoadBalancing;
 

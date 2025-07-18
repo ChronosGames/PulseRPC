@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using PulseRPC.LoadBalancing;
-using PulseRPC.Cluster;
+using PulseRPC;
 
 namespace PulseServiceDiscovery.Client.LoadBalancing;
 

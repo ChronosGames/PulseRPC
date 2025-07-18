@@ -1,21 +1,47 @@
 using Consul;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using PulseRPC.HealthCheck;
 using PulseRPC.ServiceRegistration;
-using PulseRPC.Infrastructure.Consul;
+using PulseRPC.ServiceDiscovery;
+using PulseRPC.Infrastructure;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Infrastructure.Consul;
 
-public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
+/// <summary>
+/// 基于Consul的服务发现实现
+/// </summary>
+public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisposable
 {
     private readonly IConsulClient _consulClient;
     private readonly ILogger<ConsulServiceDiscovery> _logger;
     private readonly ConsulOptions _options;
     private readonly Timer? _healthCheckTimer;
+    private readonly Timer? _watchTimer;
     private readonly string _instanceId;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
+    private readonly ConcurrentDictionary<string, ServiceEndpoint> _serviceCache = new();
+    private readonly ConcurrentDictionary<string, ulong> _watchIndices = new();
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _watchTokens = new();
+    private volatile bool _disposed = false;
+
+    /// <summary>
+    /// 服务注册事件
+    /// </summary>
+    public event Func<ServiceRegisteredEvent, Task>? ServiceRegistered;
+
+    /// <summary>
+    /// 服务注销事件
+    /// </summary>
+    public event Func<ServiceUnregisteredEvent, Task>? ServiceUnregistered;
+
+    /// <summary>
+    /// 服务健康状态变更事件
+    /// </summary>
+    public event Func<ServiceHealthChangedEvent, Task>? ServiceHealthChanged;
 
     public ConsulServiceDiscovery(
         IConsulClient consulClient,
@@ -25,7 +51,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
         _consulClient = consulClient ?? throw new ArgumentNullException(nameof(consulClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
-        _instanceId = Environment.MachineName + "-" + Environment.ProcessId;
+        _instanceId = $"{Environment.MachineName}-{Environment.ProcessId}-{Guid.NewGuid():N}";
 
         if (_options.HealthCheck.Enabled)
         {
@@ -33,19 +59,198 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
                 _options.HealthCheck.Interval, _options.HealthCheck.Interval);
         }
 
-        _logger.LogInformation("Consul service discovery initialized with endpoint: {Endpoint}",
-            _options.Endpoint);
+        // 启动服务监听
+        if (_options.DiscoveryOptions.EnableWatching)
+        {
+            _watchTimer = new Timer(StartWatching, null,
+                TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(30));
+        }
+
+        _logger.LogInformation("Consul service discovery initialized with endpoint: {Endpoint}", _options.Endpoint);
     }
 
-    public async Task<IReadOnlyList<ServiceEndpoint>> DiscoverServicesAsync(
-        string serviceName,
-        CancellationToken cancellationToken = default)
+    #region IServiceDiscovery Implementation
+
+    /// <summary>
+    /// 注册服务
+    /// </summary>
+    public async Task RegisterAsync(ServiceEndpoint endpoint, CancellationToken cancellationToken = default)
+    {
+        if (endpoint == null)
+            throw new ArgumentNullException(nameof(endpoint));
+
+        try
+        {
+            await _semaphore.WaitAsync(cancellationToken);
+
+            var registration = ConvertToConsulRegistration(endpoint);
+            await _consulClient.Agent.ServiceRegister(registration, cancellationToken);
+
+            // 更新缓存
+            _serviceCache[endpoint.ServiceId] = endpoint;
+
+            _logger.LogInformation("Registered service: {ServiceName} (ID: {ServiceId})", 
+                endpoint.ServiceType, endpoint.ServiceId);
+
+            // 触发事件
+            if (ServiceRegistered != null)
+            {
+                var @event = ServiceRegisteredEvent.CreateSuccess(endpoint, "ConsulServiceDiscovery");
+                await ServiceRegistered(@event);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to register service: {ServiceName} (ID: {ServiceId})", 
+                endpoint.ServiceType, endpoint.ServiceId);
+            throw;
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// 注销服务
+    /// </summary>
+    public async Task UnregisterAsync(string serviceId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceId))
+            throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
+
+        try
+        {
+            await _semaphore.WaitAsync(cancellationToken);
+
+            // 获取服务信息用于事件
+            var serviceInfo = _serviceCache.TryGetValue(serviceId, out var endpoint) ? endpoint : null;
+
+            await _consulClient.Agent.ServiceDeregister(serviceId, cancellationToken);
+
+            // 从缓存中移除
+            _serviceCache.TryRemove(serviceId, out _);
+
+            _logger.LogInformation("Unregistered service: {ServiceId}", serviceId);
+
+            // 触发事件
+            if (ServiceUnregistered != null && serviceInfo != null)
+            {
+                var @event = ServiceUnregisteredEvent.CreateSuccess(serviceInfo, UnregistrationReason.Manual, "ConsulServiceDiscovery");
+                await ServiceUnregistered(@event);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to unregister service: {ServiceId}", serviceId);
+            throw;
+        }
+        finally
+        {
+            _semaphore.Release();
+        }
+    }
+
+    /// <summary>
+    /// 更新服务健康状态
+    /// </summary>
+    public async Task UpdateHealthAsync(string serviceId, PulseRPC.HealthCheck.HealthStatus status, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceId))
+            throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
+
+        try
+        {
+            var checkId = $"service:{serviceId}";
+            var note = $"Health status updated to {status}";
+
+            switch (status)
+            {
+                case PulseRPC.HealthCheck.HealthStatus.Healthy:
+                    await _consulClient.Agent.PassTTL(checkId, note, cancellationToken);
+                    break;
+                case PulseRPC.HealthCheck.HealthStatus.Unhealthy:
+                    await _consulClient.Agent.FailTTL(checkId, note, cancellationToken);
+                    break;
+                case PulseRPC.HealthCheck.HealthStatus.Degraded:
+                    await _consulClient.Agent.WarnTTL(checkId, note, cancellationToken);
+                    break;
+            }
+
+            _logger.LogDebug("Updated health status for service: {ServiceId} to {Status}", serviceId, status);
+
+            // 触发健康状态变更事件
+            if (ServiceHealthChanged != null && _serviceCache.TryGetValue(serviceId, out var endpoint))
+            {
+                var previousHealth = endpoint.Health;
+                endpoint.Health = status;
+                
+                var @event = ServiceHealthChangedEvent.Create(
+                    endpoint,
+                    previousHealth,
+                    status,
+                    note,
+                    "ConsulServiceDiscovery");
+                await ServiceHealthChanged(@event);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update health status for service: {ServiceId}", serviceId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 获取已注册的服务列表
+    /// </summary>
+    public async Task<IReadOnlyList<ServiceEndpoint>> GetRegisteredServicesAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var healthyOnly = _options.DiscoveryOptions.HealthyOnly;
-            var response = await _consulClient.Health.Service(serviceName, string.Empty, healthyOnly, cancellationToken);
+            var response = await _consulClient.Agent.Services(cancellationToken);
+            var endpoints = new List<ServiceEndpoint>();
 
+            foreach (var service in response.Response.Values)
+            {
+                try
+                {
+                    var endpoint = ConvertToServiceEndpoint(service);
+                    if (endpoint != null)
+                    {
+                        endpoints.Add(endpoint);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to convert service: {ServiceId}", service.ID);
+                }
+            }
+
+            return endpoints.AsReadOnly();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get registered services");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 获取指定服务名称的所有服务
+    /// </summary>
+    public async Task<IReadOnlyList<ServiceEndpoint>> GetServicesAsync(string serviceName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceName))
+            throw new ArgumentException("Service name cannot be null or empty", nameof(serviceName));
+
+        try
+        {
+            var healthyOnly = _options.DiscoveryOptions.HealthyOnly;
+            var tags = _options.DiscoveryOptions.Tags;
+            var tag = tags?.FirstOrDefault() ?? string.Empty;
+
+            var response = await _consulClient.Health.Service(serviceName, tag, healthyOnly, cancellationToken);
             var endpoints = new List<ServiceEndpoint>();
 
             foreach (var service in response.Response)
@@ -60,12 +265,12 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to convert Consul service to endpoint: {ServiceId}",
+                    _logger.LogWarning(ex, "Failed to convert Consul service to endpoint: {ServiceId}", 
                         service.Service?.ID);
                 }
             }
 
-            _logger.LogDebug("Discovered {Count} endpoints for service: {ServiceName}",
+            _logger.LogDebug("Discovered {Count} endpoints for service: {ServiceName}", 
                 endpoints.Count, serviceName);
 
             return endpoints.AsReadOnly();
@@ -77,66 +282,21 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
         }
     }
 
-    public async Task RegisterAsync(ServiceRegistration.ServiceRegistration registration, CancellationToken cancellationToken = default)
-    {
-        if (registration == null)
-            throw new ArgumentNullException(nameof(registration));
-
-        try
-        {
-            await _semaphore.WaitAsync(cancellationToken);
-
-            var consulRegistration = ConvertToConsulRegistration(registration);
-            await _consulClient.Agent.ServiceRegister(consulRegistration, cancellationToken);
-
-            _logger.LogInformation("Registered service: {ServiceName} (ID: {ServiceId})",
-                registration.ServiceName, registration.Id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to register service: {ServiceName} (ID: {ServiceId})",
-                registration.ServiceName, registration.Id);
-            throw;
-        }
-        finally
-        {
-            _semaphore.Release();
-        }
-    }
-
-    public async Task UnregisterAsync(string serviceId, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// 获取指定服务ID的服务
+    /// </summary>
+    public async Task<ServiceEndpoint?> GetServiceAsync(string serviceId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(serviceId))
             throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
 
         try
         {
-            await _semaphore.WaitAsync(cancellationToken);
-
-            await _consulClient.Agent.ServiceDeregister(serviceId, cancellationToken);
-
-            _logger.LogInformation("Unregistered service: {ServiceId}", serviceId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to unregister service: {ServiceId}", serviceId);
-            throw;
-        }
-        finally
-        {
-            _semaphore.Release();
-        }
-    }
-
-    public async Task<ServiceRegistration.ServiceRegistration?> GetServiceAsync(string serviceId, CancellationToken cancellationToken = default)
-    {
-        try
-        {
             var response = await _consulClient.Agent.Services(cancellationToken);
 
             if (response.Response.TryGetValue(serviceId, out var service))
             {
-                return ConvertToServiceRegistration(service);
+                return ConvertToServiceEndpoint(service);
             }
 
             return null;
@@ -148,12 +308,136 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
         }
     }
 
-    public async Task<IReadOnlyList<ServiceRegistration.ServiceRegistration>> GetAllServicesAsync(CancellationToken cancellationToken = default)
+    /// <summary>
+    /// 检查服务是否存在
+    /// </summary>
+    public async Task<bool> ExistsAsync(string serviceId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceId))
+            throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
+
+        try
+        {
+            var response = await _consulClient.Agent.Services(cancellationToken);
+            return response.Response.ContainsKey(serviceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to check service existence: {ServiceId}", serviceId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 发送心跳
+    /// </summary>
+    public async Task HeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceId))
+            throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
+
+        try
+        {
+            await _consulClient.Agent.PassTTL($"service:{serviceId}", "Heartbeat", cancellationToken);
+            _logger.LogDebug("Heartbeat sent for service: {ServiceId}", serviceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send heartbeat for service: {ServiceId}", serviceId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 清理过期服务
+    /// </summary>
+    public async Task CleanupExpiredServicesAsync(CancellationToken cancellationToken = default)
     {
         try
         {
             var response = await _consulClient.Agent.Services(cancellationToken);
-            var registrations = new List<ServiceRegistration.ServiceRegistration>();
+            var expiredServices = new List<string>();
+
+            foreach (var service in response.Response.Values)
+            {
+                // 检查服务是否过期（这里可以根据实际需要实现过期逻辑）
+                if (IsServiceExpired(service))
+                {
+                    expiredServices.Add(service.ID);
+                }
+            }
+
+            foreach (var serviceId in expiredServices)
+            {
+                try
+                {
+                    await UnregisterAsync(serviceId, cancellationToken);
+                    _logger.LogInformation("Cleaned up expired service: {ServiceId}", serviceId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to cleanup expired service: {ServiceId}", serviceId);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to cleanup expired services");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 获取统计信息
+    /// </summary>
+    public async Task<Dictionary<string, object>> GetStatisticsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var stats = new Dictionary<string, object>();
+            var response = await _consulClient.Agent.Services(cancellationToken);
+
+            stats["TotalServices"] = response.Response.Count;
+            stats["CachedServices"] = _serviceCache.Count;
+            stats["WatchedServices"] = _watchIndices.Count;
+            stats["InstanceId"] = _instanceId;
+            stats["Endpoint"] = _options.Endpoint;
+            stats["HealthCheckEnabled"] = _options.HealthCheck.Enabled;
+            stats["LastUpdate"] = DateTime.UtcNow;
+
+            return stats;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get statistics");
+            throw;
+        }
+    }
+
+    #endregion
+
+    #region IServiceRegistry Implementation
+
+    /// <summary>
+    /// 注册服务
+    /// </summary>
+    public async Task RegisterAsync(PulseRPC.ServiceRegistration.ServiceRegistration registration, CancellationToken cancellationToken = default)
+    {
+        if (registration == null)
+            throw new ArgumentNullException(nameof(registration));
+
+        await RegisterAsync(registration.ToEndpoint(), cancellationToken);
+    }
+
+    /// <summary>
+    /// 获取所有注册的服务
+    /// </summary>
+    public async Task<IReadOnlyList<PulseRPC.ServiceRegistration.ServiceRegistration>> GetRegistrationsAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = await _consulClient.Agent.Services(cancellationToken);
+            var registrations = new List<PulseRPC.ServiceRegistration.ServiceRegistration>();
 
             foreach (var service in response.Response.Values)
             {
@@ -175,193 +459,239 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get all services");
+            _logger.LogError(ex, "Failed to get all registrations");
             throw;
         }
     }
 
-    public async Task UpdateHeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(serviceId))
-            throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
+    #endregion
 
+    #region Private Methods
+
+    private ServiceEndpoint? ConvertToServiceEndpoint(AgentService consulService)
+    {
         try
         {
-            await _consulClient.Agent.PassTTL($"service:{serviceId}", "Heartbeat", cancellationToken);
-            _logger.LogDebug("Updated heartbeat for service: {ServiceId}", serviceId);
+            var metadata = new Dictionary<string, object>();
+
+            if (consulService.Meta != null)
+            {
+                foreach (var meta in consulService.Meta)
+                {
+                    metadata[meta.Key] = meta.Value;
+                }
+            }
+
+            var endpoint = new ServiceEndpoint
+            {
+                ServiceId = consulService.ID,
+                ServiceType = consulService.Service,
+                Channel = new ChannelEndpoint
+                {
+                    ChannelId = $"{consulService.ID}_channel",
+                    ChannelName = $"{consulService.Service}_channel",
+                    Protocol = TransportProtocol.Tcp,
+                    Address = new NetworkAddress
+                    {
+                        Host = consulService.Address,
+                        Port = consulService.Port,
+                        UseTls = false
+                    }
+                },
+                Metadata = new ServiceMetadata(consulService.Meta?.ToDictionary(kv => kv.Key, kv => kv.Value))
+            };
+
+            return endpoint;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to update heartbeat for service: {ServiceId}", serviceId);
-            throw;
+            _logger.LogWarning(ex, "Failed to convert Consul service to ServiceEndpoint: {ServiceId}", 
+                consulService.ID);
+            return null;
         }
     }
 
     private ServiceEndpoint? ConvertToServiceEndpoint(ServiceEntry consulService)
     {
-        var service = consulService.Service;
-        if (service == null) return null;
-
-        var metadata = new Dictionary<string, string>();
-
-        if (service.Meta != null)
+        try
         {
-            foreach (var meta in service.Meta)
+            var service = consulService.Service;
+            if (service == null) return null;
+
+            var metadata = new Dictionary<string, object>();
+
+            if (service.Meta != null)
             {
-                metadata[meta.Key] = meta.Value;
+                foreach (var meta in service.Meta)
+                {
+                    metadata[meta.Key] = meta.Value;
+                }
             }
-        }
 
-        // 尝试从metadata中获取权重
-        var weight = 1;
-        if (metadata.TryGetValue("weight", out var weightStr) && int.TryParse(weightStr, out var parsedWeight))
-        {
-            weight = parsedWeight;
-        }
-
-        // 构建健康检查配置
-        HealthCheckConfig? healthCheck = null;
-        if (metadata.TryGetValue("healthcheck", out var healthCheckJson))
-        {
-            try
+            var endpoint = new ServiceEndpoint
             {
-                healthCheck = JsonSerializer.Deserialize<HealthCheckConfig>(healthCheckJson);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to deserialize health check config for service: {ServiceId}", service.ID);
-            }
-        }
+                ServiceId = service.ID,
+                ServiceType = service.Service,
+                Channel = new ChannelEndpoint
+                {
+                    ChannelId = $"{service.ID}_channel",
+                    ChannelName = $"{service.Service}_channel",
+                    Protocol = TransportProtocol.Tcp,
+                    Address = new NetworkAddress
+                    {
+                        Host = service.Address,
+                        Port = service.Port,
+                        UseTls = false
+                    }
+                },
+                Metadata = new ServiceMetadata(service.Meta?.ToDictionary(kv => kv.Key, kv => kv.Value))
+            };
 
-        return new ServiceEndpoint
+            return endpoint;
+        }
+        catch (Exception ex)
         {
-            Id = service.ID,
-            Host = service.Address,
-            Port = service.Port,
-            Weight = weight,
-            Metadata = new ServiceMetadata(metadata),
-            HealthCheck = healthCheck
-        };
+            _logger.LogWarning(ex, "Failed to convert Consul service entry to ServiceEndpoint: {ServiceId}", 
+                consulService.Service?.ID);
+            return null;
+        }
     }
 
-    private ServiceRegistration.ServiceRegistration? ConvertToServiceRegistration(AgentService consulService)
+    private PulseRPC.ServiceRegistration.ServiceRegistration? ConvertToServiceRegistration(AgentService consulService)
+    {
+        try
+        {
+            var metadata = new Dictionary<string, string>();
+            if (consulService.Meta != null)
+            {
+                foreach (var meta in consulService.Meta)
+                {
+                    metadata[meta.Key] = meta.Value;
+                }
+            }
+
+            return new PulseRPC.ServiceRegistration.ServiceRegistration
+            {
+                Id = consulService.ID,
+                ServiceType = consulService.Service,
+                Host = consulService.Address,
+                Port = consulService.Port,
+                Tags = consulService.Tags?.ToList() ?? new List<string>(),
+                Metadata = new ServiceMetadata(metadata),
+                RegisteredAt = DateTime.UtcNow,
+                LastHeartbeat = DateTime.UtcNow
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to convert to ServiceRegistration: {ServiceId}", consulService.ID);
+            return null;
+        }
+    }
+
+    private AgentServiceRegistration ConvertToConsulRegistration(ServiceEndpoint endpoint)
     {
         var metadata = new Dictionary<string, string>();
 
-        if (consulService.Meta != null)
+        if (endpoint.Metadata.Properties != null)
         {
-            foreach (var meta in consulService.Meta)
+            foreach (var meta in endpoint.Metadata.Properties)
             {
-                metadata[meta.Key] = meta.Value;
+                metadata[meta.Key] = meta.Value?.ToString() ?? string.Empty;
             }
-        }
-
-        var endpoint = new ServiceEndpoint
-        {
-            Id = consulService.ID,
-            Host = consulService.Address,
-            Port = consulService.Port,
-            Weight = 1,
-            Metadata = new ServiceMetadata(metadata)
-        };
-
-        return new ServiceRegistration.ServiceRegistration
-        {
-            Id = consulService.ID,
-            ServiceName = consulService.Service,
-            Endpoint = endpoint,
-            RegisteredAt = DateTime.UtcNow,
-            LastHeartbeat = DateTime.UtcNow
-        };
-    }
-
-    private AgentServiceRegistration ConvertToConsulRegistration(ServiceRegistration.ServiceRegistration registration)
-    {
-        var metadata = new Dictionary<string, string>();
-
-        if (registration.Endpoint.Metadata.Properties != null)
-        {
-            foreach (var prop in registration.Endpoint.Metadata.Properties)
-            {
-                metadata[prop.Key] = prop.Value?.ToString() ?? string.Empty;
-            }
-        }
-
-        // 添加权重到metadata
-        metadata["weight"] = registration.Endpoint.Weight.ToString();
-
-        // 添加健康检查配置到metadata
-        if (registration.Endpoint.HealthCheck != null)
-        {
-            metadata["healthcheck"] = JsonSerializer.Serialize(registration.Endpoint.HealthCheck);
         }
 
         var consulRegistration = new AgentServiceRegistration
         {
-            ID = registration.Id,
-            Name = registration.ServiceName,
-            Address = registration.Endpoint.Host,
-            Port = registration.Endpoint.Port,
+            ID = endpoint.ServiceId,
+            Name = endpoint.ServiceType,
+            Address = endpoint.Channel.Address.Host,
+            Port = endpoint.Channel.Address.Port,
             Meta = metadata,
-            Tags = new[] { $"version:{metadata.GetValueOrDefault("version", "1.0.0")}" }
+            Tags = endpoint.Metadata.Tags?.Keys.ToArray() ?? Array.Empty<string>()
         };
 
         // 配置健康检查
-        if (registration.Endpoint.HealthCheck != null)
+        if (_options.HealthCheck.Enabled)
         {
-            var healthCheck = registration.Endpoint.HealthCheck;
-
-            if (healthCheck.Type == "HTTP" && !string.IsNullOrWhiteSpace(healthCheck.Path))
+            consulRegistration.Check = new AgentServiceCheck
             {
-                consulRegistration.Check = new AgentServiceCheck
-                {
-                    HTTP = $"http://{registration.Endpoint.Host}:{registration.Endpoint.Port}{healthCheck.Path}",
-                    Interval = healthCheck.Interval,
-                    Timeout = healthCheck.Timeout,
-                    DeregisterCriticalServiceAfter = _options.HealthCheck.DeregisterAfter
-                };
-            }
-            else if (healthCheck.Type == "TCP")
-            {
-                consulRegistration.Check = new AgentServiceCheck
-                {
-                    TCP = $"{registration.Endpoint.Host}:{registration.Endpoint.Port}",
-                    Interval = healthCheck.Interval,
-                    Timeout = healthCheck.Timeout,
-                    DeregisterCriticalServiceAfter = _options.HealthCheck.DeregisterAfter
-                };
-            }
-            else if (healthCheck.Type == "TTL")
-            {
-                consulRegistration.Check = new AgentServiceCheck
-                {
-                    TTL = healthCheck.Interval,
-                    DeregisterCriticalServiceAfter = _options.HealthCheck.DeregisterAfter
-                };
-            }
+                TTL = _options.HealthCheck.Interval,
+                DeregisterCriticalServiceAfter = _options.HealthCheck.DeregisterAfter,
+                Status = global::Consul.HealthStatus.Passing
+            };
         }
 
         return consulRegistration;
     }
 
+    private bool IsServiceExpired(AgentService service)
+    {
+        // 实现服务过期检查逻辑
+        // 这里可以根据实际需要实现，比如检查最后心跳时间等
+        return false;
+    }
+
     private async void PerformHealthCheck(object? state)
     {
+        if (_disposed) return;
+
         try
         {
-            // 这里可以实现自定义的健康检查逻辑
-            // 例如检查数据库连接、外部服务等
-            _logger.LogDebug("Performing health check");
+            // 执行健康检查逻辑
+            _logger.LogDebug("Performing health check for instance: {InstanceId}", _instanceId);
+            
+            // 这里可以添加自定义的健康检查逻辑
+            // 比如检查数据库连接、外部服务等
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Health check failed");
+            _logger.LogError(ex, "Health check failed for instance: {InstanceId}", _instanceId);
         }
     }
 
+    private async void StartWatching(object? state)
+    {
+        if (_disposed) return;
+
+        try
+        {
+            // 实现服务监听逻辑
+            _logger.LogDebug("Starting service watching");
+            
+            // 这里可以实现Consul的blocking queries来监听服务变化
+            // 由于复杂性，这里提供一个简化的实现框架
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to start service watching");
+        }
+    }
+
+    #endregion
+
+    #region IDisposable
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         _healthCheckTimer?.Dispose();
+        _watchTimer?.Dispose();
         _semaphore?.Dispose();
+
+        // 取消所有监听
+        foreach (var token in _watchTokens.Values)
+        {
+            token.Cancel();
+            token.Dispose();
+        }
+        _watchTokens.Clear();
+
         _consulClient?.Dispose();
+        GC.SuppressFinalize(this);
     }
+
+    #endregion
 }
