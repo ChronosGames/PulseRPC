@@ -10,7 +10,7 @@ public class Span : ISpan
     private readonly Tracer _tracer;
     private readonly ConcurrentDictionary<string, object> _tags = new();
     private readonly List<SpanLog> _logs = new();
-    private readonly Lock _lock = new();
+    private readonly object _lock = new();
     private bool _disposed;
 
     public Span(Tracer tracer, ISpanContext context, string operationName, DateTimeOffset startTime, IDictionary<string, object>? initialTags = null)

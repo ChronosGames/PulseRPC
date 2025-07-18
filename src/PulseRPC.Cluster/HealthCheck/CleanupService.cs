@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 using PulseRPC.ServiceRegistration;
 
 namespace PulseRPC.HealthCheck;
@@ -9,21 +9,15 @@ namespace PulseRPC.HealthCheck;
 /// <summary>
 /// 清理服务 - 定期清理过期的服务注册
 /// </summary>
-public class CleanupService : BackgroundService
+public class CleanupService(
+    IServiceRegistry serviceRegistry,
+    ILogger<CleanupService> logger,
+    IOptions<CleanupOptions> options)
+    : BackgroundService
 {
-    private readonly IServiceRegistry _serviceRegistry;
-    private readonly ILogger<CleanupService> _logger;
-    private readonly CleanupOptions _options;
-
-    public CleanupService(
-        IServiceRegistry serviceRegistry,
-        ILogger<CleanupService> logger,
-        IOptions<CleanupOptions> options)
-    {
-        _serviceRegistry = serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _options = options.Value ?? throw new ArgumentNullException(nameof(options));
-    }
+    private readonly IServiceRegistry _serviceRegistry = serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
+    private readonly ILogger<CleanupService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly CleanupOptions _options = options.Value ?? throw new ArgumentNullException(nameof(options));
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -102,7 +96,7 @@ public class CleanupService : BackgroundService
                 {
                     await _serviceRegistry.UnregisterAsync(service.Id, cancellationToken);
                     _logger.LogDebug("Cleaned up expired service: {ServiceName} (ID: {ServiceId})",
-                        service.ServiceName, service.Id);
+                        service.ServiceType, service.Id);
                 }
                 catch (Exception ex)
                 {

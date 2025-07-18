@@ -90,9 +90,9 @@ public class PulseMetrics
     /// 获取性能指标
     /// </summary>
     /// <returns>性能指标快照</returns>
-    public static MetricsSnapshot2 GetSnapshot()
+    public static PerformanceSnapshot GetSnapshot()
     {
-        return new MetricsSnapshot2
+        return new PerformanceSnapshot
         {
             ActiveRequests = _activeRequests.Count,
             TotalConnections = GetCounterValue(_totalConnections),

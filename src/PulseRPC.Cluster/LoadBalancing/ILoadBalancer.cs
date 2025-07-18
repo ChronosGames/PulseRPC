@@ -1,4 +1,4 @@
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.LoadBalancing;
 
@@ -65,41 +65,6 @@ public enum LoadBalancingStrategy
     /// 最少连接数
     /// </summary>
     LeastConnections,
-
-    /// <summary>
-    /// 一致性哈希
-    /// </summary>
-    ConsistentHash,
-
-    /// <summary>
-    /// 最快响应
-    /// </summary>
-    FastestResponse,
-
-    /// <summary>
-    /// 故障转移
-    /// </summary>
-    Failover,
-
-    /// <summary>
-    /// 加权最少连接
-    /// </summary>
-    WeightedLeastConnections,
-
-    /// <summary>
-    /// 加权随机
-    /// </summary>
-    WeightedRandom,
-
-    /// <summary>
-    /// 粘性会话策略
-    /// </summary>
-    StickySession,
-
-    /// <summary>
-    /// 自定义
-    /// </summary>
-    Custom,
 }
 
 /// <summary>

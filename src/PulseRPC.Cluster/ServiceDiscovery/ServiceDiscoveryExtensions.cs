@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.ServiceDiscovery;
 

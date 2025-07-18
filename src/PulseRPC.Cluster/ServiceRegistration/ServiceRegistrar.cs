@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 using System.Collections.Concurrent;
 using PulseRPC.HealthCheck;
 
@@ -44,10 +44,10 @@ public class ServiceRegistrar(
             // 创建服务端点
             var endpoint = new ServiceEndpoint
             {
-                Id = serviceInfo.ServiceId,
-                ServiceName = serviceInfo.ServiceName,
-                Host = serviceInfo.Host,
-                Port = serviceInfo.Port,
+                ServiceId = serviceInfo.ServiceId,
+                ServiceType = serviceInfo.ServiceName,
+                InstanceName = serviceInfo.InstanceName,
+                Channel = serviceInfo.Channel,
                 Health = HealthStatus.Unknown,
                 Metadata = serviceInfo.Metadata ?? new ServiceMetadata()
             };
@@ -67,8 +67,8 @@ public class ServiceRegistrar(
 
             _registeredServices.AddOrUpdate(serviceInfo.ServiceId, registeredInfo, (_, _) => registeredInfo);
 
-            logger.LogInformation("服务注册成功: {ServiceName}({ServiceId}) @ {Host}:{Port}",
-                serviceInfo.ServiceName, serviceInfo.ServiceId, endpoint.Host, endpoint.Port);
+            logger.LogInformation("服务注册成功: {ServiceName}({ServiceId}) @ {Address}",
+                serviceInfo.ServiceName, serviceInfo.ServiceId, serviceInfo.GetAddress());
 
             return true;
         }
@@ -278,7 +278,7 @@ public class ServiceRegistrar(
 
             foreach (var (serviceId, result) in healthResults)
             {
-                var service = services.FirstOrDefault(s => s.ServiceEndpoint.Id == serviceId);
+                var service = services.FirstOrDefault(s => s.ServiceEndpoint.ServiceId == serviceId);
                 if (service == null)
                 {
                     continue;
@@ -449,29 +449,69 @@ public class ServiceInfo
     public string ServiceId { get; set; } = string.Empty;
 
     /// <summary>
-    /// 服务名称
+    /// 服务名称（服务类型）
     /// </summary>
     public string ServiceName { get; set; } = string.Empty;
 
     /// <summary>
-    /// 主机地址
+    /// 服务实例名称（用于多实例场景）
     /// </summary>
-    public string Host { get; set; } = "localhost";
+    public string? InstanceName { get; set; }
 
     /// <summary>
-    /// 端口
+    /// 承载此服务的通道端点
     /// </summary>
-    public int Port { get; set; }
+    public required ChannelEndpoint Channel { get; set; }
 
     /// <summary>
-    /// 标签
-    /// </summary>
-    public Dictionary<string, string>? Tags { get; set; }
-
-    /// <summary>
-    /// 元数据
+    /// 服务元数据
     /// </summary>
     public ServiceMetadata? Metadata { get; set; }
+
+    /// <summary>
+    /// 创建服务信息的便捷方法
+    /// </summary>
+    /// <param name="serviceId">服务ID</param>
+    /// <param name="serviceName">服务名称</param>
+    /// <param name="host">主机地址</param>
+    /// <param name="port">端口</param>
+    /// <param name="protocol">传输协议</param>
+    /// <param name="instanceName">实例名称</param>
+    /// <param name="metadata">元数据</param>
+    public static ServiceInfo Create(
+        string serviceId,
+        string serviceName,
+        string host,
+        int port,
+        TransportProtocol protocol = TransportProtocol.Tcp,
+        string? instanceName = null,
+        ServiceMetadata? metadata = null)
+    {
+        return new ServiceInfo
+        {
+            ServiceId = serviceId,
+            ServiceName = serviceName,
+            InstanceName = instanceName,
+            Channel = new ChannelEndpoint
+            {
+                ChannelId = $"{serviceId}_channel",
+                ChannelName = $"{serviceName}_channel",
+                Protocol = protocol,
+                Address = new NetworkAddress
+                {
+                    Host = host,
+                    Port = port,
+                    UseTls = false
+                }
+            },
+            Metadata = metadata
+        };
+    }
+
+    /// <summary>
+    /// 获取服务的网络地址
+    /// </summary>
+    public string GetAddress() => Channel.Address.ToString();
 }
 
 /// <summary>

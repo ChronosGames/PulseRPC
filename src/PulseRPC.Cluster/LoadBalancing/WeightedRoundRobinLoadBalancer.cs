@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.LoadBalancing;
 
@@ -41,14 +41,14 @@ public class WeightedRoundRobinLoadBalancer : ILoadBalancer
         var selectedEndpoint = SelectUsingWeightedRoundRobin(endpoints);
 
         _logger.LogDebug("Selected weighted endpoint: {Endpoint} (Weight: {Weight})",
-            selectedEndpoint, selectedEndpoint?.Weight);
+            selectedEndpoint, selectedEndpoint?.Channel.Weight);
 
         return Task.FromResult(selectedEndpoint);
     }
 
     private ServiceEndpoint? SelectUsingWeightedRoundRobin(IReadOnlyList<ServiceEndpoint> endpoints)
     {
-        var totalWeight = endpoints.Sum(e => e.Weight);
+        var totalWeight = endpoints.Sum(e => e.Channel.Weight);
         if (totalWeight <= 0)
         {
             // 如果所有权重都是0或负数，回退到简单轮询
@@ -59,9 +59,9 @@ public class WeightedRoundRobinLoadBalancer : ILoadBalancer
         // 更新所有端点的当前权重
         foreach (var endpoint in endpoints)
         {
-            var state = _endpointStates.AddOrUpdate(endpoint.Id,
-                new WeightedEndpointState(endpoint.Weight),
-                (_, existing) => existing.UpdateWeight(endpoint.Weight));
+            var state = _endpointStates.AddOrUpdate(endpoint.ServiceId,
+                new WeightedEndpointState(endpoint.Channel.Weight),
+                (_, existing) => existing.UpdateWeight(endpoint.Channel.Weight));
 
             // 增加当前权重
             state.AddCurrentWeight();
@@ -74,7 +74,7 @@ public class WeightedRoundRobinLoadBalancer : ILoadBalancer
 
         foreach (var endpoint in endpoints)
         {
-            if (_endpointStates.TryGetValue(endpoint.Id, out var state))
+            if (_endpointStates.TryGetValue(endpoint.ServiceId, out var state))
             {
                 if (state.CurrentWeight > maxCurrentWeight)
                 {
@@ -110,7 +110,7 @@ public class WeightedRoundRobinLoadBalancer : ILoadBalancer
     {
         if (endpoint == null) return;
 
-        var stats = _statistics.AddOrUpdate(endpoint.Id,
+        var stats = _statistics.AddOrUpdate(endpoint.ServiceId,
             new EndpointStatistics(),
             (_, existing) => existing.UpdateWith(result, responseTime));
 

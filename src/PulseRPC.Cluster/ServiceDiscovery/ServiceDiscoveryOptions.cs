@@ -1,4 +1,4 @@
-﻿namespace PulseRPC.ServiceDiscovery;
+﻿namespace PulseRPC.Cluster;
 
 /// <summary>
 /// 服务发现配置选项

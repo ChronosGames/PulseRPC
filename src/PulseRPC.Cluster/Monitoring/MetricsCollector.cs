@@ -5,9 +5,9 @@ using PulseRPC.Monitoring.Metrics;
 namespace PulseRPC.Monitoring;
 
 /// <summary>
-/// 用于收集和存储指标数据的收集器
+/// 用于收集和存储指标数据的收集器（基于 System.Diagnostics.Metrics）
 /// </summary>
-public class MetricsCollector2 : IDisposable
+public class DiagnosticsMetricsCollector : IDisposable
 {
     private readonly MeterListener _listener;
     private readonly ConcurrentDictionary<string, long> _counterValues = new();
@@ -16,7 +16,7 @@ public class MetricsCollector2 : IDisposable
     /// <summary>
     /// 创建并开始收集指标
     /// </summary>
-    public MetricsCollector2()
+    public DiagnosticsMetricsCollector()
     {
         _listener = new MeterListener();
 
@@ -103,9 +103,9 @@ public class MetricsCollector2 : IDisposable
     /// <summary>
     /// 获取完整的指标快照
     /// </summary>
-    public MetricsSnapshot2 GetCompleteSnapshot()
+    public PerformanceSnapshot GetCompleteSnapshot()
     {
-        return new MetricsSnapshot2
+        return new PerformanceSnapshot
         {
             ActiveRequests = (int)GetCounterValue("pulserpc.server.active_requests"),
             TotalConnections = GetCounterValue("pulserpc.server.connections.total"),

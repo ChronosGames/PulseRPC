@@ -9,7 +9,7 @@ namespace PulseRPC.Monitoring.Metrics;
 public class Counter(string name, string? description, IDictionary<string, string> tags)
     : ICounter
 {
-    private readonly Lock _lock = new();
+    private readonly object _lock = new();
     private double _value;
 
     public double Value => _value;
@@ -52,7 +52,7 @@ public class Counter(string name, string? description, IDictionary<string, strin
 public class Gauge(string name, string? description, IDictionary<string, string> tags)
     : IGauge
 {
-    private readonly Lock _lock = new();
+    private readonly object _lock = new();
     private double _value;
 
     public double Value => _value;
@@ -114,7 +114,7 @@ public class Histogram : IHistogram
     private readonly ConcurrentDictionary<double, long> _bucketCounts = new();
     private long _count;
     private double _sum;
-    private readonly Lock _lock = new();
+    private readonly object _lock = new();
 
     private static readonly double[] DefaultBuckets =
     [

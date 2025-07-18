@@ -9,7 +9,7 @@ public class EndpointStatistics
     private long _successCount;
     private long _failureCount;
     private long _totalResponseTimeMs;
-    private readonly Lock _lock = new();
+    private readonly object _lock = new();
 
     public long RequestCount => _requestCount;
     public long SuccessCount => _successCount;

@@ -1,5 +1,5 @@
 ﻿using PulseRPC.HealthCheck;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.ServiceRegistration;
 

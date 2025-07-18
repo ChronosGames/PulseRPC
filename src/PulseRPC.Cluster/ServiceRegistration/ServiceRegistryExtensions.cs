@@ -3,7 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -75,15 +75,15 @@ public static class ServiceRegistryExtensions
             var serviceId = GenerateServiceId(serviceName, port, options.IdGenerationStrategy, options.ServiceIdPrefix);
 
             // 自动添加服务信息
-            var serviceInfo = new ServiceInfo
-            {
-                ServiceId = serviceId,
-                ServiceName = serviceName,
-                Host = GetLocalIPAddress(),
-                Port = port,
-                Tags = new Dictionary<string, string>(options.DefaultTags),
-                Metadata = new ServiceMetadata(options.DefaultMetadata)
-            };
+            var serviceInfo = ServiceInfo.Create(
+                serviceId,
+                serviceName,
+                GetLocalIPAddress(),
+                port,
+                TransportProtocol.Tcp,
+                null,
+                new ServiceMetadata(options.DefaultMetadata)
+            );
 
             options.AutoRegisterServices.Add(serviceInfo);
 

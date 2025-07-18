@@ -1,7 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 using PulseRPC.LoadBalancing;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseServiceDiscovery.Client.LoadBalancing;
 
@@ -57,7 +57,7 @@ public class RoundRobinLoadBalancer : ILoadBalancer
     {
         if (endpoint == null) return;
 
-        var stats = _statistics.AddOrUpdate(endpoint.Id,
+        var stats = _statistics.AddOrUpdate(endpoint.ServiceId,
             new EndpointStatistics(),
             (_, existing) => existing.UpdateWith(result, responseTime));
 
@@ -87,7 +87,7 @@ public class RoundRobinLoadBalancer : ILoadBalancer
     private static string GetCounterKey(IReadOnlyList<ServiceEndpoint> endpoints)
     {
         // 使用端点ID的组合作为键，确保相同的端点集合使用相同的计数器
-        var sortedIds = endpoints.Select(e => e.Id).OrderBy(id => id);
+        var sortedIds = endpoints.Select(e => e.ServiceId).OrderBy(id => id);
         return string.Join(",", sortedIds);
     }
 }

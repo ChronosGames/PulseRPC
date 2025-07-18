@@ -3,7 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.HealthCheck;
 
@@ -66,7 +66,7 @@ public class HealthCheckerService : BackgroundService
             // 清理健康状态缓存
             foreach (var endpoint in endpoints)
             {
-                _lastHealthStates.TryRemove(endpoint.Id, out _);
+                _lastHealthStates.TryRemove(endpoint.ServiceId, out _);
             }
 
             _logger.LogInformation("Unregistered health checking for service: {ServiceName}", serviceName);
@@ -219,7 +219,7 @@ public class HealthCheckerService : BackgroundService
             // 如果状态发生变化，触发事件
             if (oldStatus != newStatus)
             {
-                var healthChangedEvent = new ServiceHealthChangedEvent(endpoint, oldStatus, newStatus);
+                var healthChangedEvent = ServiceHealthChangedEvent.Create(endpoint, oldStatus, newStatus);
                 healthChangedEvents.Add(healthChangedEvent);
 
                 _logger.LogInformation("Health status changed for endpoint {Endpoint}: {OldStatus} -> {NewStatus}",
