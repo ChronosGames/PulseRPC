@@ -19,6 +19,9 @@ on:
 
 jobs:
   update-packagejson:
+    permissions:
+      actions: read   # 为了调用可复用工作流
+      contents: write  # 为了允许推送更改到仓库
     uses: ChronosGames/Actions/.github/workflows/update-packagejson.yaml@main
     with:
       file-path: |
