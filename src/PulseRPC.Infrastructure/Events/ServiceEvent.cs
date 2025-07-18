@@ -1,4 +1,4 @@
-namespace PulseRPC.Cluster;
+namespace PulseRPC.Infrastructure;
 
 /// <summary>
 /// 服务事件基类

@@ -3,7 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using PulseRPC.Cluster;
+using PulseRPC.Infrastructure;
 
 namespace PulseRPC.ServiceRegistration;
 

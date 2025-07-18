@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PulseRPC.Cluster;
+using PulseRPC.Infrastructure;
 using System.Collections.Concurrent;
 using PulseRPC.HealthCheck;
 

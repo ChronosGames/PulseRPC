@@ -6,7 +6,9 @@ using PulseRPC.HealthCheck;
 using PulseRPC.LoadBalancing;
 using PulseRPC.Server;
 using PulseRPC.ServiceDiscovery;
+using PulseRPC.Infrastructure;
 using PulseRPC.Infrastructure.Consul;
+using PulseRPC.ServiceRegistration;
 
 namespace PulseRPC.Samples.ConsulExample;
 
@@ -60,8 +62,18 @@ public class Program
             builder.SetMinimumLevel(LogLevel.Information);
         });
 
-        // 2. 配置 Consul 服务发现
-        services.AddServiceDiscovery(options =>
+        // 2. 添加PulseRPC基础设施支持
+        services.AddPulseRpcCluster(options =>
+        {
+            // options.ClusterName = "PulseRPCCluster";
+            // options.ClusterId = "cluster-001";
+            // options.EnableServiceExpiration = true;
+            // options.ServiceExpiration = TimeSpan.FromMinutes(5);
+            // options.CleanupInterval = TimeSpan.FromMinutes(1);
+        });
+
+        // 3. 配置 Consul 服务发现
+        services.AddConsulServiceDiscovery(options =>
         {
             // options.Address = "http://localhost:8500";
             // options.Datacenter = "dc1";
@@ -74,15 +86,7 @@ public class Program
         // 3. 配置故障转移负载均衡
         services.AddLoadBalancing(options =>
         {
-            options.Strategy = LoadBalancingStrategy.Failover;
-        });
-
-        // 4. 配置健康检查
-        services.AddHealthCheck(options =>
-        {
-            options.Timeout = TimeSpan.FromSeconds(3);
-            options.RetryCount = 1;
-            options.EnableConcurrentChecks = true;
+            options.Strategy = LoadBalancingStrategy.RoundRobin;
         });
 
         // 5. 配置PulseRPC客户端
@@ -171,14 +175,15 @@ public class Program
     {
         logger.LogInformation("📝 === 服务注册示例 ===");
 
-        var serviceRegistry = services.GetRequiredService<PulseRPC.ServiceDiscovery.IServiceRegistry>();
+        var serviceRegistry = services.GetRequiredService<IServiceRegistry>();
 
         // 创建服务端点
-        var weatherEndpoint = new PulseRPC.ServiceDiscovery.ServiceEndpoint
+        var weatherEndpoint = new ServiceEndpoint
         {
             ServiceId = "weather-service-001",
-            ServiceName = "WeatherService",
-            EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse("127.0.0.1"), 8080),
+            ServiceType = "WeatherService",
+            EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse("127.0.0.1"),
+                8080),
             Tags = new Dictionary<string, string>
             {
                 ["version"] = "2.0.0",
@@ -188,7 +193,8 @@ public class Program
             {
                 ["health_check_url"] = "http://127.0.0.1:8080/health",
                 ["max_connections"] = 1000
-            }
+            },
+            Channel = null
         };
 
         // 注册服务
@@ -221,7 +227,7 @@ public class Program
     {
         logger.LogInformation("🔍 === 服务发现示例 ===");
 
-        var serviceDiscovery = services.GetRequiredService<PulseRPC.ServiceDiscovery.IServiceDiscovery>();
+        var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
 
         // 发现天气服务
         var weatherServices = await serviceDiscovery.DiscoverAsync("WeatherService");
@@ -251,8 +257,8 @@ public class Program
     {
         logger.LogInformation("🏥 === 健康检查示例 ===");
 
-        var healthChecker = services.GetRequiredService<PulseRPC.ServiceDiscovery.IHealthChecker>();
-        var serviceDiscovery = services.GetRequiredService<PulseRPC.ServiceDiscovery.IServiceDiscovery>();
+        var healthChecker = services.GetRequiredService<IHealthChecker>();
+        var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
 
         // 获取服务端点
         var services_list = await serviceDiscovery.DiscoverAsync("WeatherService");
@@ -290,8 +296,8 @@ public class Program
     {
         logger.LogInformation("🔄 === 故障转移示例 ===");
 
-        var serviceDiscovery = services.GetRequiredService<PulseRPC.ServiceDiscovery.IServiceDiscovery>();
-        var loadBalancerFactory = services.GetRequiredService<PulseRPC.LoadBalancing.Extensions.ILoadBalancerFactory>();
+        var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
+        var loadBalancerFactory = services.GetRequiredService<ILoadBalancerFactory>();
 
         // 获取服务端点
         var endpoints = await serviceDiscovery.DiscoverAsync("WeatherService");

@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
-using PulseRPC.Cluster;
+using PulseRPC.Infrastructure;
 using PulseRPC.HealthCheck;
 
 namespace PulseRPC.ServiceDiscovery;

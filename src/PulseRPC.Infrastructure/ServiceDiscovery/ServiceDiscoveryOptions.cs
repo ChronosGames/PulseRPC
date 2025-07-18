@@ -1,4 +1,4 @@
-﻿namespace PulseRPC.Cluster;
+﻿namespace PulseRPC.Infrastructure;
 
 /// <summary>
 /// 服务发现配置选项

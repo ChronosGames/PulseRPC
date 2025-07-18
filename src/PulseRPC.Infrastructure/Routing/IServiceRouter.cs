@@ -1,4 +1,4 @@
-namespace PulseRPC.Cluster.Routing;
+namespace PulseRPC.Infrastructure.Routing;
 
 /// <summary>
 /// 服务路由器 - 结合服务发现和负载均衡

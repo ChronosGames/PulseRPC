@@ -1,6 +1,6 @@
 using PulseRPC.Transport;
 
-namespace PulseRPC.Cluster;
+namespace PulseRPC;
 
 /// <summary>
 /// 通道端点 - 表示一个传输通道及其网络地址

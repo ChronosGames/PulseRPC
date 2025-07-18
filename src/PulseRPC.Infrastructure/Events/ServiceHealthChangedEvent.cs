@@ -1,6 +1,6 @@
 using PulseRPC.HealthCheck;
 
-namespace PulseRPC.Cluster;
+namespace PulseRPC.Infrastructure;
 
 /// <summary>
 /// 服务健康状态变化事件

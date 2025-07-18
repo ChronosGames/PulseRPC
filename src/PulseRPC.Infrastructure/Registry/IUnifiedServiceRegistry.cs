@@ -1,7 +1,7 @@
 using PulseRPC.HealthCheck;
 using PulseRPC.LoadBalancing;
 
-namespace PulseRPC.Cluster.Registry;
+namespace PulseRPC.Infrastructure.Registry;
 
 /// <summary>
 /// 统一的服务注册与发现接口
