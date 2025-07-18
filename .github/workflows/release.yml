@@ -1,5 +1,10 @@
 name: Release
 
+# ADD PERMISSIONS HERE (WORKFLOW-LEVEL):
+permissions:
+  actions: read
+  contents: read
+
 on:
   workflow_dispatch:
     inputs:
