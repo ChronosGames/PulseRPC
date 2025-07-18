@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using PulseRPC.Monitoring.Metrics;
 using PulseRPC.Monitoring.Performance;
+using PulseRPC.Cluster;
 using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC;

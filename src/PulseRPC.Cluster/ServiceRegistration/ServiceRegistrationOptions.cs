@@ -1,4 +1,4 @@
-﻿using PulseRPC.ServiceDiscovery;
+﻿using PulseRPC.Cluster;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -200,7 +200,7 @@ public class ServiceRegistrationOptions
     /// </summary>
     public bool AutoUnregisterOnShutdown { get; set; } = true;
 
-    public ServiceDiscoveryOptions.CleanupOptions CleanupOptions { get; set; } = new ServiceDiscoveryOptions.CleanupOptions();
+    public CleanupOptions CleanupOptions { get; set; } = new();
 
     public TimeSpan ServiceExpiration { get; set; }
 

@@ -128,12 +128,12 @@ public class ServerHealthCheckService(
             await ProcessHealthStateChange(service, state, serviceRegistry, cancellationToken);
 
             _logger.LogDebug("Health check for service {ServiceName} ({ServiceId}): {Status}",
-                service.ServiceName, service.Id, currentHealth);
+                service.ServiceType, service.Id, currentHealth);
 
             return new HealthCheckResult
             {
                 ServiceId = service.Id,
-                ServiceName = service.ServiceName,
+                ServiceName = service.ServiceType,
                 Status = currentHealth.Status,
                 IsHealthy = currentHealth.Status == HealthStatus.Healthy,
                 ConsecutiveFailures = state.ConsecutiveFailures,
@@ -143,12 +143,12 @@ public class ServerHealthCheckService(
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error checking health for service {ServiceName} ({ServiceId})",
-                service.ServiceName, service.Id);
+                service.ServiceType, service.Id);
 
             return new HealthCheckResult
             {
                 ServiceId = service.Id,
-                ServiceName = service.ServiceName,
+                ServiceName = service.ServiceType,
                 Status = HealthStatus.Unhealthy,
                 IsHealthy = false,
                 Error = ex.Message
@@ -166,7 +166,7 @@ public class ServerHealthCheckService(
             state.ConsecutiveFailures >= _options.FailureThreshold)
         {
             _logger.LogWarning("Service {ServiceName} ({ServiceId}) has failed {Failures} consecutive health checks, removing from registry",
-                service.ServiceName, service.Id, state.ConsecutiveFailures);
+                service.ServiceType, service.Id, state.ConsecutiveFailures);
 
             try
             {
@@ -183,7 +183,7 @@ public class ServerHealthCheckService(
                  state.CurrentHealth == HealthStatus.Healthy)
         {
             _logger.LogInformation("Service {ServiceName} ({ServiceId}) has recovered to healthy status",
-                service.ServiceName, service.Id);
+                service.ServiceType, service.Id);
         }
     }
 

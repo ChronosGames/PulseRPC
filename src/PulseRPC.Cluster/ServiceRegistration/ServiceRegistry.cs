@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using PulseRPC.Cluster;
 using PulseRPC.HealthCheck;
-using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -36,8 +36,8 @@ public class ServiceRegistry(
         _registrations[registration.Id] = registration;
         _lastHeartbeat[registration.Id] = DateTime.UtcNow;
 
-        _logger.LogInformation("Service registered: {ServiceName} at {Host}:{Port} (ID: {ServiceId})",
-            registration.ServiceName, registration.Host, registration.Port, registration.Id);
+        _logger.LogInformation("Service registered: {ServiceType} at {Host}:{Port} (ID: {ServiceId})",
+            registration.ServiceType, registration.Host, registration.Port, registration.Id);
 
         await TriggerServiceRegisteredEvent(registration);
     }
@@ -48,10 +48,10 @@ public class ServiceRegistry(
 
         var registration = new ServiceRegistration
         {
-            Id = endpoint.Id,
-            ServiceName = endpoint.ServiceName,
-            Host = endpoint.Host,
-            Port = endpoint.Port,
+            Id = endpoint.ServiceId,
+            ServiceType = endpoint.ServiceType,
+            Host = endpoint.Channel.Address.Host,
+            Port = endpoint.Channel.Address.Port,
             Metadata = endpoint.Metadata,
             Status = endpoint.Health,
             RegisteredAt = DateTime.UtcNow,
@@ -66,10 +66,20 @@ public class ServiceRegistry(
         return _registrations.Values
             .Select(r => new ServiceEndpoint
             {
-                Id = r.Id,
-                ServiceName = r.ServiceName,
-                Host = r.Host,
-                Port = r.Port,
+                ServiceId = r.Id,
+                ServiceType = r.ServiceType,
+                Channel = new ChannelEndpoint
+                {
+                    ChannelId = $"{r.Id}_channel",
+                    ChannelName = $"{r.ServiceType}_channel",
+                    Protocol = TransportProtocol.Tcp,
+                    Address = new NetworkAddress
+                    {
+                        Host = r.Host,
+                        Port = r.Port,
+                        UseTls = false
+                    }
+                },
                 Metadata = r.Metadata,
                 Health = r.Status,
             })
@@ -97,7 +107,7 @@ public class ServiceRegistry(
             throw new ArgumentException("Service name cannot be null or empty", nameof(serviceName));
 
         return _registrations.Values
-            .Where(r => r.ServiceName == serviceName)
+            .Where(r => r.ServiceType == serviceName)
             .ToList()
             .AsReadOnly();
     }
@@ -124,8 +134,8 @@ public class ServiceRegistry(
         {
             _lastHeartbeat.TryRemove(serviceId, out _);
 
-            _logger.LogInformation("Service unregistered: {ServiceName} (ID: {ServiceId})",
-                registration.ServiceName, serviceId);
+            _logger.LogInformation("Service unregistered: {ServiceType} (ID: {ServiceId})",
+                registration.ServiceType, serviceId);
 
             await TriggerServiceUnregisteredEvent(registration);
         }
@@ -147,8 +157,8 @@ public class ServiceRegistry(
             registration.LastHeartbeat = DateTime.UtcNow;
             _lastHeartbeat[serviceId] = DateTime.UtcNow;
 
-            _logger.LogInformation("Service health updated: {ServiceName} (ID: {ServiceId}) from {OldStatus} to {NewStatus}",
-                registration.ServiceName, serviceId, oldStatus, status);
+            _logger.LogInformation("Service health updated: {ServiceType} (ID: {ServiceId}) from {OldStatus} to {NewStatus}",
+                registration.ServiceType, serviceId, oldStatus, status);
 
             if (oldStatus != status)
             {
@@ -171,8 +181,8 @@ public class ServiceRegistry(
             registration.LastHeartbeat = DateTime.UtcNow;
             _lastHeartbeat[serviceId] = DateTime.UtcNow;
 
-            _logger.LogDebug("Heartbeat received for service: {ServiceName} (ID: {ServiceId})",
-                registration.ServiceName, serviceId);
+            _logger.LogDebug("Heartbeat received for service: {ServiceType} (ID: {ServiceId})",
+                registration.ServiceType, serviceId);
         }
         else
         {
@@ -213,7 +223,7 @@ public class ServiceRegistry(
         try
         {
             var servicesByName = _registrations.Values
-                .GroupBy(s => s.ServiceName)
+                .GroupBy(s => s.ServiceType)
                 .ToDictionary(g => g.Key, g => g.Count());
 
             return new Dictionary<string, object>
@@ -233,8 +243,8 @@ public class ServiceRegistry(
 
     private void ValidateRegistration(ServiceRegistration registration)
     {
-        if (string.IsNullOrWhiteSpace(registration.ServiceName))
-            throw new ArgumentException("Service name cannot be null or empty", nameof(registration.ServiceName));
+        if (string.IsNullOrWhiteSpace(registration.ServiceType))
+            throw new ArgumentException("Service name cannot be null or empty", nameof(registration.ServiceType));
 
         if (string.IsNullOrWhiteSpace(registration.Host))
             throw new ArgumentException("Host cannot be null or empty", nameof(registration.Host));
@@ -245,14 +255,14 @@ public class ServiceRegistry(
 
     private static string GenerateServiceId(ServiceRegistration registration)
     {
-        return $"{registration.ServiceName}-{registration.Host}-{registration.Port}-{Guid.NewGuid():N}";
+        return $"{registration.ServiceType}-{registration.Host}-{registration.Port}-{Guid.NewGuid():N}";
     }
 
     private async Task TriggerServiceRegisteredEvent(ServiceRegistration registration)
     {
         if (ServiceRegistered != null)
         {
-            var evt = new ServiceRegisteredEvent(registration.ToEndpoint(registration.Status));
+            var evt = ServiceRegisteredEvent.CreateSuccess(registration.ToEndpoint(registration.Status));
             await ServiceRegistered(evt);
         }
     }
@@ -261,7 +271,7 @@ public class ServiceRegistry(
     {
         if (ServiceUnregistered != null)
         {
-            var evt = new ServiceUnregisteredEvent(registration.ToEndpoint(registration.Status));
+            var evt = ServiceUnregisteredEvent.CreateSuccess(registration.ToEndpoint(registration.Status));
             await ServiceUnregistered(evt);
         }
     }
@@ -270,7 +280,7 @@ public class ServiceRegistry(
     {
         if (ServiceHealthChanged != null)
         {
-            var evt = new ServiceHealthChangedEvent(registration.ToEndpoint(registration.Status), oldStatus, newStatus);
+            var evt = ServiceHealthChangedEvent.Create(registration.ToEndpoint(registration.Status), oldStatus, newStatus);
             await ServiceHealthChanged(evt);
         }
     }

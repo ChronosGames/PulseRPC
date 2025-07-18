@@ -1,5 +1,5 @@
 using PulseRPC.HealthCheck;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -16,7 +16,7 @@ public class ServiceRegistration
     /// <summary>
     /// 服务名称
     /// </summary>
-    public string ServiceName { get; set; } = string.Empty;
+    public string ServiceType { get; set; } = string.Empty;
 
     /// <summary>
     /// 主机地址
@@ -85,8 +85,20 @@ public class ServiceRegistration
     /// <returns>服务端点</returns>
     public ServiceEndpoint ToEndpoint(HealthStatus health = HealthStatus.Unknown) => new()
     {
-        Id = Id,
-        ServiceName = ServiceName,
+        ServiceId = Id,
+        ServiceType = ServiceType,
+        Channel = new ChannelEndpoint
+        {
+            ChannelId = $"{Id}_channel",
+            ChannelName = $"{ServiceType}_channel",
+            Protocol = TransportProtocol.Tcp,
+            Address = new NetworkAddress
+            {
+                Host = Host,
+                Port = Port,
+                UseTls = false
+            }
+        },
         Health = health,
     };
 
@@ -101,7 +113,7 @@ public class ServiceRegistration
     public static ServiceRegistration Create(string serviceName, string host, int port, string? id = null) => new()
     {
         Id = id ?? $"{serviceName}-{host}:{port}",
-        ServiceName = serviceName,
+        ServiceType = serviceName,
         Host = host,
         Port = port
     };

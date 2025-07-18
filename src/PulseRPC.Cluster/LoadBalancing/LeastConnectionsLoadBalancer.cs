@@ -1,24 +1,19 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.LoadBalancing;
 
 /// <summary>
 /// 最少连接负载均衡器
 /// </summary>
-public class LeastConnectionsLoadBalancer : ILoadBalancer
+public class LeastConnectionsLoadBalancer(ILogger<LeastConnectionsLoadBalancer> logger) : ILoadBalancer
 {
-    private readonly ILogger<LeastConnectionsLoadBalancer> _logger;
+    private readonly ILogger<LeastConnectionsLoadBalancer> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly ConcurrentDictionary<string, ConnectionState> _connectionStates = new();
     private readonly ConcurrentDictionary<string, EndpointStatistics> _statistics = new();
 
     public LoadBalancingStrategy Strategy => LoadBalancingStrategy.LeastConnections;
-
-    public LeastConnectionsLoadBalancer(ILogger<LeastConnectionsLoadBalancer> logger)
-    {
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    }
 
     public Task<ServiceEndpoint?> SelectAsync(
         IReadOnlyList<ServiceEndpoint> endpoints,
@@ -42,7 +37,7 @@ public class LeastConnectionsLoadBalancer : ILoadBalancer
 
         _logger.LogDebug("Selected endpoint with least connections: {Endpoint} (Connections: {Connections})",
             selectedEndpoint,
-            selectedEndpoint != null ? GetConnectionCount(selectedEndpoint.Id) : 0);
+            selectedEndpoint != null ? GetConnectionCount(selectedEndpoint.ServiceId) : 0);
 
         return Task.FromResult(selectedEndpoint);
     }
@@ -55,11 +50,11 @@ public class LeastConnectionsLoadBalancer : ILoadBalancer
 
         foreach (var endpoint in endpoints)
         {
-            var state = _connectionStates.GetOrAdd(endpoint.Id, _ => new ConnectionState());
+            var state = _connectionStates.GetOrAdd(endpoint.ServiceId, _ => new ConnectionState());
             var connections = state.ActiveConnections;
 
             // 计算加权分数：考虑连接数和权重
-            var score = CalculateScore(connections, endpoint.Weight);
+            var score = CalculateScore(connections, endpoint.Channel.Weight);
 
             // 选择分数最高的端点（连接数最少，权重最高）
             if (score > bestScore || (score == bestScore && connections < minConnections))
@@ -73,7 +68,7 @@ public class LeastConnectionsLoadBalancer : ILoadBalancer
         // 增加选中端点的连接计数
         if (selectedEndpoint != null)
         {
-            var state = _connectionStates[selectedEndpoint.Id];
+            var state = _connectionStates[selectedEndpoint.ServiceId];
             state.IncrementConnections();
         }
 
@@ -93,18 +88,18 @@ public class LeastConnectionsLoadBalancer : ILoadBalancer
         if (endpoint == null) return;
 
         // 更新统计信息
-        var stats = _statistics.AddOrUpdate(endpoint.Id,
+        var stats = _statistics.AddOrUpdate(endpoint.ServiceId,
             new EndpointStatistics(),
             (_, existing) => existing.UpdateWith(result, responseTime));
 
         // 减少连接计数（假设请求完成）
-        if (_connectionStates.TryGetValue(endpoint.Id, out var state))
+        if (_connectionStates.TryGetValue(endpoint.ServiceId, out var state))
         {
             state.DecrementConnections();
         }
 
         _logger.LogDebug("Updated statistics for endpoint {Endpoint}: {Stats}, Connections: {Connections}",
-            endpoint, stats, GetConnectionCount(endpoint.Id));
+            endpoint, stats, GetConnectionCount(endpoint.ServiceId));
     }
 
     public void Reset()

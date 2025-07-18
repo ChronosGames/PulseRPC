@@ -3,7 +3,7 @@
 // using Microsoft.Extensions.Options;
 // using System.Collections.Concurrent;
 // using PulseRPC.Caching;
-// using PulseRPC.ServiceDiscovery;
+// using PulseRPC.Cluster;
 //
 // namespace PulseServiceDiscovery.Client.Caching;
 //

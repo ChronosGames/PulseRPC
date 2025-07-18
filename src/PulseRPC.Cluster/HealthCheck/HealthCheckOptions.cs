@@ -62,15 +62,32 @@ public class HealthCheckOptions
 public class HealthCheckState
 {
     private HealthStatus _currentHealth;
-    private HealthStatus _previousHealth;
+    private HealthStatus _previousHealth = HealthStatus.Unknown;
     private int _consecutiveFailures;
     private int _consecutiveSuccesses;
-    private DateTime _lastCheckTime;
-    private readonly Lock _lock = new();
+    private DateTime _lastCheckTime = DateTime.UtcNow;
+    private readonly object _lock = new object();
+
+    /// <summary>
+    /// 创建健康检查状态
+    /// </summary>
+    /// <param name="initialHealth">初始健康状态</param>
+    public HealthCheckState(HealthStatus initialHealth)
+    {
+        _currentHealth = initialHealth;
+        _consecutiveFailures = initialHealth == HealthStatus.Unhealthy ? 1 : 0;
+        _consecutiveSuccesses = initialHealth == HealthStatus.Healthy ? 1 : 0;
+    }
 
     public HealthStatus CurrentHealth
     {
-        get { lock (_lock) return _currentHealth; }
+        get
+        {
+            lock (_lock)
+            {
+                return _currentHealth;
+            }
+        }
     }
 
     public HealthStatus PreviousHealth
@@ -91,15 +108,6 @@ public class HealthCheckState
     public DateTime LastCheckTime
     {
         get { lock (_lock) return _lastCheckTime; }
-    }
-
-    public HealthCheckState(HealthStatus initialHealth)
-    {
-        _currentHealth = initialHealth;
-        _previousHealth = HealthStatus.Unknown;
-        _lastCheckTime = DateTime.UtcNow;
-        _consecutiveFailures = initialHealth == HealthStatus.Unhealthy ? 1 : 0;
-        _consecutiveSuccesses = initialHealth == HealthStatus.Healthy ? 1 : 0;
     }
 
     public HealthCheckState UpdateHealth(HealthStatus newHealth)

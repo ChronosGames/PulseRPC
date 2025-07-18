@@ -12,7 +12,7 @@ public class MetricsCollector : IMetricsCollector
     private readonly ConcurrentDictionary<string, Gauge> _gauges = new();
     private readonly ConcurrentDictionary<string, Histogram> _histograms = new();
     private readonly ConcurrentDictionary<string, Timer> _timers = new();
-    private readonly Lock _lock = new();
+    private readonly object _lock = new();
 
     /// <summary>
     /// 获取或创建计数器
@@ -326,9 +326,9 @@ public class MetricsSnapshot
 
 
 /// <summary>
-/// 性能指标快照
+/// 性能指标快照（简化版本）
 /// </summary>
-public class MetricsSnapshot2
+public class PerformanceSnapshot
 {
     /// <summary>
     /// 活跃请求数

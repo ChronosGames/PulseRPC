@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.LoadBalancing;
 
@@ -58,7 +58,7 @@ public class RandomLoadBalancer : ILoadBalancer
     {
         if (endpoint == null) return;
 
-        var stats = _statistics.AddOrUpdate(endpoint.Id,
+        var stats = _statistics.AddOrUpdate(endpoint.ServiceId,
             new EndpointStatistics(),
             (_, existing) => existing.UpdateWith(result, responseTime));
 

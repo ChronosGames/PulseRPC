@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 using System.Collections.Concurrent;
 using PulseRPC.HealthCheck;
 
@@ -95,7 +95,7 @@ public sealed class ServiceRegistryManager : BackgroundService
     {
         if (!_options.Enabled)
         {
-            _logger.LogDebug("服务注册已禁用，跳过注册服务: {ServiceId}", endpoint.Id);
+            _logger.LogDebug("服务注册已禁用，跳过注册服务: {ServiceId}", endpoint.ServiceId);
             return false;
         }
 
@@ -113,17 +113,17 @@ public sealed class ServiceRegistryManager : BackgroundService
                 IsHealthy = true
             };
 
-            _registeredServices[endpoint.Id] = serviceInfo;
+            _registeredServices[endpoint.ServiceId] = serviceInfo;
 
-            _logger.LogInformation("服务注册成功: {ServiceName}({ServiceId}) @ {Host}:{Port}",
-                endpoint.ServiceName, endpoint.Id, endpoint.Host, endpoint.Port);
+            _logger.LogInformation("服务注册成功: {ServiceName}({ServiceId}) @ {Address}",
+                endpoint.ServiceType, endpoint.ServiceId, endpoint.GetServiceAddress());
 
             return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "服务注册失败: {ServiceName}({ServiceId})",
-                endpoint.ServiceName, endpoint.Id);
+                endpoint.ServiceType, endpoint.ServiceId);
 
             if (!_options.ContinueOnRegistrationFailure)
             {
@@ -239,7 +239,7 @@ public sealed class ServiceRegistryManager : BackgroundService
                 kvp => kvp.Key,
                 kvp => new
                 {
-                    ServiceName = kvp.Value.Endpoint.ServiceName,
+                    ServiceName = kvp.Value.Endpoint.ServiceType,
                     EndPoint = kvp.Value.Endpoint.ToString(),
                     HealthStatus = kvp.Value.Endpoint.Health.ToString(),
                     RegisteredAt = kvp.Value.RegisteredAt,
@@ -331,7 +331,7 @@ public sealed class ServiceRegistryManager : BackgroundService
             {
                 lastException = ex;
                 _logger.LogWarning(ex, "服务注册尝试 {Attempt}/{MaxAttempts} 失败: {ServiceId}",
-                    attempts, _options.RegistrationRetryCount, endpoint.Id);
+                    attempts, _options.RegistrationRetryCount, endpoint.ServiceId);
 
                 if (attempts < _options.RegistrationRetryCount)
                 {
@@ -361,7 +361,7 @@ public sealed class ServiceRegistryManager : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "处理待注册服务失败: {ServiceId}", endpoint.Id);
+                _logger.LogError(ex, "处理待注册服务失败: {ServiceId}", endpoint.ServiceId);
             }
         }
 
@@ -396,7 +396,7 @@ public sealed class ServiceRegistryManager : BackgroundService
 
                         if (serviceInfo.Endpoint.Health != newStatus)
                         {
-                            await UpdateServiceHealthAsync(serviceInfo.Endpoint.Id, newStatus);
+                            await UpdateServiceHealthAsync(serviceInfo.Endpoint.ServiceId, newStatus);
                         }
 
                         serviceInfo.LastHealthCheck = DateTime.UtcNow;
@@ -404,7 +404,7 @@ public sealed class ServiceRegistryManager : BackgroundService
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "健康检查失败: {ServiceId}", serviceInfo.Endpoint.Id);
+                        _logger.LogWarning(ex, "健康检查失败: {ServiceId}", serviceInfo.Endpoint.ServiceId);
                         serviceInfo.IsHealthy = false;
                     }
                 });

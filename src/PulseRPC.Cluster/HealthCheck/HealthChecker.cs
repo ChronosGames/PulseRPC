@@ -2,8 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Net.NetworkInformation;
-using PulseRPC.HealthCheck;
-using PulseRPC.ServiceDiscovery;
+using PulseRPC.Cluster;
 
 namespace PulseRPC.HealthCheck;
 
@@ -64,7 +63,7 @@ public class HealthChecker : IHealthChecker, IDisposable
 
         var healthConfig = new HealthCheckConfig
         {
-            Url = healthCheckPath != null ? $"http://{endpoint.Host}:{endpoint.Port}{healthCheckPath}" : null,
+            Url = healthCheckPath != null ? $"http://{endpoint.Channel.Address.Host}:{endpoint.Channel.Address.Port}{healthCheckPath}" : null,
             Interval = _options.Interval,
             Timeout = _options.Timeout,
             FailureThreshold = _options.FailureThreshold,
@@ -107,7 +106,7 @@ public class HealthChecker : IHealthChecker, IDisposable
 
         await Task.WhenAll(tasks);
 
-        return results.ToDictionary(kvp => kvp.Key.Id, kvp => kvp.Value);
+        return results.ToDictionary(kvp => kvp.Key.ServiceId, kvp => kvp.Value);
     }
 
     /// <summary>
@@ -118,7 +117,7 @@ public class HealthChecker : IHealthChecker, IDisposable
         if (endpoint == null)
             throw new ArgumentNullException(nameof(endpoint));
 
-        var endpointKey = endpoint.Id;
+        var endpointKey = endpoint.ServiceId;
 
         // 如果已经在监控，先停止
         if (_monitoringTasks.ContainsKey(endpointKey))
@@ -133,7 +132,7 @@ public class HealthChecker : IHealthChecker, IDisposable
         _ = Task.Run(async void () =>
         {
             _logger.LogInformation("Started monitoring endpoint: {Host}:{Port} with interval: {Interval}",
-                endpoint.Host, endpoint.Port, interval);
+                endpoint.Channel.Address.Host, endpoint.Channel.Address.Port, interval);
 
             try
             {
@@ -147,7 +146,7 @@ public class HealthChecker : IHealthChecker, IDisposable
                         // 发布事件
                         if (HealthChanged != null)
                         {
-                            var eventArgs = new ServiceHealthChangedEvent(
+                            var eventArgs = ServiceHealthChangedEvent.Create(
                                 endpoint,
                                 HealthStatus.Unknown,
                                 health.Status);
@@ -160,7 +159,7 @@ public class HealthChecker : IHealthChecker, IDisposable
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Error during health monitoring for endpoint: {Endpoint}", endpoint.Address);
+                        _logger.LogWarning(ex, "Error during health monitoring for endpoint: {Endpoint}", endpoint.Channel.Address);
                         onHealthChanged?.Invoke(endpoint, HealthStatus.Unhealthy);
                     }
 
@@ -174,7 +173,7 @@ public class HealthChecker : IHealthChecker, IDisposable
             finally
             {
                 _monitoringTasks.TryRemove(endpointKey, out _);
-                _logger.LogInformation("Stopped monitoring endpoint: {Host}:{Port}", endpoint.Host, endpoint.Port);
+                _logger.LogInformation("Stopped monitoring endpoint: {Host}:{Port}", endpoint.Channel.Address.Host, endpoint.Channel.Address.Port);
             }
         }, cts.Token);
 
@@ -189,13 +188,13 @@ public class HealthChecker : IHealthChecker, IDisposable
         if (endpoint == null)
             throw new ArgumentNullException(nameof(endpoint));
 
-        var endpointKey = endpoint.Id;
+        var endpointKey = endpoint.ServiceId;
 
         if (_monitoringTasks.TryRemove(endpointKey, out var cts))
         {
             cts.Cancel();
             cts.Dispose();
-            _logger.LogInformation("Requested stop for monitoring endpoint: {Host}:{Port}", endpoint.Host, endpoint.Port);
+            _logger.LogInformation("Requested stop for monitoring endpoint: {Host}:{Port}", endpoint.Channel.Address.Host, endpoint.Channel.Address.Port);
         }
 
         return Task.CompletedTask;
@@ -206,7 +205,7 @@ public class HealthChecker : IHealthChecker, IDisposable
     /// </summary>
     private async Task UpdateHealthStateAndNotifyAsync(ServiceEndpoint endpoint, HealthStatus newStatus)
     {
-        var endpointKey = endpoint.Id;
+        var endpointKey = endpoint.ServiceId;
         var previousStatus = _healthStates.TryGetValue(endpointKey, out var state)
             ? state.CurrentStatus
             : HealthStatus.Unknown;
@@ -219,7 +218,7 @@ public class HealthChecker : IHealthChecker, IDisposable
         {
             try
             {
-                var eventArgs = new ServiceHealthChangedEvent(
+                var eventArgs = ServiceHealthChangedEvent.Create(
                     endpoint,
                     previousStatus,
                     newStatus);
@@ -227,7 +226,7 @@ public class HealthChecker : IHealthChecker, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error publishing health changed event for endpoint: {Host}:{Port}", endpoint.Host, endpoint.Port);
+                _logger.LogError(ex, "Error publishing health changed event for endpoint: {Host}:{Port}", endpoint.Channel.Address.Host, endpoint.Channel.Address.Port);
             }
         }
     }
@@ -270,18 +269,18 @@ public class HealthChecker : IHealthChecker, IDisposable
     {
         try
         {
-            var url = config.Url ?? $"http://{endpoint.Host}:{endpoint.Port}/health";
+            var url = config.Url ?? $"http://{endpoint.Channel.Address.Host}:{endpoint.Channel.Address.Port}/health";
             var response = await _httpClient.GetAsync(url, cancellationToken);
 
             var isHealthy = response.IsSuccessStatusCode;
             _logger.LogDebug("HTTP health check for {Host}:{Port}: {Status} ({StatusCode})",
-                endpoint.Host, endpoint.Port, isHealthy ? "Healthy" : "Unhealthy", response.StatusCode);
+                endpoint.Channel.Address.Host, endpoint.Channel.Address.Port, isHealthy ? "Healthy" : "Unhealthy", response.StatusCode);
 
             return isHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "HTTP health check failed for endpoint: {Host}:{Port}", endpoint.Host, endpoint.Port);
+            _logger.LogWarning(ex, "HTTP health check failed for endpoint: {Host}:{Port}", endpoint.Channel.Address.Host, endpoint.Channel.Address.Port);
             return HealthStatus.Unhealthy;
         }
     }
@@ -294,26 +293,26 @@ public class HealthChecker : IHealthChecker, IDisposable
         try
         {
             using var client = new System.Net.Sockets.TcpClient();
-            var connectTask = client.ConnectAsync(endpoint.Host, endpoint.Port);
+            var connectTask = client.ConnectAsync(endpoint.Channel.Address.Host, endpoint.Channel.Address.Port);
             var timeoutTask = Task.Delay(_options.Timeout, cancellationToken);
 
             var completedTask = await Task.WhenAny(connectTask, timeoutTask);
 
             if (completedTask == timeoutTask)
             {
-                _logger.LogWarning("TCP health check timeout for endpoint: {Endpoint}", endpoint.Address);
+                _logger.LogWarning("TCP health check timeout for endpoint: {Endpoint}", endpoint.GetServiceAddress());
                 return HealthStatus.Unhealthy;
             }
 
             var isHealthy = client.Connected;
             _logger.LogDebug("TCP health check for {Endpoint}: {Status}",
-                endpoint.Address, isHealthy ? "Healthy" : "Unhealthy");
+                endpoint.GetServiceAddress(), isHealthy ? "Healthy" : "Unhealthy");
 
             return isHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "TCP health check failed for endpoint: {Endpoint}", endpoint.Address);
+            _logger.LogWarning(ex, "TCP health check failed for endpoint: {Endpoint}", endpoint.GetServiceAddress());
             return HealthStatus.Unhealthy;
         }
     }
@@ -326,17 +325,17 @@ public class HealthChecker : IHealthChecker, IDisposable
         try
         {
             using var ping = new Ping();
-            var reply = await ping.SendPingAsync(endpoint.Host, (int)_options.Timeout.TotalMilliseconds);
+            var reply = await ping.SendPingAsync(endpoint.Channel.Address.Host, (int)_options.Timeout.TotalMilliseconds);
 
             var isHealthy = reply.Status == IPStatus.Success;
             _logger.LogDebug("Ping health check for {Endpoint}: {Status} ({PingStatus})",
-                endpoint.Address, isHealthy ? "Healthy" : "Unhealthy", reply.Status);
+                endpoint.GetServiceAddress(), isHealthy ? "Healthy" : "Unhealthy", reply.Status);
 
             return isHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Ping health check failed for endpoint: {Endpoint}", endpoint.Address);
+            _logger.LogWarning(ex, "Ping health check failed for endpoint: {Endpoint}", endpoint.GetServiceAddress());
             return HealthStatus.Unhealthy;
         }
     }
@@ -347,7 +346,7 @@ public class HealthChecker : IHealthChecker, IDisposable
         CancellationToken cancellationToken)
     {
         _logger.LogWarning("Custom health check is not implemented for endpoint: {Endpoint}",
-            endpoint.Address);
+            endpoint.GetServiceAddress());
 
         // 默认返回未知状态，可以通过扩展来实现自定义健康检查
         await Task.CompletedTask;

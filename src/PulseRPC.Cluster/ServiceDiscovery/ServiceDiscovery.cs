@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
+using PulseRPC.Cluster;
 using PulseRPC.HealthCheck;
 
 namespace PulseRPC.ServiceDiscovery;
@@ -54,16 +55,11 @@ public class ServiceDiscovery : IServiceDiscovery
 
         ValidateEndpoint(endpoint);
 
-        if (string.IsNullOrEmpty(endpoint.Id))
-        {
-            endpoint.Id = GenerateServiceId(endpoint);
-        }
-
-        _endpoints[endpoint.Id] = endpoint;
-        _lastHeartbeat[endpoint.Id] = DateTime.UtcNow;
+        _endpoints[endpoint.ServiceId] = endpoint;
+        _lastHeartbeat[endpoint.ServiceId] = DateTime.UtcNow;
 
         _logger.LogInformation("Service registered: {ServiceName} at {Host}:{Port} (ID: {ServiceId})",
-            endpoint.ServiceName, endpoint.Host, endpoint.Port, endpoint.Id);
+            endpoint.ServiceType, endpoint.Channel.Address.Host, endpoint.Channel.Address.Port, endpoint.ServiceId);
 
         await TriggerServiceRegisteredEvent(endpoint);
     }
@@ -83,7 +79,7 @@ public class ServiceDiscovery : IServiceDiscovery
             _lastHeartbeat.TryRemove(serviceId, out _);
 
             _logger.LogInformation("Service unregistered: {ServiceName} (ID: {ServiceId})",
-                endpoint.ServiceName, serviceId);
+                endpoint.ServiceType, serviceId);
 
             await TriggerServiceUnregisteredEvent(endpoint);
         }
@@ -111,7 +107,7 @@ public class ServiceDiscovery : IServiceDiscovery
             _lastHeartbeat[serviceId] = DateTime.UtcNow;
 
             _logger.LogInformation("Service health updated: {ServiceName} (ID: {ServiceId}) from {OldStatus} to {NewStatus}",
-                endpoint.ServiceName, serviceId, oldStatus, status);
+                endpoint.ServiceType, serviceId, oldStatus, status);
 
             if (oldStatus != status)
             {
@@ -144,7 +140,7 @@ public class ServiceDiscovery : IServiceDiscovery
             throw new ArgumentException("Service name cannot be null or empty", nameof(serviceName));
 
         return _endpoints.Values
-            .Where(e => e.ServiceName == serviceName)
+            .Where(e => e.ServiceType == serviceName)
             .ToList()
             .AsReadOnly();
     }
@@ -191,7 +187,7 @@ public class ServiceDiscovery : IServiceDiscovery
             _lastHeartbeat[serviceId] = DateTime.UtcNow;
 
             _logger.LogDebug("Heartbeat received for service: {ServiceName} (ID: {ServiceId})",
-                endpoint.ServiceName, serviceId);
+                endpoint.ServiceType, serviceId);
         }
         else
         {
@@ -212,7 +208,7 @@ public class ServiceDiscovery : IServiceDiscovery
         {
             var expiredThreshold = DateTime.UtcNow - _options.Cleanup.ServiceExpiration;
             var expiredServices = _endpoints.Values
-                .Where(e => _lastHeartbeat.TryGetValue(e.Id, out var lastHeartbeat) && lastHeartbeat < expiredThreshold)
+                .Where(e => _lastHeartbeat.TryGetValue(e.ServiceId, out var lastHeartbeat) && lastHeartbeat < expiredThreshold)
                 .ToList();
 
             if (expiredServices.Any())
@@ -221,7 +217,7 @@ public class ServiceDiscovery : IServiceDiscovery
 
                 foreach (var service in expiredServices)
                 {
-                    await UnregisterAsync(service.Id, cancellationToken);
+                    await UnregisterAsync(service.ServiceId, cancellationToken);
                 }
             }
         }
@@ -240,7 +236,7 @@ public class ServiceDiscovery : IServiceDiscovery
         try
         {
             var servicesByName = _endpoints.Values
-                .GroupBy(e => e.ServiceName)
+                .GroupBy(e => e.ServiceType)
                 .ToDictionary(g => g.Key, g => g.Count());
 
             return new Dictionary<string, object>
@@ -260,26 +256,29 @@ public class ServiceDiscovery : IServiceDiscovery
 
     private void ValidateEndpoint(ServiceEndpoint endpoint)
     {
-        if (string.IsNullOrWhiteSpace(endpoint.ServiceName))
-            throw new ArgumentException("Service name cannot be null or empty", nameof(endpoint.ServiceName));
+        if (string.IsNullOrWhiteSpace(endpoint.ServiceId))
+            throw new ArgumentException("Service ID cannot be null or empty", nameof(endpoint.ServiceId));
 
-        if (string.IsNullOrWhiteSpace(endpoint.Host))
-            throw new ArgumentException("Host cannot be null or empty", nameof(endpoint.Host));
+        if (string.IsNullOrWhiteSpace(endpoint.ServiceType))
+            throw new ArgumentException("Service name cannot be null or empty", nameof(endpoint.ServiceType));
 
-        if (endpoint.Port <= 0 || endpoint.Port > 65535)
-            throw new ArgumentException("Port must be between 1 and 65535", nameof(endpoint.Port));
+        if (string.IsNullOrWhiteSpace(endpoint.Channel.Address.Host))
+            throw new ArgumentException("Host cannot be null or empty", nameof(endpoint.Channel.Address.Host));
+
+        if (endpoint.Channel.Address.Port <= 0 || endpoint.Channel.Address.Port > 65535)
+            throw new ArgumentException("Port must be between 1 and 65535", nameof(endpoint.Channel.Address.Port));
     }
 
     private static string GenerateServiceId(ServiceEndpoint endpoint)
     {
-        return $"{endpoint.ServiceName}-{endpoint.Host}-{endpoint.Port}-{Guid.NewGuid():N}";
+        return $"{endpoint.ServiceType}-{endpoint.Channel.Address.Host}-{endpoint.Channel.Address.Port}-{Guid.NewGuid():N}";
     }
 
     private async Task TriggerServiceRegisteredEvent(ServiceEndpoint endpoint)
     {
         if (ServiceRegistered != null)
         {
-            var evt = new ServiceRegisteredEvent(endpoint);
+            var evt = ServiceRegisteredEvent.CreateSuccess(endpoint);
             await ServiceRegistered(evt);
         }
     }
@@ -288,7 +287,7 @@ public class ServiceDiscovery : IServiceDiscovery
     {
         if (ServiceUnregistered != null)
         {
-            var evt = new ServiceUnregisteredEvent(endpoint);
+            var evt = ServiceUnregisteredEvent.CreateSuccess(endpoint);
             await ServiceUnregistered(evt);
         }
     }
@@ -297,8 +296,8 @@ public class ServiceDiscovery : IServiceDiscovery
     {
         if (ServiceHealthChanged != null)
         {
-            var evt = new ServiceHealthChangedEvent(endpoint, oldStatus, newStatus);
+            var evt = ServiceHealthChangedEvent.Create(endpoint, oldStatus, newStatus);
             await ServiceHealthChanged(evt);
         }
     }
-} 
+}
