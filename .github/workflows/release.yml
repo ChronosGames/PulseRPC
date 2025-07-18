@@ -30,12 +30,12 @@ jobs:
     timeout-minutes: 10
     steps:
       - run: echo ${{ needs.update-packagejson.outputs.sha }}
-      - uses: ChronosGames/Actions/.github/actions/checkout@main
+      - uses: actions/checkout@v4
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
-      - run: dotnet build -c Release ./PulseRPC.sln
       # pack nuget
+      - run: dotnet build -c Release ./PulseRPC.sln
       - run: dotnet pack -c Release ./PulseRPC.Packaging.slnf --no-build -o ./publish
       - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
         with:
