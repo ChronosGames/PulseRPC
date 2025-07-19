@@ -175,47 +175,47 @@ public class Program
     {
         logger.LogInformation("📝 === 服务注册示例 ===");
 
-        var serviceRegistry = services.GetRequiredService<IServiceRegistry>();
-
-        // 创建服务端点
-        var weatherEndpoint = new ServiceEndpoint
-        {
-            ServiceId = "weather-service-001",
-            ServiceType = "WeatherService",
-            EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse("127.0.0.1"),
-                8080),
-            Tags = new Dictionary<string, string>
-            {
-                ["version"] = "2.0.0",
-                ["region"] = "us-west-1"
-            },
-            Metadata = new Dictionary<string, object>
-            {
-                ["health_check_url"] = "http://127.0.0.1:8080/health",
-                ["max_connections"] = 1000
-            },
-            Channel = null
-        };
-
-        // 注册服务
-        await serviceRegistry.RegisterAsync(weatherEndpoint);
-        logger.LogInformation("✅ 天气服务已注册到 Consul: {ServiceId}", weatherEndpoint.ServiceId);
-
-        // 注册另一个实例
-        var weatherEndpoint2 = new PulseRPC.ServiceDiscovery.ServiceEndpoint
-        {
-            ServiceId = "weather-service-002",
-            ServiceName = "WeatherService",
-            EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse("127.0.0.1"), 8081),
-            Tags = new Dictionary<string, string>
-            {
-                ["version"] = "2.0.0",
-                ["region"] = "us-west-1"
-            }
-        };
-
-        await serviceRegistry.RegisterAsync(weatherEndpoint2);
-        logger.LogInformation("✅ 天气服务第二个实例已注册: {ServiceId}", weatherEndpoint2.ServiceId);
+        // var serviceRegistry = services.GetRequiredService<IServiceRegistry>();
+        //
+        // // 创建服务端点
+        // var weatherEndpoint = new ServiceEndpoint
+        // {
+        //     ServiceId = "weather-service-001",
+        //     ServiceType = "WeatherService",
+        //     EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse("127.0.0.1"),
+        //         8080),
+        //     Tags = new Dictionary<string, string>
+        //     {
+        //         ["version"] = "2.0.0",
+        //         ["region"] = "us-west-1"
+        //     },
+        //     Metadata = new Dictionary<string, object>
+        //     {
+        //         ["health_check_url"] = "http://127.0.0.1:8080/health",
+        //         ["max_connections"] = 1000
+        //     },
+        //     Channel = null
+        // };
+        //
+        // // 注册服务
+        // await serviceRegistry.RegisterAsync(weatherEndpoint);
+        // logger.LogInformation("✅ 天气服务已注册到 Consul: {ServiceId}", weatherEndpoint.ServiceId);
+        //
+        // // 注册另一个实例
+        // var weatherEndpoint2 = new PulseRPC.ServiceDiscovery.ServiceEndpoint
+        // {
+        //     ServiceId = "weather-service-002",
+        //     ServiceName = "WeatherService",
+        //     EndPoint = new System.Net.IPEndPoint(System.Net.IPAddress.Parse("127.0.0.1"), 8081),
+        //     Tags = new Dictionary<string, string>
+        //     {
+        //         ["version"] = "2.0.0",
+        //         ["region"] = "us-west-1"
+        //     }
+        // };
+        //
+        // await serviceRegistry.RegisterAsync(weatherEndpoint2);
+        // logger.LogInformation("✅ 天气服务第二个实例已注册: {ServiceId}", weatherEndpoint2.ServiceId);
 
         logger.LogInformation("✅ 服务注册示例完成\n");
     }
@@ -227,25 +227,25 @@ public class Program
     {
         logger.LogInformation("🔍 === 服务发现示例 ===");
 
-        var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
-
-        // 发现天气服务
-        var weatherServices = await serviceDiscovery.DiscoverAsync("WeatherService");
-        logger.LogInformation("从 Consul 发现天气服务实例数量: {Count}", weatherServices.Count);
-
-        foreach (var service in weatherServices)
-        {
-            logger.LogInformation("  - {ServiceId}: {EndPoint}", service.ServiceId, service.EndPoint);
-            if (service.Tags.Count > 0)
-            {
-                logger.LogInformation("    标签: {Tags}", string.Join(", ", service.Tags.Select(t => $"{t.Key}={t.Value}")));
-            }
-        }
-
-        // 根据标签发现服务
-        var regionTags = new Dictionary<string, string> { ["region"] = "us-west-1" };
-        var regionalServices = await serviceDiscovery.DiscoverByTagsAsync("WeatherService", regionTags);
-        logger.LogInformation("发现 us-west-1 区域的服务数量: {Count}", regionalServices.Count);
+        // var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
+        //
+        // // 发现天气服务
+        // var weatherServices = await serviceDiscovery.DiscoverAsync("WeatherService");
+        // logger.LogInformation("从 Consul 发现天气服务实例数量: {Count}", weatherServices.Count);
+        //
+        // foreach (var service in weatherServices)
+        // {
+        //     logger.LogInformation("  - {ServiceId}: {EndPoint}", service.ServiceId, service.EndPoint);
+        //     if (service.Tags.Count > 0)
+        //     {
+        //         logger.LogInformation("    标签: {Tags}", string.Join(", ", service.Tags.Select(t => $"{t.Key}={t.Value}")));
+        //     }
+        // }
+        //
+        // // 根据标签发现服务
+        // var regionTags = new Dictionary<string, string> { ["region"] = "us-west-1" };
+        // var regionalServices = await serviceDiscovery.DiscoverByTagsAsync("WeatherService", regionTags);
+        // logger.LogInformation("发现 us-west-1 区域的服务数量: {Count}", regionalServices.Count);
 
         logger.LogInformation("✅ 服务发现示例完成\n");
     }
@@ -257,34 +257,34 @@ public class Program
     {
         logger.LogInformation("🏥 === 健康检查示例 ===");
 
-        var healthChecker = services.GetRequiredService<IHealthChecker>();
-        var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
-
-        // 获取服务端点
-        var services_list = await serviceDiscovery.DiscoverAsync("WeatherService");
-        if (services_list.Count == 0)
-        {
-            logger.LogWarning("未找到WeatherService端点进行健康检查");
-            return;
-        }
-
-        // 执行健康检查
-        logger.LogInformation("执行健康检查...");
-        var healthResults = await healthChecker.CheckHealthBatchAsync(services_list);
-
-        foreach (var result in healthResults)
-        {
-            var status = result.Status == PulseRPC.ServiceDiscovery.HealthStatus.Healthy ? "✅" : "❌";
-            logger.LogInformation("  {Status} {ServiceId}: {HealthStatus} (响应时间: {ResponseTime}ms)",
-                status, result.ServiceId, result.Status, result.ResponseTime.TotalMilliseconds);
-        }
-
-        // 获取健康检查统计信息
-        var stats = healthChecker.GetStatistics();
-        logger.LogInformation("健康检查统计:");
-        logger.LogInformation("  总检查次数: {TotalChecks}", stats.GetValueOrDefault("TotalChecks", 0));
-        logger.LogInformation("  成功次数: {SuccessfulChecks}", stats.GetValueOrDefault("SuccessfulChecks", 0));
-        logger.LogInformation("  平均响应时间: {AvgResponseTime}ms", stats.GetValueOrDefault("AverageResponseTime", 0));
+        // var healthChecker = services.GetRequiredService<IHealthChecker>();
+        // var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
+        //
+        // // 获取服务端点
+        // var services_list = await serviceDiscovery.DiscoverAsync("WeatherService");
+        // if (services_list.Count == 0)
+        // {
+        //     logger.LogWarning("未找到WeatherService端点进行健康检查");
+        //     return;
+        // }
+        //
+        // // 执行健康检查
+        // logger.LogInformation("执行健康检查...");
+        // var healthResults = await healthChecker.CheckHealthBatchAsync(services_list);
+        //
+        // foreach (var result in healthResults)
+        // {
+        //     var status = result.Status == PulseRPC.ServiceDiscovery.HealthStatus.Healthy ? "✅" : "❌";
+        //     logger.LogInformation("  {Status} {ServiceId}: {HealthStatus} (响应时间: {ResponseTime}ms)",
+        //         status, result.ServiceId, result.Status, result.ResponseTime.TotalMilliseconds);
+        // }
+        //
+        // // 获取健康检查统计信息
+        // var stats = healthChecker.GetStatistics();
+        // logger.LogInformation("健康检查统计:");
+        // logger.LogInformation("  总检查次数: {TotalChecks}", stats.GetValueOrDefault("TotalChecks", 0));
+        // logger.LogInformation("  成功次数: {SuccessfulChecks}", stats.GetValueOrDefault("SuccessfulChecks", 0));
+        // logger.LogInformation("  平均响应时间: {AvgResponseTime}ms", stats.GetValueOrDefault("AverageResponseTime", 0));
 
         logger.LogInformation("✅ 健康检查示例完成\n");
     }
@@ -296,51 +296,51 @@ public class Program
     {
         logger.LogInformation("🔄 === 故障转移示例 ===");
 
-        var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
-        var loadBalancerFactory = services.GetRequiredService<ILoadBalancerFactory>();
-
-        // 获取服务端点
-        var endpoints = await serviceDiscovery.DiscoverAsync("WeatherService");
-        if (endpoints.Count == 0)
-        {
-            logger.LogWarning("未找到WeatherService端点进行故障转移测试");
-            return;
-        }
-
-        var failoverBalancer = loadBalancerFactory.Create(PulseRPC.Client.LoadBalancing.LoadBalancingStrategy.Failover);
-
-        // 正常选择
-        var context = new PulseRPC.Client.LoadBalancing.LoadBalancingContext
-        {
-            RequestId = Guid.NewGuid().ToString()
-        };
-        var selectedEndpoint = await failoverBalancer.SelectAsync(endpoints, context);
-        logger.LogInformation("正常选择端点: {EndPoint}", selectedEndpoint?.EndPoint);
-
-        // 模拟多次失败
-        if (selectedEndpoint != null)
-        {
-            logger.LogInformation("模拟连续失败...");
-            for (int i = 0; i < 3; i++)
-            {
-                failoverBalancer.ReportResult(selectedEndpoint,
-                    PulseRPC.Client.LoadBalancing.LoadBalancingResult.ConnectionFailed,
-                    TimeSpan.FromSeconds(5));
-                logger.LogInformation("  第{Index}次失败报告", i + 1);
-            }
-
-            // 重新选择（应该选择其他端点）
-            var newSelectedEndpoint = await failoverBalancer.SelectAsync(endpoints, context);
-            logger.LogInformation("故障转移后选择端点: {EndPoint}", newSelectedEndpoint?.EndPoint);
-
-            // 获取故障转移统计
-            var failoverStats = failoverBalancer.GetStatistics();
-            logger.LogInformation("故障转移统计:");
-            foreach (var stat in failoverStats)
-            {
-                logger.LogInformation("  {Key}: {Value}", stat.Key, stat.Value);
-            }
-        }
+        // var serviceDiscovery = services.GetRequiredService<IServiceDiscovery>();
+        // var loadBalancerFactory = services.GetRequiredService<ILoadBalancerFactory>();
+        //
+        // // 获取服务端点
+        // var endpoints = await serviceDiscovery.DiscoverAsync("WeatherService");
+        // if (endpoints.Count == 0)
+        // {
+        //     logger.LogWarning("未找到WeatherService端点进行故障转移测试");
+        //     return;
+        // }
+        //
+        // var failoverBalancer = loadBalancerFactory.Create(PulseRPC.Client.LoadBalancing.LoadBalancingStrategy.Failover);
+        //
+        // // 正常选择
+        // var context = new PulseRPC.Client.LoadBalancing.LoadBalancingContext
+        // {
+        //     RequestId = Guid.NewGuid().ToString()
+        // };
+        // var selectedEndpoint = await failoverBalancer.SelectAsync(endpoints, context);
+        // logger.LogInformation("正常选择端点: {EndPoint}", selectedEndpoint?.EndPoint);
+        //
+        // // 模拟多次失败
+        // if (selectedEndpoint != null)
+        // {
+        //     logger.LogInformation("模拟连续失败...");
+        //     for (int i = 0; i < 3; i++)
+        //     {
+        //         failoverBalancer.ReportResult(selectedEndpoint,
+        //             PulseRPC.Client.LoadBalancing.LoadBalancingResult.ConnectionFailed,
+        //             TimeSpan.FromSeconds(5));
+        //         logger.LogInformation("  第{Index}次失败报告", i + 1);
+        //     }
+        //
+        //     // 重新选择（应该选择其他端点）
+        //     var newSelectedEndpoint = await failoverBalancer.SelectAsync(endpoints, context);
+        //     logger.LogInformation("故障转移后选择端点: {EndPoint}", newSelectedEndpoint?.EndPoint);
+        //
+        //     // 获取故障转移统计
+        //     var failoverStats = failoverBalancer.GetStatistics();
+        //     logger.LogInformation("故障转移统计:");
+        //     foreach (var stat in failoverStats)
+        //     {
+        //         logger.LogInformation("  {Key}: {Value}", stat.Key, stat.Value);
+        //     }
+        // }
 
         logger.LogInformation("✅ 故障转移示例完成\n");
     }
@@ -352,31 +352,31 @@ public class Program
     {
         logger.LogInformation("👀 === 监听服务变化示例 ===");
 
-        var serviceDiscovery = services.GetRequiredService<PulseRPC.ServiceDiscovery.IServiceDiscovery>();
-
-        // 监听服务变化（限制时间避免无限等待）
-        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-
-        try
-        {
-            logger.LogInformation("开始监听 WeatherService 变化（10秒）...");
-
-            await foreach (var serviceInstances in serviceDiscovery.WatchAsync("WeatherService", cts.Token))
-            {
-                logger.LogInformation("检测到服务变化，当前实例数量: {Count}", serviceInstances.Length);
-                foreach (var instance in serviceInstances)
-                {
-                    logger.LogInformation("  - {ServiceId}: {EndPoint}", instance.ServiceId, instance.EndPoint);
-                }
-
-                // 只监听一次变化
-                break;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            logger.LogInformation("监听超时，停止监听");
-        }
+        // var serviceDiscovery = services.GetRequiredService<PulseRPC.ServiceDiscovery.IServiceDiscovery>();
+        //
+        // // 监听服务变化（限制时间避免无限等待）
+        // var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        //
+        // try
+        // {
+        //     logger.LogInformation("开始监听 WeatherService 变化（10秒）...");
+        //
+        //     await foreach (var serviceInstances in serviceDiscovery.WatchAsync("WeatherService", cts.Token))
+        //     {
+        //         logger.LogInformation("检测到服务变化，当前实例数量: {Count}", serviceInstances.Length);
+        //         foreach (var instance in serviceInstances)
+        //         {
+        //             logger.LogInformation("  - {ServiceId}: {EndPoint}", instance.ServiceId, instance.EndPoint);
+        //         }
+        //
+        //         // 只监听一次变化
+        //         break;
+        //     }
+        // }
+        // catch (OperationCanceledException)
+        // {
+        //     logger.LogInformation("监听超时，停止监听");
+        // }
 
         logger.LogInformation("✅ 监听服务变化示例完成\n");
     }
