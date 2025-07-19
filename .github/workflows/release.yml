@@ -101,6 +101,9 @@ jobs:
 
   # release
   create-release:
+    permissions:
+      actions: read   # 为了调用可复用工作流
+      contents: write  # 为了允许推送更改到仓库
     needs: [update-packagejson, build-dotnet]
     uses: ChronosGames/Actions/.github/workflows/create-release.yaml@main
     with:
