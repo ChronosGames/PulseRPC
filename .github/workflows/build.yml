@@ -27,6 +27,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
       - run: dotnet build -c Debug ./PulseRPC.sln
       - run: dotnet build -c Release ./PulseRPC.sln
@@ -37,6 +39,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
       - run: dotnet tool restore
       - run: dotnet retest -- -c Debug PulseRPC.sln
@@ -48,6 +52,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
       - run: dotnet publish -r linux-x64 tests/PulseRPC.Client.NativeAot.Tests/PulseRPC.Client.NativeAot.Tests.csproj
       - run: tests/MagicOnion.Client.NativeAot.Tests/bin/Release/net9.0/linux-x64/publish/PulseRPC.Client.NativeAot.Tests
@@ -62,6 +68,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # execute Unittest build
       # /opt/Unity/Editor/Unity -quit -batchmode -nographics -silent-crashes -logFile -projectPath . -executeMethod UnitTestBuilder.BuildUnitTest /headless /ScriptBackend IL2CPP /BuildTarget StandaloneLinux64

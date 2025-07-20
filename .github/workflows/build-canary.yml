@@ -24,6 +24,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: ChronosGames/Actions/.github/actions/checkout@main
+        with:
+          lfs: true
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
       - run: echo "PULSERPC_VERSION=ci-$(date '+%Y%m%d-%H%M%S')+${GITHUB_SHA:0:6}" >> $GITHUB_ENV
       - run: echo "PULSERPC_VERSION=${PULSERPC_VERSION}"
