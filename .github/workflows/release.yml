@@ -41,6 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
+          lfs: true
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
       # pack nuget
       - run: dotnet build -c Release ./PulseRPC.sln
