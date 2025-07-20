@@ -8,8 +8,6 @@
 *.cs           text diff=csharp eol=lf working-tree-encoding=UTF-8
 *.cshtml       text diff=html
 *.csx          text diff=csharp
-*.csproj       text eol=crlf
-*.sln          text eol=crlf
 *.config       text
 *.xml          text
 *.xaml         text
