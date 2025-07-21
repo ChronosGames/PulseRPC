@@ -459,24 +459,17 @@ public interface INotificationService
 /// <summary>
 /// 通知服务实现
 /// </summary>
-public class NotificationService : INotificationService
+public class NotificationService(ILogger<NotificationService> logger) : INotificationService
 {
-    private readonly ILogger<NotificationService> _logger;
-
-    public NotificationService(ILogger<NotificationService> logger)
-    {
-        _logger = logger;
-    }
-
     public async Task SendNotificationAsync(string userId, string message)
     {
-        _logger.LogInformation("发送通知给用户 {UserId}: {Message}", userId, message);
+        logger.LogInformation("发送通知给用户 {UserId}: {Message}", userId, message);
         await Task.Delay(80);
     }
 
     public async Task<bool> IsUserSubscribedAsync(string userId, string topic)
     {
-        _logger.LogInformation("检查用户订阅状态: {UserId}, 主题: {Topic}", userId, topic);
+        logger.LogInformation("检查用户订阅状态: {UserId}, 主题: {Topic}", userId, topic);
         await Task.Delay(50);
         return Random.Shared.NextDouble() > 0.3; // 70% 概率已订阅
     }

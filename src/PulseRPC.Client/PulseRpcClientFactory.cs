@@ -45,7 +45,7 @@ public static class PulseRpcClientFactory
     /// <param name="loggerFactory">日志工厂（可选）</param>
     /// <returns>客户端实例</returns>
     public static IPulseRpcClient CreateClient(
-        Action<ClientConfigurationBuilder> configure, 
+        Action<ClientConfigurationBuilder> configure,
         ILoggerFactory? loggerFactory = null)
     {
         // 创建默认日志工厂
@@ -75,7 +75,7 @@ public static class PulseRpcClientFactory
     /// <param name="loggerFactory">日志工厂（可选）</param>
     /// <returns>客户端实例</returns>
     public static IPulseRpcClient CreateClient(
-        IEnumerable<ClientTransportConfiguration> transports, 
+        IEnumerable<ClientTransportConfiguration> transports,
         ILoggerFactory? loggerFactory = null)
     {
         // 创建默认日志工厂
@@ -100,6 +100,23 @@ public static class PulseRpcClientFactory
     public static ClientBuilder CreateBuilder()
     {
         return new ClientBuilder();
+    }
+
+    /// <summary>
+    /// 创建默认日志工厂 - 条件编译以支持不同环境
+    /// </summary>
+    private static ILoggerFactory CreateDefaultLoggerFactory()
+    {
+#if NET9_0_OR_GREATER
+        return Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
+        {
+            builder.AddConsole()
+                   .SetMinimumLevel(LogLevel.Information);
+        });
+#else
+        // 对于netstandard2.1（Unity等环境），使用NullLoggerFactory
+        return Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
+#endif
     }
 }
 
@@ -138,7 +155,7 @@ public class ClientBuilder
     {
         var options = new TransportOptions();
         configureOptions?.Invoke(options);
-        
+
         _transports.Add(ClientTransportConfiguration.Tcp(name, host, port, options, isDefault));
         return this;
     }
@@ -150,7 +167,7 @@ public class ClientBuilder
     {
         var options = new TransportOptions();
         configureOptions?.Invoke(options);
-        
+
         _transports.Add(ClientTransportConfiguration.Kcp(name, host, port, options, isDefault));
         return this;
     }
@@ -162,7 +179,7 @@ public class ClientBuilder
     {
         var options = new TransportOptions();
         configureOptions?.Invoke(options);
-        
+
         _transports.Add(ClientTransportConfiguration.WebSocket(name, host, port, options, isDefault));
         return this;
     }
@@ -182,23 +199,6 @@ public class ClientBuilder
     public IPulseRpcClient Build()
     {
         return PulseRpcClientFactory.CreateClient(_transports, _loggerFactory);
-    }
-
-    /// <summary>
-    /// 创建默认日志工厂 - 条件编译以支持不同环境
-    /// </summary>
-    private static ILoggerFactory CreateDefaultLoggerFactory()
-    {
-#if NET9_0_OR_GREATER
-        return Microsoft.Extensions.Logging.LoggerFactory.Create(builder => 
-        {
-            builder.AddConsole()
-                   .SetMinimumLevel(LogLevel.Information);
-        });
-#else
-        // 对于netstandard2.1（Unity等环境），使用NullLoggerFactory
-        return Microsoft.Extensions.Logging.Abstractions.NullLoggerFactory.Instance;
-#endif
     }
 }
 
