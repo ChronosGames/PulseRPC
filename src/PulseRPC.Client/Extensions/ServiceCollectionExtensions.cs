@@ -1,4 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Client
 {
@@ -7,18 +10,172 @@ namespace PulseRPC.Client
     /// </summary>
     public static class ServiceCollectionExtensions
     {
+        /// <summary>
+        /// 添加PulseRPC客户端服务
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddPulseRpcClient(this IServiceCollection services)
+        {
+            // 注册通道管理器
+            services.TryAddSingleton<IChannelManager, ChannelManager>();
+
+            // 注册默认客户端实例（无传输配置）
+            services.TryAddSingleton<IPulseRpcClient>(sp =>
+            {
+                var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+                var channelManager = sp.GetRequiredService<IChannelManager>();
+
+                return new PulseRpcClientManager(channelManager, loggerFactory);
+            });
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加PulseRPC客户端 (使用配置回调)
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="configureOptions">配置回调</param>
+        /// <returns>服务集合</returns>
         public static IServiceCollection AddPulseRpcClient(
             this IServiceCollection services,
             Action<ClientOptions> configureOptions)
         {
-            // 配置客户端选项
             services.Configure(configureOptions);
 
-            // 注册 PulseRPC 客户端
-            // services.AddSingleton<IPulseRpcClient, PulseRpcClient>();
-            // services.AddSingleton<IPulseRpcServiceClient, PulseRpcServiceClient>();
+            // 注册基础组件
+            services.AddPulseRpcClient();
 
             return services;
+        }
+
+        /// <summary>
+        /// 添加PulseRPC客户端 (使用客户端配置构建器)
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="configure">客户端配置构建器</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddPulseRpcClient(
+            this IServiceCollection services,
+            Action<ClientConfigurationBuilder> configure)
+        {
+            var builder = new ClientConfigurationBuilder();
+            configure(builder);
+            var (transports, clientConfig) = builder.Build();
+
+            // 配置客户端选项
+            if (clientConfig != null)
+            {
+                services.Configure(clientConfig);
+            }
+
+            // 注册基础组件
+            services.AddPulseRpcClient();
+
+            // 注册带传输配置的客户端管理器
+            services.AddSingleton<IPulseRpcClient>(sp =>
+            {
+                var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+                var channelManager = sp.GetRequiredService<IChannelManager>();
+
+                var clientManager = new PulseRpcClientManager(channelManager, loggerFactory);
+
+                // 自动添加配置的传输通道
+                clientManager.AddTransports(transports);
+
+                return clientManager;
+            });
+
+            return services;
+        }
+
+        /// <summary>
+        /// 添加PulseRPC客户端 (使用传输配置列表)
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="transports">传输配置列表</param>
+        /// <param name="configureClient">客户端配置回调</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddPulseRpcClient(
+            this IServiceCollection services,
+            IEnumerable<ClientTransportConfiguration> transports,
+            Action<ClientOptions>? configureClient = null)
+        {
+            // 配置客户端选项
+            if (configureClient != null)
+            {
+                services.Configure(configureClient);
+            }
+
+            // 注册基础组件
+            services.AddPulseRpcClient();
+
+            var transportList = transports.ToList();
+
+            // 注册带传输配置的客户端管理器
+            services.AddSingleton<IPulseRpcClient>(sp =>
+            {
+                var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+                var channelManager = sp.GetRequiredService<IChannelManager>();
+
+                var clientManager = new PulseRpcClientManager(channelManager, loggerFactory);
+
+                // 自动添加传输通道
+                clientManager.AddTransports(transportList);
+
+                return clientManager;
+            });
+
+            return services;
+        }
+
+        /// <summary>
+        /// 快速配置TCP客户端
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="host">服务器主机</param>
+        /// <param name="port">服务器端口</param>
+        /// <param name="configureClient">客户端配置回调</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddPulseRpcTcpClient(
+            this IServiceCollection services,
+            string host,
+            int port,
+            Action<ClientOptions>? configureClient = null)
+        {
+            return services.AddPulseRpcClient(builder =>
+            {
+                builder.AddTcp("Default", host, port, isDefault: true);
+                if (configureClient != null)
+                {
+                    builder.ConfigureClient(configureClient);
+                }
+            });
+        }
+
+        /// <summary>
+        /// 快速配置KCP客户端
+        /// </summary>
+        /// <param name="services">服务集合</param>
+        /// <param name="host">服务器主机</param>
+        /// <param name="port">服务器端口</param>
+        /// <param name="configureClient">客户端配置回调</param>
+        /// <returns>服务集合</returns>
+        public static IServiceCollection AddPulseRpcKcpClient(
+            this IServiceCollection services,
+            string host,
+            int port,
+            Action<ClientOptions>? configureClient = null)
+        {
+            return services.AddPulseRpcClient(builder =>
+            {
+                builder.AddKcp("Default", host, port, isDefault: true);
+                if (configureClient != null)
+                {
+                    builder.ConfigureClient(configureClient);
+                }
+            });
         }
 
         /// <summary>
@@ -64,36 +221,6 @@ namespace PulseRPC.Client
         }
     }
 
-    /// <summary>
-    /// PulseRPC 客户端接口
-    /// </summary>
-    public interface IPulseRpcClient
-    {
-        /// <summary>
-        /// 连接到服务器
-        /// </summary>
-        /// <param name="endpoint">服务端点</param>
-        /// <param name="cancellationToken">取消令牌</param>
-        /// <returns>连接任务</returns>
-        Task ConnectAsync(string endpoint, CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// 断开连接
-        /// </summary>
-        /// <param name="cancellationToken">取消令牌</param>
-        /// <returns>断开连接任务</returns>
-        Task DisconnectAsync(CancellationToken cancellationToken = default);
-
-        /// <summary>
-        /// 发送请求
-        /// </summary>
-        /// <typeparam name="TRequest">请求类型</typeparam>
-        /// <typeparam name="TResponse">响应类型</typeparam>
-        /// <param name="request">请求数据</param>
-        /// <param name="cancellationToken">取消令牌</param>
-        /// <returns>响应数据</returns>
-        Task<TResponse> SendAsync<TRequest, TResponse>(TRequest request, CancellationToken cancellationToken = default);
-    }
 
     /// <summary>
     /// PulseRPC 服务客户端接口
