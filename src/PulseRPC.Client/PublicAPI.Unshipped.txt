@@ -1,13 +1,11 @@
 #nullable enable
-PulseRPC.Client.ClientOptions
-PulseRPC.Client.ClientOptions.ClientOptions() -> void
-PulseRPC.Client.ClientOptions.ConnectionTimeout.get -> System.TimeSpan
-PulseRPC.Client.ClientOptions.ConnectionTimeout.set -> void
-PulseRPC.Client.ClientOptions.ReceiveBufferSize.get -> int
-PulseRPC.Client.ClientOptions.ReceiveBufferSize.set -> void
-PulseRPC.Client.ClientOptions.SendBufferSize.get -> int
-PulseRPC.Client.ClientOptions.SendBufferSize.set -> void
-PulseRPC.Client.Events.EventBusFactory.CreateForChannel(PulseRPC.Messaging.IClientChannel! channel) -> PulseRPC.IEventBus!
-PulseRPC.Client.Events.EventBusFactory.CreateInMemory(string! name = "memory") -> PulseRPC.IEventBus!
-PulseRPC.Client.Events.EventBusFactory.EventBusFactory(PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
-PulseRPC.Transport.IChannelManager
+override PulseRPC.Client.Transport.TcpClientTransport.Dispose() -> void
+PulseRPC.Client.Channels.TransportChannel
+PulseRPC.Client.Channels.TransportChannel.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.Channels.TransportChannel.DisconnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.Channels.TransportChannel.Name.get -> string!
+PulseRPC.Client.ServiceCollectionExtensions
+static PulseRPC.Client.ServiceCollectionExtensions.AddPulseRpcClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<PulseRPC.Client.ClientOptions!>! configureOptions) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static PulseRPC.Client.ServiceCollectionExtensions.ConfigurePulseRpcConnectionPool(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<PulseRPC.Client.ConnectionPoolOptions!>! configureOptions) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static PulseRPC.Client.ServiceCollectionExtensions.ConfigurePulseRpcRetryPolicy(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<PulseRPC.Client.RetryPolicyOptions!>! configureOptions) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static PulseRPC.Client.ServiceCollectionExtensions.ConfigurePulseRpcTimeoutPolicy(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<PulseRPC.Client.TimeoutPolicyOptions!>! configureOptions) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

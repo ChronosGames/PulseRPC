@@ -1073,11 +1073,11 @@ public partial class ServiceRegistry
             _logger?.LogInformation("[ServiceRegistry] {ConnectionId} 收到RPC数据: Size={Size} bytes, Data=[{DataHex}]",
                 channel.ConnectionId, e.Data.Length, Convert.ToHexString(e.Data.Span[..Math.Min(e.Data.Length, 64)]));
 
-            // 解析RPC消息
+            // 解析RPC消息头
             _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始解析RPC消息", channel.ConnectionId);
-            var message = ParseRpcMessage(e.Data);
+            var parsedMessage = ParseMessage(e.Data);
 
-            if (message == null)
+            if (parsedMessage == null)
             {
                 _logger?.LogError("[ServiceRegistry] {ConnectionId} 无法解析RPC消息，数据可能已损坏: Size={Size}",
                     channel.ConnectionId, e.Data.Length);
@@ -1086,27 +1086,50 @@ public partial class ServiceRegistry
                 return;
             }
 
-            _logger?.LogInformation("[ServiceRegistry] {ConnectionId} RPC消息解析成功: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
-                channel.ConnectionId, message.ServiceName, message.MethodName, message.RequestId);
+            // 根据消息类型处理
+            switch (parsedMessage.Header.Type)
+            {
+                case MessageType.Request:
+                    _logger?.LogInformation("[ServiceRegistry] {ConnectionId} RPC请求消息解析成功: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
+                        channel.ConnectionId, parsedMessage.Header.ServiceName, parsedMessage.Header.MethodName, parsedMessage.Header.MessageId);
 
-            // 调用服务方法
-            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始调用服务方法: {ServiceName}.{MethodName}",
-                channel.ConnectionId, message.ServiceName, message.MethodName);
+                    // 调用服务方法
+                    _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始调用服务方法: {ServiceName}.{MethodName}",
+                        channel.ConnectionId, parsedMessage.Header.ServiceName, parsedMessage.Header.MethodName);
 
-            var serverConnection = channel.Transport;
-            var result = await InvokeMethodAsync(
-                message.ServiceName,
-                message.MethodName,
-                message.RequestData,
-                serverConnection);
+                    var serverConnection = channel.Transport;
+                    var result = await InvokeMethodAsync(
+                        parsedMessage.Header.ServiceName ?? string.Empty,
+                        parsedMessage.Header.MethodName ?? string.Empty,
+                        parsedMessage.Body,
+                        serverConnection);
 
-            _logger?.LogInformation("[ServiceRegistry] {ConnectionId} 服务方法调用完成: {ServiceName}.{MethodName}, 请求ID={RequestId}",
-                channel.ConnectionId, message.ServiceName, message.MethodName, message.RequestId);
+                    _logger?.LogInformation("[ServiceRegistry] {ConnectionId} 服务方法调用完成: {ServiceName}.{MethodName}, 请求ID={RequestId}",
+                        channel.ConnectionId, parsedMessage.Header.ServiceName, parsedMessage.Header.MethodName, parsedMessage.Header.MessageId);
 
-            // 发送响应
-            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始发送响应: {RequestId}", channel.ConnectionId, message.RequestId);
-            await SendResponse(channel, message.RequestId, result);
-            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 响应发送完成: {RequestId}", channel.ConnectionId, message.RequestId);
+                    // 发送响应
+                    _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始发送响应: {RequestId}", channel.ConnectionId, parsedMessage.Header.MessageId);
+                    await SendResponse(channel, parsedMessage.Header.MessageId.ToString(), result);
+                    _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 响应发送完成: {RequestId}", channel.ConnectionId, parsedMessage.Header.MessageId);
+                    break;
+
+                case MessageType.Ping:
+                    _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 收到Ping消息，发送Pong响应: {MessageId}",
+                        channel.ConnectionId, parsedMessage.Header.MessageId);
+                    await SendPongResponse(channel, parsedMessage.Header.MessageId);
+                    break;
+
+                case MessageType.Pong:
+                    _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 收到Pong消息: {MessageId}",
+                        channel.ConnectionId, parsedMessage.Header.MessageId);
+                    // Pong消息通常不需要特殊处理
+                    break;
+
+                default:
+                    _logger?.LogWarning("[ServiceRegistry] {ConnectionId} 忽略不支持的消息类型: {Type}, MessageId={MessageId}",
+                        channel.ConnectionId, parsedMessage.Header.Type, parsedMessage.Header.MessageId);
+                    break;
+            }
         }
         catch (Exception ex)
         {
@@ -1117,12 +1140,12 @@ public partial class ServiceRegistry
             // 尝试从解析的消息中获取服务和方法信息
             try
             {
-                var parsedMessage = ParseRpcMessage(e.Data);
+                var parsedMessage = ParseMessage(e.Data);
                 if (parsedMessage != null)
                 {
-                    serviceName = parsedMessage.ServiceName;
-                    methodName = parsedMessage.MethodName;
-                    requestId = parsedMessage.RequestId;
+                    serviceName = parsedMessage.Header.ServiceName;
+                    methodName = parsedMessage.Header.MethodName;
+                    requestId = parsedMessage.Header.MessageId.ToString();
                 }
             }
             catch
@@ -1206,9 +1229,9 @@ public partial class ServiceRegistry
     }
 
     /// <summary>
-    /// 解析RPC消息
+    /// 解析消息（支持各种消息类型）
     /// </summary>
-    private RpcMessage? ParseRpcMessage(ReadOnlyMemory<byte> data)
+    private ParsedMessage? ParseMessage(ReadOnlyMemory<byte> data)
     {
         try
         {
@@ -1246,39 +1269,30 @@ public partial class ServiceRegistry
                 headerBytes.Length, Convert.ToHexString(headerBytes, 0, Math.Min(headerBytes.Length, 32)));
 
             var serializer = _serializerProvider.Create(MethodType.Unary, null);
-            var header = serializer.Deserialize<MessageHeader>(new System.Buffers.ReadOnlySequence<byte>(headerBytes));
+            var header = serializer.Deserialize<MessageHeader>(new ReadOnlySequence<byte>(headerBytes));
 
             _logger?.LogDebug("[RPC解析] 成功反序列化消息头: Type={Type}, ServiceName={ServiceName}, MethodName={MethodName}, MessageId={MessageId}",
                 header.Type, header.ServiceName, header.MethodName, header.MessageId);
-
-            // 验证消息类型
-            if (header.Type != MessageType.Request)
-            {
-                _logger?.LogWarning("[RPC解析] 忽略非请求消息类型: {Type}", header.Type);
-                return null;
-            }
 
             // 读取消息体
             var bodyStartIndex = 4 + headerLength;
             var bodyLength = data.Length - bodyStartIndex;
             byte[] bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
 
-            _logger?.LogDebug("[RPC解析] 解析消息体: Size={BodySize} bytes", bodyLength);
+            _logger?.LogDebug("[消息解析] 解析消息体: Size={BodySize} bytes", bodyLength);
             if (bodyLength > 0)
             {
-                _logger?.LogTrace("[RPC解析] 消息体数据: [{BodyHex}]",
+                _logger?.LogTrace("[消息解析] 消息体数据: [{BodyHex}]",
                     Convert.ToHexString(bodyBytes, 0, Math.Min(bodyBytes.Length, 32)));
             }
 
-            _logger?.LogInformation("[RPC解析] RPC消息解析完成: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}, 体大小={BodySize}",
-                header.ServiceName, header.MethodName, header.MessageId, bodyLength);
+            _logger?.LogInformation("[消息解析] 消息解析完成: Type={Type}, 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}, 体大小={BodySize}",
+                header.Type, header.ServiceName, header.MethodName, header.MessageId, bodyLength);
 
-            return new RpcMessage
+            return new ParsedMessage
             {
-                ServiceName = header.ServiceName ?? string.Empty,
-                MethodName = header.MethodName ?? string.Empty,
-                RequestId = header.MessageId.ToString(),
-                RequestData = bodyBytes
+                Header = header,
+                Body = bodyBytes
             };
         }
         catch (Exception ex)
@@ -1513,7 +1527,16 @@ public partial class ServiceRegistry
     }
 
     /// <summary>
-    /// RPC消息结构
+    /// 解析后的消息结构
+    /// </summary>
+    private class ParsedMessage
+    {
+        public required MessageHeader Header { get; set; }
+        public required byte[] Body { get; set; }
+    }
+
+    /// <summary>
+    /// RPC消息结构（保留以兼容性）
     /// </summary>
     private class RpcMessage
     {
@@ -1521,6 +1544,58 @@ public partial class ServiceRegistry
         public required string MethodName { get; set; }
         public required string RequestId { get; set; }
         public required byte[] RequestData { get; set; }
+    }
+
+    /// <summary>
+    /// 发送Pong响应
+    /// </summary>
+    private async Task SendPongResponse(ITransportChannel channel, Guid messageId)
+    {
+        try
+        {
+            if (_serializerProvider == null)
+            {
+                _logger?.LogError("序列化器提供程序为null，无法发送Pong响应");
+                return;
+            }
+
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+
+            // 创建Pong响应头
+            var header = new MessageHeader
+            {
+                Type = MessageType.Pong,
+                MessageId = messageId
+            };
+
+            // 序列化头部
+            var headerWriter = new System.Buffers.ArrayBufferWriter<byte>();
+            serializer.Serialize(headerWriter, in header);
+            var headerBytes = headerWriter.WrittenMemory.ToArray();
+
+            // 组装完整消息：[HeaderLength(4)] + [Header] + [Empty Body]
+            using var messageStream = new System.IO.MemoryStream();
+            using var writer = new System.IO.BinaryWriter(messageStream);
+
+            // 写入头部长度
+            writer.Write(headerBytes.Length);
+
+            // 写入头部
+            writer.Write(headerBytes);
+
+            // Pong消息没有载荷，所以不写入载荷
+
+            var responseData = new ReadOnlyMemory<byte>(messageStream.ToArray());
+
+            await channel.SendAsync(responseData);
+
+            _logger?.LogDebug("已发送Pong响应到通道 {ConnectionId}, MessageId={MessageId}, 响应大小={Size} bytes",
+                channel.ConnectionId, messageId, responseData.Length);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "发送Pong响应失败");
+        }
     }
 
     #endregion

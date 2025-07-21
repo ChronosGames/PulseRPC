@@ -1,35 +1,3 @@
 #nullable enable
 
 PulseRPC.Client.IPulseRPCClient.IsConnected.get -> bool
-
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.ConnectionStateChangedEventArgs(PulseRPC.Transport.ConnectionState oldState, PulseRPC.Transport.ConnectionState newState, System.Exception? exception = null) -> void
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.Exception.get -> System.Exception?
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.NewState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.OldState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Client.Channels.TransportChannel
-PulseRPC.Client.Channels.TransportChannel.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.TransportChannel.ConnectionState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Client.Channels.TransportChannel.DisconnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.TransportChannel.Dispose() -> void
-PulseRPC.Client.Channels.TransportChannel.RegisterEventCallback(System.Action<string!, byte[]!>! callback) -> void
-PulseRPC.Client.Channels.TransportChannel.SendEventAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.TransportChannel.SendRequestAsync<TRequest, TResponse>(string! serviceName, string! methodName, TRequest request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<TResponse>!
-PulseRPC.Client.Channels.TransportChannel.SubscribeToEvent<T>(string! eventName, System.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!
-PulseRPC.Client.Channels.TransportChannel.TransportChannel(string! name, PulseRPC.Transport.IClientTransport! transport, PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.Channels.TransportChannel!>? logger = null) -> void
-PulseRPC.Client.ConnectionStateChangedEventArgs
-PulseRPC.Client.IPlatformAdapter.InvokeOnMainThread(System.Action! action) -> void
-PulseRPC.NetworkChannelEventBus.NetworkChannelEventBus(PulseRPC.Messaging.IClientChannel! channel, PulseRPC.Serialization.ISerializer! serializer, Microsoft.Extensions.Logging.ILogger<PulseRPC.NetworkChannelEventBus!>? logger = null) -> void
-PulseRPC.NetworkChannelEventBus.PublishAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.NetworkChannelEventBus.Subscribe<T>(string! eventName, PulseRPC.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!
-PulseRPC.NetworkChannelEventBus.Unsubscribe(PulseRPC.ISubscriptionToken! token) -> void
-
-PulseRPC.Client.Platform.Net.NetPlatformAdapter.CreateLogger<T>() -> Microsoft.Extensions.Logging.ILogger<T>!
-PulseRPC.Client.Platform.Net.NetPlatformAdapter.Delay(int millisecondsDelay, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Platform.Net.NetPlatformAdapter.IsMainThread() -> bool
-PulseRPC.Client.Platform.Net.NetPlatformAdapter.NetPlatformAdapter(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
-PulseRPC.Client.Platform.Unity.UnityPlatformAdapter.ConfigureThreading() -> void
-PulseRPC.Client.Platform.Unity.UnityPlatformAdapter.CreateLogger<T>() -> Microsoft.Extensions.Logging.ILogger<T>!
-PulseRPC.Client.Platform.Unity.UnityPlatformAdapter.Delay(int millisecondsDelay, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Platform.Unity.UnityPlatformAdapter.InvokeOnMainThread(System.Action! action) -> void
-PulseRPC.Client.Platform.Unity.UnityPlatformAdapter.IsMainThread() -> bool
