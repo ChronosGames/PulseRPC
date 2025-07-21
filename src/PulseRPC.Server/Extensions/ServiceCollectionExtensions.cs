@@ -51,6 +51,20 @@ public static class ServiceCollectionExtensions
         // 注册事件发布器
         services.AddSingleton<IEventPublisher, EventPublisher>();
 
+        // 注册默认服务器实例（无传输配置）
+        services.TryAddSingleton<IPulseRpcServer>(sp =>
+        {
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var serverChannelManager = sp.GetRequiredService<IServerChannelManager>();
+            var serverOptions = sp.GetService<IOptions<ServerOptions>>() ??
+                Options.Create(new ServerOptions());
+
+            return new PulseRpcServerManager(serverChannelManager, loggerFactory, serverOptions);
+        });
+
+        // 注册服务工厂
+        services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
+
         return services;
     }
 
@@ -68,7 +82,7 @@ public static class ServiceCollectionExtensions
         services.Configure<ServerOptions>(configuration.GetSection("PulseRPC:Server"));
 
         // 注册服务器管理器
-        services.TryAddSingleton<ServerManager>();
+        services.TryAddSingleton<IPulseRpcServer, PulseRpcServerManager>();
 
         // 注册服务工厂
         services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
@@ -88,8 +102,11 @@ public static class ServiceCollectionExtensions
     {
         services.Configure(configureOptions);
 
+        // 注册基础组件
+        services.AddPulseRpcServer();
+
         // 注册服务器管理器
-        services.TryAddSingleton<ServerManager>();
+        services.TryAddSingleton<IPulseRpcServer, PulseRpcServerManager>();
 
         // 注册服务工厂
         services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
@@ -98,20 +115,166 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>
+    /// 添加 PulseRPC 服务器 (使用服务器配置构建器)
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="configure">服务器配置构建器</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddPulseRpcServer(
+        this IServiceCollection services,
+        Action<ServerConfigurationBuilder> configure)
+    {
+        var builder = new ServerConfigurationBuilder();
+        configure(builder);
+        var (transports, serverConfig) = builder.Build();
+
+        // 配置服务器选项
+        if (serverConfig != null)
+        {
+            services.Configure(serverConfig);
+        }
+
+        // 注册基础组件
+        services.AddPulseRpcServer();
+
+        // 注册带传输配置的服务器管理器
+        services.AddSingleton<IPulseRpcServer>(sp =>
+        {
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var serverChannelManager = sp.GetRequiredService<IServerChannelManager>();
+            var serverOptions = sp.GetRequiredService<IOptions<ServerOptions>>();
+
+            var serverManager = new PulseRpcServerManager(serverChannelManager, loggerFactory, serverOptions);
+
+            // 自动添加配置的传输通道
+            foreach (var transport in transports)
+            {
+                serverManager.AddTransport(
+                    transport.Name,
+                    transport.Type,
+                    transport.Port,
+                    transport.Options,
+                    transport.IsDefault);
+            }
+
+            return serverManager;
+        });
+
+        // 注册服务工厂
+        services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// 添加 PulseRPC 服务器 (使用传输配置列表)
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="transports">传输配置列表</param>
+    /// <param name="configureServer">服务器配置回调</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddPulseRpcServer(
+        this IServiceCollection services,
+        IEnumerable<TransportChannelConfiguration> transports,
+        Action<ServerOptions>? configureServer = null)
+    {
+        // 配置服务器选项
+        if (configureServer != null)
+        {
+            services.Configure(configureServer);
+        }
+
+        // 注册基础组件
+        services.AddPulseRpcServer();
+
+        var transportList = transports.ToList();
+
+        // 注册带传输配置的服务器管理器
+        services.AddSingleton<IPulseRpcServer>(sp =>
+        {
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var serverChannelManager = sp.GetRequiredService<IServerChannelManager>();
+            var serverOptions = sp.GetRequiredService<IOptions<ServerOptions>>();
+
+            var serverManager = new PulseRpcServerManager(serverChannelManager, loggerFactory, serverOptions);
+
+            // 自动添加传输通道
+            foreach (var transport in transportList)
+            {
+                serverManager.AddTransport(
+                    transport.Name,
+                    transport.Type,
+                    transport.Port,
+                    transport.Options,
+                    transport.IsDefault);
+            }
+
+            return serverManager;
+        });
+
+        // 注册服务工厂
+        services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// 快速配置TCP服务器
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="port">监听端口</param>
+    /// <param name="configureServer">服务器配置回调</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddPulseRpcTcpServer(
+        this IServiceCollection services,
+        int port,
+        Action<ServerOptions>? configureServer = null)
+    {
+        return services.AddPulseRpcServer(builder =>
+        {
+            builder.AddTcp("Default", port, isDefault: true);
+            if (configureServer != null)
+            {
+                builder.ConfigureServer(configureServer);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 快速配置KCP服务器
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="port">监听端口</param>
+    /// <param name="configureServer">服务器配置回调</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddPulseRpcKcpServer(
+        this IServiceCollection services,
+        int port,
+        Action<ServerOptions>? configureServer = null)
+    {
+        return services.AddPulseRpcServer(builder =>
+        {
+            builder.AddKcp("Default", port, isDefault: true);
+            if (configureServer != null)
+            {
+                builder.ConfigureServer(configureServer);
+            }
+        });
+    }
+
+    /// <summary>
     /// 添加 PulseRPC 服务
     /// </summary>
     /// <typeparam name="TService">服务接口类型</typeparam>
     /// <typeparam name="TImplementation">服务实现类型</typeparam>
     /// <param name="services">服务集合</param>
-    /// <param name="lifetime">服务生命周期</param>
     /// <returns>服务集合</returns>
     public static IServiceCollection AddPulseRpcService<TService, TImplementation>(
-        this IServiceCollection services,
-        ServiceLifetime lifetime = ServiceLifetime.Scoped)
+        this IServiceCollection services)
         where TService : class
         where TImplementation : class, TService
     {
-        services.Add(new Microsoft.Extensions.DependencyInjection.ServiceDescriptor(typeof(TService), typeof(TImplementation), lifetime));
+        services.Add(new Microsoft.Extensions.DependencyInjection.ServiceDescriptor(typeof(TService), typeof(TImplementation), ServiceLifetime.Singleton));
 
         // 注册服务描述符
         services.Configure<PulseRpcServiceOptions>(options =>
@@ -121,7 +284,7 @@ public static class ServiceCollectionExtensions
                 ServiceType = typeof(TService),
                 ImplementationType = typeof(TImplementation),
                 ServiceName = typeof(TService).Name,
-                Lifetime = lifetime
+                Lifetime = ServiceLifetime.Singleton,
             });
         });
 

@@ -34,13 +34,13 @@ internal abstract class Program
             .ConfigureServices(ConfigureServices)
             .Build();
 
-        // 获取服务器管理器
-        var serverManager = host.Services.GetRequiredService<IServerManager>();
+        // 获取服务器实例
+        var server = host.Services.GetRequiredService<IPulseRpcServer>();
 
         try
         {
             // 启动服务器
-            await serverManager.StartAsync();
+            await server.StartAsync();
 
             // 注册服务到ServiceRegistry（必须在服务器启动后）
             var serviceRegistry = host.Services.GetRequiredService<ServiceRegistry>();
@@ -72,7 +72,7 @@ internal abstract class Program
         finally
         {
             // 停止服务器
-            await serverManager.StopAsync();
+            await server.StopAsync();
 
             Console.WriteLine("\n服务器已停止。按任意键退出...");
             Console.ReadKey(true);
@@ -85,8 +85,35 @@ internal abstract class Program
         services.AddSingleton<IGameWorld, GameWorld>();
         services.AddSingleton<IPlayerManager, PlayerManager>();
 
-        // 添加PulseRPC服务器
-        services.AddPulseRpcServer();
+        // 添加PulseRPC服务器 - 使用新的简化配置
+        services.AddPulseRpcServer(server =>
+        {
+            server
+                .ConfigureServer(options =>
+                {
+                    options.ServiceName = "ChatGameServer";
+                    options.ServiceVersion = "2.0.0";
+                    options.MaxConnections = 1000;
+                    options.HeartbeatInterval = TimeSpan.FromSeconds(30);
+                })
+                .AddTcp("TcpChannel", 7000, options =>
+                {
+                    options.NoDelay = true;
+                }, isDefault: true)
+                .AddKcp("KcpChannel", 7001, options =>
+                {
+                    options.Kcp = new KcpOptions
+                    {
+                        NoDelay = 1,
+                        Interval = 10,
+                        Resend = 2,
+                        DisableFlowControl = true
+                    };
+                });
+        });
+
+        // 使用新的API注册业务服务 - 使用Singleton生命周期
+        services.AddPulseRpcService<IPlayerHub, PlayerHub>();
 
         // 添加服务注册
         // services.AddPulseRpcServiceRegistration(context.Configuration);
@@ -110,9 +137,6 @@ internal abstract class Program
         // 覆盖默认的认证提供程序，使用ChatApp专用的SimpleAuthenticationProvider
         services.AddSingleton<IAuthenticationProvider, SimpleAuthenticationProvider>();
 
-        // 添加服务实现
-        services.AddTransient<IPlayerHub, PlayerHub>();
-
         // 添加位置更新批处理器
         services.AddSingleton<PlayerMovementBatcher>();
         services.AddHostedService(sp => sp.GetRequiredService<PlayerMovementBatcher>());
@@ -122,42 +146,6 @@ internal abstract class Program
         {
             options.ServicesStartConcurrently = false;
             options.ServicesStopConcurrently = false;
-        });
-
-        // 添加服务器管理器
-        services.AddSingleton<IServerManager>(sp =>
-        {
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var serverChannelManager = sp.GetRequiredService<PulseRPC.Server.Transport.IServerChannelManager>();
-
-            // 创建服务器管理器
-            var serverOptions = sp.GetRequiredService<IOptions<ServerOptions>>();
-            var serverManager = new ServerManager(serverChannelManager, loggerFactory, serverOptions);
-
-            // 添加TCP传输 (端口7000)
-            serverManager.AddTransport(
-                "TcpChannel",
-                TransportType.Tcp,
-                7000,
-                new TransportOptions { NoDelay = true },
-                true);
-
-            // 添加KCP传输 (端口7001)
-            serverManager.AddTransport(
-                "KcpChannel",
-                TransportType.Kcp,
-                7001,
-                new TransportOptions
-                {
-                    Kcp = new KcpOptions
-                    {
-                        NoDelay = 1,
-                        Interval = 10,
-                        Resend = 2
-                    }
-                });
-
-            return serverManager;
         });
     }
 }
