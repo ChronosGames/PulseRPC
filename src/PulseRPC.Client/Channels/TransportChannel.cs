@@ -604,35 +604,6 @@ public class TransportChannel : IClientChannel
         }
     }
 
-
-    /// <summary>
-    /// 处理传输层数据接收
-    /// </summary>
-    // private void OnTransportDataReceived(object? sender, TransportDataEventArgs e)
-    // {
-    //     try
-    //     {
-    //         // 解析消息
-    //         var message = ParseMessage(e.Data);
-    //         if (message == null)
-    //         {
-    //             _logger.LogWarning("[TransportChannel] 无法解析接收到的数据");
-    //             return;
-    //         }
-    //
-    //         // 将消息加入队列
-    //         if (!_messageQueue.Writer.TryWrite(message))
-    //         {
-    //             _logger.LogWarning("[TransportChannel] 消息队列已满，丢弃消息: Type={MessageType}, MessageId={MessageId}",
-    //                 message.Header.Type, message.Header.MessageId);
-    //         }
-    //     }
-    //     catch (Exception ex)
-    //     {
-    //         _logger.LogError(ex, "[TransportChannel] 处理接收数据时发生异常");
-    //     }
-    // }
-
     /// <summary>
     /// 处理传输层状态变化
     /// </summary>

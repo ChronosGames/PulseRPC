@@ -144,7 +144,7 @@ namespace PulseRPC.Client.Transport
                         _options.Kcp.ConversationId, attempt + 1);
                     return; // 握手成功，退出重试循环
                 }
-                catch (TimeoutException timeoutEx) when (attempt < maxRetries - 1)
+                catch (TimeoutException) when (attempt < maxRetries - 1)
                 {
                     // 指数退避延迟
                     var delayMs = baseDelay * (int)Math.Pow(2, attempt);
