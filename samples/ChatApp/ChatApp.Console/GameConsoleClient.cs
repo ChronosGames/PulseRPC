@@ -27,7 +27,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     private readonly Dictionary<Guid, PlayerData> _otherPlayers = new Dictionary<Guid, PlayerData>();
 
     /// <summary>
-    /// 初始化客户端
+    /// 初始化客户端 - 使用简化配置
     /// </summary>
     public Task InitializeAsync()
     {
@@ -38,7 +38,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         // 创建通道管理器
         _channelManager = new ChannelManager(loggerFactory);
 
-        // 创建TCP通道
+        // 简化的TCP通道配置
         var tcpOptions = new TransportOptions
         {
             NoDelay = true,
@@ -47,17 +47,17 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         };
         _channelManager.RegisterChannel("TcpChannel", TransportType.Tcp, tcpOptions, true);
 
-        // 创建KCP通道
+        // 简化的KCP通道配置 - 游戏优化设置
         var kcpOptions = new TransportOptions
         {
             Kcp = new KcpOptions
             {
-                NoDelay = 1,
-                Interval = 10,
-                Resend = 2,
-                DisableFlowControl = false,
-                SendWindow = 32,      // 与服务端匹配
-                ReceiveWindow = 128   // 与服务端匹配
+                NoDelay = 1,              // 无延迟模式
+                Interval = 10,            // 10ms更新间隔 
+                Resend = 2,               // 快重传
+                DisableFlowControl = true, // 关闭拥塞控制
+                SendWindow = 32,          // 发送窗口
+                ReceiveWindow = 128       // 接收窗口
             }
         };
         _channelManager.RegisterChannel("KcpChannel", TransportType.Kcp, kcpOptions, false);
@@ -67,26 +67,18 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             // 获取服务代理
             _playerService = _channelManager.GetPlayerHub();
 
-            // 创建事件处理器实例
+            // 创建事件处理器
             var eventsHandler = _channelManager.GetPlayerLoginEventsHandler();
-            try
-            {
-                // 保存订阅令牌
-                _eventsSubscription = eventsHandler.Subscribe(new PlayerEventsHandler(this));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "事件处理器初始化失败: {Message}", ex.Message);
-                throw;
-            }
+            _eventsSubscription = eventsHandler.Subscribe(new PlayerEventsHandler(this));
+
+            _logger.LogInformation("客户端初始化完成");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "服务代理或事件处理器初始化失败: {Message}", ex.Message);
+            _logger.LogError(ex, "客户端初始化失败: {Message}", ex.Message);
             throw;
         }
 
-        _logger.LogInformation("客户端初始化完成");
         return Task.CompletedTask;
     }
 

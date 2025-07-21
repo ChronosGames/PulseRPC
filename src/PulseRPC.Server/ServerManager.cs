@@ -9,20 +9,10 @@ using System.Net;
 namespace PulseRPC.Server;
 
 /// <summary>
-/// 服务器管理器接口
+/// 服务器生命周期管理接口
 /// </summary>
-public interface IServerManager : IDisposable
+public interface IPulseRpcServer : IDisposable
 {
-    /// <summary>
-    /// 添加传输
-    /// </summary>
-    void AddTransport(
-        string channelName,
-        TransportType transportType,
-        int port,
-        TransportOptions? options = null,
-        bool isDefault = false);
-
     /// <summary>
     /// 启动服务器
     /// </summary>
@@ -34,27 +24,37 @@ public interface IServerManager : IDisposable
     Task StopAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 获取已注册的服务端点
+    /// 服务器是否正在运行
     /// </summary>
-    // Task<IReadOnlyList<PulseRPC.ServiceDiscovery.ServiceEndpoint>> GetRegisteredServicesAsync();
+    bool IsRunning { get; }
+
+    /// <summary>
+    /// 获取已配置的传输信息
+    /// </summary>
+    IReadOnlyDictionary<string, (TransportType Type, int Port, bool IsDefault)> GetTransports();
 }
 
 /// <summary>
 /// 高性能服务器管理器 - 负责处理所有网络连接和消息路由
 /// </summary>
-public class ServerManager : IServerManager
+internal class PulseRpcServerManager : IPulseRpcServer
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly IServerChannelManager _serverChannelManager;
     // private readonly IServiceRegistry? _serviceRegistry;
     private readonly ServerOptions _serverOptions;
-    private readonly ILogger<ServerManager> _logger;
+    private readonly ILogger<PulseRpcServerManager> _logger;
     private readonly Dictionary<string, TransportInfo> _transports = new();
     private readonly Dictionary<string, IServerListener> _listeners = new();
     private readonly Dictionary<string, string> _registeredServiceIds = new(); // 传输名称 -> 服务ID
     private bool _isRunning;
 
-    public ServerManager(
+    /// <summary>
+    /// 服务器是否正在运行
+    /// </summary>
+    public bool IsRunning => _isRunning;
+
+    public PulseRpcServerManager(
         IServerChannelManager serverChannelManager,
         ILoggerFactory loggerFactory,
         IOptions<ServerOptions> serverOptions/*,
@@ -64,7 +64,7 @@ public class ServerManager : IServerManager
         _serverChannelManager = serverChannelManager;
         // _serviceRegistry = serviceRegistry;
         _serverOptions = serverOptions.Value;
-        _logger = loggerFactory.CreateLogger<ServerManager>();
+        _logger = loggerFactory.CreateLogger<PulseRpcServerManager>();
 
         // _logger.LogInformation("ServerManager 已初始化，服务注册: {ServiceRegistryEnabled}, 服务名称: {ServiceName}",
         //     _serverOptions.EnableServiceRegistry && _serviceRegistry != null, _serverOptions.ServiceName);
@@ -73,7 +73,7 @@ public class ServerManager : IServerManager
     /// <summary>
     /// 添加传输层
     /// </summary>
-    public void AddTransport(
+    internal void AddTransport(
         string channelName,
         TransportType transportType,
         int port,
@@ -103,6 +103,40 @@ public class ServerManager : IServerManager
         _transports.Add(channelName, transportInfo);
 
         _logger.LogInformation("已添加 {Type} 传输: {Name}, 端口: {Port}", transportType, channelName, port);
+    }
+
+    /// <summary>
+    /// 添加传输配置
+    /// </summary>
+    internal void AddTransport(TransportChannelConfiguration configuration)
+    {
+        AddTransport(
+            configuration.Name,
+            configuration.Type,
+            configuration.Port,
+            configuration.Options,
+            configuration.IsDefault);
+    }
+
+    /// <summary>
+    /// 批量添加传输配置
+    /// </summary>
+    internal void AddTransports(IEnumerable<TransportChannelConfiguration> configurations)
+    {
+        foreach (var config in configurations)
+        {
+            AddTransport(config);
+        }
+    }
+
+    /// <summary>
+    /// 获取已配置的传输信息
+    /// </summary>
+    public IReadOnlyDictionary<string, (TransportType Type, int Port, bool IsDefault)> GetTransports()
+    {
+        return _transports.ToDictionary(
+            kvp => kvp.Key,
+            kvp => (kvp.Value.Type, kvp.Value.Port, kvp.Value.IsDefault));
     }
 
     /// <summary>
