@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "com.chronosgames.pulserpc.client": {
-      "version": "file:../../PulseRPC.Client/.artifacts/bin/pulserpc.client/debug_netstandard2.1",
+      "version": "file:../../PulseRPC.Client/.artifacts/bin/pulserpc.client/release_netstandard2.1",
       "depth": 0,
       "source": "local",
       "dependencies": {
@@ -20,7 +20,7 @@
       "depth": 0,
       "source": "git",
       "dependencies": {},
-      "hash": "9d51dfcc84cad2ccc5ea1833b5f33e073ce2ac56"
+      "hash": "a7c6b49a0141a5bff9b1983e38137522ef61977d"
     },
     "com.unity.editorcoroutines": {
       "version": "1.0.0",
@@ -107,15 +107,6 @@
       "dependencies": {
         "com.unity.test-framework": "1.0.16",
         "com.unity.settings-manager": "1.0.1"
-      },
-      "url": "https://packages.unity.com"
-    },
-    "com.unity.textmeshpro": {
-      "version": "3.0.9",
-      "depth": 0,
-      "source": "registry",
-      "dependencies": {
-        "com.unity.ugui": "1.0.0"
       },
       "url": "https://packages.unity.com"
     },

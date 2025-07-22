@@ -2,3 +2,4 @@
 *.unitypackage
 *.sln
 !Packages/
+/Assets/Packages/

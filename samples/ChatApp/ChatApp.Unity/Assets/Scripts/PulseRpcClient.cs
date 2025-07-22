@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
 using PulseRPC.Transport;
 using UnityEngine;
+using ILogger = Microsoft.Extensions.Logging.ILogger;
+
+#nullable enable
 
 namespace ChatApp.Unity
 {
@@ -17,7 +20,7 @@ namespace ChatApp.Unity
         [SerializeField] private int tcpPort = 7000;
         [SerializeField] private int kcpPort = 7001;
         [SerializeField] private bool useKcp = true;
-        
+
         private IPulseRpcClient? _client;
         private IPlayerHub? _playerHub;
         private ILoggerFactory? _loggerFactory;
@@ -61,7 +64,7 @@ namespace ChatApp.Unity
             });
 
             Debug.Log("PulseRPC客户端已创建");
-            
+
             // 自动连接
             await ConnectAsync();
         }
@@ -77,13 +80,13 @@ namespace ChatApp.Unity
             {
                 Debug.Log("正在连接到服务器...");
                 await _client.ConnectAsync();
-                
+
                 // 获取服务代理
                 _playerHub = _client.GetService<IPlayerHub>();
-                
+
                 _isConnected = true;
                 Debug.Log("成功连接到服务器");
-                
+
                 // 触发连接成功事件
                 OnConnected?.Invoke();
             }
@@ -107,7 +110,7 @@ namespace ChatApp.Unity
                 await _client.DisconnectAsync();
                 _isConnected = false;
                 _playerHub = null;
-                
+
                 Debug.Log("已断开连接");
                 OnDisconnected?.Invoke();
             }
@@ -262,7 +265,7 @@ namespace ChatApp.Unity
             if (!IsEnabled(logLevel)) return;
 
             var message = $"[{_categoryName}] {formatter(state, exception)}";
-            
+
             switch (logLevel)
             {
                 case LogLevel.Error:
