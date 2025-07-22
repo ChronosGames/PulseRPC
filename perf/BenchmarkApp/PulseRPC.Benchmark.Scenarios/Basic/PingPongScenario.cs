@@ -44,44 +44,22 @@ public class PingPongScenario(ILoggerFactory loggerFactory) : BenchmarkClientBas
             // 预热阶段
             await WarmupPhase(config, cancellationToken);
 
-            // 主测试阶段 - 连续Ping测试
-            _lastPingTime = DateTime.UtcNow;
-
+            // 主测试阶段 - 优化的连续Ping测试
             for (int i = 0; i < iterations; i++)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
-                    Logger.LogWarning("Ping-Pong测试被取消，当前完成 {Current}/{Total} 次", i, iterations);
                     break;
                 }
 
-                var currentPingTime = DateTime.UtcNow;
-
-                // 记录间隔时间（从第二次Ping开始）
-                if (i > 0)
-                {
-                    var intervalMs = (currentPingTime - _lastPingTime).TotalMilliseconds;
-                    _intervalTimes.Add(intervalMs);
-                }
-
-                // 执行单次Ping
+                // 执行单次Ping - 移除不必要的时间间隔记录
                 var pingLatency = await ExecuteSinglePing(i + 1, messageSize, cancellationToken);
                 _pingLatencies.Add(pingLatency);
 
-                _lastPingTime = currentPingTime;
-
-                // 等待指定间隔
-                if (pingInterval > 0 && i < iterations - 1) // 最后一次不需要等待
+                // 如果指定了间隔且不是最后一次，才等待
+                if (pingInterval > 0 && i < iterations - 1)
                 {
                     await Task.Delay(pingInterval, cancellationToken);
-                }
-
-                // 每100次记录一次进度
-                if ((i + 1) % 100 == 0)
-                {
-                    var avgLatency = _pingLatencies.TakeLast(100).Average();
-                    Logger.LogDebug("已完成 {Current}/{Total} 次Ping，最近100次平均延迟: {AvgLatency:F2}ms",
-                        i + 1, iterations, avgLatency);
                 }
             }
 
@@ -108,24 +86,17 @@ public class PingPongScenario(ILoggerFactory loggerFactory) : BenchmarkClientBas
 
     private async Task WarmupPhase(BenchmarkConfiguration config, CancellationToken cancellationToken)
     {
-        var warmupIterations = Math.Min(config.WarmupIterations, 20); // Ping测试预热不需要太多次
-        Logger.LogInformation("开始预热阶段，预热次数: {WarmupIterations}", warmupIterations);
-
+        var warmupIterations = Math.Min(config.WarmupIterations, 10); // 减少预热次数
+        
+        // 快速预热，不记录详细日志
         for (int i = 0; i < warmupIterations; i++)
         {
             if (cancellationToken.IsCancellationRequested)
                 break;
 
+            // 预热不需要间隔，直接连续调用
             await ExecuteSinglePing(i + 1, config.MessageSizeBytes, cancellationToken);
-
-            // 预热阶段也遵循间隔设置
-            if (config.TestIntervalMs > 0 && i < warmupIterations - 1)
-            {
-                await Task.Delay(config.TestIntervalMs, cancellationToken);
-            }
         }
-
-        Logger.LogInformation("预热阶段完成");
     }
 
     private async Task<double> ExecuteSinglePing(int sequenceNumber, int messageSize, CancellationToken cancellationToken)
@@ -135,48 +106,35 @@ public class PingPongScenario(ILoggerFactory loggerFactory) : BenchmarkClientBas
             throw new InvalidOperationException("BenchmarkService 未初始化，请先调用 InitializeAsync");
         }
 
-        _stopwatch.Restart();
+        // 使用高精度计时器，减少DateTime.UtcNow调用
+        var startTicks = Stopwatch.GetTimestamp();
 
-        // 创建Ping请求
+        // 创建简化的Ping请求 - 减少不必要字段
         var request = new PingRequest
         {
             RequestId = sequenceNumber,
-            ClientId = "PingPongClient",
             SequenceNumber = sequenceNumber,
-            PayloadSize = 32  // 默认32字节负载
+            PayloadSize = 0  // 最小化负载以测试纯RPC开销
         };
 
         try
         {
             var response = await BenchmarkService.PingAsync(request, cancellationToken);
 
-            _stopwatch.Stop();
+            var endTicks = Stopwatch.GetTimestamp();
+            var latency = (endTicks - startTicks) * 1000.0 / Stopwatch.Frequency;
 
-            var latency = _stopwatch.Elapsed.TotalMilliseconds;
-
-            // 验证响应
-            if (response == null)
+            // 简化响应验证 - 移除详细日志
+            if (response == null || !response.Success)
             {
-                Logger.LogWarning("Ping #{SequenceNumber} 响应为null", sequenceNumber);
-                return 9999.0; // 标记为失败
+                return 9999.0; // 快速失败标记
             }
-
-            if (!response.Success)
-            {
-                Logger.LogWarning("Ping #{SequenceNumber} 响应失败: {Error}", sequenceNumber, response.ErrorMessage);
-                return 9999.0; // 标记为失败
-            }
-
-            Logger.LogTrace("Ping #{SequenceNumber}: {Latency:F2}ms", sequenceNumber, latency);
 
             return latency;
         }
-        catch (Exception ex)
+        catch
         {
-            _stopwatch.Stop();
-            Logger.LogWarning(ex, "Ping #{SequenceNumber} RPC调用失败: {Error}", sequenceNumber, ex.Message);
-
-            // 返回一个较大的延迟值表示失败，但不抛出异常以继续测试
+            // 快速错误处理，不记录详细日志
             return 9999.0;
         }
     }
