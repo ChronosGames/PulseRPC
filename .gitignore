@@ -127,7 +127,6 @@ src/PulseRPC.Client.Unity/Temp/*
 src/PulseRPC.Abstractions/**/*.meta
 src/PulseRPC.Client/**/*.meta
 **/UserSettings/*
-**/Assets/Packages/
 
 # MSBuild 构建输出（隐藏的artifacts文件夹）
 **/.artifacts/

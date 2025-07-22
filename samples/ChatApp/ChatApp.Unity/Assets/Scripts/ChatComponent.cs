@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
-using ChatApp.Shared;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Channels;
@@ -62,7 +61,6 @@ namespace ChatApp.Unity
 
         // 网络组件
         private IChannelManager _channelManager;
-        private TransportFactory _transportFactory;
         private IPlayerHub _playerService;
         private ISubscriptionToken _eventsSubscription;
         private CancellationTokenSource _cts;
@@ -184,11 +182,11 @@ namespace ChatApp.Unity
             _channelManager = new ChannelManager();
 
             // 创建TCP通道 - 用于可靠消息传输
-            var tcpOptions = new TransportOptions 
-            { 
-                NoDelay = true, 
-                KeepAlive = true, 
-                AutoReconnect = true 
+            var tcpOptions = new TransportOptions
+            {
+                NoDelay = true,
+                KeepAlive = true,
+                AutoReconnect = true
             };
             var tcpTransport = await _transportFactory.CreateTransportAsync(TransportType.Tcp, tcpOptions);
             var tcpChannel = new TransportChannel("TcpChannel", tcpTransport, serializer, null);
@@ -197,8 +195,8 @@ namespace ChatApp.Unity
             // 创建KCP通道 - 用于低延迟游戏数据传输
             var kcpOptions = new TransportOptions
             {
-                Kcp = new KcpOptions 
-                { 
+                Kcp = new KcpOptions
+                {
                     NoDelay = 1,               // 无延迟模式
                     Interval = 10,             // 10ms更新间隔
                     Resend = 2,                // 快重传

@@ -18,7 +18,7 @@ PulseRPC的Unity客户端实现，提供了在Unity环境中使用PulseRPC框架
 
 1. 在Unity中打开Package Manager (菜单: Window > Package Manager)
 2. 点击"+"按钮并选择"Add package from git URL..."
-3. 输入此仓库的URL: `https://github.com/YourOrganization/PulseRPC.git?path=src/PulseRPC.Client.Unity`
+3. 输入此仓库的URL: `https://github.com/ChronosGames/PulseRPC.git?path=src/PulseRPC.Client.Unity`
 4. 点击"Add"按钮
 
 ### 方法2：手动导入

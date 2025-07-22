@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using ChatApp.Unity;
-using ChatApp.Shared;
 using UnityEngine;
 
 namespace ChatApp
