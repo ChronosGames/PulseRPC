@@ -56,4 +56,10 @@
   <ItemGroup>
     <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\cs" Pack="true" Visible="false" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Update="package.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
