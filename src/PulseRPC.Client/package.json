@@ -1,0 +1,14 @@
+{
+  "name": "com.chronosgames.pulserpc.client.internal",
+  "displayName": "PulseRPC.Client Internal",
+  "author": {
+    "name": "ChronosGames Team",
+    "url": "https://github.com/ChronosGames/PulseRPC"
+  },
+  "version": "1.0.0",
+  "unity": "2022.3",
+  "description": "Internal Package of PulseRPC for development time.",
+  "license": "MIT",
+  "category": "Scripting",
+  "dependencies": {}
+}

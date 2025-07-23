@@ -64,13 +64,13 @@ jobs:
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
-      
+
       # 从 build-dotnet job 下载 DLL 文件
       - uses: ChronosGames/Actions/.github/actions/download-artifact@main
         with:
           name: nuget
           path: ./publish/
-      
+
       # 复制必要的 DLL 到 Unity 项目
       - name: Copy DLLs to Unity project
         run: |
@@ -78,7 +78,7 @@ jobs:
           find ./publish -name "PulseRPC.*.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \;
           find ./publish -name "MemoryPack.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
           find ./publish -name "System.IO.Pipelines.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
-      
+
       # 使用 Unity Builder 构建包
       - name: Build Unity (.unitypackage)
         uses: game-ci/unity-builder@v4

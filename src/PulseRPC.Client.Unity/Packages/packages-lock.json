@@ -1,12 +1,10 @@
 {
   "dependencies": {
-    "com.chronosgames.pulserpc.client": {
-      "version": "file:../../PulseRPC.Client/.artifacts/bin/pulserpc.client/release_netstandard2.1",
+    "com.chronosgames.pulserpc.client.internal": {
+      "version": "file:../../PulseRPC.Client/bin/Debug/netstandard2.1",
       "depth": 0,
       "source": "local",
-      "dependencies": {
-        "com.cysharp.memorypack": "1.21.4"
-      }
+      "dependencies": {}
     },
     "com.cysharp.memorypack": {
       "version": "https://github.com/Cysharp/MemoryPack.git?path=src/MemoryPack.Unity/Assets/MemoryPack.Unity",
