@@ -13,6 +13,9 @@ on:
       - docs/**
       - samples/**
   workflow_dispatch:
+  schedule:
+    # 每天凌晨 2 点构建 canary 版本（UTC + 8 时间）
+    - cron: '0 10 * * *'
 
 env:
   DISABLE_NETFX_TARGET_BUILD: 1
@@ -23,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: ChronosGames/Actions/.github/actions/checkout@main
+      - uses: actions/checkout@v4
         with:
           lfs: true
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
