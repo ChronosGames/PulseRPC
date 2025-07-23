@@ -52,60 +52,64 @@ jobs:
           path: ./publish/
           retention-days: 1
 
-  #build-unity:
-  #  needs: [update-packagejson]
-  #  strategy:
-  #    matrix:
-  #      unity: ["2022.3.0f1"]
-  #  runs-on: ubuntu-latest
-  #  timeout-minutes: 15
-  #  steps:
-  #    - name: Load secrets
-  #      id: op-load-secret
-  #      uses: 1password/load-secrets-action@581a835fb51b8e7ec56b71cf2ffddd7e68bb25e0 # v2.0.0
-  #      with:
-  #        export-env: false
-  #      env:
-  #        OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN_PUBLIC }}
-  #        UNITY_EMAIL: "op://${{ vars.OP_VAULT_ACTIONS_INTERNAL }}/UNITY_LICENSE/username"
-  #        UNITY_PASSWORD: "op://${{ vars.OP_VAULT_ACTIONS_INTERNAL }}/UNITY_LICENSE/credential"
-  #        UNITY_SERIAL: "op://${{ vars.OP_VAULT_ACTIONS_INTERNAL }}/UNITY_LICENSE/serial"
-  #
-  #    - uses: Cysharp/Actions/.github/actions/checkout@main
-  #      with:
-  #        ref: ${{ needs.update-packagejson.outputs.sha }}
-  #    # execute scripts/Export Package
-  #    # /opt/Unity/Editor/Unity -quit -batchmode -nographics -silent-crashes -logFile -projectPath . -executeMethod PackageExporter.Export
-  #    - name: Build Unity (.unitypacakge)
-  #      uses: Cysharp/Actions/.github/actions/unity-builder@main
-  #      env:
-  #        UNITY_EMAIL: ${{ steps.op-load-secret.outputs.UNITY_EMAIL }}
-  #        UNITY_PASSWORD: ${{ steps.op-load-secret.outputs.UNITY_PASSWORD }}
-  #        UNITY_SERIAL: ${{ steps.op-load-secret.outputs.UNITY_SERIAL }}
-  #        UNITY_PACKAGE_VERSION: ${{ inputs.tag }}
-  #      with:
-  #        projectPath: src/MagicOnion.Client.Unity
-  #        unityVersion: ${{ matrix.unity }}
-  #        targetPlatform: StandaloneLinux64
-  #        buildMethod: PackageExporter.Export
-  #
-  #    - uses: Cysharp/Actions/.github/actions/check-metas@main # check meta files
-  #      with:
-  #        directory: src/MagicOnion.Client.Unity
-  #
-  #    # Store artifacts.
-  #    - uses: Cysharp/Actions/.github/actions/upload-artifact@main
-  #      with:
-  #        name: MagicOnion.Client.Unity.unitypackage
-  #        path: ./src/MagicOnion.Client.Unity/MagicOnion.Client.Unity.unitypackage
-  #        retention-days: 1
+  build-unity:
+    needs: [update-packagejson, build-dotnet]
+    strategy:
+      matrix:
+        unity: ["2022.3.0f1"]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.update-packagejson.outputs.sha }}
+          lfs: true
+      
+      # 从 build-dotnet job 下载 DLL 文件
+      - uses: ChronosGames/Actions/.github/actions/download-artifact@main
+        with:
+          name: nuget
+          path: ./publish/
+      
+      # 复制必要的 DLL 到 Unity 项目
+      - name: Copy DLLs to Unity project
+        run: |
+          mkdir -p ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins
+          find ./publish -name "PulseRPC.*.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \;
+          find ./publish -name "MemoryPack.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
+          find ./publish -name "System.IO.Pipelines.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
+      
+      # 使用 Unity Builder 构建包
+      - name: Build Unity (.unitypackage)
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_PACKAGE_VERSION: ${{ inputs.tag }}
+        with:
+          projectPath: src/PulseRPC.Client.Unity
+          unityVersion: ${{ matrix.unity }}
+          targetPlatform: StandaloneLinux64
+          buildMethod: PackageExporter.Export
+
+      - uses: ./.github/actions/check-metas # check meta files
+        with:
+          directory: src/PulseRPC.Client.Unity
+
+      # Store artifacts.
+      - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
+        with:
+          name: PulseRPC.Client.Unity.unitypackage
+          path: ./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity*.unitypackage
+          retention-days: 1
 
   # release
   create-release:
     permissions:
       actions: read   # 为了调用可复用工作流
       contents: write  # 为了允许推送更改到仓库
-    needs: [update-packagejson, build-dotnet]
+    needs: [update-packagejson, build-dotnet, build-unity]
     uses: ChronosGames/Actions/.github/workflows/create-release.yaml@main
     with:
       commit-id: ${{ needs.update-packagejson.outputs.sha }}
@@ -117,7 +121,7 @@ jobs:
 
   cleanup:
     if: ${{ needs.update-packagejson.outputs.is-branch-created == 'true' }}
-    needs: [build-dotnet, update-packagejson]
+    needs: [build-dotnet, build-unity, update-packagejson]
     uses: ChronosGames/Actions/.github/workflows/clean-packagejson-branch.yaml@main
     with:
       branch: ${{ needs.update-packagejson.outputs.branch-name }}
