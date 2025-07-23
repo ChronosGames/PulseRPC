@@ -66,6 +66,10 @@ jobs:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
 
+      # Setup .NET and build PulseRPC.Client for Unity dependency
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - run: dotnet build -c Debug ./src/PulseRPC.Client/PulseRPC.Client.csproj -f netstandard2.1
+
       # Execute scripts: Export Package
       # /opt/Unity/Editor/Unity -quit -batchmode -nographics -silent-crashes -logFile -projectPath . -executeMethod PackageExporter.Export
       - name: Build Unity (.unitypackage)
