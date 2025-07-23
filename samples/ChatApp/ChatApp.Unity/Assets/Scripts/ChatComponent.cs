@@ -176,16 +176,15 @@ namespace ChatApp.Unity
             _cts = new CancellationTokenSource();
 
             // 创建日志工厂
-            _loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
-            {
-                builder.AddProvider(new UnityLoggerProvider());
-                builder.SetMinimumLevel(LogLevel.Information);
-            });
+            // _loggerFactory = LoggerFactory.Create(builder =>
+            // {
+            //     builder.AddProvider(new UnityLoggerProvider());
+            //     builder.SetMinimumLevel(LogLevel.Information);
+            // });
 
             // 创建PulseRPC客户端，支持双通道
-            _client = PulseRpcClientFactory.CreateClient(builder =>
-            {
-                builder.WithLogger(_loggerFactory)
+            _client = new ClientBuilder()
+                       // .WithLogger(_loggerFactory)
                        .WithOptions(options =>
                        {
                            options.ConnectionTimeout = TimeSpan.FromSeconds(10);
@@ -207,8 +206,8 @@ namespace ChatApp.Unity
                                Resend = 2,                // 快重传
                                DisableFlowControl = true  // 关闭拥塞控制
                            };
-                       });
-            });
+                       })
+                       .Build();
 
             // 获取服务代理
             _playerService = _client.GetService<IPlayerHub>();

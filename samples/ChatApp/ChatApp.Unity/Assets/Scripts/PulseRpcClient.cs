@@ -29,39 +29,63 @@ namespace ChatApp.Unity
         private async void Start()
         {
             // 创建日志工厂（Unity环境）
-            _loggerFactory = LoggerFactory.Create(builder =>
-            {
-                builder.AddProvider(new UnityLoggerProvider());
-                builder.SetMinimumLevel(LogLevel.Information);
-            });
+            // _loggerFactory = LoggerFactory.Create(builder =>
+            // {
+            //     builder.AddProvider(new UnityLoggerProvider());
+            //     builder.SetMinimumLevel(LogLevel.Information);
+            // });
 
             // 创建客户端实例 - 使用双通道配置
-            _client = PulseRpcClientFactory.CreateClient(builder =>
-            {
-                builder.WithLogger(_loggerFactory)
-                       .WithOptions(options =>
-                       {
-                           // 使用现有的ClientOptions属性
-                           options.ConnectionTimeout = TimeSpan.FromSeconds(10);
-                           options.AutoReconnect = true;
-                       })
-                       // TCP通道用于可靠通信
-                       .AddTcp("reliable", serverHost, tcpPort, options =>
-                       {
-                           options.NoDelay = true;
-                       }, isDefault: !useKcp)
-                       // KCP通道用于低延迟游戏数据
-                       .AddKcp("gaming", serverHost, kcpPort, options =>
-                       {
-                           options.Kcp = new KcpOptions
-                           {
-                               NoDelay = 1,
-                               Interval = 10,
-                               Resend = 2,
-                               DisableFlowControl = true
-                           };
-                       }, isDefault: useKcp);
-            });
+            _client = new ClientBuilder()
+                .WithOptions(options =>
+                {
+                    // 使用现有的ClientOptions属性
+                    options.ConnectionTimeout = TimeSpan.FromSeconds(10);
+                    options.AutoReconnect = true;
+                })
+                // TCP通道用于可靠通信
+                .AddTcp("reliable", serverHost, tcpPort, options =>
+                {
+                    options.NoDelay = true;
+                }, isDefault: !useKcp)
+                // KCP通道用于低延迟游戏数据
+                .AddKcp("gaming", serverHost, kcpPort, options =>
+                {
+                    options.Kcp = new KcpOptions
+                    {
+                        NoDelay = 1,
+                        Interval = 10,
+                        Resend = 2,
+                        DisableFlowControl = true
+                    };
+                }, isDefault: useKcp)
+                .Build();
+            // _client = PulseRpcClientFactory.CreateClient(builder =>
+            // {
+            //     builder.WithLogger(_loggerFactory)
+            //            .WithOptions(options =>
+            //            {
+            //                // 使用现有的ClientOptions属性
+            //                options.ConnectionTimeout = TimeSpan.FromSeconds(10);
+            //                options.AutoReconnect = true;
+            //            })
+            //            // TCP通道用于可靠通信
+            //            .AddTcp("reliable", serverHost, tcpPort, options =>
+            //            {
+            //                options.NoDelay = true;
+            //            }, isDefault: !useKcp)
+            //            // KCP通道用于低延迟游戏数据
+            //            .AddKcp("gaming", serverHost, kcpPort, options =>
+            //            {
+            //                options.Kcp = new KcpOptions
+            //                {
+            //                    NoDelay = 1,
+            //                    Interval = 10,
+            //                    Resend = 2,
+            //                    DisableFlowControl = true
+            //                };
+            //            }, isDefault: useKcp);
+            // });
 
             Debug.Log("PulseRPC客户端已创建");
 
@@ -250,14 +274,25 @@ namespace ChatApp.Unity
             _categoryName = categoryName;
         }
 
-        public IDisposable? BeginScope<TState>(TState state) where TState : notnull
-        {
-            return null;
-        }
+        // public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        // {
+        //     return null;
+        // }
 
         public bool IsEnabled(LogLevel logLevel)
         {
             return logLevel >= LogLevel.Information;
+        }
+
+        public IDisposable BeginScope<TState>(TState state)
+        {
+            return NullDisposable.Instance;
+        }
+
+        private class NullDisposable : IDisposable
+        {
+            public static readonly NullDisposable Instance = new NullDisposable();
+            public void Dispose() { }
         }
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
