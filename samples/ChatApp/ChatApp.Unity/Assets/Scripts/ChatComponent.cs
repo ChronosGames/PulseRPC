@@ -4,12 +4,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
+using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Channels;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
+using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace ChatApp.Unity
 {
@@ -60,10 +62,11 @@ namespace ChatApp.Unity
         public event Action<Guid, System.Numerics.Vector3> OnPlayerMoved;
 
         // 网络组件
-        private IChannelManager _channelManager;
+        private IPulseRpcClient _client;
         private IPlayerHub _playerService;
         private ISubscriptionToken _eventsSubscription;
         private CancellationTokenSource _cts;
+        private ILoggerFactory _loggerFactory;
 
         // 玩家状态
         private bool _isLoggedIn;
@@ -172,43 +175,43 @@ namespace ChatApp.Unity
 
             _cts = new CancellationTokenSource();
 
-            // 创建序列化器
-            var serializer = PulseRPCSerializerProvider.Instance;
-
-            // 创建传输工厂
-            _transportFactory = new TransportFactory();
-
-            // 创建通道管理器
-            _channelManager = new ChannelManager();
-
-            // 创建TCP通道 - 用于可靠消息传输
-            var tcpOptions = new TransportOptions
+            // 创建日志工厂
+            _loggerFactory = Microsoft.Extensions.Logging.LoggerFactory.Create(builder =>
             {
-                NoDelay = true,
-                KeepAlive = true,
-                AutoReconnect = true
-            };
-            var tcpTransport = await _transportFactory.CreateTransportAsync(TransportType.Tcp, tcpOptions);
-            var tcpChannel = new TransportChannel("TcpChannel", tcpTransport, serializer, null);
-            _channelManager.RegisterChannel("TcpChannel", tcpChannel, true);
+                builder.AddProvider(new UnityLoggerProvider());
+                builder.SetMinimumLevel(LogLevel.Information);
+            });
 
-            // 创建KCP通道 - 用于低延迟游戏数据传输
-            var kcpOptions = new TransportOptions
+            // 创建PulseRPC客户端，支持双通道
+            _client = PulseRpcClientFactory.CreateClient(builder =>
             {
-                Kcp = new KcpOptions
-                {
-                    NoDelay = 1,               // 无延迟模式
-                    Interval = 10,             // 10ms更新间隔
-                    Resend = 2,                // 快重传
-                    DisableFlowControl = true  // 关闭拥塞控制
-                }
-            };
-            var kcpTransport = await _transportFactory.CreateTransportAsync(TransportType.Kcp, kcpOptions);
-            var kcpChannel = new TransportChannel("KcpChannel", kcpTransport, serializer, null);
-            _channelManager.RegisterChannel("KcpChannel", kcpChannel);
+                builder.WithLogger(_loggerFactory)
+                       .WithOptions(options =>
+                       {
+                           options.ConnectionTimeout = TimeSpan.FromSeconds(10);
+                           options.AutoReconnect = true;
+                       })
+                       // TCP通道用于可靠消息传输
+                       .AddTcp("TcpChannel", _host, _tcpPort, options =>
+                       {
+                           options.NoDelay = true;
+                           options.KeepAlive = true;
+                       }, isDefault: true)
+                       // KCP通道用于低延迟游戏数据传输
+                       .AddKcp("KcpChannel", _host, _kcpPort, options =>
+                       {
+                           options.Kcp = new KcpOptions
+                           {
+                               NoDelay = 1,               // 无延迟模式
+                               Interval = 10,             // 10ms更新间隔
+                               Resend = 2,                // 快重传
+                               DisableFlowControl = true  // 关闭拥塞控制
+                           };
+                       });
+            });
 
             // 获取服务代理
-            _playerService = _channelManager.GetPlayerHub();
+            _playerService = _client.GetService<IPlayerHub>();
 
             // 设置事件处理器
             SetupEventHandlers();
@@ -221,8 +224,9 @@ namespace ChatApp.Unity
             try
             {
                 var eventsHandler = new PlayerEventsHandler(this);
-                var tcpMessageChannel = _channelManager.GetChannel("TcpChannel");
-                var kcpMessageChannel = _channelManager.GetChannel("KcpChannel");
+                var channelManager = _client.GetChannelManager();
+                var tcpMessageChannel = channelManager.GetChannel("TcpChannel");
+                var kcpMessageChannel = channelManager.GetChannel("KcpChannel");
 
                 // 登录事件 (TCP通道)
                 var loginJoinedToken = tcpMessageChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined", (sender, eventData) => eventsHandler.OnPlayerJoined(eventData));
@@ -261,13 +265,8 @@ namespace ChatApp.Unity
 
             try
             {
-                // 连接TCP通道
-                var tcpChannel = _channelManager.GetChannel("TcpChannel");
-                await tcpChannel.ConnectAsync(_host, _tcpPort);
-
-                // 连接KCP通道
-                var kcpChannel = _channelManager.GetChannel("KcpChannel");
-                await kcpChannel.ConnectAsync(_host, _kcpPort);
+                // 使用PulseRPC客户端连接
+                await _client.ConnectAsync();
 
                 _isConnected = true;
                 Debug.Log("[ChatComponent] 已连接到服务器");
@@ -448,12 +447,17 @@ namespace ChatApp.Unity
                 _eventsSubscription?.Dispose();
                 _eventsSubscription = null;
 
-                // 关闭通道
-                if (_channelManager != null)
+                // 关闭客户端
+                if (_client != null)
                 {
-                    _channelManager.Dispose();
-                    _channelManager = null;
+                    await _client.DisconnectAsync();
+                    _client.Dispose();
+                    _client = null;
                 }
+
+                // 清理日志工厂
+                _loggerFactory?.Dispose();
+                _loggerFactory = null;
 
                 _isConnected = false;
                 _isLoggedIn = false;
@@ -523,11 +527,12 @@ namespace ChatApp.Unity
         private void Update()
         {
             // RTT更新
-            if (LabelRtt != null && _channelManager != null)
+            if (LabelRtt != null && _client != null && _client.IsConnected)
             {
                 try
                 {
-                    var channel = _channelManager.GetChannel("TcpChannel");
+                    var channelManager = _client.GetChannelManager();
+                    var channel = channelManager.GetChannel("TcpChannel");
                     // TODO: 实现RTT显示
                     LabelRtt.text = "RTT: --ms";
                 }
@@ -707,12 +712,27 @@ namespace ChatApp.Unity
             _eventsSubscription?.Dispose();
             _eventsSubscription = null;
 
-            // 关闭通道
-            if (_channelManager != null)
+            // 关闭客户端
+            if (_client != null)
             {
-                _channelManager.Dispose();
-                _channelManager = null;
+                try
+                {
+                    await _client.DisconnectAsync();
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[ChatComponent] 断开连接时发生错误: {ex.Message}");
+                }
+                finally
+                {
+                    _client.Dispose();
+                    _client = null;
+                }
             }
+
+            // 清理日志工厂
+            _loggerFactory?.Dispose();
+            _loggerFactory = null;
 
             Debug.Log("[ChatComponent] 组件已关闭");
             UpdateStatus("已关闭");
@@ -743,7 +763,7 @@ namespace ChatApp.Unity
         [ContextMenu("测试连接")]
         private async void TestConnection()
         {
-            if (_channelManager != null && !_isConnected)
+            if (_client != null && !_client.IsConnected)
             {
                 Debug.Log("[ChatComponent] 正在测试连接...");
                 UpdateStatus("正在测试连接...");
@@ -871,6 +891,72 @@ namespace ChatApp.Unity
             {
                 Unsubscribe();
                 GC.SuppressFinalize(this);
+            }
+        }
+
+        #endregion
+
+        #region Unity日志支持
+
+        /// <summary>
+        /// Unity日志提供程序
+        /// </summary>
+        public class UnityLoggerProvider : ILoggerProvider
+        {
+            public ILogger CreateLogger(string categoryName)
+            {
+                return new UnityLogger(categoryName);
+            }
+
+            public void Dispose() { }
+        }
+
+        /// <summary>
+        /// Unity日志记录器
+        /// </summary>
+        public class UnityLogger : ILogger
+        {
+            private readonly string _categoryName;
+
+            public UnityLogger(string categoryName)
+            {
+                _categoryName = categoryName;
+            }
+
+            public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+            {
+                return null;
+            }
+
+            public bool IsEnabled(LogLevel logLevel)
+            {
+                return logLevel >= LogLevel.Information;
+            }
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                if (!IsEnabled(logLevel)) return;
+
+                var message = $"[{_categoryName}] {formatter(state, exception)}";
+
+                switch (logLevel)
+                {
+                    case LogLevel.Error:
+                    case LogLevel.Critical:
+                        Debug.LogError(message);
+                        break;
+                    case LogLevel.Warning:
+                        Debug.LogWarning(message);
+                        break;
+                    default:
+                        Debug.Log(message);
+                        break;
+                }
+
+                if (exception != null)
+                {
+                    Debug.LogException(exception);
+                }
             }
         }
 
