@@ -53,39 +53,27 @@ jobs:
           retention-days: 1
 
   build-unity:
-    needs: [update-packagejson, build-dotnet]
+    needs: [update-packagejson]
     strategy:
       matrix:
-        unity: ["2022.3.0f1"]
+        unity: ["2022.3.39f1"]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - run: echo ${{ needs.update-packagejson.outputs.sha }}
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
 
-      # 从 build-dotnet job 下载 DLL 文件
-      - uses: ChronosGames/Actions/.github/actions/download-artifact@main
-        with:
-          name: nuget
-          path: ./publish/
-
-      # 复制必要的 DLL 到 Unity 项目
-      - name: Copy DLLs to Unity project
-        run: |
-          mkdir -p ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins
-          find ./publish -name "PulseRPC.*.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \;
-          find ./publish -name "MemoryPack.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
-          find ./publish -name "System.IO.Pipelines.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
-
-      # 使用 Unity Builder 构建包
+      # Execute scripts: Export Package
+      # /opt/Unity/Editor/Unity -quit -batchmode -nographics -silent-crashes -logFile -projectPath . -executeMethod PackageExporter.Export
       - name: Build Unity (.unitypackage)
-        uses: game-ci/unity-builder@v4
+        uses: ChronosGames/Actions/.github/actions/unity-builder@main
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
           UNITY_PACKAGE_VERSION: ${{ inputs.tag }}
         with:
           projectPath: src/PulseRPC.Client.Unity
@@ -93,7 +81,8 @@ jobs:
           targetPlatform: StandaloneLinux64
           buildMethod: PackageExporter.Export
 
-      - uses: ./.github/actions/check-metas # check meta files
+      # check meta files
+      - uses: ChronosGames/Actions/.github/actions/check-metas@main
         with:
           directory: src/PulseRPC.Client.Unity
 
