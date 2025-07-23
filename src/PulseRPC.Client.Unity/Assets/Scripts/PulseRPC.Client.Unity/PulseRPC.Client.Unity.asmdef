@@ -1,12 +1,20 @@
 {
     "name": "PulseRPC.Client.Unity",
     "rootNamespace": "PulseRPC.Client.Unity",
-    "references": [],
+    "references": [
+        "PulseRPC.Abstractions",
+        "PulseRPC.Client"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
-    "overrideReferences": false,
-    "precompiledReferences": [],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "PulseRPC.Abstractions.dll",
+        "PulseRPC.Client.dll",
+        "MemoryPack.dll",
+        "System.IO.Pipelines.dll"
+    ],
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [

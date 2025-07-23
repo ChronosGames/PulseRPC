@@ -14,7 +14,7 @@ public static class PackageExporter
         // configure
         var roots = new[]
         {
-            "Scripts/PulseRPC",
+            "Scripts/PulseRPC.Client.Unity",
         };
         var fileName = string.IsNullOrEmpty(version) ? "PulseRPC.Client.Unity.unitypackage" : $"PulseRPC.Client.Unity.{version}.unitypackage";
         var exportPath = "./" + fileName;
@@ -24,7 +24,12 @@ public static class PackageExporter
             {
                 var path = Path.Combine(Application.dataPath, root);
                 var assets = Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
-                    .Where(x => Path.GetExtension(x) == ".cs" || Path.GetExtension(x) == ".asmdef" || Path.GetExtension(x) == ".json" || Path.GetExtension(x) == ".meta")
+                    .Where(x => 
+                    {
+                        var ext = Path.GetExtension(x);
+                        return ext == ".cs" || ext == ".asmdef" || ext == ".json" || 
+                               ext == ".meta" || ext == ".dll" || ext == ".xml" || ext == ".txt";
+                    })
                     .Select(x => "Assets" + x.Replace(Application.dataPath, "").Replace(@"\", "/"))
                     .ToArray();
                 return assets;
