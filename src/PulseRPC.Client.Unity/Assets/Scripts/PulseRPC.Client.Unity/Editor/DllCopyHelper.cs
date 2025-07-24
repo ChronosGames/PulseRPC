@@ -17,7 +17,7 @@ namespace PulseRPC.Client.Unity.Editor
         public static void CopyRequiredDlls()
         {
             var pluginsPath = Path.Combine(Application.dataPath, "Scripts", "PulseRPC.Client.Unity", "Plugins");
-            
+
             if (!Directory.Exists(pluginsPath))
             {
                 Directory.CreateDirectory(pluginsPath);
@@ -33,7 +33,7 @@ namespace PulseRPC.Client.Unity.Editor
 
             foreach (var dll in RequiredDlls)
             {
-                var sourcePath = FindDllInBuildOutput(solutionRoot, dll);
+                var sourcePath = FindDllInBuildOutput(solutionRoot!, dll);
                 if (!string.IsNullOrEmpty(sourcePath))
                 {
                     var destPath = Path.Combine(pluginsPath, dll);
@@ -49,7 +49,7 @@ namespace PulseRPC.Client.Unity.Editor
             AssetDatabase.Refresh();
         }
 
-        private static string GetSolutionRoot()
+        private static string? GetSolutionRoot()
         {
             var currentPath = Application.dataPath;
             while (!string.IsNullOrEmpty(currentPath))
@@ -63,7 +63,7 @@ namespace PulseRPC.Client.Unity.Editor
             return null;
         }
 
-        private static string FindDllInBuildOutput(string solutionRoot, string dllName)
+        private static string? FindDllInBuildOutput(string solutionRoot, string dllName)
         {
             var searchPaths = new[]
             {
