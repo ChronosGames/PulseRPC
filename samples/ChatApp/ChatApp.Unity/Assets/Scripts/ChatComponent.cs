@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Channels;
+using PulseRPC.Client.Extensions;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
@@ -222,7 +223,7 @@ namespace ChatApp.Unity
         {
             try
             {
-                _eventsSubscription = _client.RegisterEventHandler<IPlayerLoginEvents>(this);
+                _eventsSubscription = _client.RegisterEventHandler(this);
 
                 UpdateStatus("事件处理器设置完成");
             }
