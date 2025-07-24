@@ -222,27 +222,7 @@ namespace ChatApp.Unity
         {
             try
             {
-                var eventsHandler = new PlayerEventsHandler(this);
-                var channelManager = _client.GetChannelManager();
-                var tcpMessageChannel = channelManager.GetChannel("TcpChannel");
-                var kcpMessageChannel = channelManager.GetChannel("KcpChannel");
-
-                // 登录事件 (TCP通道)
-                var loginJoinedToken = tcpMessageChannel.SubscribeToEvent<PlayerJoinedEvent>("OnPlayerJoined", (sender, eventData) => eventsHandler.OnPlayerJoined(eventData));
-                var loginLeftToken = tcpMessageChannel.SubscribeToEvent<PlayerLeftEvent>("OnPlayerLeft", (sender, eventData) => eventsHandler.OnPlayerLeft(eventData));
-
-                // 移动事件 (KCP通道)
-                var moveToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent>("OnPlayerMoved",
-                    (sender, eventData) => eventsHandler.OnPlayerMoved(eventData));
-                var moveBatchToken = kcpMessageChannel.SubscribeToEvent<PlayerMovedEvent[]>("OnPlayersMovedBatch",
-                    (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
-                var moveBatchToken2 = kcpMessageChannel.SubscribeToEvent<PlayersBatchMovedEvent>("OnPlayersMovedBatch",
-                    (sender, eventData) => eventsHandler.OnPlayersMovedBatch(eventData));
-
-                _eventsSubscription = new CompositeSubscriptionToken(new[]
-                {
-                    loginJoinedToken, loginLeftToken, moveToken, moveBatchToken, moveBatchToken2
-                });
+                _eventsSubscription = _client.RegisterEventHandler<IPlayerLoginEvents>(this);
 
                 UpdateStatus("事件处理器设置完成");
             }
