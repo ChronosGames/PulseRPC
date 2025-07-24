@@ -632,6 +632,63 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"    public static class {extensionClassName}");
         sb.AppendLine("    {");
 
+        // 生成通用的 GetService<T>() 方法
+        if (serviceTypes.Length > 0)
+        {
+            // 为 IChannelManager 生成 GetService<T>() 方法
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 获取指定类型的服务");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
+            sb.AppendLine("        /// <param name=\"channelManager\">通道管理器</param>");
+            sb.AppendLine("        /// <returns>服务实例</returns>");
+            sb.AppendLine("        public static T GetService<T>(this IChannelManager channelManager) where T : class");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (channelManager == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(channelManager));");
+            sb.AppendLine();
+            
+            // 为每个服务类型生成 if-else 分支
+            for (int i = 0; i < serviceTypes.Length; i++)
+            {
+                var interfaceSymbol = serviceTypes[i];
+                if (interfaceSymbol == null) continue;
+                
+                var fullTypeName = GetFullTypeName(interfaceSymbol);
+                
+                if (i == 0)
+                {
+                    sb.AppendLine($"            if (typeof(T) == typeof({fullTypeName}))");
+                }
+                else
+                {
+                    sb.AppendLine($"            else if (typeof(T) == typeof({fullTypeName}))");
+                }
+                sb.AppendLine($"                return (T)(object)new {fullTypeName}Proxy(channelManager);");
+            }
+            
+            sb.AppendLine();
+            sb.AppendLine("            throw new ArgumentException($\"未找到服务代理方法: {{typeof(T).Name}}\", nameof(T));");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // 为 IPulseRpcClient 生成 GetService<T>() 方法
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 获取指定类型的服务");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
+            sb.AppendLine("        /// <param name=\"client\">PulseRPC 客户端</param>");
+            sb.AppendLine("        /// <returns>服务实例</returns>");
+            sb.AppendLine("        public static T GetService<T>(this IPulseRpcClient client) where T : class");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (client == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
+            sb.AppendLine();
+            sb.AppendLine("            return client.GetChannelManager().GetService<T>();");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+        }
+
         // 为每个服务接口生成扩展方法
         foreach (var interfaceSymbol in serviceTypes)
         {
