@@ -2,6 +2,8 @@ using System.IO;
 using UnityEditor;
 using UnityEngine;
 
+#nullable enable
+
 namespace PulseRPC.Client.Unity.Editor
 {
     public static class DllCopyHelper

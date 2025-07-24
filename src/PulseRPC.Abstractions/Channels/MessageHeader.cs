@@ -36,13 +36,13 @@ namespace PulseRPC.Messaging
     {
         [MemoryPackOrder(0)]
         public MessageType Type { get; set; }
-        
+
         [MemoryPackOrder(1)]
         public Guid MessageId { get; set; }
-        
+
         [MemoryPackOrder(2)]
         public string ServiceName { get; set; } = string.Empty;
-        
+
         [MemoryPackOrder(3)]
         public string MethodName { get; set; } = string.Empty;
     }

@@ -517,7 +517,7 @@ namespace ChatApp.Unity
             OnStatusUpdate?.Invoke(status);
 
             // 更新场景控制器
-            if (_sceneController != null)
+            if (_sceneController)
             {
                 _sceneController.UpdateStatus(status);
             }
@@ -526,7 +526,7 @@ namespace ChatApp.Unity
         private void Update()
         {
             // RTT更新
-            if (LabelRtt != null && _client != null && _client.IsConnected)
+            if (LabelRtt && _client != null && _client.IsConnected)
             {
                 try
                 {
@@ -544,16 +544,18 @@ namespace ChatApp.Unity
 
         private void AppendChatMessage(string message)
         {
-            if (ChatText != null)
+            if (!ChatText)
             {
-                ChatText.text += $"\n{DateTime.Now:HH:mm:ss} {message}";
+                return;
+            }
 
-                // 保持聊天记录在合理长度
-                var lines = ChatText.text.Split('\n');
-                if (lines.Length > 50)
-                {
-                    ChatText.text = string.Join("\n", lines, lines.Length - 50, 50);
-                }
+            ChatText.text += $"\n{DateTime.Now:HH:mm:ss} {message}";
+
+            // 保持聊天记录在合理长度
+            var lines = ChatText.text.Split('\n');
+            if (lines.Length > 50)
+            {
+                ChatText.text = string.Join("\n", lines, lines.Length - 50, 50);
             }
         }
 
