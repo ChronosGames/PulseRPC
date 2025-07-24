@@ -27,18 +27,12 @@
 
   <ItemGroup>
     <!-- 核心依赖，Unity 和 .NET 通用 -->
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
-    <PackageReference Include="System.IO.Pipelines" />
 
     <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Condition="$(TargetFramework) == 'netstandard2.1'" />
     <PackageReference Include="System.Collections.Immutable" Condition="$(TargetFramework) == 'netstandard2.1'" />
 
     <!-- 条件依赖 - 仅 .NET 环境 -->
-    <PackageReference Include="Microsoft.Extensions.Logging" Condition="$(TargetFramework) != 'netstandard2.1'" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="$(TargetFramework) != 'netstandard2.1'" />
 
 

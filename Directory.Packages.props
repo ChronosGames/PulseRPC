@@ -24,8 +24,10 @@
     <PackageVersion Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" Version="3.3.3" />
     <PackageVersion Include="Microsoft.Extensions.Caching.Abstractions" Version="9.0.5" />
     <PackageVersion Include="Microsoft.Extensions.Configuration" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="9.0.0" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Abstractions" Version="7.0.0" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.0" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
+    <PackageVersion Include="Microsoft.Extensions.Configuration.Binder" Version="7.0.1" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.CommandLine" Version="9.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="9.0.0" />
@@ -50,13 +52,16 @@
     <PackageVersion Include="System.IdentityModel.Tokens.Jwt" Version="8.12.0" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
     <PackageVersion Include="Microsoft.Bcl.AsyncInterfaces" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.0" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="7.0.0" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="9.0.0" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
+    <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="7.0.0" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" ExcludeAssets="analyzers" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.0" ExcludeAssets="analyzers" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
     <PackageVersion Include="Microsoft.Extensions.ObjectPool" Version="9.0.0" />
-    <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.0" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.0" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
+    <PackageVersion Include="Microsoft.Extensions.Options" Version="7.0.0" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
     <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
     <PackageVersion Include="System.IO.Pipelines" Version="9.0.0" />
     <PackageVersion Include="System.Runtime.CompilerServices.Unsafe" Version="6.0.0" />
