@@ -642,7 +642,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
             sb.AppendLine("        /// <param name=\"channelManager\">通道管理器</param>");
             sb.AppendLine("        /// <returns>服务实例</returns>");
-            sb.AppendLine("        public static T GetService<T>(this IChannelManager channelManager) where T : class");
+            sb.AppendLine("        public static T GetService<T>(this IChannelManager channelManager) where T : IPulseHub");
             sb.AppendLine("        {");
             sb.AppendLine("            if (channelManager == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(channelManager));");
@@ -679,7 +679,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
             sb.AppendLine("        /// <param name=\"client\">PulseRPC 客户端</param>");
             sb.AppendLine("        /// <returns>服务实例</returns>");
-            sb.AppendLine("        public static T GetService<T>(this IPulseRpcClient client) where T : class");
+            sb.AppendLine("        public static T GetService<T>(this IPulseRpcClient client) where T : IPulseHub");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");

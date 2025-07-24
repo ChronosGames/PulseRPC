@@ -16,9 +16,7 @@ public static class EventSubscriptionExtensions
     /// <param name="handler">事件处理器实例</param>
     /// <param name="channelSelector">通道选择器，null则使用默认通道</param>
     /// <returns>组合订阅令牌</returns>
-    public static ISubscriptionToken RegisterEventHandler<T>(this IPulseRpcClient client, T handler,
-        Func<string, string>? channelSelector = null)
-        where T : class
+    public static ISubscriptionToken RegisterEventHandler<T>(this IPulseRpcClient client, T handler, Func<string, string>? channelSelector = null) where T : IPulseReceiver
     {
         var subscriptions = new List<ISubscriptionToken>();
         var channelManager = client.GetChannelManager();
@@ -61,9 +59,7 @@ public static class EventSubscriptionExtensions
     /// <summary>
     /// 使用配置对象注册事件处理器
     /// </summary>
-    public static ISubscriptionToken RegisterEventHandler<T>(this IPulseRpcClient client, T handler,
-        EventRegistrationConfig config)
-        where T : class
+    public static ISubscriptionToken RegisterEventHandler<T>(this IPulseRpcClient client, T handler, EventRegistrationConfig config) where T : IPulseReceiver
     {
         var subscriptions = new List<ISubscriptionToken>();
         var channelManager = client.GetChannelManager();
@@ -88,7 +84,7 @@ public static class EventSubscriptionExtensions
     /// 流式API - 开始事件注册链
     /// </summary>
     public static EventRegistrationBuilder<T> RegisterEvents<T>(this IPulseRpcClient client, T handler)
-        where T : class
+        where T : IPulseReceiver
     {
         return new EventRegistrationBuilder<T>(client, handler);
     }
@@ -158,7 +154,7 @@ public class EventMapping
 /// <summary>
 /// 流式事件注册构建器
 /// </summary>
-public class EventRegistrationBuilder<T> where T : class
+public class EventRegistrationBuilder<T> where T : IPulseReceiver
 {
     private readonly IPulseRpcClient _client;
     private readonly T _handler;
