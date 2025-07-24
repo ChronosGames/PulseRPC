@@ -84,7 +84,10 @@ internal class PulseRpcClientManager : IPulseRpcClient
 
         _transports.Add(config.Name, transportInfo);
 
-        _logger.LogInformation("已添加 {Type} 传输: {Name}, 目标: {Host}:{Port}",
+        // 立即注册通道到通道管理器，这样用户可以在连接之前获取通道
+        _channelManager.RegisterChannel(transportInfo.Name, transportInfo.Type, transportInfo.Options, transportInfo.IsDefault);
+
+        _logger.LogInformation("已添加并注册 {Type} 传输通道: {Name}, 目标: {Host}:{Port}",
             config.Type, config.Name, config.Host, config.Port);
     }
 
@@ -113,27 +116,24 @@ internal class PulseRpcClientManager : IPulseRpcClient
 
         try
         {
-            // 为每个传输创建并注册通道
-            foreach (var info in _transports.Values)
-            {
-                // 注册通道到通道管理器
-                _channelManager.RegisterChannel(info.Name, info.Type, info.Options, info.IsDefault);
+            // 连接所有配置的传输通道
+            var connectionTasks = new List<Task>();
 
-                _logger.LogInformation("已注册 {Type} 传输通道: {Name}", info.Type, info.Name);
+            foreach (var transportInfo in _transports.Values)
+            {
+                var channel = _channelManager.GetChannel(transportInfo.Name);
+                var connectionTask = channel.ConnectAsync(transportInfo.Host, transportInfo.Port, cancellationToken);
+                connectionTasks.Add(connectionTask);
+
+                _logger.LogInformation("正在连接 {Type} 传输: {Name} at {Host}:{Port}",
+                    transportInfo.Type, transportInfo.Name, transportInfo.Host, transportInfo.Port);
             }
 
-            // 连接到默认通道的服务器
-            var defaultTransport = _transports.Values.FirstOrDefault(t => t.IsDefault)
-                ?? _transports.Values.FirstOrDefault();
-
-            if (defaultTransport != null)
-            {
-                var defaultChannel = _channelManager.GetDefaultChannel();
-                await defaultChannel.ConnectAsync($"{defaultTransport.Host}", defaultTransport.Port, cancellationToken);
-            }
+            // 等待所有通道连接完成
+            await Task.WhenAll(connectionTasks);
 
             _isConnected = true;
-            _logger.LogInformation("客户端已连接");
+            _logger.LogInformation("所有通道已连接，客户端连接完成");
         }
         catch (Exception ex)
         {
@@ -154,11 +154,27 @@ internal class PulseRpcClientManager : IPulseRpcClient
 
         try
         {
-            var defaultChannel = _channelManager.GetDefaultChannel();
-            await defaultChannel.DisconnectAsync(cancellationToken);
+            // 断开所有通道的连接
+            var disconnectionTasks = new List<Task>();
+
+            foreach (var transportInfo in _transports.Values)
+            {
+                if (_channelManager.HasChannel(transportInfo.Name))
+                {
+                    var channel = _channelManager.GetChannel(transportInfo.Name);
+                    var disconnectionTask = channel.DisconnectAsync(cancellationToken);
+                    disconnectionTasks.Add(disconnectionTask);
+
+                    _logger.LogInformation("正在断开 {Type} 传输: {Name}",
+                        transportInfo.Type, transportInfo.Name);
+                }
+            }
+
+            // 等待所有通道断开完成
+            await Task.WhenAll(disconnectionTasks);
 
             _isConnected = false;
-            _logger.LogInformation("客户端已断开连接");
+            _logger.LogInformation("所有通道已断开，客户端断开连接完成");
         }
         catch (Exception ex)
         {
