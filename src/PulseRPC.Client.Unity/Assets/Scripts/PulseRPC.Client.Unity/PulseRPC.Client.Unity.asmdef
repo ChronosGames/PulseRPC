@@ -1,10 +1,7 @@
 {
     "name": "PulseRPC.Client.Unity",
     "rootNamespace": "PulseRPC.Client.Unity",
-    "references": [
-        "PulseRPC.Abstractions",
-        "PulseRPC.Client"
-    ],
+    "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": true,
@@ -12,6 +9,7 @@
     "precompiledReferences": [
         "PulseRPC.Abstractions.dll",
         "PulseRPC.Client.dll",
+        "PulseRPC.Client.SourceGenerator.dll",
         "MemoryPack.dll",
         "System.IO.Pipelines.dll"
     ],
@@ -20,7 +18,7 @@
     "versionDefines": [
         {
             "name": "com.chronosgames.pulserpc.client.unity",
-            "expression": "0.5.6",
+            "expression": "1.0.0",
             "define": "PULSERPC_CLIENT_AVAILABLE"
         }
     ],
