@@ -23,10 +23,6 @@ public interface IPulseRpcClient : IDisposable
     /// </summary>
     bool IsConnected { get; }
 
-    /// <summary>
-    /// 获取服务代理
-    /// </summary>
-    TService GetService<TService>() where TService : class;
 
     /// <summary>
     /// 获取通道管理器
@@ -88,7 +84,7 @@ internal class PulseRpcClientManager : IPulseRpcClient
 
         _transports.Add(config.Name, transportInfo);
 
-        _logger.LogInformation("已添加 {Type} 传输: {Name}, 目标: {Host}:{Port}", 
+        _logger.LogInformation("已添加 {Type} 传输: {Name}, 目标: {Host}:{Port}",
             config.Type, config.Name, config.Host, config.Port);
     }
 
@@ -127,7 +123,7 @@ internal class PulseRpcClientManager : IPulseRpcClient
             }
 
             // 连接到默认通道的服务器
-            var defaultTransport = _transports.Values.FirstOrDefault(t => t.IsDefault) 
+            var defaultTransport = _transports.Values.FirstOrDefault(t => t.IsDefault)
                 ?? _transports.Values.FirstOrDefault();
 
             if (defaultTransport != null)
@@ -171,23 +167,6 @@ internal class PulseRpcClientManager : IPulseRpcClient
         }
     }
 
-    /// <summary>
-    /// 获取服务代理
-    /// </summary>
-    public TService GetService<TService>() where TService : class
-    {
-        // 这里需要使用代码生成或反射来创建服务代理
-        // 暂时返回通道管理器的扩展方法调用
-        var methodName = $"Get{typeof(TService).Name.Substring(1)}"; // 移除接口前缀 'I'
-        var method = _channelManager.GetType().GetMethod(methodName);
-        
-        if (method != null)
-        {
-            return (TService)method.Invoke(_channelManager, null)!;
-        }
-
-        throw new NotSupportedException($"未找到服务代理方法: {methodName}");
-    }
 
     /// <summary>
     /// 获取通道管理器
