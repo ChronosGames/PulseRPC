@@ -1,7 +1,5 @@
-using System;
 using UnityEngine;
 using UnityEngine.UI;
-using ChatApp.Unity;
 
 namespace ChatApp.Unity
 {
@@ -432,9 +430,9 @@ namespace ChatApp.Unity
             return statusPanel;
         }
 
-        private GameObject CreateButton(string name, GameObject parent, Vector2 anchorMin, Vector2 anchorMax, string text)
+        private GameObject CreateButton(string btnName, GameObject parent, Vector2 anchorMin, Vector2 anchorMax, string text)
         {
-            GameObject btnGO = new GameObject(name);
+            GameObject btnGO = new GameObject(btnName);
             btnGO.transform.SetParent(parent.transform, false);
 
             RectTransform btnRect = btnGO.AddComponent<RectTransform>();
@@ -457,15 +455,15 @@ namespace ChatApp.Unity
                 btnTextRect.anchorMax = Vector2.one;
                 btnTextRect.sizeDelta = Vector2.zero;
 
-                Text btnText = btnTextGO.AddComponent<Text>();
+                var btnText = btnTextGO.AddComponent<Text>();
                 btnText.font = GetDefaultFont();
-                btnText.fontSize = name.Contains("Movement") || name.Contains("Move") ? 18 : 14;
+                btnText.fontSize = btnName.Contains("Movement") || btnName.Contains("Move") ? 18 : 14;
                 btnText.color = Color.white;
                 btnText.text = text;
                 btnText.alignment = TextAnchor.MiddleCenter;
 
                 // 如果是连接按钮，保存文本组件引用
-                if (name == "JoinOrLeaveButton")
+                if (btnName == "JoinOrLeaveButton")
                 {
                     btnTextGO.name = "JoinOrLeaveButtonText";
                 }
@@ -477,7 +475,7 @@ namespace ChatApp.Unity
 
         private void ConfigureChatComponent()
         {
-            if (chatComponent == null) return;
+            if (!chatComponent) return;
 
             // 获取所有UI组件引用
             chatComponent.ChatText = GameObject.Find("ChatText")?.GetComponent<Text>();
@@ -500,7 +498,7 @@ namespace ChatApp.Unity
 
         private Font GetDefaultFont()
         {
-            if (defaultFont != null) return defaultFont;
+            if (defaultFont is not null) return defaultFont;
             return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         }
 
@@ -508,13 +506,13 @@ namespace ChatApp.Unity
         public void ClearExistingUI()
         {
             // 清理现有的UI元素（慎用）
-            Transform[] children = new Transform[mainCanvas.transform.childCount];
-            for (int i = 0; i < children.Length; i++)
+            var children = new Transform[mainCanvas.transform.childCount];
+            for (var i = 0; i < children.Length; i++)
             {
                 children[i] = mainCanvas.transform.GetChild(i);
             }
 
-            foreach (Transform child in children)
+            foreach (var child in children)
             {
                 if (child.name != "EventSystem")
                 {
