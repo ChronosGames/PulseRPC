@@ -178,16 +178,6 @@ public class EventRegistrationBuilder<T> where T : IPulseReceiver
         return this;
     }
 
-    public EventRegistrationBuilder<T> OnTcp<TEvent>(string eventName, Action<TEvent> handlerAction)
-    {
-        return On(eventName, handlerAction, "TcpChannel");
-    }
-
-    public EventRegistrationBuilder<T> OnKcp<TEvent>(string eventName, Action<TEvent> handlerAction)
-    {
-        return On(eventName, handlerAction, "KcpChannel");
-    }
-
     public ISubscriptionToken Build()
     {
         var config = new EventRegistrationConfig();

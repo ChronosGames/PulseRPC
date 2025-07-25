@@ -23,7 +23,6 @@ public interface IPulseRpcClient : IDisposable
     /// </summary>
     bool IsConnected { get; }
 
-
     /// <summary>
     /// 获取通道管理器
     /// </summary>
@@ -159,15 +158,16 @@ internal class PulseRpcClientManager : IPulseRpcClient
 
             foreach (var transportInfo in _transports.Values)
             {
-                if (_channelManager.HasChannel(transportInfo.Name))
+                if (!_channelManager.HasChannel(transportInfo.Name))
                 {
-                    var channel = _channelManager.GetChannel(transportInfo.Name);
-                    var disconnectionTask = channel.DisconnectAsync(cancellationToken);
-                    disconnectionTasks.Add(disconnectionTask);
-
-                    _logger.LogInformation("正在断开 {Type} 传输: {Name}",
-                        transportInfo.Type, transportInfo.Name);
+                    continue;
                 }
+
+                var channel = _channelManager.GetChannel(transportInfo.Name);
+                var disconnectionTask = channel.DisconnectAsync(cancellationToken);
+                disconnectionTasks.Add(disconnectionTask);
+
+                _logger.LogInformation("正在断开 {Type} 传输: {Name}", transportInfo.Type, transportInfo.Name);
             }
 
             // 等待所有通道断开完成

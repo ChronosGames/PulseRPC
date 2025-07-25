@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 
-namespace PulseRPC;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 基于网络通道的事件总线实现
