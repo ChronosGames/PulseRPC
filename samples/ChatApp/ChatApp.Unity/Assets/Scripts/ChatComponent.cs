@@ -8,7 +8,6 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Channels;
-using PulseRPC.Client.Extensions;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
@@ -223,7 +222,7 @@ namespace ChatApp.Unity
         {
             try
             {
-                _eventsSubscription = _client.RegisterEventHandler(this);
+                _eventsSubscription = _client.RegisterEventHandler(new PlayerEventsHandler(this));
 
                 UpdateStatus("事件处理器设置完成");
             }
@@ -837,42 +836,6 @@ namespace ChatApp.Unity
                 {
                     OnPlayerMoved(moveEvent);
                 }
-            }
-        }
-
-        /// <summary>
-        /// 组合订阅令牌
-        /// </summary>
-        private class CompositeSubscriptionToken : ISubscriptionToken
-        {
-            private readonly ISubscriptionToken[] _tokens;
-            private bool _isDisposed;
-
-            public CompositeSubscriptionToken(ISubscriptionToken[] tokens)
-            {
-                _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));
-            }
-
-            public Guid Id { get; } = Guid.NewGuid();
-            public bool IsActive => !_isDisposed;
-
-            public void Unsubscribe()
-            {
-                if (_isDisposed)
-                    return;
-
-                foreach (var token in _tokens)
-                {
-                    token.Unsubscribe();
-                }
-
-                _isDisposed = true;
-            }
-
-            public void Dispose()
-            {
-                Unsubscribe();
-                GC.SuppressFinalize(this);
             }
         }
 
