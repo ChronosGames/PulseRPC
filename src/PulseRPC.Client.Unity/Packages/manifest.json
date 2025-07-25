@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "com.chronosgames.pulserpc.client.internal": "file:../../PulseRPC.Client/bin/Debug/netstandard2.1",
+    "com.chronosgames.pulserpc.client.internal": "file:../../PulseRPC.Client/.artifacts/bin/debug_netstandard2.1",
     "com.cysharp.memorypack": "https://github.com/Cysharp/MemoryPack.git?path=src/MemoryPack.Unity/Assets/MemoryPack.Unity",
     "com.github-glitchenzo.nugetforunity": "https://github.com/GlitchEnzo/NuGetForUnity.git?path=/src/NuGetForUnity",
     "com.unity.feature.development": "1.0.1",
