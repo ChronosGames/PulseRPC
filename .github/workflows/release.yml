@@ -26,6 +26,7 @@ jobs:
     with:
       file-path: |
         ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/package.json
+        ./src/PulseRPC.Client/package.json
         ./Directory.Build.props
       tag: ${{ inputs.tag }}
       dry-run: ${{ inputs.dry-run }}
