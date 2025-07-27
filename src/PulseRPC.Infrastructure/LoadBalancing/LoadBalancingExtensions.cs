@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PulseServiceDiscovery.Client.LoadBalancing;
 
@@ -18,19 +19,69 @@ public static class LoadBalancingExtensions
     }
 
     /// <summary>
-    /// 添加负载均衡
+    /// 添加负载均衡功能
+    /// </summary>
+    /// <param name="services"></param>
+    /// <param name="configuration"></param>
+    /// <returns></returns>
+    public static IServiceCollection AddLoadBalancing(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<LoadBalancingOptions>(configuration.GetSection("LoadBalancing"));
+
+        var strategy = configuration.GetSection("LoadBalancing:Strategy")?.Get<LoadBalancingStrategy>() ?? LoadBalancingStrategy.RoundRobin;
+        services.TryAddSingleton<ILoadBalancer>(provider =>
+        {
+            return strategy switch
+            {
+                LoadBalancingStrategy.LeastConnections => new LeastConnectionsLoadBalancer(
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LeastConnectionsLoadBalancer>>()),
+                LoadBalancingStrategy.Random => new RandomLoadBalancer(
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RandomLoadBalancer>>()),
+                LoadBalancingStrategy.WeightedRoundRobin => new WeightedRoundRobinLoadBalancer(
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WeightedRoundRobinLoadBalancer>>()),
+                _ => new RoundRobinLoadBalancer(
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RoundRobinLoadBalancer>>())
+            };
+        });
+
+        services.TryAddSingleton<IChannelLoadBalancer, ChannelAwareLoadBalancer>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// 添加负载均衡功能
     /// </summary>
     /// <param name="services">服务集合</param>
     /// <param name="strategy">负载均衡策略</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddLoadBalancing(this IServiceCollection services,
+    public static IServiceCollection AddLoadBalancing(
+        this IServiceCollection services,
         LoadBalancingStrategy strategy = LoadBalancingStrategy.RoundRobin)
     {
-        return strategy switch
+        services.Configure<LoadBalancingOptions>(options =>
         {
-            LoadBalancingStrategy.RoundRobin => services.AddLoadBalancing<RoundRobinLoadBalancer>(),
-            _ => throw new NotSupportedException($"负载均衡策略 {strategy} 尚未实现")
-        };
+            options.Strategy = strategy;
+        });
+
+        services.TryAddSingleton<ILoadBalancer>(provider =>
+        {
+            return strategy switch
+            {
+                LoadBalancingStrategy.LeastConnections => new LeastConnectionsLoadBalancer(
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LeastConnectionsLoadBalancer>>()),
+                LoadBalancingStrategy.Random => new RandomLoadBalancer(
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RandomLoadBalancer>>()),
+                LoadBalancingStrategy.WeightedRoundRobin => new WeightedRoundRobinLoadBalancer(
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WeightedRoundRobinLoadBalancer>>()),
+                _ => new RoundRobinLoadBalancer(
+                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RoundRobinLoadBalancer>>())
+            };
+        });
+
+        services.TryAddSingleton<IChannelLoadBalancer, ChannelAwareLoadBalancer>();
+
+        return services;
     }
 
     /// <summary>

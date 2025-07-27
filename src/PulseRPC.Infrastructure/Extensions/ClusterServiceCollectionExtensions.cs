@@ -1,10 +1,10 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PulseRPC.Infrastructure.Registry;
 using PulseRPC.Infrastructure.Routing;
 using PulseRPC.LoadBalancing;
 using PulseRPC.HealthCheck;
-using PulseRPC.ServiceDiscovery;
 using PulseServiceDiscovery.Client.LoadBalancing;
 
 namespace PulseRPC.Infrastructure;
@@ -20,7 +20,7 @@ public static class ClusterServiceCollectionExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configure">配置委托</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcCluster(
+    public static IServiceCollection AddPulseRPCCluster(
         this IServiceCollection services,
         Action<ClusterOptions>? configure = null)
     {
@@ -52,85 +52,6 @@ public static class ClusterServiceCollectionExtensions
 
         return services;
     }
-
-    /// <summary>
-    /// 添加服务发现功能
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="configure">配置委托</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddServiceDiscovery(
-        this IServiceCollection services,
-        Action<ServiceDiscoveryOptions>? configure = null)
-    {
-        var options = new ServiceDiscoveryOptions();
-        configure?.Invoke(options);
-
-        services.Configure<ServiceDiscoveryOptions>(configure ?? (_ => { }));
-        services.TryAddSingleton<IServiceDiscovery, ServiceDiscovery.ServiceDiscovery>();
-
-        return services;
-    }
-
-    /// <summary>
-    /// 添加负载均衡功能
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="strategy">负载均衡策略</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddLoadBalancing(
-        this IServiceCollection services,
-        LoadBalancingStrategy strategy = LoadBalancingStrategy.RoundRobin)
-    {
-        services.Configure<LoadBalancingOptions>(options =>
-        {
-            options.Strategy = strategy;
-        });
-
-        services.TryAddSingleton<ILoadBalancer>(provider =>
-        {
-            return strategy switch
-            {
-                LoadBalancingStrategy.LeastConnections => new LeastConnectionsLoadBalancer(
-                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<LeastConnectionsLoadBalancer>>()),
-                LoadBalancingStrategy.Random => new RandomLoadBalancer(
-                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RandomLoadBalancer>>()),
-                LoadBalancingStrategy.WeightedRoundRobin => new WeightedRoundRobinLoadBalancer(
-                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<WeightedRoundRobinLoadBalancer>>()),
-                _ => new RoundRobinLoadBalancer(
-                    provider.GetRequiredService<Microsoft.Extensions.Logging.ILogger<RoundRobinLoadBalancer>>())
-            };
-        });
-
-        services.TryAddSingleton<IChannelLoadBalancer, ChannelAwareLoadBalancer>();
-
-        return services;
-    }
-
-    /// <summary>
-    /// 添加健康检查功能
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="configure">配置委托</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddHealthChecks(
-        this IServiceCollection services,
-        Action<HealthCheckOptions>? configure = null)
-    {
-        var options = new HealthCheckOptions();
-        configure?.Invoke(options);
-
-        services.Configure<HealthCheckOptions>(configure ?? (_ => { }));
-        services.TryAddSingleton<IHealthChecker, HealthChecker>();
-
-        if (options.Enabled)
-        {
-            services.AddHostedService<HealthCheckerService>();
-        }
-
-        return services;
-    }
-
     /// <summary>
     /// 添加服务路由功能
     /// </summary>
