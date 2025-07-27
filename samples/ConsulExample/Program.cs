@@ -63,7 +63,7 @@ public class Program
         });
 
         // 2. 添加PulseRPC基础设施支持
-        services.AddPulseRpcCluster(options =>
+        services.AddPulseRPCCluster(options =>
         {
             // options.ClusterName = "PulseRPCCluster";
             // options.ClusterId = "cluster-001";

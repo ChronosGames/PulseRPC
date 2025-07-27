@@ -15,7 +15,7 @@ public static class ServiceRegistryExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configuration">配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServiceRegistration(
+    public static IServiceCollection AddServiceRegistration(
         this IServiceCollection services,
         IConfiguration configuration)
     {
@@ -34,7 +34,7 @@ public static class ServiceRegistryExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServiceRegistration(
+    public static IServiceCollection AddServiceRegistration(
         this IServiceCollection services,
         Action<ServiceRegistrationOptions> configureOptions)
     {
@@ -63,7 +63,7 @@ public static class ServiceRegistryExtensions
     /// <param name="port">服务端口</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServiceRegistration(
+    public static IServiceCollection AddServiceRegistration(
         this IServiceCollection services,
         string serviceName,
         int port,
@@ -91,7 +91,7 @@ public static class ServiceRegistryExtensions
             configureOptions?.Invoke(options);
         });
 
-        return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
+        return AddServiceRegistration(services, configureOptions ?? (_ => { }));
     }
 
     /// <summary>
@@ -101,7 +101,7 @@ public static class ServiceRegistryExtensions
     /// <param name="servicesInfo">服务信息列表</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServiceRegistrations(
+    public static IServiceCollection AddServiceRegistrations(
         this IServiceCollection services,
         IEnumerable<ServiceInfo> servicesInfo,
         Action<ServiceRegistrationOptions>? configureOptions = null)
@@ -112,7 +112,7 @@ public static class ServiceRegistryExtensions
             configureOptions?.Invoke(options);
         });
 
-        return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
+        return AddServiceRegistration(services, configureOptions ?? (_ => { }));
     }
 
     /// <summary>
@@ -122,7 +122,7 @@ public static class ServiceRegistryExtensions
     /// <param name="consulAddress">Consul 地址</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcConsulRegistration(
+    public static IServiceCollection AddConsulRegistration(
         this IServiceCollection services,
         string consulAddress = "http://localhost:8500",
         Action<ServiceRegistrationOptions>? configureOptions = null)
@@ -137,7 +137,7 @@ public static class ServiceRegistryExtensions
         // 添加 Consul 服务注册
         // services.AddConsulServiceRegistry(configuration => { });
 
-        return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
+        return AddServiceRegistration(services, configureOptions ?? (_ => { }));
     }
 
     /// <summary>
@@ -147,7 +147,7 @@ public static class ServiceRegistryExtensions
     /// <param name="etcdEndpoints">Etcd 端点</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcEtcdRegistration(
+    public static IServiceCollection AddEtcdRegistration(
         this IServiceCollection services,
         string[] etcdEndpoints,
         Action<ServiceRegistrationOptions>? configureOptions = null)
@@ -162,7 +162,7 @@ public static class ServiceRegistryExtensions
         // 添加 Etcd 服务注册
         // services.AddEtcdServiceRegistry(configuration => { });
 
-        return AddPulseRpcServiceRegistration(services, configureOptions ?? (_ => { }));
+        return AddServiceRegistration(services, configureOptions ?? (_ => { }));
     }
 
     /// <summary>
@@ -171,7 +171,7 @@ public static class ServiceRegistryExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection ConfigurePulseRpcServiceRegistry(
+    public static IServiceCollection ConfigureServiceRegistry(
         this IServiceCollection services,
         Action<ServiceRegistryOptions> configureOptions)
     {
@@ -214,7 +214,7 @@ public static class ServiceRegistryExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection ConfigurePulseRpcHeartbeat(
+    public static IServiceCollection ConfigureHeartbeat(
         this IServiceCollection services,
         Action<HeartbeatOptions> configureOptions)
     {

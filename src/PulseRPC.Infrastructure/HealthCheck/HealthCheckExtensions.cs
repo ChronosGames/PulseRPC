@@ -15,7 +15,7 @@ public static class HealthCheckExtensions
     /// <param name="services"></param>
     /// <typeparam name="TImplementation"></typeparam>
     /// <returns></returns>
-    public static IServiceCollection AddPulseRpcHealthCheck<TImplementation>(this IServiceCollection services)
+    public static IServiceCollection AddHealthChecks<TImplementation>(this IServiceCollection services)
         where TImplementation : class, IHealthChecker
     {
         services.TryAddSingleton<IHealthChecker, TImplementation>();
@@ -29,7 +29,7 @@ public static class HealthCheckExtensions
     /// <param name="services"></param>
     /// <param name="implementationFactory"></param>
     /// <returns></returns>
-    public static IServiceCollection AddPulseRpcHealthCheck(this IServiceCollection services,
+    public static IServiceCollection AddHealthChecks(this IServiceCollection services,
         Func<IServiceProvider, IHealthChecker> implementationFactory)
     {
         services.RemoveAll<IHealthChecker>();
@@ -44,7 +44,7 @@ public static class HealthCheckExtensions
     /// <param name="services"></param>
     /// <param name="configuration"></param>
     /// <returns></returns>
-    public static IServiceCollection AddPulseRpcHealthCheck(
+    public static IServiceCollection AddHealthChecks(
         this IServiceCollection services,
         IConfiguration configuration)
     {
@@ -59,25 +59,10 @@ public static class HealthCheckExtensions
     /// <param name="services"></param>
     /// <param name="configureOptions"></param>
     /// <returns></returns>
-    public static IServiceCollection AddPulseRpcHealthCheck(
+    public static IServiceCollection AddHealthChecks(
         this IServiceCollection services,
         Action<HealthCheckOptions> configureOptions)
     {
-        services.Configure(configureOptions);
-        return AddHealthCheckCore(services);
-    }
-
-    /// <summary>
-    /// 添加 PulseRPC 健康检测 (使用配置回调)
-    /// </summary>
-    /// <param name="services"></param>
-    /// <param name="configureOptions"></param>
-    /// <returns></returns>
-    public static IServiceCollection AddHealthCheck(
-        this IServiceCollection services,
-        Action<HealthCheckOptions> configureOptions)
-    {
-        // 注册配置选项
         services.Configure(configureOptions);
         return AddHealthCheckCore(services);
     }
