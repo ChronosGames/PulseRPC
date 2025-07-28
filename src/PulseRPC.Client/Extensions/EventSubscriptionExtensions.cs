@@ -4,8 +4,9 @@ using PulseRPC.Messaging;
 namespace PulseRPC.Client;
 
 /// <summary>
-/// 事件订阅扩展方法 - 简化事件处理器注册
+/// 事件订阅扩展方法 - 已弃用，请使用 RegisterEventListener
 /// </summary>
+[Obsolete("此类使用反射实现，性能较差。请使用 PulseRPC.Client.Extensions.EventListenerExtensions 中的 RegisterEventListener 方法，它通过源代码生成提供零反射实现。")]
 public static class EventSubscriptionExtensions
 {
     /// <summary>
@@ -16,6 +17,7 @@ public static class EventSubscriptionExtensions
     /// <param name="handler">事件处理器实例</param>
     /// <param name="channelSelector">通道选择器，null则使用默认通道</param>
     /// <returns>组合订阅令牌</returns>
+    [Obsolete("请使用 client.RegisterEventListener(handler) 替代。新方法提供零反射实现和更好的性能。")]
     public static ISubscriptionToken RegisterEventHandler<T>(this IPulseRpcClient client, T handler, Func<string, string>? channelSelector = null) where T : IPulseReceiver
     {
         var subscriptions = new List<ISubscriptionToken>();
@@ -59,6 +61,7 @@ public static class EventSubscriptionExtensions
     /// <summary>
     /// 使用配置对象注册事件处理器
     /// </summary>
+    [Obsolete("请使用 client.ConfigureEventListener(handler).With...().Register() 替代。新的Builder API提供更好的配置体验。")]
     public static ISubscriptionToken RegisterEventHandler<T>(this IPulseRpcClient client, T handler, EventRegistrationConfig config) where T : IPulseReceiver
     {
         var subscriptions = new List<ISubscriptionToken>();
@@ -83,6 +86,7 @@ public static class EventSubscriptionExtensions
     /// <summary>
     /// 流式API - 开始事件注册链
     /// </summary>
+    [Obsolete("请使用 client.ConfigureEventListener(handler) 替代。新的Builder API提供更完整的配置选项。")]
     public static EventRegistrationBuilder<T> RegisterEvents<T>(this IPulseRpcClient client, T handler)
         where T : IPulseReceiver
     {
