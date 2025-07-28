@@ -222,7 +222,14 @@ namespace ChatApp.Unity
         {
             try
             {
-                _eventsSubscription = _client.RegisterEventHandler(new PlayerEventsHandler(this));
+                // 使用新的RegisterEventListener API - 零反射，更高性能
+                _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
+
+                // 也可以使用高级配置API：
+                // _eventsSubscription = _client.ConfigureEventListener(new PlayerEventsHandler(this))
+                //     .WithGameSettings()  // 游戏优化预设
+                //     .WithErrorHandler((ex, eventName) => Debug.LogError($"Event {eventName} failed: {ex}"))
+                //     .Register();
 
                 UpdateStatus("事件处理器设置完成");
             }

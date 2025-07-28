@@ -67,7 +67,11 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             // 获取服务代理
             _playerService = _channelManager.GetPlayerHub();
 
-            // 创建事件处理器
+            // 创建事件处理器 - 使用新的RegisterEventListener API
+            // 注意：这里需要根据实际的客户端API进行调整
+            // _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
+            
+            // 临时保留原有代码直到客户端API更新
             var eventsHandler = _channelManager.GetPlayerLoginEventsHandler();
             _eventsSubscription = eventsHandler.Subscribe(new PlayerEventsHandler(this));
 
