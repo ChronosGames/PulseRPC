@@ -15,6 +15,7 @@ namespace ChatApp.Console;
 public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
+    private IPulseRpcClient? _client;
     private IChannelManager? _channelManager;
     private IPlayerHub? _playerService;
     private ISubscriptionToken? _eventsSubscription;
@@ -27,7 +28,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     private readonly Dictionary<Guid, PlayerData> _otherPlayers = new Dictionary<Guid, PlayerData>();
 
     /// <summary>
-    /// 初始化客户端 - 使用简化配置
+    /// 初始化客户端 - 使用新的客户端 API
     /// </summary>
     public Task InitializeAsync()
     {
@@ -35,45 +36,42 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
         _cts = new CancellationTokenSource();
 
-        // 创建通道管理器
-        _channelManager = new ChannelManager(loggerFactory);
-
-        // 简化的TCP通道配置
-        var tcpOptions = new TransportOptions
+        // 使用新的客户端构建器 API
+        _client = PulseRpcClientFactory.CreateClient(builder =>
         {
-            NoDelay = true,
-            KeepAlive = true,
-            AutoReconnect = true
-        };
-        _channelManager.RegisterChannel("TcpChannel", TransportType.Tcp, tcpOptions, true);
-
-        // 简化的KCP通道配置 - 游戏优化设置
-        var kcpOptions = new TransportOptions
-        {
-            Kcp = new KcpOptions
+            // 添加TCP传输 - 简化配置
+            builder.AddTcp("TcpChannel", "localhost", 7000, options =>
             {
-                NoDelay = 1,              // 无延迟模式
-                Interval = 10,            // 10ms更新间隔 
-                Resend = 2,               // 快重传
-                DisableFlowControl = true, // 关闭拥塞控制
-                SendWindow = 32,          // 发送窗口
-                ReceiveWindow = 128       // 接收窗口
-            }
-        };
-        _channelManager.RegisterChannel("KcpChannel", TransportType.Kcp, kcpOptions, false);
+                options.NoDelay = true;
+                options.KeepAlive = true;
+                options.AutoReconnect = true;
+            }, isDefault: true);
+
+            // 添加KCP传输 - 游戏优化设置
+            builder.AddKcp("KcpChannel", "localhost", 7001, options =>
+            {
+                options.Kcp = new KcpOptions
+                {
+                    NoDelay = 1,              // 无延迟模式
+                    Interval = 10,            // 10ms更新间隔
+                    Resend = 2,               // 快重传
+                    DisableFlowControl = true, // 关闭拥塞控制
+                    SendWindow = 32,          // 发送窗口
+                    ReceiveWindow = 128       // 接收窗口
+                };
+            });
+        }, loggerFactory);
+
+        // 获取通道管理器
+        _channelManager = _client.GetChannelManager();
 
         try
         {
-            // 获取服务代理
+            // 使用源代码生成器生成的扩展方法获取服务代理
             _playerService = _channelManager.GetPlayerHub();
 
-            // 创建事件处理器 - 使用新的RegisterEventListener API
-            // 注意：这里需要根据实际的客户端API进行调整
-            // _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
-            
-            // 临时保留原有代码直到客户端API更新
-            var eventsHandler = _channelManager.GetPlayerLoginEventsHandler();
-            _eventsSubscription = eventsHandler.Subscribe(new PlayerEventsHandler(this));
+            // 使用简洁的一行 API - 源代码生成器会处理多接口实现
+            _eventsSubscription = _client.RegisterGameEventListener(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");
         }
@@ -89,19 +87,14 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     /// <summary>
     /// 连接到服务器
     /// </summary>
-    public async Task ConnectAsync(string host, int tcpPort, int kcpPort)
+    public async Task ConnectAsync()
     {
-        _logger.LogInformation("正在连接到服务器 {Host}...", host);
+        _logger.LogInformation("正在连接到服务器...");
 
         try
         {
-            // 连接TCP通道
-            var tcpChannel = _channelManager!.GetChannel("TcpChannel");
-            await tcpChannel.ConnectAsync(host, tcpPort);
-
-            // 连接KCP通道
-            var kcpChannel = _channelManager.GetChannel("KcpChannel");
-            await kcpChannel.ConnectAsync(host, kcpPort);
+            // 使用新的客户端 API 连接
+            await _client!.ConnectAsync(_cts!.Token);
 
             _logger.LogInformation("已连接到服务器 (TCP + KCP)");
         }
@@ -181,7 +174,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     public async Task RunAsync()
     {
         // 连接到服务器
-        await ConnectAsync("localhost", 7000, 7001);
+        await ConnectAsync();
 
         // 显示欢迎消息
         System.Console.Clear();
@@ -362,10 +355,9 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         // 断开连接
         try
         {
-            foreach (var channelName in new[] { "TcpChannel", "KcpChannel" })
+            if (_client != null)
             {
-                var channel = _channelManager!.GetChannel(channelName);
-                await channel.DisconnectAsync();
+                await _client.DisconnectAsync(_cts?.Token ?? CancellationToken.None);
             }
         }
         catch (Exception ex)
@@ -374,7 +366,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         }
 
         // 释放资源
-        _channelManager?.Dispose();
+        _client?.Dispose();
         _cts?.Dispose();
 
         _logger.LogInformation("客户端已关闭");
@@ -391,9 +383,51 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     }
 
     /// <summary>
+    /// 简单的组合订阅令牌
+    /// </summary>
+    internal class CompositeSubscriptionToken : ISubscriptionToken
+    {
+        private readonly ISubscriptionToken[] _tokens;
+        private bool _isDisposed;
+
+        public Guid Id { get; } = Guid.NewGuid();
+        public bool IsActive => !_isDisposed;
+
+        public CompositeSubscriptionToken(ISubscriptionToken[] tokens)
+        {
+            _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));
+        }
+
+        public void Unsubscribe()
+        {
+            if (_isDisposed) return;
+
+            foreach (var token in _tokens)
+            {
+                try
+                {
+                    token.Unsubscribe();
+                }
+                catch (Exception ex)
+                {
+                    System.Console.WriteLine($"Error unsubscribing token {token.Id}: {ex.Message}");
+                }
+            }
+
+            _isDisposed = true;
+        }
+
+        public void Dispose()
+        {
+            Unsubscribe();
+            GC.SuppressFinalize(this);
+        }
+    }
+
+    /// <summary>
     /// 玩家事件处理器
     /// </summary>
-    private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents
+    private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents, IPulseReceiver
     {
         private readonly GameConsoleClient _client;
 
