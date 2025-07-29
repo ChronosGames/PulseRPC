@@ -71,7 +71,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             _playerService = _channelManager.GetPlayerHub();
 
             // 使用简洁的一行 API - 源代码生成器会处理多接口实现
-            _eventsSubscription = _client.RegisterGameEventListener(new PlayerEventsHandler(this));
+            _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");
         }
@@ -392,6 +392,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
         public Guid Id { get; } = Guid.NewGuid();
         public bool IsActive => !_isDisposed;
+        public bool IsUnsubscribed => _isDisposed;
 
         public CompositeSubscriptionToken(ISubscriptionToken[] tokens)
         {
@@ -427,7 +428,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     /// <summary>
     /// 玩家事件处理器
     /// </summary>
-    private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents, IPulseReceiver
+    private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents
     {
         private readonly GameConsoleClient _client;
 

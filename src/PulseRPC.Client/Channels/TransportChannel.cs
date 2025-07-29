@@ -386,6 +386,15 @@ public class TransportChannel : IClientChannel
     }
 
     /// <summary>
+    /// 发送消息
+    /// </summary>
+    public async Task SendAsync<T>(string eventName, T message, CancellationToken cancellationToken = default)
+    {
+        // 重用SendEventAsync的实现
+        await SendEventAsync(eventName, message, cancellationToken);
+    }
+
+    /// <summary>
     /// 订阅事件
     /// </summary>
     public ISubscriptionToken SubscribeToEvent<T>(string eventName, System.EventHandler<T> handler)

@@ -4,17 +4,17 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using PulseRPC.HealthCheck;
-using PulseRPC.ServiceRegistration;
 using PulseRPC.ServiceDiscovery;
 using PulseRPC.Infrastructure;
 using PulseRPC.Transport;
+using PulseRPC.ServiceRegistration;
 
 namespace PulseRPC.Infrastructure.Consul;
 
 /// <summary>
 /// 基于Consul的服务发现实现
 /// </summary>
-public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisposable
+public class ConsulServiceDiscovery : IServiceDiscovery, PulseRPC.ServiceRegistration.IServiceRegistry, IDisposable
 {
     private readonly IConsulClient _consulClient;
     private readonly ILogger<ConsulServiceDiscovery> _logger;
@@ -23,7 +23,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
     private readonly Timer? _watchTimer;
     private readonly string _instanceId;
     private readonly SemaphoreSlim _semaphore = new(1, 1);
-    private readonly ConcurrentDictionary<string, ServiceEndpoint> _serviceCache = new();
+    private readonly ConcurrentDictionary<string, PulseRPC.ServiceDiscovery.ServiceEndpoint> _serviceCache = new();
     private readonly ConcurrentDictionary<string, ulong> _watchIndices = new();
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _watchTokens = new();
     private volatile bool _disposed = false;
@@ -74,7 +74,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
     /// <summary>
     /// 注册服务
     /// </summary>
-    public async Task RegisterAsync(ServiceEndpoint endpoint, CancellationToken cancellationToken = default)
+    public async Task RegisterAsync(PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint, CancellationToken cancellationToken = default)
     {
         if (endpoint == null)
             throw new ArgumentNullException(nameof(endpoint));
@@ -239,7 +239,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
     /// <summary>
     /// 获取指定服务名称的所有服务
     /// </summary>
-    public async Task<IReadOnlyList<ServiceEndpoint>> GetServicesAsync(string serviceName, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<PulseRPC.ServiceDiscovery.ServiceEndpoint>> GetServicesAsync(string serviceName, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(serviceName))
             throw new ArgumentException("Service name cannot be null or empty", nameof(serviceName));
@@ -251,7 +251,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
             var tag = tags?.FirstOrDefault() ?? string.Empty;
 
             var response = await _consulClient.Health.Service(serviceName, tag, healthyOnly, cancellationToken);
-            var endpoints = new List<ServiceEndpoint>();
+            var endpoints = new List<PulseRPC.ServiceDiscovery.ServiceEndpoint>();
 
             foreach (var service in response.Response)
             {
@@ -285,7 +285,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
     /// <summary>
     /// 获取指定服务ID的服务
     /// </summary>
-    public async Task<ServiceEndpoint?> GetServiceAsync(string serviceId, CancellationToken cancellationToken = default)
+    public async Task<PulseRPC.ServiceDiscovery.ServiceEndpoint?> GetServiceAsync(string serviceId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(serviceId))
             throw new ArgumentException("Service ID cannot be null or empty", nameof(serviceId));
@@ -468,37 +468,32 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
 
     #region Private Methods
 
-    private ServiceEndpoint? ConvertToServiceEndpoint(AgentService consulService)
+    private PulseRPC.ServiceDiscovery.ServiceEndpoint? ConvertToServiceEndpoint(AgentService consulService)
     {
         try
         {
-            var metadata = new Dictionary<string, object>();
+            var metadata = new Dictionary<string, string>();
 
             if (consulService.Meta != null)
             {
                 foreach (var meta in consulService.Meta)
                 {
-                    metadata[meta.Key] = meta.Value;
+                    metadata[meta.Key] = meta.Value ?? "";
                 }
             }
 
-            var endpoint = new ServiceEndpoint
+            var endpoint = new PulseRPC.ServiceDiscovery.ServiceEndpoint
             {
                 ServiceId = consulService.ID,
                 ServiceType = consulService.Service,
-                Channel = new ChannelEndpoint
-                {
-                    ChannelId = $"{consulService.ID}_channel",
-                    ChannelName = $"{consulService.Service}_channel",
-                    Protocol = TransportProtocol.Tcp,
-                    Address = new NetworkAddress
-                    {
-                        Host = consulService.Address,
-                        Port = consulService.Port,
-                        UseTls = false
-                    }
-                },
-                Metadata = new ServiceMetadata(consulService.Meta?.ToDictionary(kv => kv.Key, kv => kv.Value))
+                Host = consulService.Address,
+                Port = consulService.Port,
+                Protocol = "Tcp",
+                Weight = 100, // 默认权重
+                IsHealthy = true, // Consul返回的服务默认健康
+                RegisteredAt = DateTime.UtcNow,
+                LastHealthCheck = DateTime.UtcNow,
+                Metadata = metadata
             };
 
             return endpoint;
@@ -511,40 +506,38 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         }
     }
 
-    private ServiceEndpoint? ConvertToServiceEndpoint(ServiceEntry consulService)
+    private PulseRPC.ServiceDiscovery.ServiceEndpoint? ConvertToServiceEndpoint(ServiceEntry consulService)
     {
         try
         {
             var service = consulService.Service;
             if (service == null) return null;
 
-            var metadata = new Dictionary<string, object>();
+            var metadata = new Dictionary<string, string>();
 
             if (service.Meta != null)
             {
                 foreach (var meta in service.Meta)
                 {
-                    metadata[meta.Key] = meta.Value;
+                    metadata[meta.Key] = meta.Value ?? "";
                 }
             }
 
-            var endpoint = new ServiceEndpoint
+            // 从健康检查结果确定健康状态
+            var isHealthy = consulService.Checks?.All(check => check.Status == HealthStatus.Passing) ?? true;
+
+            var endpoint = new PulseRPC.ServiceDiscovery.ServiceEndpoint
             {
                 ServiceId = service.ID,
                 ServiceType = service.Service,
-                Channel = new ChannelEndpoint
-                {
-                    ChannelId = $"{service.ID}_channel",
-                    ChannelName = $"{service.Service}_channel",
-                    Protocol = TransportProtocol.Tcp,
-                    Address = new NetworkAddress
-                    {
-                        Host = service.Address,
-                        Port = service.Port,
-                        UseTls = false
-                    }
-                },
-                Metadata = new ServiceMetadata(service.Meta?.ToDictionary(kv => kv.Key, kv => kv.Value))
+                Host = service.Address,
+                Port = service.Port,
+                Protocol = "Tcp",
+                Weight = 100, // 默认权重
+                IsHealthy = isHealthy,
+                RegisteredAt = DateTime.UtcNow,
+                LastHealthCheck = DateTime.UtcNow,
+                Metadata = metadata
             };
 
             return endpoint;
@@ -589,15 +582,15 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         }
     }
 
-    private AgentServiceRegistration ConvertToConsulRegistration(ServiceEndpoint endpoint)
+    private AgentServiceRegistration ConvertToConsulRegistration(PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint)
     {
         var metadata = new Dictionary<string, string>();
 
-        if (endpoint.Metadata.Properties != null)
+        if (endpoint.Metadata != null)
         {
-            foreach (var meta in endpoint.Metadata.Properties)
+            foreach (var meta in endpoint.Metadata)
             {
-                metadata[meta.Key] = meta.Value?.ToString() ?? string.Empty;
+                metadata[meta.Key] = meta.Value ?? string.Empty;
             }
         }
 
@@ -605,10 +598,10 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
         {
             ID = endpoint.ServiceId,
             Name = endpoint.ServiceType,
-            Address = endpoint.Channel.Address.Host,
-            Port = endpoint.Channel.Address.Port,
+            Address = endpoint.Host,
+            Port = endpoint.Port,
             Meta = metadata,
-            Tags = endpoint.Metadata.Tags?.Keys.ToArray() ?? Array.Empty<string>()
+            Tags = Array.Empty<string>() // 简化实现，可以后续从metadata中提取
         };
 
         // 配置健康检查
@@ -691,6 +684,77 @@ public class ConsulServiceDiscovery : IServiceDiscovery, IServiceRegistry, IDisp
 
         _consulClient?.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// 注册服务 - ServiceRegistration版本
+    /// </summary>
+    public async Task RegisterAsync(PulseRPC.ServiceRegistration.ServiceRegistration registration, CancellationToken cancellationToken = default)
+    {
+        var endpoint = new PulseRPC.ServiceDiscovery.ServiceEndpoint
+        {
+            ServiceId = registration.Id,
+            ServiceType = registration.ServiceType,
+            Host = registration.Host,
+            Port = registration.Port,
+            Protocol = "Tcp",
+            Weight = 100,
+            IsHealthy = registration.Status == PulseRPC.HealthCheck.HealthStatus.Healthy,
+            RegisteredAt = registration.RegisteredAt,
+            LastHealthCheck = registration.LastHeartbeat,
+            Metadata = registration.Metadata.Properties.ToDictionary(
+                kvp => kvp.Key, 
+                kvp => kvp.Value?.ToString() ?? "")
+        };
+
+        await RegisterAsync(endpoint, cancellationToken);
+    }
+
+    /// <summary>
+    /// 获取所有注册的服务
+    /// </summary>
+    public async Task<IReadOnlyList<PulseRPC.ServiceRegistration.ServiceRegistration>> GetRegistrationsAsync(CancellationToken cancellationToken = default)
+    {
+        var services = await _consulClient.Agent.Services(cancellationToken);
+        var registrations = new List<PulseRPC.ServiceRegistration.ServiceRegistration>();
+
+        foreach (var service in services.Response.Values)
+        {
+            var registration = new PulseRPC.ServiceRegistration.ServiceRegistration
+            {
+                Id = service.ID,
+                ServiceType = service.Service,
+                Host = service.Address,
+                Port = service.Port,
+                Status = PulseRPC.HealthCheck.HealthStatus.Healthy, // 简化实现
+                RegisteredAt = DateTime.UtcNow,
+                LastHeartbeat = DateTime.UtcNow,
+                Metadata = new PulseRPC.ServiceMetadata(service.Meta ?? new Dictionary<string, string>())
+            };
+            registrations.Add(registration);
+        }
+
+        return registrations.AsReadOnly();
+    }
+
+    /// <summary>
+    /// 心跳检测
+    /// </summary>
+    public async Task HeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Consul使用TTL健康检查，这里发送心跳
+            var checkId = $"service:{serviceId}";
+            await _consulClient.Agent.CheckPass(checkId, "Heartbeat from service", cancellationToken);
+            
+            _logger.LogDebug("Heartbeat sent for service: {ServiceId}", serviceId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to send heartbeat for service: {ServiceId}", serviceId);
+            throw;
+        }
     }
 
     #endregion

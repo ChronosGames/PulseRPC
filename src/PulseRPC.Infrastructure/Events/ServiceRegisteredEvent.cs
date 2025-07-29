@@ -1,3 +1,5 @@
+using PulseRPC.ServiceDiscovery;
+
 namespace PulseRPC.Infrastructure;
 
 /// <summary>
@@ -21,7 +23,7 @@ public class ServiceRegisteredEvent : ServiceEvent
     /// <param name="endpoint">服务端点</param>
     /// <param name="source">事件源</param>
     /// <returns>服务注册事件</returns>
-    public static ServiceRegisteredEvent CreateSuccess(ServiceEndpoint endpoint, string source = "") => new()
+    public static ServiceRegisteredEvent CreateSuccess(PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint, string source = "") => new()
     {
         Endpoint = endpoint,
         Success = true,
@@ -35,7 +37,7 @@ public class ServiceRegisteredEvent : ServiceEvent
     /// <param name="errorMessage">错误信息</param>
     /// <param name="source">事件源</param>
     /// <returns>服务注册事件</returns>
-    public static ServiceRegisteredEvent CreateFailed(ServiceEndpoint endpoint, string errorMessage, string source = "") => new()
+    public static ServiceRegisteredEvent CreateFailed(PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint, string errorMessage, string source = "") => new()
     {
         Endpoint = endpoint,
         Success = false,

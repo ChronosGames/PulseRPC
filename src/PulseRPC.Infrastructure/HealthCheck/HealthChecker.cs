@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Net.NetworkInformation;
 using PulseRPC.Infrastructure;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.HealthCheck;
 
@@ -226,7 +227,7 @@ public class HealthChecker : IHealthChecker, IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error publishing health changed event for endpoint: {Host}:{Port}", endpoint.Channel.Address.Host, endpoint.Channel.Address.Port);
+                _logger.LogError(ex, "Error publishing health changed event for endpoint: {Host}:{Port}", endpoint.Host, endpoint.Port);
             }
         }
     }

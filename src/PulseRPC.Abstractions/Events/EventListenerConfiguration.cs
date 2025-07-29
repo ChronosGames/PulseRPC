@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client;
+namespace PulseRPC;
 
 /// <summary>
 /// 事件监听器配置

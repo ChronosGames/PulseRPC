@@ -59,7 +59,7 @@ public class ServiceDiscovery : IServiceDiscovery
         _lastHeartbeat[endpoint.ServiceId] = DateTime.UtcNow;
 
         _logger.LogInformation("Service registered: {ServiceName} at {Host}:{Port} (ID: {ServiceId})",
-            endpoint.ServiceType, endpoint.Channel.Address.Host, endpoint.Channel.Address.Port, endpoint.ServiceId);
+            endpoint.ServiceType, endpoint.Host, endpoint.Port, endpoint.ServiceId);
 
         await TriggerServiceRegisteredEvent(endpoint);
     }
@@ -102,8 +102,14 @@ public class ServiceDiscovery : IServiceDiscovery
 
         if (_endpoints.TryGetValue(serviceId, out var endpoint))
         {
-            var oldStatus = endpoint.Health;
-            endpoint.Health = status;
+            // 获取旧的健康状态（从IsHealthy转换为HealthStatus）
+            var oldStatus = endpoint.IsHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
+            
+            // 更新健康状态（将HealthStatus转换为IsHealthy）
+            endpoint.IsHealthy = status == HealthStatus.Healthy;
+            
+            // 将详细状态存储到元数据中
+            endpoint.Metadata["HealthStatus"] = status.ToString();
             _lastHeartbeat[serviceId] = DateTime.UtcNow;
 
             _logger.LogInformation("Service health updated: {ServiceName} (ID: {ServiceId}) from {OldStatus} to {NewStatus}",
@@ -262,16 +268,16 @@ public class ServiceDiscovery : IServiceDiscovery
         if (string.IsNullOrWhiteSpace(endpoint.ServiceType))
             throw new ArgumentException("Service name cannot be null or empty", nameof(endpoint.ServiceType));
 
-        if (string.IsNullOrWhiteSpace(endpoint.Channel.Address.Host))
-            throw new ArgumentException("Host cannot be null or empty", nameof(endpoint.Channel.Address.Host));
+        if (string.IsNullOrWhiteSpace(endpoint.Host))
+            throw new ArgumentException("Host cannot be null or empty", nameof(endpoint.Host));
 
-        if (endpoint.Channel.Address.Port <= 0 || endpoint.Channel.Address.Port > 65535)
-            throw new ArgumentException("Port must be between 1 and 65535", nameof(endpoint.Channel.Address.Port));
+        if (endpoint.Port <= 0 || endpoint.Port > 65535)
+            throw new ArgumentException("Port must be between 1 and 65535", nameof(endpoint.Port));
     }
 
     private static string GenerateServiceId(ServiceEndpoint endpoint)
     {
-        return $"{endpoint.ServiceType}-{endpoint.Channel.Address.Host}-{endpoint.Channel.Address.Port}-{Guid.NewGuid():N}";
+        return $"{endpoint.ServiceType}-{endpoint.Host}-{endpoint.Port}-{Guid.NewGuid():N}";
     }
 
     private async Task TriggerServiceRegisteredEvent(ServiceEndpoint endpoint)

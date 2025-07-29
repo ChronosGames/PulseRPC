@@ -464,7 +464,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     /// <summary>
     /// UDP数据接收回调
     /// </summary>
-    private void OnUdpReceive(IAsyncResult ar)
+    private new void OnUdpReceive(IAsyncResult ar)
     {
         if (_disposed || _cts.IsCancellationRequested)
             return;

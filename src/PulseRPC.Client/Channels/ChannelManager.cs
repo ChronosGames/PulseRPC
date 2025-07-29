@@ -7,42 +7,6 @@ using PulseRPC.Serialization;
 namespace PulseRPC.Transport;
 
 /// <summary>
-/// 通道管理器接口
-/// </summary>
-public interface IChannelManager : IDisposable
-{
-    /// <summary>
-    /// 获取默认通道
-    /// </summary>
-    IClientChannel GetDefaultChannel();
-
-    /// <summary>
-    /// 获取通道
-    /// </summary>
-    IClientChannel GetChannel(string channelName);
-
-    /// <summary>
-    /// 检查通道是否存在
-    /// </summary>
-    bool HasChannel(string channelName);
-
-    /// <summary>
-    /// 注册通道
-    /// </summary>
-    void RegisterChannel(string name, IClientChannel channel, bool isDefault = false);
-
-    /// <summary>
-    /// 注册通道
-    /// </summary>
-    void RegisterChannel(string name, TransportType type, TransportOptions options, bool isDefault = false);
-
-    /// <summary>
-    /// 注销通道
-    /// </summary>
-    void UnregisterChannel(string channelName);
-}
-
-/// <summary>
 /// 通道管理器实现
 /// </summary>
 public class ChannelManager : IChannelManager
@@ -148,5 +112,26 @@ public class ChannelManager : IChannelManager
             logger: _loggerFactory.CreateLogger<TransportChannel>());
 
         RegisterChannel(name, channel, isDefault);
+    }
+
+    /// <summary>
+    /// 获取服务代理
+    /// </summary>
+    public T GetService<T>() where T : class, IPulseService
+    {
+        // 简化实现 - 通过反射创建代理
+        // 注意：这里应该使用Source Generator生成的代理类
+        throw new NotImplementedException("GetService<T> 应该通过Source Generator扩展方法调用");
+    }
+
+    /// <summary>
+    /// 注册事件监听器
+    /// </summary>
+    public ISubscriptionToken RegisterEventListener<T>(T listener) where T : class, IPulseEventHandler
+    {
+        var defaultChannel = GetDefaultChannel();
+        // 这里应该实现具体的事件监听器注册逻辑
+        // 简化实现
+        throw new NotImplementedException("RegisterEventListener<T> 需要具体实现");
     }
 }

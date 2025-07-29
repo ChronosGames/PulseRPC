@@ -793,7 +793,7 @@ namespace ChatApp.Unity
         /// <summary>
         /// 玩家事件处理器
         /// </summary>
-        private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents, IPulseReceiver
+        private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents
         {
             private readonly ChatComponent _component;
 

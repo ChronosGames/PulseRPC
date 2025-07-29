@@ -1,5 +1,6 @@
 using PulseRPC.HealthCheck;
 using PulseRPC.Infrastructure;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -83,23 +84,20 @@ public class ServiceRegistration
     /// </summary>
     /// <param name="health">健康状态</param>
     /// <returns>服务端点</returns>
-    public ServiceEndpoint ToEndpoint(HealthStatus health = HealthStatus.Unknown) => new()
+    public ServiceDiscovery.ServiceEndpoint ToEndpoint(HealthStatus health = HealthStatus.Unknown) => new()
     {
         ServiceId = Id,
         ServiceType = ServiceType,
-        Channel = new ChannelEndpoint
-        {
-            ChannelId = $"{Id}_channel",
-            ChannelName = $"{ServiceType}_channel",
-            Protocol = TransportProtocol.Tcp,
-            Address = new NetworkAddress
-            {
-                Host = Host,
-                Port = Port,
-                UseTls = false
-            }
-        },
-        Health = health,
+        Host = Host,
+        Port = Port,
+        Protocol = "Tcp",
+        Weight = 100,
+        IsHealthy = health == HealthStatus.Healthy,
+        RegisteredAt = RegisteredAt,
+        LastHealthCheck = LastHeartbeat,
+        Metadata = Metadata.Properties.ToDictionary(
+            kvp => kvp.Key, 
+            kvp => kvp.Value?.ToString() ?? "")
     };
 
     /// <summary>

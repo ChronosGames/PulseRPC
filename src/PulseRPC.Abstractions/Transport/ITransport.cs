@@ -131,28 +131,65 @@ public interface IServerListener : IDisposable
 }
 
 /// <summary>
-/// 传输类型
+/// 传输类型枚举
 /// </summary>
 public enum TransportType
 {
+    /// <summary>
+    /// TCP传输
+    /// </summary>
     Tcp,
-    Udp,
+
+    /// <summary>
+    /// KCP传输
+    /// </summary>
     Kcp,
+
+    /// <summary>
+    /// WebSocket传输
+    /// </summary>
     WebSocket,
-    Custom
+
+    /// <summary>
+    /// UDP传输
+    /// </summary>
+    Udp
 }
 
 /// <summary>
-/// 连接状态
+/// 连接状态枚举
 /// </summary>
 public enum ConnectionState
 {
+    /// <summary>
+    /// 未连接
+    /// </summary>
     Disconnected,
+
+    /// <summary>
+    /// 连接中
+    /// </summary>
     Connecting,
+
+    /// <summary>
+    /// 已连接
+    /// </summary>
     Connected,
+
+    /// <summary>
+    /// 断开连接中
+    /// </summary>
     Disconnecting,
-    Reconnecting,
-    Failed
+
+    /// <summary>
+    /// 连接失败
+    /// </summary>
+    Failed,
+
+    /// <summary>
+    /// 重连中
+    /// </summary>
+    Reconnecting
 }
 
 /// <summary>

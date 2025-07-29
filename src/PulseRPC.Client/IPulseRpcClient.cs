@@ -3,41 +3,13 @@ using Microsoft.Extensions.Logging;
 
 namespace PulseRPC.Client;
 
-/// <summary>
-/// PulseRPC 客户端接口
-/// </summary>
-public interface IPulseRpcClient : IDisposable
-{
-    /// <summary>
-    /// 连接到服务器
-    /// </summary>
-    Task ConnectAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 断开连接
-    /// </summary>
-    Task DisconnectAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 是否已连接
-    /// </summary>
-    bool IsConnected { get; }
-
-    /// <summary>
-    /// 获取通道管理器
-    /// </summary>
-    IChannelManager GetChannelManager();
-
-    /// <summary>
-    /// 获取已配置的传输信息
-    /// </summary>
-    IReadOnlyDictionary<string, (TransportType Type, string Host, int Port, bool IsDefault)> GetTransports();
-}
+// 客户端项目中的具体实现，继承抽象接口
+// IPulseRpcClient接口已在PulseRPC.Abstractions中定义
 
 /// <summary>
 /// PulseRPC 客户端实现
 /// </summary>
-internal class PulseRpcClientManager : IPulseRpcClient
+internal class PulseRpcClientManager : global::PulseRPC.IPulseRpcClient
 {
     private readonly IChannelManager _channelManager;
     private readonly ILogger<PulseRpcClientManager> _logger;

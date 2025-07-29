@@ -7,24 +7,49 @@ using MemoryPack;
 namespace PulseRPC.Messaging;
 
 /// <summary>
-/// 消息通道接口
+/// 客户端通道接口
 /// </summary>
 public interface IClientChannel : IDisposable
 {
+    /// <summary>
+    /// 连接到服务器
+    /// </summary>
     Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 断开连接
+    /// </summary>
     Task DisconnectAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 是否已连接
+    /// </summary>
+    bool IsConnected { get; }
 
     /// <summary>
     /// 注册事件回调
     /// </summary>
     void RegisterEventCallback(Action<string, byte[]> callback);
 
+    /// <summary>
+    /// 发送请求
+    /// </summary>
     Task<TResponse> SendRequestAsync<TRequest, TResponse>(string serviceName, string methodName, TRequest request,
         CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 发送事件
+    /// </summary>
     Task SendEventAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// 发送消息
+    /// </summary>
+    Task SendAsync<T>(string eventName, T message, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 订阅事件
+    /// </summary>
     ISubscriptionToken SubscribeToEvent<T>(string eventName, System.EventHandler<T> handler);
 }
 

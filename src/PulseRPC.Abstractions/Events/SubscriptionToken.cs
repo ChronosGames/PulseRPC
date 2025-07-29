@@ -33,6 +33,11 @@ public class SubscriptionToken : ISubscriptionToken
     public bool IsActive => !_isDisposed;
 
     /// <summary>
+    /// 是否已取消订阅
+    /// </summary>
+    public bool IsUnsubscribed => _isDisposed;
+
+    /// <summary>
     /// 创建订阅令牌
     /// </summary>
     public SubscriptionToken(Guid id, string eventName, Type eventType, Action unsubscribeAction)
@@ -82,6 +87,11 @@ public class CompositeSubscriptionToken : ISubscriptionToken
     /// 是否活跃
     /// </summary>
     public bool IsActive => !_isDisposed;
+
+    /// <summary>
+    /// 是否已取消订阅
+    /// </summary>
+    public bool IsUnsubscribed => _isDisposed;
 
     /// <summary>
     /// 创建组合订阅令牌

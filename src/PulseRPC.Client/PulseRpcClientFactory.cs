@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.Authentication;
+using PulseRPC.Routing;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client;
@@ -6,7 +8,7 @@ namespace PulseRPC.Client;
 /// <summary>
 /// PulseRPC 客户端工厂 - 用于Unity等非DI环境
 /// </summary>
-public static class PulseRpcClientFactory
+public static partial class PulseRpcClientFactory
 {
     /// <summary>
     /// 创建简单的TCP客户端
@@ -199,6 +201,147 @@ public class ClientBuilder
     public IPulseRpcClient Build()
     {
         return PulseRpcClientFactory.CreateClient(_transports, _loggerFactory);
+    }
+
+    /// <summary>
+    /// 构建智能客户端实例
+    /// </summary>
+    public ISmartPulseRpcClient BuildSmart()
+    {
+        return PulseRpcClientFactory.CreateSmartClient(_loggerFactory);
+    }
+}
+
+/// <summary>
+/// 智能客户端创建方法扩展
+/// </summary>
+public static partial class PulseRpcClientFactory
+{
+    /// <summary>
+    /// 创建智能客户端 - 支持按需连接和自动管理
+    /// </summary>
+    /// <param name="loggerFactory">日志工厂（可选）</param>
+    /// <returns>智能客户端实例</returns>
+    public static ISmartPulseRpcClient CreateSmartClient(ILoggerFactory? loggerFactory = null)
+    {
+        return new SmartPulseRpcClient(loggerFactory);
+    }
+
+    /// <summary>
+    /// 创建智能客户端构建器
+    /// </summary>
+    /// <returns>智能客户端构建器</returns>
+    public static SmartClientBuilder CreateSmartBuilder()
+    {
+        return new SmartClientBuilder();
+    }
+}
+
+/// <summary>
+/// 智能客户端构建器 - 用于配置智能连接功能
+/// </summary>
+public class SmartClientBuilder
+{
+    private ILoggerFactory? _loggerFactory;
+    private ServiceDiscoveryConfiguration? _serviceDiscoveryConfig;
+    private IAuthenticationProvider? _authProvider;
+    private readonly Dictionary<Type, object> _routingConfigurations = new();
+
+    /// <summary>
+    /// 设置日志工厂
+    /// </summary>
+    public SmartClientBuilder WithLogger(ILoggerFactory loggerFactory)
+    {
+        _loggerFactory = loggerFactory;
+        return this;
+    }
+
+    /// <summary>
+    /// 配置服务发现
+    /// </summary>
+    public SmartClientBuilder WithServiceDiscovery(Action<ServiceDiscoveryConfiguration> configure)
+    {
+        _serviceDiscoveryConfig = new ServiceDiscoveryConfiguration();
+        configure(_serviceDiscoveryConfig);
+        return this;
+    }
+
+    /// <summary>
+    /// 配置认证
+    /// </summary>
+    public SmartClientBuilder WithAuthentication(IAuthenticationProvider authProvider)
+    {
+        _authProvider = authProvider;
+        return this;
+    }
+
+    /// <summary>
+    /// 配置服务路由
+    /// </summary>
+    public SmartClientBuilder WithServiceRouting<T>(Action<ServiceRoutingConfiguration<T>> configure) 
+        where T : class, IPulseService
+    {
+        var config = new ServiceRoutingConfiguration<T>();
+        configure(config);
+        _routingConfigurations[typeof(T)] = config;
+        return this;
+    }
+
+    /// <summary>
+    /// 添加静态服务端点
+    /// </summary>
+    public SmartClientBuilder AddStaticService(string serviceName, string host, int port, TransportType transport = TransportType.Tcp)
+    {
+        _serviceDiscoveryConfig ??= new ServiceDiscoveryConfiguration();
+        _serviceDiscoveryConfig.StaticEndpoints[serviceName] = new ServiceEndpoint
+        {
+            Host = host,
+            Port = port,
+            Transport = transport
+        };
+        return this;
+    }
+
+    /// <summary>
+    /// 构建智能客户端
+    /// </summary>
+    public ISmartPulseRpcClient Build()
+    {
+        var client = new SmartPulseRpcClient(_loggerFactory);
+
+        // 配置服务发现
+        if (_serviceDiscoveryConfig != null)
+        {
+            client.ConfigureServiceDiscovery(config =>
+            {
+                config.Type = _serviceDiscoveryConfig.Type;
+                config.StaticEndpoints = _serviceDiscoveryConfig.StaticEndpoints;
+                config.Consul = _serviceDiscoveryConfig.Consul;
+                config.Etcd = _serviceDiscoveryConfig.Etcd;
+                config.Dns = _serviceDiscoveryConfig.Dns;
+                config.Cache = _serviceDiscoveryConfig.Cache;
+                config.RefreshInterval = _serviceDiscoveryConfig.RefreshInterval;
+                config.EnableWatch = _serviceDiscoveryConfig.EnableWatch;
+            });
+        }
+
+        // 配置认证
+        if (_authProvider != null)
+        {
+            client.ConfigureAuthentication(_authProvider);
+        }
+
+        // 配置路由策略
+        foreach (var kvp in _routingConfigurations)
+        {
+            var serviceType = kvp.Key;
+            var configValue = kvp.Value;
+            
+            // 这里需要使用反射来调用泛型方法，简化实现先跳过
+            // TODO: 实现泛型路由配置的应用
+        }
+
+        return client;
     }
 }
 

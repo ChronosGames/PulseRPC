@@ -1,3 +1,5 @@
+using PulseRPC.ServiceDiscovery;
+
 namespace PulseRPC.Infrastructure;
 
 /// <summary>
@@ -27,7 +29,7 @@ public class ServiceUnregisteredEvent : ServiceEvent
     /// <param name="reason">注销原因</param>
     /// <param name="source">事件源</param>
     /// <returns>服务注销事件</returns>
-    public static ServiceUnregisteredEvent CreateSuccess(ServiceEndpoint endpoint, UnregistrationReason reason = UnregistrationReason.Manual, string source = "") => new()
+    public static ServiceUnregisteredEvent CreateSuccess(PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint, UnregistrationReason reason = UnregistrationReason.Manual, string source = "") => new()
     {
         Endpoint = endpoint,
         Success = true,
@@ -42,7 +44,7 @@ public class ServiceUnregisteredEvent : ServiceEvent
     /// <param name="errorMessage">错误信息</param>
     /// <param name="source">事件源</param>
     /// <returns>服务注销事件</returns>
-    public static ServiceUnregisteredEvent CreateFailed(ServiceEndpoint endpoint, string errorMessage, string source = "") => new()
+    public static ServiceUnregisteredEvent CreateFailed(PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint, string errorMessage, string source = "") => new()
     {
         Endpoint = endpoint,
         Success = false,
