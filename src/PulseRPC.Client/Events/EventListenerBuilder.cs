@@ -15,7 +15,7 @@ public class EventListenerBuilder<T> where T : class
     private readonly T _listener;
     private readonly EventListenerConfiguration _configuration;
 
-    internal EventListenerBuilder(IPulseRpcClient client, T listener)
+    public EventListenerBuilder(IPulseRpcClient client, T listener)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _listener = listener ?? throw new ArgumentNullException(nameof(listener));
@@ -188,19 +188,9 @@ public class EventListenerBuilder<T> where T : class
     /// <returns>订阅令牌</returns>
     public ISubscriptionToken Register()
     {
-        // 这里将调用源代码生成的RegisterEventListener方法
-        // 实际实现将在源代码生成器中生成
-        return RegisterEventListenerWithConfiguration(_client, _listener, _configuration);
-    }
-
-    /// <summary>
-    /// 内部方法 - 将由源代码生成器实现
-    /// </summary>
-    private static ISubscriptionToken RegisterEventListenerWithConfiguration(IPulseRpcClient client, T listener, EventListenerConfiguration configuration)
-    {
-        // 这个方法的实现将由源代码生成器生成
-        // 生成器会根据T的类型生成特定的实现
-        throw new NotImplementedException("This method will be implemented by source generator");
+        // 使用辅助类来避免直接依赖源代码生成的方法
+        // 辅助类的委托将由源代码生成器设置
+        return EventListenerRegistrar.RegisterWithConfiguration(_client, _listener, _configuration);
     }
 }
 
