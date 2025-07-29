@@ -1,3 +1,5 @@
+using PulseRPC.ServiceDiscovery;
+
 namespace PulseRPC.Infrastructure;
 
 /// <summary>
@@ -18,5 +20,5 @@ public abstract class ServiceEvent
     /// <summary>
     /// 关联的服务端点
     /// </summary>
-    public required ServiceEndpoint Endpoint { get; init; }
+    public required PulseRPC.ServiceDiscovery.ServiceEndpoint Endpoint { get; init; }
 }

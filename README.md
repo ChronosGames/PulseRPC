@@ -8,12 +8,23 @@
 
 ## 🚀 特性
 
+### 核心功能
 - **高性能传输**：支持 TCP 和 KCP 协议
 - **跨平台支持**：兼容 .NET 8+ 和 Unity 2022.3+
 - **现代序列化**：基于 MemoryPack 的高效序列化
 - **完整的基准测试**：内置性能测试和监控框架
 - **易于集成**：简洁的 API 设计和依赖注入支持
 - **生产就绪**：完整的错误处理、重连机制和监控
+
+### 🧠 智能连接管理 (新功能)
+- **按需连接**：根据需要自动创建和管理连接
+- **智能路由**：支持轮询、一致性哈希、最少连接等多种负载均衡策略
+- **多实例管理**：同一服务的多个实例连接和管理
+- **广播与聚合**：跨多个服务实例的批量操作
+- **自动回收**：空闲连接的智能清理和资源管理
+- **服务发现**：支持静态配置、Consul、Etcd等多种服务发现方式
+- **故障转移**：自动故障检测和实例切换
+- **认证集成**：内置的认证令牌管理
 
 ## 📦 项目结构
 
@@ -305,6 +316,71 @@ dotnet test perf/BenchmarkApp/PulseRPC.Benchmark.Tests/
 - **成功率**: 99.97%
 - **平均内存使用**: 256 MB
 - **零内存泄漏**
+
+## 🚀 快速开始：智能连接
+
+### 基础用法
+
+```csharp
+// 创建智能客户端
+var smartClient = PulseRpcClientFactory.CreateSmartClient();
+
+// 获取服务代理（自动连接管理）
+var chatService = await smartClient.GetServiceAsync<IChatHub>();
+await chatService.SendMessageAsync("Hello, PulseRPC!");
+
+// 注册事件监听器
+var subscription = await smartClient.RegisterEventListenerAsync(
+    new ChatEventHandler(), "ChatService");
+```
+
+### 高级智能连接
+
+```csharp
+// 构建器模式配置
+var smartClient = PulseRpcClientFactory.CreateSmartBuilder()
+    .WithServiceDiscovery(config =>
+    {
+        config.Type = ServiceDiscoveryType.Static;
+        config.StaticEndpoints["ChatService"] = new ServiceEndpoint
+        {
+            Host = "localhost",
+            Port = 8000,
+            Transport = TransportType.Tcp
+        };
+    })
+    .WithServiceRouting<IChatHub>(config =>
+    {
+        config.DefaultStrategy = ServiceRoutingStrategy.RoundRobin;
+        config.Failover.EnableFailover = true;
+        config.HealthCheck.Enabled = true;
+    })
+    .Build();
+
+// 智能路由
+var routingContext = RoutingContext.ByUserId("user123");
+var chatService = await smartClient.GetServiceAsync<IChatHub>("ChatService", routingContext);
+
+// 多实例管理
+var chatManager = await smartClient.GetMultiInstanceServiceAsync<IChatHub>("ChatService");
+
+// 广播到所有实例
+var broadcastResult = await chatManager.BroadcastAsync(async chat =>
+    await chat.SendGlobalAnnouncementAsync("全服公告"));
+
+// 聚合查询
+var totalUsers = await chatManager.AggregateAsync(
+    async chat => await chat.GetOnlineUserCountAsync(),
+    results => results.Sum());
+
+// 获取连接统计
+var stats = await smartClient.GetConnectionStatisticsAsync();
+Console.WriteLine($"活跃连接: {stats.ActiveConnections}");
+```
+
+### 完整示例
+
+查看 [SMART_CONNECTION_GUIDE.md](samples/ChatApp/SMART_CONNECTION_GUIDE.md) 获取详细的使用指南和最佳实践。
 
 ## 🤝 贡献指南
 

@@ -12,7 +12,7 @@ namespace ChatApp
     /// 指定默认使用TCP通道
     /// </summary>
     [Channel("TcpChannel")]
-    public interface IPlayerHub : IPulseHub
+    public interface IPlayerHub : IPulseService
     {
         /// <summary>
         /// 玩家登录
@@ -35,7 +35,7 @@ namespace ChatApp
     /// 事件接口 - 登录相关事件使用TCP
     /// </summary>
     [Channel("TcpChannel")]
-    public interface IPlayerLoginEvents : IPulseReceiver
+    public interface IPlayerLoginEvents : IPulseEventHandler
     {
         // 下行通知: 玩家加入游戏
         void OnPlayerJoined(PlayerJoinedEvent eventData);
@@ -48,7 +48,7 @@ namespace ChatApp
     /// 事件接口 - 位置更新使用KCP
     /// </summary>
     [Channel("KcpChannel")]
-    public interface IPlayerMovementEvents : IPulseReceiver
+    public interface IPlayerMovementEvents : IPulseEventHandler
     {
         // 下行通知: 玩家移动
         void OnPlayerMoved(PlayerMovedEvent eventData);

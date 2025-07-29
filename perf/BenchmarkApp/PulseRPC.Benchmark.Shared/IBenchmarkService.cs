@@ -9,7 +9,7 @@ namespace PulseRPC.Benchmark.Shared
     /// 基准测试服务接口
     /// 提供各种性能测试场景的RPC服务方法
     /// </summary>
-    public interface IBenchmarkService : IPulseHub
+    public interface IBenchmarkService : IPulseService
     {
         /// <summary>
         /// Echo测试 - 单次延迟测试

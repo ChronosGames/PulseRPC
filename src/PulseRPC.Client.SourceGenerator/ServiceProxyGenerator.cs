@@ -35,7 +35,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 {
                     foreach (var serviceType in classDeclaration)
                     {
-                        // 检查是否实现了IPulseHub接口（服务接口）
+                        // 检查是否实现了IPulseService接口（服务接口）
                         if (serviceType.Type != null && IsNetworkService(serviceType.Type))
                         {
                             result.Add(serviceType);
@@ -239,8 +239,8 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
 
     private static bool IsNetworkService(INamedTypeSymbol typeSymbol)
     {
-        // 检查是否实现了 IPulseHub 接口
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
+        // 检查是否实现了 IPulseService 接口
+        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseService");
     }
 
     private static bool IsEventReceiver(INamedTypeSymbol typeSymbol)
@@ -270,6 +270,8 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Transport;");
         sb.AppendLine("using PulseRPC.Messaging;");
+        sb.AppendLine("using PulseRPC.Routing;");
+        sb.AppendLine("using PulseRPC.SmartConnection;");
         sb.AppendLine();
 
         // 生成命名空间
@@ -573,6 +575,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("            public Guid Id { get; } = Guid.NewGuid();");
         sb.AppendLine("            public bool IsActive => !_isDisposed;");
+        sb.AppendLine("            public bool IsUnsubscribed => _isDisposed;");
         sb.AppendLine();
         sb.AppendLine("            public CompositeSubscriptionToken(List<ISubscriptionToken> tokens)");
         sb.AppendLine("            {");
@@ -791,6 +794,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine("            public Guid Id { get; } = Guid.NewGuid();");
         sb.AppendLine("            public bool IsActive => !_isDisposed;");
+        sb.AppendLine("            public bool IsUnsubscribed => _isDisposed;");
         sb.AppendLine();
         sb.AppendLine("            public CompositeSubscriptionToken(List<ISubscriptionToken> tokens)");
         sb.AppendLine("            {");
@@ -990,6 +994,8 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Events;");
         sb.AppendLine("using PulseRPC.Client.Events;");
+        sb.AppendLine("using PulseRPC.SmartConnection;");
+        sb.AppendLine("using PulseRPC.Routing;");
         sb.AppendLine();
 
         // 生成命名空间
@@ -1024,7 +1030,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
             sb.AppendLine("        /// <param name=\"channelManager\">通道管理器</param>");
             sb.AppendLine("        /// <returns>服务实例</returns>");
-            sb.AppendLine("        public static T GetService<T>(this IChannelManager channelManager) where T : IPulseHub");
+            sb.AppendLine("        public static T GetService<T>(this IChannelManager channelManager) where T : IPulseService");
             sb.AppendLine("        {");
             sb.AppendLine("            if (channelManager == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(channelManager));");
@@ -1061,12 +1067,100 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
             sb.AppendLine("        /// <param name=\"client\">PulseRPC 客户端</param>");
             sb.AppendLine("        /// <returns>服务实例</returns>");
-            sb.AppendLine("        public static T GetService<T>(this IPulseRpcClient client) where T : IPulseHub");
+            sb.AppendLine("        public static T GetService<T>(this IPulseRpcClient client) where T : IPulseService");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
             sb.AppendLine();
             sb.AppendLine("            return client.GetChannelManager().GetService<T>();");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+        }
+
+        // 为 ISmartPulseRpcClient 生成 GetServiceAsync<T>() 方法
+        if (serviceTypes.Length > 0)
+        {
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 获取服务代理 - 智能连接管理");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
+            sb.AppendLine("        /// <param name=\"client\">智能 PulseRPC 客户端</param>");
+            sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
+            sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
+            sb.AppendLine("        /// <returns>服务代理</returns>");
+            sb.AppendLine("        public static async Task<T> GetServiceAsync<T>(this ISmartPulseRpcClient client, string serviceName = \"\", SmartConnectionOptions options = null) where T : class, IPulseService");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (client == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
+            sb.AppendLine();
+
+            // 为每个服务类型生成 if-else 分支
+            for (int i = 0; i < serviceTypes.Length; i++)
+            {
+                var interfaceSymbol = serviceTypes[i];
+                if (interfaceSymbol == null) continue;
+
+                var fullTypeName = GetFullTypeName(interfaceSymbol);
+                var serviceNameHint = interfaceSymbol.Name.TrimStart('I');
+
+                if (i == 0)
+                {
+                    sb.AppendLine($"            if (typeof(T) == typeof({fullTypeName}))");
+                }
+                else
+                {
+                    sb.AppendLine($"            else if (typeof(T) == typeof({fullTypeName}))");
+                }
+                sb.AppendLine("            {");
+                sb.AppendLine($"                var effectiveServiceName = string.IsNullOrEmpty(serviceName) ? \"{serviceNameHint}\" : serviceName;");
+                sb.AppendLine($"                return (T)(object)await client.GetServiceAsync<{fullTypeName}>(effectiveServiceName, options);");
+                sb.AppendLine("            }");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("            throw new ArgumentException($\"未找到智能服务代理方法: {{typeof(T).Name}}\", nameof(T));");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // 生成多实例服务管理器方法
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 获取多实例服务管理器");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
+            sb.AppendLine("        /// <param name=\"client\">智能 PulseRPC 客户端</param>");
+            sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
+            sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
+            sb.AppendLine("        /// <returns>多实例服务管理器</returns>");
+            sb.AppendLine("        public static async Task<IMultiInstanceServiceManager<T>> GetMultiInstanceServiceAsync<T>(this ISmartPulseRpcClient client, string serviceName = \"\", SmartConnectionOptions options = null) where T : class, IPulseService");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (client == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
+            sb.AppendLine();
+
+            for (int i = 0; i < serviceTypes.Length; i++)
+            {
+                var interfaceSymbol = serviceTypes[i];
+                if (interfaceSymbol == null) continue;
+
+                var fullTypeName = GetFullTypeName(interfaceSymbol);
+                var serviceNameHint = interfaceSymbol.Name.TrimStart('I');
+
+                if (i == 0)
+                {
+                    sb.AppendLine($"            if (typeof(T) == typeof({fullTypeName}))");
+                }
+                else
+                {
+                    sb.AppendLine($"            else if (typeof(T) == typeof({fullTypeName}))");
+                }
+                sb.AppendLine("            {");
+                sb.AppendLine($"                var effectiveServiceName = string.IsNullOrEmpty(serviceName) ? \"{serviceNameHint}\" : serviceName;");
+                sb.AppendLine($"                return await client.GetMultiInstanceServiceAsync<{fullTypeName}>(effectiveServiceName, options);");
+                sb.AppendLine("            }");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("            throw new ArgumentException($\"未找到多实例服务管理器: {{typeof(T).Name}}\", nameof(T));");
             sb.AppendLine("        }");
             sb.AppendLine();
         }
@@ -1126,7 +1220,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"listener\">事件监听器实例</param>");
             sb.AppendLine("        /// <param name=\"configuration\">配置对象</param>");
             sb.AppendLine("        /// <returns>订阅令牌</returns>");
-            sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerWithConfiguration<T>(this IPulseRpcClient client, T listener, PulseRPC.Client.EventListenerConfiguration configuration) where T : class");
+            sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerWithConfiguration<T>(this IPulseRpcClient client, T listener, PulseRPC.EventListenerConfiguration configuration) where T : class");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1175,7 +1269,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 sb.AppendLine($"        /// <summary>");
                 sb.AppendLine($"        /// 注册 {interfaceSymbol.Name} 事件监听器");
                 sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        private static ISubscriptionToken RegisterEventListenerFor{safeTypeName}(IChannelManager channelManager, {fullTypeName}? listener, PulseRPC.Client.EventListenerConfiguration? configuration)");
+                sb.AppendLine($"        private static ISubscriptionToken RegisterEventListenerFor{safeTypeName}(IChannelManager channelManager, {fullTypeName}? listener, PulseRPC.EventListenerConfiguration? configuration)");
                 sb.AppendLine("        {");
                 sb.AppendLine("            if (listener == null)");
                 sb.AppendLine("                throw new ArgumentNullException(nameof(listener));");
@@ -1281,7 +1375,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        private class EnhancedCompositeSubscriptionToken : ISubscriptionToken");
             sb.AppendLine("        {");
             sb.AppendLine("            private readonly System.Collections.Generic.List<ISubscriptionToken> _tokens;");
-            sb.AppendLine("            private readonly PulseRPC.Client.EventListenerConfiguration? _configuration;");
+            sb.AppendLine("            private readonly PulseRPC.EventListenerConfiguration? _configuration;");
             sb.AppendLine("            private readonly System.DateTime _createdAt;");
             sb.AppendLine("            private bool _isDisposed;");
             sb.AppendLine("            private int _eventCount;");
@@ -1293,7 +1387,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("            public int ErrorCount => _errorCount;");
             sb.AppendLine("            public System.TimeSpan Age => System.DateTime.UtcNow - _createdAt;");
             sb.AppendLine();
-            sb.AppendLine("            public EnhancedCompositeSubscriptionToken(System.Collections.Generic.List<ISubscriptionToken> tokens, PulseRPC.Client.EventListenerConfiguration? configuration = null)");
+            sb.AppendLine("            public EnhancedCompositeSubscriptionToken(System.Collections.Generic.List<ISubscriptionToken> tokens, PulseRPC.EventListenerConfiguration? configuration = null)");
             sb.AppendLine("            {");
             sb.AppendLine("                _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));");
             sb.AppendLine("                _configuration = configuration;");
@@ -1420,6 +1514,101 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine();
             sb.AppendLine($"            var channel = channelManager.GetChannel(\"{GetChannelAttributeValue(interfaceSymbol) ?? "default"}\");");
             sb.AppendLine($"            return new {handlerClassFullName}(channel);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+        }
+
+        // 为 ISmartPulseRpcClient 生成 RegisterEventListenerAsync<T>() 方法
+        if (eventTypes.Length > 0)
+        {
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 注册事件监听器 - 智能连接管理");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <typeparam name=\"T\">事件接口类型</typeparam>");
+            sb.AppendLine("        /// <param name=\"client\">智能 PulseRPC 客户端</param>");
+            sb.AppendLine("        /// <param name=\"listener\">事件监听器实例</param>");
+            sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
+            sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
+            sb.AppendLine("        /// <returns>订阅令牌</returns>");
+            sb.AppendLine("        public static async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(this ISmartPulseRpcClient client, T listener, string serviceName = \"\", SmartConnectionOptions options = null) where T : class, IPulseReceiver");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (client == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
+            sb.AppendLine("            if (listener == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(listener));");
+            sb.AppendLine();
+
+            // 为每个事件类型生成 if-else 分支
+            for (int i = 0; i < eventTypes.Length; i++)
+            {
+                var interfaceSymbol = eventTypes[i];
+                if (interfaceSymbol == null) continue;
+
+                var fullTypeName = GetFullTypeName(interfaceSymbol);
+                var serviceNameHint = interfaceSymbol.Name.TrimStart('I').Replace("Events", "").Replace("Listener", "");
+
+                if (i == 0)
+                {
+                    sb.AppendLine($"            if (typeof(T) == typeof({fullTypeName}))");
+                }
+                else
+                {
+                    sb.AppendLine($"            else if (typeof(T) == typeof({fullTypeName}))");
+                }
+                sb.AppendLine("            {");
+                sb.AppendLine($"                var effectiveServiceName = string.IsNullOrEmpty(serviceName) ? \"{serviceNameHint}\" : serviceName;");
+                sb.AppendLine($"                return await client.RegisterEventListenerAsync<{fullTypeName}>(listener as {fullTypeName}, effectiveServiceName, options);");
+                sb.AppendLine("            }");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("            throw new ArgumentException($\"未找到智能事件监听器注册方法: {{typeof(T).Name}}\", nameof(T));");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // 生成路由版本的事件监听器方法
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 注册事件监听器 - 支持路由上下文");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        /// <typeparam name=\"T\">事件接口类型</typeparam>");
+            sb.AppendLine("        /// <param name=\"client\">智能 PulseRPC 客户端</param>");
+            sb.AppendLine("        /// <param name=\"listener\">事件监听器实例</param>");
+            sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
+            sb.AppendLine("        /// <param name=\"routingContext\">路由上下文</param>");
+            sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
+            sb.AppendLine("        /// <returns>订阅令牌</returns>");
+            sb.AppendLine("        public static async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(this ISmartPulseRpcClient client, T listener, string serviceName, IRoutingContext routingContext, SmartConnectionOptions options = null) where T : class, IPulseReceiver");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (client == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
+            sb.AppendLine("            if (listener == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(listener));");
+            sb.AppendLine("            if (routingContext == null)");
+            sb.AppendLine("                throw new ArgumentNullException(nameof(routingContext));");
+            sb.AppendLine();
+
+            for (int i = 0; i < eventTypes.Length; i++)
+            {
+                var interfaceSymbol = eventTypes[i];
+                if (interfaceSymbol == null) continue;
+
+                var fullTypeName = GetFullTypeName(interfaceSymbol);
+
+                if (i == 0)
+                {
+                    sb.AppendLine($"            if (typeof(T) == typeof({fullTypeName}))");
+                }
+                else
+                {
+                    sb.AppendLine($"            else if (typeof(T) == typeof({fullTypeName}))");
+                }
+                sb.AppendLine("            {");
+                sb.AppendLine($"                return await client.RegisterEventListenerAsync<{fullTypeName}>(listener as {fullTypeName}, serviceName, routingContext, options);");
+                sb.AppendLine("            }");
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("            throw new ArgumentException($\"未找到智能路由事件监听器注册方法: {{typeof(T).Name}}\", nameof(T));");
             sb.AppendLine("        }");
             sb.AppendLine();
         }

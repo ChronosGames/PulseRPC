@@ -1,4 +1,5 @@
 using PulseRPC.HealthCheck;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.Infrastructure;
 
@@ -32,7 +33,7 @@ public class ServiceHealthChangedEvent : ServiceEvent
     /// <param name="source">事件源</param>
     /// <returns>健康状态变化事件</returns>
     public static ServiceHealthChangedEvent Create(
-        ServiceEndpoint endpoint,
+        PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint,
         HealthStatus previousHealth,
         HealthStatus currentHealth,
         string? healthDetails = null,

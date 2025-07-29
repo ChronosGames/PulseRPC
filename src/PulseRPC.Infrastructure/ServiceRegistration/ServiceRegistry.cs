@@ -3,6 +3,8 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using PulseRPC.Infrastructure;
 using PulseRPC.HealthCheck;
+using PulseRPC.Infrastructure.Extensions;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -61,27 +63,23 @@ public class ServiceRegistry(
         await RegisterAsync(registration, cancellationToken);
     }
 
-    public async Task<IReadOnlyList<ServiceEndpoint>> GetRegisteredServicesAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<PulseRPC.ServiceDiscovery.ServiceEndpoint>> GetRegisteredServicesAsync(CancellationToken cancellationToken = default)
     {
         return _registrations.Values
-            .Select(r => new ServiceEndpoint
+            .Select(r => new PulseRPC.ServiceDiscovery.ServiceEndpoint
             {
                 ServiceId = r.Id,
                 ServiceType = r.ServiceType,
-                Channel = new ChannelEndpoint
-                {
-                    ChannelId = $"{r.Id}_channel",
-                    ChannelName = $"{r.ServiceType}_channel",
-                    Protocol = TransportProtocol.Tcp,
-                    Address = new NetworkAddress
-                    {
-                        Host = r.Host,
-                        Port = r.Port,
-                        UseTls = false
-                    }
-                },
-                Metadata = r.Metadata,
-                Health = r.Status,
+                Host = r.Host,
+                Port = r.Port,
+                Protocol = "Tcp",
+                Weight = 100, // 默认权重
+                IsHealthy = r.Status == HealthStatus.Healthy,
+                RegisteredAt = r.RegisteredAt,
+                LastHealthCheck = r.LastHeartbeat,
+                Metadata = r.Metadata.Properties.ToDictionary(
+                    kvp => kvp.Key, 
+                    kvp => kvp.Value?.ToString() ?? "")
             })
             .ToList()
             .AsReadOnly();

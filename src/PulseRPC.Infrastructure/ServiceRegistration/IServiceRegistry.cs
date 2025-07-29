@@ -1,5 +1,6 @@
 ﻿using PulseRPC.HealthCheck;
 using PulseRPC.Infrastructure;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -22,7 +23,7 @@ public interface IServiceRegistry
     /// <param name="endpoint">服务端点信息</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>注册任务</returns>
-    Task RegisterAsync(ServiceEndpoint endpoint, CancellationToken cancellationToken = default);
+    Task RegisterAsync(PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 注销服务
@@ -46,7 +47,7 @@ public interface IServiceRegistry
     /// </summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>服务端点列表</returns>
-    Task<IReadOnlyList<ServiceEndpoint>> GetRegisteredServicesAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<PulseRPC.ServiceDiscovery.ServiceEndpoint>> GetRegisteredServicesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取所有注册的服务

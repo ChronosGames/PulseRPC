@@ -13,6 +13,14 @@ public interface IEventData
 }
 
 /// <summary>
+/// PulseRPC 事件处理器基础接口 - 标记类可接收服务器推送的事件
+/// </summary>
+public interface IPulseEventHandler
+{
+    // 所有事件监听器都应继承此接口
+}
+
+/// <summary>
 /// 事件处理委托
 /// </summary>
 /// <typeparam name="T">事件数据类型</typeparam>
@@ -34,6 +42,11 @@ public interface ISubscriptionToken : IDisposable
     /// 是否活跃
     /// </summary>
     bool IsActive { get; }
+
+    /// <summary>
+    /// 是否已取消订阅
+    /// </summary>
+    bool IsUnsubscribed { get; }
 
     /// <summary>
     /// 取消订阅
