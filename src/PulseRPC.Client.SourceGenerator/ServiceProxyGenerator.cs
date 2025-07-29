@@ -526,7 +526,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
 
             sb.AppendLine($"            // 订阅 {eventMethod} 事件");
             sb.AppendLine($"            var {tokenVarName} = _channel.SubscribeToEvent<{eventType}>(\"{eventMethod}\",");
-            sb.AppendLine($"                (sender, eventData) => subscriber.{eventMethod}(eventData));");
+            sb.AppendLine($"                (System.EventHandler<{eventType}>)((sender, eventData) => subscriber.{eventMethod}(eventData)));");
             sb.AppendLine($"            tokens.Add({tokenVarName});");
             sb.AppendLine();
         }
@@ -683,7 +683,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 var eventType = methodSymbol.Parameters[0].Type.ToDisplayString();
 
                 sb.AppendLine($"                tokens.Add(channel.SubscribeToEvent<{eventType}>(\"{eventMethod}\",");
-                sb.AppendLine($"                    (sender, eventData) => {interfaceSymbol.Name.ToLower()}Listener.{eventMethod}(eventData)));");
+                sb.AppendLine($"                    (System.EventHandler<{eventType}>)((sender, eventData) => {interfaceSymbol.Name.ToLower()}Listener.{eventMethod}(eventData))));");
             }
 
             sb.AppendLine("            }");
@@ -738,7 +738,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 var eventMethod = methodSymbol.Name;
                 var eventType = methodSymbol.Parameters[0].Type.ToDisplayString();
 
-                sb.AppendLine($"                tokens.Add(channel.SubscribeToEvent<{eventType}>(\"{eventMethod}\", async (sender, eventData) =>");
+                sb.AppendLine($"                tokens.Add(channel.SubscribeToEvent<{eventType}>(\"{eventMethod}\", (System.EventHandler<{eventType}>)(async (sender, eventData) =>");
                 sb.AppendLine("                {");
                 sb.AppendLine("                    try");
                 sb.AppendLine("                    {");
@@ -764,7 +764,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 sb.AppendLine("                        else");
                 sb.AppendLine($"                            Console.WriteLine($\"Event {eventMethod} failed: {{ex.Message}}\");");
                 sb.AppendLine("                    }");
-                sb.AppendLine("                }));");
+                sb.AppendLine("                })));");
             }
 
             sb.AppendLine("            }");
@@ -1217,7 +1217,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                     sb.AppendLine($"            // 注册 {eventMethod} 事件");
                     sb.AppendLine($"            {{");
                     sb.AppendLine($"                var eventName = \"{eventMethod}\";");
-                    sb.AppendLine($"                var token = channel.SubscribeToEvent<{eventType}>(eventName, async (sender, eventData) =>");
+                    sb.AppendLine($"                var token = channel.SubscribeToEvent<{eventType}>(eventName, (System.EventHandler<{eventType}>)(async (sender, eventData) =>");
                     sb.AppendLine($"                {{");
                     sb.AppendLine($"                    try");
                     sb.AppendLine($"                    {{");
@@ -1233,12 +1233,12 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                     sb.AppendLine($"                        }}");
                     sb.AppendLine();
                     sb.AppendLine($"                        // 创建事件处理器包装");
-                    sb.AppendLine($"                        System.Func<object?, System.Threading.Tasks.Task> eventHandler = async (data) =>");
+                    sb.AppendLine($"                        System.Func<object?, System.Threading.Tasks.Task> eventHandler = (System.Func<object?, System.Threading.Tasks.Task>)(async (data) =>");
                     sb.AppendLine($"                        {{");
                     sb.AppendLine($"                            await timeoutWrapper.WrapWithTimeout(eventName,");
                     sb.AppendLine($"                                async (ct) => await System.Threading.Tasks.Task.Run(() => listener.{eventMethod}(({eventType})data!), ct),");
                     sb.AppendLine($"                                configuration?.Timeout);");
-                    sb.AppendLine($"                        }};");
+                    sb.AppendLine($"                        }});");
                     sb.AppendLine();
                     sb.AppendLine($"                        // 应用性能监控包装");
                     sb.AppendLine($"                        await performanceWrapper.WrapWithPerformanceMonitoring(eventName,");
@@ -1250,10 +1250,10 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                     sb.AppendLine($"                        // 使用错误管理器处理异常");
                     sb.AppendLine($"                        if (configuration != null)");
                     sb.AppendLine($"                        {{");
-                    sb.AppendLine($"                            var eventHandler = async (object? data) =>");
+                    sb.AppendLine($"                            System.Func<object?, System.Threading.Tasks.Task> eventHandler = (System.Func<object?, System.Threading.Tasks.Task>)(async (object? data) =>");
                     sb.AppendLine($"                            {{");
                     sb.AppendLine($"                                await System.Threading.Tasks.Task.Run(() => listener.{eventMethod}(({eventType})data!));");
-                    sb.AppendLine($"                            }};");
+                    sb.AppendLine($"                            }});");
                     sb.AppendLine($"                            await errorManager.HandleEventErrorAsync(ex, eventName, eventData, configuration, eventHandler);");
                     sb.AppendLine($"                        }}");
                     sb.AppendLine($"                        else");
@@ -1262,7 +1262,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                     sb.AppendLine($"                            System.Console.WriteLine($\"Event {{eventName}} failed: {{ex.Message}}\");");
                     sb.AppendLine($"                        }}");
                     sb.AppendLine($"                    }}");
-                    sb.AppendLine($"                }});");
+                    sb.AppendLine($"                }}));");
                     sb.AppendLine($"                tokens.Add(token);");
                     sb.AppendLine($"            }}");
                     sb.AppendLine();
