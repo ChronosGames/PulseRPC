@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Channels;
+using PulseRPC.Events;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
@@ -219,14 +220,8 @@ namespace ChatApp.Unity
         {
             try
             {
-                // 使用新的RegisterEventListener API - 零反射，更高性能
+                // 使用游戏场景优化的事件监听器注册 - 零反射，更高性能
                 _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
-
-                // 也可以使用高级配置API：
-                // _eventsSubscription = _client.ConfigureEventListener(new PlayerEventsHandler(this))
-                //     .WithGameSettings()  // 游戏优化预设
-                //     .WithErrorHandler((ex, eventName) => Debug.LogError($"Event {eventName} failed: {ex}"))
-                //     .Register();
 
                 UpdateStatus("事件处理器设置完成");
             }
@@ -798,7 +793,7 @@ namespace ChatApp.Unity
         /// <summary>
         /// 玩家事件处理器
         /// </summary>
-        private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents
+        private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents, IPulseReceiver
         {
             private readonly ChatComponent _component;
 
