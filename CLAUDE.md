@@ -92,3 +92,6 @@ Unity 项目位于 `src/PulseRPC.Client.Unity` 和 `samples/ChatApp/ChatApp.Unit
 - 实现 `ReferenceCountedBuffer` 进行引用计数管理
 - 考虑使用 `System.Threading.Channels` 进行高性能消息传递
 - BenchmarkApp 提供完整的性能分析和报告功能
+
+### 生成器特殊约定
+- PulseRPC.Client.SourceGenerator生成的代码要符合C# 9.0及以下的语法规范
