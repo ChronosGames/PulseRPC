@@ -23,14 +23,14 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
 
     public MultiInstanceServiceManager(
         string serviceName,
-        MultiInstanceConnectionManager connectionManager, 
+        MultiInstanceConnectionManager connectionManager,
         SmartConnectionOptions defaultOptions,
         ILoggerFactory? loggerFactory = null)
     {
         _serviceName = serviceName;
         _connectionManager = connectionManager;
         _defaultOptions = defaultOptions;
-        _logger = loggerFactory?.CreateLogger<MultiInstanceServiceManager<T>>() ?? 
+        _logger = loggerFactory?.CreateLogger<MultiInstanceServiceManager<T>>() ??
                    Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiInstanceServiceManager<T>>.Instance;
     }
 
@@ -43,7 +43,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
             {
                 InstanceId = $"{_serviceName}-1",
                 ServiceName = _serviceName,
-                Endpoint = new ServiceEndpoint { Host = "localhost", Port = 8000 },
+                Endpoint = new ServiceDiscovery.ServiceEndpoint { ServiceId = $"{_serviceName}-1", ServiceType = _serviceName, Host = "localhost", Port = 8000 },
                 Weight = 100,
                 IsHealthy = true,
                 Region = "default",
@@ -53,7 +53,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
             {
                 InstanceId = $"{_serviceName}-2",
                 ServiceName = _serviceName,
-                Endpoint = new ServiceEndpoint { Host = "localhost", Port = 8001 },
+                Endpoint = new ServiceDiscovery.ServiceEndpoint { ServiceId = $"{_serviceName}-2", ServiceType = _serviceName, Host = "localhost", Port = 8001 },
                 Weight = 100,
                 IsHealthy = true,
                 Region = "default",
@@ -83,7 +83,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
         }
 
         var results = await Task.WhenAll(tasks);
-        
+
         return new BroadcastResult<TResult>
         {
             Results = results.ToList(),
@@ -93,7 +93,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
     }
 
     private async Task<BroadcastResultItem<TResult>> ExecuteOnInstanceAsync<TResult>(
-        string instanceId, 
+        string instanceId,
         Func<T, Task<TResult>> operation)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -101,7 +101,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
         {
             var service = await GetServiceAsync(instanceId);
             var result = await operation(service);
-            
+
             return new BroadcastResultItem<TResult>
             {
                 InstanceId = instanceId,
@@ -114,7 +114,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "广播操作在实例 {InstanceId} 上失败", instanceId);
-            
+
             return new BroadcastResultItem<TResult>
             {
                 InstanceId = instanceId,
@@ -127,14 +127,14 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
     }
 
     public async Task<TAggregated> AggregateAsync<TResult, TAggregated>(
-        Func<T, Task<TResult>> operation, 
+        Func<T, Task<TResult>> operation,
         Func<IEnumerable<TResult>, TAggregated> aggregator)
     {
         var broadcastResult = await BroadcastAsync(operation);
         var successResults = broadcastResult.Results
             .Where(r => r.IsSuccess && r.Result != null)
             .Select(r => r.Result!);
-        
+
         return aggregator(successResults);
     }
 
@@ -145,7 +145,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
         var targetInstanceIds = instanceIds.ToList();
         var availableInstances = await GetAvailableInstancesAsync();
         var availableInstanceIds = availableInstances.Select(i => i.InstanceId).ToHashSet();
-        
+
         var notFoundInstanceIds = targetInstanceIds.Where(id => !availableInstanceIds.Contains(id)).ToList();
         var validInstanceIds = targetInstanceIds.Where(id => availableInstanceIds.Contains(id)).ToList();
 
@@ -197,4 +197,4 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
         InstanceStateChanged = null;
         LoadBalancingChanged = null;
     }
-} 
+}

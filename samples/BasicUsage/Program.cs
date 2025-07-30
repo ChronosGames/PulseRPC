@@ -303,18 +303,17 @@ public class Program
     {
         logger.LogInformation("🔌 === 客户端示例 ===");
 
-        var clientFactory = services.GetRequiredService<PulseRPC.Client.Extensions.IPulseRpcClientFactory>();
-        var serviceDiscoveryClient = services.GetRequiredService<PulseRPC.Client.ServiceDiscovery.ServiceDiscoveryClient>();
+        var client = services.GetRequiredService<IPulseClient>();
 
-        // 1. 创建通用客户端
-        logger.LogInformation("创建PulseRPC客户端...");
-        var client = clientFactory.CreateClient("demo-client");
-        logger.LogInformation("✅ 客户端创建成功");
+        // 1. 连接到服务器
+        logger.LogInformation("连接到PulseRPC服务器...");
+        await client.ConnectAsync();
+        logger.LogInformation("✅ 客户端连接成功");
 
-        // 2. 创建服务特定客户端
-        logger.LogInformation("创建用户服务客户端...");
-        var userServiceClient = clientFactory.CreateServiceClient("UserService");
-        logger.LogInformation("✅ 用户服务客户端创建成功: {ServiceName}", userServiceClient.ServiceName);
+        // 2. 获取服务代理
+        logger.LogInformation("获取用户服务代理...");
+        var userService = await client.GetServiceAsync<IUserService>("UserService");
+        logger.LogInformation("✅ 用户服务代理获取成功");
 
         // 3. 使用服务发现客户端
         logger.LogInformation("使用服务发现客户端获取端点...");

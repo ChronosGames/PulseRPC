@@ -12,7 +12,7 @@ public static class EventListenerRegistrar
     /// 委托：注册事件监听器的函数
     /// 这个委托将在源代码生成器中被实现
     /// </summary>
-    public static Func<IPulseRpcClient, object, EventListenerConfiguration, ISubscriptionToken>? RegisterWithConfigurationDelegate { get; set; }
+    public static Func<IPulseClient, object, EventListenerConfiguration, ISubscriptionToken>? RegisterWithConfigurationDelegate { get; set; }
 
     /// <summary>
     /// 使用配置注册事件监听器
@@ -22,7 +22,7 @@ public static class EventListenerRegistrar
     /// <param name="listener">事件监听器实例</param>
     /// <param name="configuration">配置对象</param>
     /// <returns>订阅令牌</returns>
-    public static ISubscriptionToken RegisterWithConfiguration<T>(IPulseRpcClient client, T listener, EventListenerConfiguration configuration) where T : class
+    public static ISubscriptionToken RegisterWithConfiguration<T>(IPulseClient client, T listener, EventListenerConfiguration configuration) where T : class
     {
         if (RegisterWithConfigurationDelegate == null)
         {

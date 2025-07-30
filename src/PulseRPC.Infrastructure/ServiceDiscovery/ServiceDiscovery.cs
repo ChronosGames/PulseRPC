@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using PulseRPC.Infrastructure;
 using PulseRPC.HealthCheck;
 using PulseRPC.Configuration;
+using InfrastructureServiceDiscoveryOptions = PulseRPC.Infrastructure.ServiceDiscoveryOptions;
 
 namespace PulseRPC.ServiceDiscovery;
 
@@ -14,7 +15,7 @@ namespace PulseRPC.ServiceDiscovery;
 public class ServiceDiscovery : IServiceDiscovery
 {
     private readonly ILogger<ServiceDiscovery> _logger;
-    private readonly ServiceDiscoveryOptions _options;
+    private readonly InfrastructureServiceDiscoveryOptions _options;
     private readonly ConcurrentDictionary<string, ServiceEndpoint> _endpoints = new();
     private readonly ConcurrentDictionary<string, DateTime> _lastHeartbeat = new();
 
@@ -40,7 +41,7 @@ public class ServiceDiscovery : IServiceDiscovery
     /// <param name="options">配置选项</param>
     public ServiceDiscovery(
         ILogger<ServiceDiscovery> logger,
-        IOptions<ServiceDiscoveryOptions> options)
+        IOptions<InfrastructureServiceDiscoveryOptions> options)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
@@ -106,10 +107,10 @@ public class ServiceDiscovery : IServiceDiscovery
         {
             // 获取旧的健康状态（从IsHealthy转换为HealthStatus）
             var oldStatus = endpoint.IsHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
-            
+
             // 更新健康状态（将HealthStatus转换为IsHealthy）
             endpoint.IsHealthy = status == HealthStatus.Healthy;
-            
+
             // 将详细状态存储到元数据中
             endpoint.Metadata["HealthStatus"] = status.ToString();
             _lastHeartbeat[serviceId] = DateTime.UtcNow;

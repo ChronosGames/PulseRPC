@@ -11,11 +11,11 @@ namespace PulseRPC.Client;
 /// <typeparam name="T">事件监听器类型</typeparam>
 public class EventListenerBuilder<T> where T : class
 {
-    private readonly IPulseRpcClient _client;
+    private readonly IPulseClient _client;
     private readonly T _listener;
     private readonly EventListenerConfiguration _configuration;
 
-    public EventListenerBuilder(IPulseRpcClient client, T listener)
+    public EventListenerBuilder(IPulseClient client, T listener)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _listener = listener ?? throw new ArgumentNullException(nameof(listener));

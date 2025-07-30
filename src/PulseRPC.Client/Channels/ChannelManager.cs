@@ -125,13 +125,11 @@ public class ChannelManager : IChannelManager
     }
 
     /// <summary>
-    /// 注册事件监听器
+    /// 注册事件监听器 - 通过源代码生成器实现，零反射
     /// </summary>
     public ISubscriptionToken RegisterEventListener<T>(T listener) where T : class, IPulseEventHandler
     {
-        var defaultChannel = GetDefaultChannel();
-        // 这里应该实现具体的事件监听器注册逻辑
-        // 简化实现
-        throw new NotImplementedException("RegisterEventListener<T> 需要具体实现");
+        // 直接抛出异常，提示应该使用源代码生成器生成的扩展方法
+        throw new NotImplementedException("RegisterEventListener<T> 应该通过 PulseRPC.Client.SourceGenerator 生成的扩展方法调用。请确保项目正确引用了源代码生成器。");
     }
 }

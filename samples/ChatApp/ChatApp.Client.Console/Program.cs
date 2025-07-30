@@ -73,8 +73,8 @@ internal class Program
             })
             .Build();
 
-        var client = host.Services.GetRequiredService<IPulseRpcClient>();
-        
+        var client = host.Services.GetRequiredService<IPulseClient>();
+
         try
         {
             // 连接服务器
@@ -128,7 +128,7 @@ internal class Program
         System.Console.WriteLine("\n=== 使用非DI版本客户端（Unity兼容）===");
 
         // 使用工厂方法创建客户端 - 方式1: 简单创建
-        using var simpleClient = PulseRpcClientFactory.CreateTcpClient("localhost", 7000);
+        using var simpleClient = PulseRpcClientFactory.CreateTcpClient("TcpChannel", "localhost", 7000);
 
         try
         {
@@ -162,7 +162,7 @@ internal class Program
                 options.Kcp = new KcpOptions
                 {
                     NoDelay = 1,
-                    Interval = 10, 
+                    Interval = 10,
                     Resend = 2,
                     DisableFlowControl = true
                 };
@@ -190,7 +190,7 @@ internal class Program
             // 模拟登录
             var loginRequest = new LoginRequest
             {
-                Username = "nondi_user", 
+                Username = "nondi_user",
                 Password = "test123"
             };
 
