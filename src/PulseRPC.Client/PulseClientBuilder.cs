@@ -62,7 +62,14 @@ internal class PulseClientBuilder : IPulseClientBuilder
             Options = new TransportOptions
             {
                 ConnectionTimeout = (int)_timeout.TotalMilliseconds,
-                KeepAlive = true
+                KeepAlive = true,
+                Kcp = new KcpOptions
+                {
+                    NoDelay = 1,
+                    Interval = 10,
+                    Resend = 2,
+                    DisableFlowControl = true
+                },
             }
         };
 
