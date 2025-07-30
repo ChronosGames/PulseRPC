@@ -35,7 +35,7 @@ var host = Host.CreateDefaultBuilder()
     .Build();
 
 // 使用客户端
-var client = host.Services.GetRequiredService<IPulseRpcClient>();
+var client = host.Services.GetRequiredService<IPulseClient>();
 await client.ConnectAsync();
 var service = client.GetService<IMyService>();
 ```
@@ -76,7 +76,7 @@ var service = client.GetService<IMyService>();
 ```csharp
 public class GameClient : MonoBehaviour
 {
-    private IPulseRpcClient? _client;
+    private IPulseClient? _client;
     
     private async void Start()
     {

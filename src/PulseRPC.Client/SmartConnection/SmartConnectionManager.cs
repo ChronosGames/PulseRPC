@@ -92,14 +92,14 @@ public class SmartConnectionManager : IDisposable
     /// <summary>
     /// 服务发现
     /// </summary>
-    private async Task<ServiceEndpoint> DiscoverServiceEndpointAsync(
+    private async Task<ConnectionEndpoint> DiscoverServiceEndpointAsync(
         string serviceName,
         SmartConnectionOptions options,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(serviceName))
         {
-            return new ServiceEndpoint
+            return new ConnectionEndpoint
             {
                 Host = "localhost",
                 Port = 8000,
@@ -113,18 +113,11 @@ public class SmartConnectionManager : IDisposable
 
         if (discoveredEndpoint != null)
         {
-            return new ServiceEndpoint
-            {
-                Host = discoveredEndpoint.Host,
-                Port = discoveredEndpoint.Port,
-                Transport = Enum.TryParse<TransportType>(discoveredEndpoint.Protocol, true, out var t)
-                    ? t : options.PreferredTransport,
-                Metadata = discoveredEndpoint.Metadata
-            };
+            return ConnectionEndpoint.FromServiceEndpoint(discoveredEndpoint);
         }
 
         // 回退到默认端点
-        return new ServiceEndpoint
+        return new ConnectionEndpoint
         {
             Host = "localhost",
             Port = 8000,
@@ -137,7 +130,7 @@ public class SmartConnectionManager : IDisposable
     /// </summary>
     private async Task<ServiceConnectionInfo> CreateConnectionAsync(
         string connectionKey,
-        ServiceEndpoint endpoint,
+        ConnectionEndpoint endpoint,
         SmartConnectionOptions options,
         CancellationToken cancellationToken)
     {
@@ -280,7 +273,7 @@ public class ServiceConnectionInfo : IDisposable
     public string ConnectionKey { get; set; } = "";
     public IChannelManager ChannelManager { get; set; } = null!;
     public IClientChannel Channel { get; set; } = null!;
-    public ServiceEndpoint Endpoint { get; set; } = null!;
+    public ConnectionEndpoint Endpoint { get; set; } = null!;
     public SmartConnectionOptions Options { get; set; } = null!;
     public DateTime CreatedAt { get; set; }
     public DateTime LastUsedAt { get; set; }

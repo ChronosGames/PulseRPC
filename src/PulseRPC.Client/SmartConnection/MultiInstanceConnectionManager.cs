@@ -27,7 +27,7 @@ public class MultiInstanceConnectionManager : IDisposable
         ILoggerFactory? loggerFactory = null)
     {
         _connectionManager = connectionManager ?? throw new ArgumentNullException(nameof(connectionManager));
-        _logger = loggerFactory?.CreateLogger<MultiInstanceConnectionManager>() ?? 
+        _logger = loggerFactory?.CreateLogger<MultiInstanceConnectionManager>() ??
                    Microsoft.Extensions.Logging.Abstractions.NullLogger<MultiInstanceConnectionManager>.Instance;
 
         // 每30秒检查一次实例健康状态
@@ -38,20 +38,20 @@ public class MultiInstanceConnectionManager : IDisposable
     /// 获取服务代理 - 自动路由
     /// </summary>
     public async Task<T> GetServiceAsync<T>(
-        string serviceName, 
+        string serviceName,
         IRoutingContext? routingContext = null,
         SmartConnectionOptions? options = null) where T : class, IPulseService
     {
         // 发现服务实例
         var instances = await DiscoverServiceInstancesAsync(serviceName);
-        
+
         // 选择最佳实例
         var selectedInstance = SelectBestInstance<T>(instances, routingContext ?? RoutingContext.ByKey(""));
-        
+
         // 获取或创建连接
         var connection = await _connectionManager.GetOrCreateConnectionAsync<T>(
             $"{serviceName}-{selectedInstance.InstanceId}", options);
-        
+
         // 返回服务代理
         return connection.ChannelManager.GetService<T>();
     }
@@ -60,13 +60,13 @@ public class MultiInstanceConnectionManager : IDisposable
     /// 获取特定实例的服务代理
     /// </summary>
     public async Task<T> GetServiceAsync<T>(
-        string serviceName, 
+        string serviceName,
         string instanceId,
         SmartConnectionOptions? options = null) where T : class, IPulseService
     {
         var instances = await DiscoverServiceInstancesAsync(serviceName);
         var targetInstance = instances.FirstOrDefault(i => i.InstanceId == instanceId);
-        
+
         if (targetInstance == null)
         {
             throw new ServiceInstanceNotFoundException($"服务实例未找到: {serviceName}#{instanceId}");
@@ -96,7 +96,7 @@ public class MultiInstanceConnectionManager : IDisposable
     /// 服务实例选择算法
     /// </summary>
     private ServiceInstanceInfo SelectBestInstance<T>(
-        IReadOnlyList<ServiceInstanceInfo> instances, 
+        IReadOnlyList<ServiceInstanceInfo> instances,
         IRoutingContext routingContext) where T : class, IPulseService
     {
         if (instances.Count == 0)
@@ -155,11 +155,11 @@ public class MultiInstanceConnectionManager : IDisposable
     {
         if (!string.IsNullOrEmpty(context.AffinityId))
         {
-            var affinityInstance = instances.FirstOrDefault(i => 
-                i.IsHealthy && 
-                i.Metadata.TryGetValue("affinity", out var affinity) && 
+            var affinityInstance = instances.FirstOrDefault(i =>
+                i.IsHealthy &&
+                i.Metadata.TryGetValue("affinity", out var affinity) &&
                 affinity.Contains(context.AffinityId));
-            
+
             if (affinityInstance != null)
                 return affinityInstance;
         }
@@ -174,7 +174,7 @@ public class MultiInstanceConnectionManager : IDisposable
 
         var totalWeight = healthyInstances.Sum(i => i.Weight);
         var random = new Random().Next(totalWeight);
-        
+
         var currentWeight = 0;
         foreach (var instance in healthyInstances)
         {
@@ -198,7 +198,7 @@ public class MultiInstanceConnectionManager : IDisposable
             {
                 InstanceId = $"{serviceName}-1",
                 ServiceName = serviceName,
-                Endpoint = new ServiceEndpoint { Host = "localhost", Port = 8000 },
+                Endpoint = new ServiceDiscovery.ServiceEndpoint { ServiceId = $"{serviceName}-1", ServiceType = serviceName, Host = "localhost", Port = 8000 },
                 Weight = 100,
                 IsHealthy = true,
                 Region = "default",
@@ -208,14 +208,14 @@ public class MultiInstanceConnectionManager : IDisposable
             {
                 InstanceId = $"{serviceName}-2",
                 ServiceName = serviceName,
-                Endpoint = new ServiceEndpoint { Host = "localhost", Port = 8001 },
+                Endpoint = new ServiceDiscovery.ServiceEndpoint { ServiceId = $"{serviceName}-2", ServiceType = serviceName, Host = "localhost", Port = 8001 },
                 Weight = 100,
                 IsHealthy = true,
                 Region = "default",
                 Zone = "zone-b"
             }
         };
-        
+
         return Task.FromResult<IReadOnlyList<ServiceInstanceInfo>>(instances);
     }
 
@@ -290,4 +290,4 @@ public class ServiceInstanceNotFoundException : Exception
 {
     public ServiceInstanceNotFoundException(string message) : base(message) { }
     public ServiceInstanceNotFoundException(string message, Exception innerException) : base(message, innerException) { }
-} 
+}

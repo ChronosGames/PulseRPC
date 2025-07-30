@@ -63,7 +63,7 @@ namespace ChatApp.Unity
         public event Action<Guid, System.Numerics.Vector3> OnPlayerMoved;
 
         // 网络组件
-        private IPulseRpcClient _client;
+        private IPulseClient _client;
         private IPlayerHub _playerService;
         private ISubscriptionToken _eventsSubscription;
         private CancellationTokenSource _cts;
@@ -187,25 +187,11 @@ namespace ChatApp.Unity
             _client = PulseRpcClientFactory.CreateClient(builder =>
             {
                 // TCP通道用于可靠消息传输
-                builder.AddTcp("TcpChannel", _host, _tcpPort, options =>
-                {
-                    options.NoDelay = true;
-                    options.KeepAlive = true;
-                    options.AutoReconnect = true;
-                }, isDefault: true);
+                builder.AddTcp("TcpChannel", _host, _tcpPort);
 
                 // KCP通道用于低延迟游戏数据传输
-                builder.AddKcp("KcpChannel", _host, _kcpPort, options =>
-                {
-                    options.Kcp = new KcpOptions
-                    {
-                        NoDelay = 1,               // 无延迟模式
-                        Interval = 10,             // 10ms更新间隔
-                        Resend = 2,                // 快重传
-                        DisableFlowControl = true  // 关闭拥塞控制
-                    };
-                });
-            }, _loggerFactory);
+                builder.AddKcp("KcpChannel", _host, _kcpPort);
+            });
 
             // 获取服务代理
             _playerService = _client.GetService<IPlayerHub>();

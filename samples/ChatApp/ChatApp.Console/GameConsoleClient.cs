@@ -15,7 +15,7 @@ namespace ChatApp.Console;
 public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
-    private IPulseRpcClient? _client;
+    private IPulseClient? _client;
     private IChannelManager? _channelManager;
     private IPlayerHub? _playerService;
     private ISubscriptionToken? _eventsSubscription;
@@ -39,28 +39,21 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         // 使用新的客户端构建器 API
         _client = PulseRpcClientFactory.CreateClient(builder =>
         {
-            // 添加TCP传输 - 简化配置
-            builder.AddTcp("TcpChannel", "localhost", 7000, options =>
-            {
-                options.NoDelay = true;
-                options.KeepAlive = true;
-                options.AutoReconnect = true;
-            }, isDefault: true);
+            // 添加TCP传输 - 使用接口期望的通道名称
+            builder.AddTcp("TcpChannel", "localhost", 7000);
 
-            // 添加KCP传输 - 游戏优化设置
-            builder.AddKcp("KcpChannel", "localhost", 7001, options =>
-            {
-                options.Kcp = new KcpOptions
-                {
-                    NoDelay = 1,              // 无延迟模式
-                    Interval = 10,            // 10ms更新间隔
-                    Resend = 2,               // 快重传
-                    DisableFlowControl = true, // 关闭拥塞控制
-                    SendWindow = 32,          // 发送窗口
-                    ReceiveWindow = 128       // 接收窗口
-                };
-            });
-        }, loggerFactory);
+            // 添加KCP传输 - 使用接口期望的通道名称
+            builder.AddKcp("KcpChannel", "localhost", 7001);
+
+            // 配置超时和重试
+            builder.WithTimeout(TimeSpan.FromSeconds(30))
+                   .WithRetry(retry =>
+                   {
+                       retry.MaxRetries = 3;
+                       retry.BaseDelay = TimeSpan.FromSeconds(1);
+                       retry.UseExponentialBackoff = true;
+                   });
+        });
 
         // 获取通道管理器
         _channelManager = _client.GetChannelManager();
@@ -71,7 +64,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             _playerService = _channelManager.GetPlayerHub();
 
             // 使用简洁的一行 API - 源代码生成器会处理多接口实现
-            _eventsSubscription = _client.GetChannelManager().RegisterEventListener(new PlayerEventsHandler(this));
+            _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");
         }

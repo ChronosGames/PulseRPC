@@ -95,3 +95,6 @@ Unity 项目位于 `src/PulseRPC.Client.Unity` 和 `samples/ChatApp/ChatApp.Unit
 
 ### 生成器特殊约定
 - PulseRPC.Client.SourceGenerator生成的代码要符合C# 9.0及以下的语法规范
+
+### 客户端实现约定
+- 客户端部分的接口与实现避免使用反射，尽量通过 PulseRPC.Client.SourceGenerator 使用代码生成替代

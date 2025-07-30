@@ -1,5 +1,6 @@
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
+using System;
 
 namespace PulseRPC.Client;
 
@@ -9,7 +10,7 @@ namespace PulseRPC.Client;
 /// <summary>
 /// PulseRPC 客户端实现
 /// </summary>
-internal class PulseRpcClientManager : global::PulseRPC.IPulseRpcClient
+internal class PulseRpcClientManager : global::PulseRPC.IPulseClient
 {
     private readonly IChannelManager _channelManager;
     private readonly ILogger<PulseRpcClientManager> _logger;
@@ -157,21 +158,49 @@ internal class PulseRpcClientManager : global::PulseRPC.IPulseRpcClient
 
 
     /// <summary>
-    /// 获取通道管理器
+    /// 获取服务代理 - 自动处理服务发现和连接管理
+    /// </summary>
+    public async Task<T> GetServiceAsync<T>(string? serviceName = null, CancellationToken cancellationToken = default) where T : class, IPulseService
+    {
+        // TODO: 实现服务代理获取逻辑
+        throw new NotImplementedException("服务代理功能待实现");
+    }
+
+    /// <summary>
+    /// 注册事件监听器
+    /// </summary>
+    public async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, string? serviceName = null, CancellationToken cancellationToken = default) where T : class, IPulseEventHandler
+    {
+        // TODO: 实现事件监听器注册逻辑
+        throw new NotImplementedException("事件监听器功能待实现");
+    }
+
+    /// <summary>
+    /// 获取连接统计信息
+    /// </summary>
+    public async Task<ConnectionStatistics> GetConnectionStatisticsAsync(CancellationToken cancellationToken = default)
+    {
+        return new ConnectionStatistics
+        {
+            TotalConnections = _transports.Count,
+            ActiveConnections = _isConnected ? _transports.Count : 0,
+            IdleConnections = 0,
+            FailedConnections = 0,
+            Timestamp = DateTime.UtcNow
+        };
+    }
+
+    /// <summary>
+    /// 连接状态变化事件
+    /// </summary>
+    public event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
+
+    /// <summary>
+    /// 获取通道管理器 - 用于底层通道操作
     /// </summary>
     public IChannelManager GetChannelManager()
     {
         return _channelManager;
-    }
-
-    /// <summary>
-    /// 获取已配置的传输信息
-    /// </summary>
-    public IReadOnlyDictionary<string, (TransportType Type, string Host, int Port, bool IsDefault)> GetTransports()
-    {
-        return _transports.ToDictionary(
-            kvp => kvp.Key,
-            kvp => (kvp.Value.Type, kvp.Value.Host, kvp.Value.Port, kvp.Value.IsDefault));
     }
 
     /// <summary>
