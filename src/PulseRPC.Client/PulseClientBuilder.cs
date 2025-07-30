@@ -68,7 +68,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
                     NoDelay = 1,
                     Interval = 10,
                     Resend = 2,
-                    DisableFlowControl = true
+                    DisableFlowControl = false
                 },
             }
         };
