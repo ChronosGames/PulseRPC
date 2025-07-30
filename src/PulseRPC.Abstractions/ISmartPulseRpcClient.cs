@@ -377,7 +377,7 @@ public class ServiceConnectionStatistics
 /// <summary>
 /// 连接状态变化事件参数
 /// </summary>
-public class ConnectionStateChangedEventArgs : EventArgs, IEventData
+public class ConnectionStateChangedEventArgs : EventArgs
 {
     /// <summary>
     /// 服务名称
@@ -413,7 +413,7 @@ public class ConnectionStateChangedEventArgs : EventArgs, IEventData
 /// <summary>
 /// 服务发现事件参数
 /// </summary>
-public class ServiceDiscoveryEventArgs : EventArgs, IEventData
+public class ServiceDiscoveryEventArgs : EventArgs
 {
     /// <summary>
     /// 服务名称

@@ -33,7 +33,6 @@ public class MemoryChannelEventBus : IEventBus
     /// 发布事件
     /// </summary>
     public Task PublishAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default)
-        where T : IEventData
     {
         List<EventSubscription>? subscriptions;
 
@@ -84,7 +83,7 @@ public class MemoryChannelEventBus : IEventBus
     /// <summary>
     /// 订阅事件
     /// </summary>
-    public ISubscriptionToken Subscribe<T>(string eventName, EventHandler<T> handler) where T : IEventData
+    public ISubscriptionToken Subscribe<T>(string eventName, EventHandler<T> handler)
     {
         if (string.IsNullOrEmpty(eventName))
             throw new ArgumentNullException(nameof(eventName));
