@@ -1,4 +1,5 @@
 using PulseRPC.HealthCheck;
+using PulseRPC.Configuration;
 using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.Infrastructure;

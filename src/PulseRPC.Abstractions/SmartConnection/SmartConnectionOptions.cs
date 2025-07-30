@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using PulseRPC.Configuration;
 using PulseRPC.Routing;
 using PulseRPC.Transport;
 
@@ -233,41 +234,7 @@ public class LoadBalancingOptions
     public TimeSpan RetryInterval { get; set; } = TimeSpan.FromSeconds(1);
 }
 
-/// <summary>
-/// 健康检查配置
-/// </summary>
-public class HealthCheckOptions
-{
-    /// <summary>
-    /// 是否启用健康检查
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// 检查间隔
-    /// </summary>
-    public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// 超时时间
-    /// </summary>
-    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
-
-    /// <summary>
-    /// 失败阈值
-    /// </summary>
-    public int FailureThreshold { get; set; } = 3;
-
-    /// <summary>
-    /// 成功阈值
-    /// </summary>
-    public int SuccessThreshold { get; set; } = 2;
-
-    /// <summary>
-    /// 健康检查路径
-    /// </summary>
-    public string HealthCheckPath { get; set; } = "/health";
-}
+// 健康检查配置已统一到 PulseRPC.Configuration.HealthCheckOptions
 
 /// <summary>
 /// 监控配置

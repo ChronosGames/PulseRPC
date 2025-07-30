@@ -3,8 +3,9 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using PulseRPC.Infrastructure;
 using PulseRPC.HealthCheck;
-using PulseRPC.Infrastructure.Extensions;
+using PulseRPC.Configuration;
 using PulseRPC.ServiceDiscovery;
+using PulseRPC.Routing;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -44,7 +45,7 @@ public class ServiceRegistry(
         await TriggerServiceRegisteredEvent(registration);
     }
 
-    public async Task RegisterAsync(ServiceEndpoint endpoint, CancellationToken cancellationToken = default)
+    public async Task RegisterAsync(PulseRPC.ServiceDiscovery.ServiceEndpoint endpoint, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(endpoint);
 
@@ -52,10 +53,10 @@ public class ServiceRegistry(
         {
             Id = endpoint.ServiceId,
             ServiceType = endpoint.ServiceType,
-            Host = endpoint.Channel.Address.Host,
-            Port = endpoint.Channel.Address.Port,
-            Metadata = endpoint.Metadata,
-            Status = endpoint.Health,
+            Host = endpoint.Host,
+            Port = endpoint.Port,
+            Metadata = new ServiceMetadata(endpoint.Metadata),
+            Status = endpoint.IsHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy,
             RegisteredAt = DateTime.UtcNow,
             LastHeartbeat = DateTime.UtcNow
         };
@@ -76,8 +77,8 @@ public class ServiceRegistry(
                 Weight = 100, // 默认权重
                 IsHealthy = r.Status == HealthStatus.Healthy,
                 RegisteredAt = r.RegisteredAt,
-                LastHealthCheck = r.LastHeartbeat,
-                Metadata = r.Metadata.Properties.ToDictionary(
+                LastHealthCheck = r.LastHeartbeat ?? DateTime.UtcNow,
+                Metadata = r.Metadata.Data.ToDictionary(
                     kvp => kvp.Key, 
                     kvp => kvp.Value?.ToString() ?? "")
             })

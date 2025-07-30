@@ -7,6 +7,7 @@ using PulseRPC.Client;
 using PulseRPC.Routing;
 using PulseRPC.SmartConnection;
 using ChatApp;
+using PulseRPC.ServiceDiscovery;
 using PulseRPC.Transport;
 using ServiceDiscoveryType = PulseRPC.ServiceDiscoveryType;
 
@@ -346,7 +347,7 @@ public class SmartGameConsoleClient
             _logger.LogInformation("📡 开始广播消息到所有聊天服务实例...");
 
             var broadcastResult = await _chatManager!.BroadcastAsync(async chat =>
-                await chat.SendGlobalAnnouncementAsync($"📢 全局广播: {message}"));
+                await chat.SendMessageAsync($"📢 全局广播: {message}"));
 
             System.Console.WriteLine($"📡 广播结果:");
             System.Console.WriteLine($"   总实例数: {broadcastResult.TotalCount}");

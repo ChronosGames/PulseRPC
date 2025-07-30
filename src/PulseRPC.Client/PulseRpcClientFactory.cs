@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
 using PulseRPC.Routing;
 using PulseRPC.Transport;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.Client;
 

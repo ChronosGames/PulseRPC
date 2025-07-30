@@ -30,7 +30,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     /// <summary>
     /// 初始化客户端 - 使用新的客户端 API
     /// </summary>
-    public Task InitializeAsync()
+    public async Task InitializeAsync()
     {
         _logger.LogInformation("正在初始化游戏客户端...");
 
@@ -71,7 +71,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             _playerService = _channelManager.GetPlayerHub();
 
             // 使用简洁的一行 API - 源代码生成器会处理多接口实现
-            _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
+            _eventsSubscription = _client.GetChannelManager().RegisterEventListener(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");
         }
@@ -80,8 +80,6 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             _logger.LogError(ex, "客户端初始化失败: {Message}", ex.Message);
             throw;
         }
-
-        return Task.CompletedTask;
     }
 
     /// <summary>

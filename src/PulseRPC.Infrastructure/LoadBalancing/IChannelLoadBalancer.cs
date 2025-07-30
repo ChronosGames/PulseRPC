@@ -1,4 +1,6 @@
 using PulseRPC.Infrastructure;
+using PulseRPC.ServiceDiscovery;
+using PulseRPC.Routing;
 
 namespace PulseRPC.LoadBalancing;
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using PulseRPC.Transport;
 
 namespace PulseRPC.ServiceDiscovery;
 
@@ -77,6 +78,11 @@ public class ServiceEndpoint
     /// 传输协议
     /// </summary>
     public string Protocol { get; set; } = "Tcp";
+
+    /// <summary>
+    /// 传输类型（为了兼容客户端代码）
+    /// </summary>
+    public TransportType Transport { get; set; } = TransportType.Tcp;
 
     /// <summary>
     /// 服务元数据

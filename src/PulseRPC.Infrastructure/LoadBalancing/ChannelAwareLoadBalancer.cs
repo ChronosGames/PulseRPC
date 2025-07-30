@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.ServiceDiscovery;
 using System.Collections.Concurrent;
 using PulseRPC.Infrastructure;
+using PulseRPC.Routing;
 
 namespace PulseRPC.LoadBalancing;
 
@@ -91,7 +93,14 @@ public class ChannelAwareLoadBalancer : IChannelLoadBalancer
         if (endpoint == null) return;
 
         ReportServiceResult(endpoint, result, responseTime);
-        ReportChannelResult(endpoint.Channel, result, responseTime);
+        // Note: ServiceEndpoint doesn't have Channel property, create a mock channel endpoint
+        var channelEndpoint = new ChannelEndpoint 
+        { 
+            ChannelId = $"{endpoint.Host}:{endpoint.Port}",
+            ChannelName = "DefaultChannel",
+            Address = new NetworkAddress { Host = endpoint.Host, Port = endpoint.Port }
+        };
+        ReportChannelResult(channelEndpoint, result, responseTime);
     }
 
     public void ReportChannelResult(ChannelEndpoint channel, LoadBalancingResult result, TimeSpan responseTime)
@@ -160,7 +169,7 @@ public class ChannelAwareLoadBalancer : IChannelLoadBalancer
 
     private ServiceEndpoint SelectWeightedRoundRobin(IReadOnlyList<ServiceEndpoint> endpoints)
     {
-        var totalWeight = endpoints.Sum(e => e.Channel.Weight);
+        var totalWeight = endpoints.Sum(e => e.Weight);
         if (totalWeight <= 0)
         {
             return SelectRoundRobin(endpoints);
@@ -171,7 +180,7 @@ public class ChannelAwareLoadBalancer : IChannelLoadBalancer
 
         foreach (var endpoint in endpoints)
         {
-            currentWeight += endpoint.Channel.Weight;
+            currentWeight += endpoint.Weight;
             if (randomWeight < currentWeight)
             {
                 return endpoint;
@@ -196,12 +205,12 @@ public class ChannelAwareLoadBalancer : IChannelLoadBalancer
         foreach (var endpoint in endpoints)
         {
             var serviceStats = _serviceStats.GetValueOrDefault(endpoint.ServiceId);
-            var channelStats = _channelStats.GetValueOrDefault(endpoint.Channel.ChannelId);
+            var channelStats = _channelStats.GetValueOrDefault($"{endpoint.Host}:{endpoint.Port}");
 
             var connections = (serviceStats?.ActiveConnections ?? 0) +
                              (channelStats?.ActiveConnections ?? 0);
 
-            var score = CalculateConnectionScore(connections, endpoint.Channel.Weight);
+            var score = CalculateConnectionScore(connections, endpoint.Weight);
 
             if (score > bestScore || (score == bestScore && connections < minConnections))
             {

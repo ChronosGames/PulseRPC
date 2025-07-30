@@ -1,9 +1,12 @@
 using Microsoft.Extensions.Hosting;
+using PulseRPC.ServiceDiscovery;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Infrastructure;
 using System.Collections.Concurrent;
 using PulseRPC.HealthCheck;
+using PulseRPC.Configuration;
+using PulseRPC.Routing;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -185,7 +188,7 @@ public sealed class ServiceRegistryManager : BackgroundService
 
             if (_registeredServices.TryGetValue(serviceId, out var serviceInfo))
             {
-                serviceInfo.Endpoint.Health = status;
+                serviceInfo.Endpoint.IsHealthy = (status == HealthStatus.Healthy);
                 serviceInfo.LastHealthCheck = DateTime.UtcNow;
                 serviceInfo.IsHealthy = status == HealthStatus.Healthy;
             }
@@ -241,7 +244,7 @@ public sealed class ServiceRegistryManager : BackgroundService
                 {
                     ServiceName = kvp.Value.Endpoint.ServiceType,
                     EndPoint = kvp.Value.Endpoint.ToString(),
-                    HealthStatus = kvp.Value.Endpoint.Health.ToString(),
+                    HealthStatus = kvp.Value.Endpoint.IsHealthy ? "Healthy" : "Unhealthy",
                     RegisteredAt = kvp.Value.RegisteredAt,
                     LastHealthCheck = kvp.Value.LastHealthCheck,
                     RegistrationAttempts = kvp.Value.RegistrationAttempts,
@@ -394,7 +397,9 @@ public sealed class ServiceRegistryManager : BackgroundService
                         var isHealthy = await CheckServiceHealth(serviceInfo.Endpoint);
                         var newStatus = isHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
 
-                        if (serviceInfo.Endpoint.Health != newStatus)
+                        var currentHealthy = serviceInfo.Endpoint.IsHealthy;
+                        var newHealthy = (newStatus == HealthStatus.Healthy);
+                        if (currentHealthy != newHealthy)
                         {
                             await UpdateServiceHealthAsync(serviceInfo.Endpoint.ServiceId, newStatus);
                         }

@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using PulseRPC.HealthCheck;
+using PulseRPC.Configuration;
 using PulseRPC.ServiceDiscovery;
 using PulseRPC.Infrastructure;
 using PulseRPC.Transport;
@@ -182,8 +183,8 @@ public class ConsulServiceDiscovery : IServiceDiscovery, PulseRPC.ServiceRegistr
             // 触发健康状态变更事件
             if (ServiceHealthChanged != null && _serviceCache.TryGetValue(serviceId, out var endpoint))
             {
-                var previousHealth = endpoint.Health;
-                endpoint.Health = status;
+                var previousHealth = endpoint.IsHealthy ? PulseRPC.HealthCheck.HealthStatus.Healthy : PulseRPC.HealthCheck.HealthStatus.Unhealthy;
+                endpoint.IsHealthy = status == PulseRPC.HealthCheck.HealthStatus.Healthy;
                 
                 var @event = ServiceHealthChangedEvent.Create(
                     endpoint,
@@ -524,7 +525,7 @@ public class ConsulServiceDiscovery : IServiceDiscovery, PulseRPC.ServiceRegistr
             }
 
             // 从健康检查结果确定健康状态
-            var isHealthy = consulService.Checks?.All(check => check.Status == HealthStatus.Passing) ?? true;
+            var isHealthy = consulService.Checks?.All(check => check.Status == global::Consul.HealthStatus.Passing) ?? true;
 
             var endpoint = new PulseRPC.ServiceDiscovery.ServiceEndpoint
             {
@@ -684,77 +685,6 @@ public class ConsulServiceDiscovery : IServiceDiscovery, PulseRPC.ServiceRegistr
 
         _consulClient?.Dispose();
         GC.SuppressFinalize(this);
-    }
-
-    /// <summary>
-    /// 注册服务 - ServiceRegistration版本
-    /// </summary>
-    public async Task RegisterAsync(PulseRPC.ServiceRegistration.ServiceRegistration registration, CancellationToken cancellationToken = default)
-    {
-        var endpoint = new PulseRPC.ServiceDiscovery.ServiceEndpoint
-        {
-            ServiceId = registration.Id,
-            ServiceType = registration.ServiceType,
-            Host = registration.Host,
-            Port = registration.Port,
-            Protocol = "Tcp",
-            Weight = 100,
-            IsHealthy = registration.Status == PulseRPC.HealthCheck.HealthStatus.Healthy,
-            RegisteredAt = registration.RegisteredAt,
-            LastHealthCheck = registration.LastHeartbeat,
-            Metadata = registration.Metadata.Properties.ToDictionary(
-                kvp => kvp.Key, 
-                kvp => kvp.Value?.ToString() ?? "")
-        };
-
-        await RegisterAsync(endpoint, cancellationToken);
-    }
-
-    /// <summary>
-    /// 获取所有注册的服务
-    /// </summary>
-    public async Task<IReadOnlyList<PulseRPC.ServiceRegistration.ServiceRegistration>> GetRegistrationsAsync(CancellationToken cancellationToken = default)
-    {
-        var services = await _consulClient.Agent.Services(cancellationToken);
-        var registrations = new List<PulseRPC.ServiceRegistration.ServiceRegistration>();
-
-        foreach (var service in services.Response.Values)
-        {
-            var registration = new PulseRPC.ServiceRegistration.ServiceRegistration
-            {
-                Id = service.ID,
-                ServiceType = service.Service,
-                Host = service.Address,
-                Port = service.Port,
-                Status = PulseRPC.HealthCheck.HealthStatus.Healthy, // 简化实现
-                RegisteredAt = DateTime.UtcNow,
-                LastHeartbeat = DateTime.UtcNow,
-                Metadata = new PulseRPC.ServiceMetadata(service.Meta ?? new Dictionary<string, string>())
-            };
-            registrations.Add(registration);
-        }
-
-        return registrations.AsReadOnly();
-    }
-
-    /// <summary>
-    /// 心跳检测
-    /// </summary>
-    public async Task HeartbeatAsync(string serviceId, CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            // Consul使用TTL健康检查，这里发送心跳
-            var checkId = $"service:{serviceId}";
-            await _consulClient.Agent.CheckPass(checkId, "Heartbeat from service", cancellationToken);
-            
-            _logger.LogDebug("Heartbeat sent for service: {ServiceId}", serviceId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to send heartbeat for service: {ServiceId}", serviceId);
-            throw;
-        }
     }
 
     #endregion

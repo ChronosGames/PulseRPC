@@ -1,6 +1,8 @@
 using PulseRPC.HealthCheck;
+using PulseRPC.Configuration;
 using PulseRPC.Infrastructure;
 using PulseRPC.ServiceDiscovery;
+using PulseRPC.Routing;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -94,8 +96,8 @@ public class ServiceRegistration
         Weight = 100,
         IsHealthy = health == HealthStatus.Healthy,
         RegisteredAt = RegisteredAt,
-        LastHealthCheck = LastHeartbeat,
-        Metadata = Metadata.Properties.ToDictionary(
+        LastHealthCheck = LastHeartbeat ?? DateTime.UtcNow,
+        Metadata = Metadata.Data.ToDictionary(
             kvp => kvp.Key, 
             kvp => kvp.Value?.ToString() ?? "")
     };

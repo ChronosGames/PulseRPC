@@ -1,4 +1,5 @@
 using System;
+using PulseRPC.ServiceDiscovery;
 using System.Collections.Generic;
 using PulseRPC.Transport;
 
@@ -124,42 +125,3 @@ public class ServiceInstanceInfo
     }
 }
 
-/// <summary>
-/// 服务端点定义
-/// </summary>
-public class ServiceEndpoint
-{
-    /// <summary>
-    /// 主机地址
-    /// </summary>
-    public string Host { get; set; } = "";
-
-    /// <summary>
-    /// 端口
-    /// </summary>
-    public int Port { get; set; }
-
-    /// <summary>
-    /// 传输类型
-    /// </summary>
-    public TransportType Transport { get; set; } = TransportType.Tcp;
-
-    /// <summary>
-    /// 元数据
-    /// </summary>
-    public Dictionary<string, string> Metadata { get; set; } = new();
-
-    /// <summary>
-    /// 是否使用TLS/SSL
-    /// </summary>
-    public bool UseSsl { get; set; } = false;
-
-    /// <summary>
-    /// 获取连接字符串
-    /// </summary>
-    public string GetConnectionString()
-    {
-        var protocol = UseSsl ? "tls" : Transport.ToString().ToLower();
-        return $"{protocol}://{Host}:{Port}";
-    }
-}

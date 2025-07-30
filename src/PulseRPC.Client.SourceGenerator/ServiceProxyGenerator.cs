@@ -634,7 +634,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    public static class EventListenerExtensions");
         sb.AppendLine("    {");
-        
+
         // 添加静态构造函数来初始化委托
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 静态构造函数，初始化事件监听器注册器");
@@ -841,7 +841,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
     private static void GeneratePublicApiMethods(StringBuilder sb, ImmutableArray<INamedTypeSymbol> eventTypes)
     {
         sb.AppendLine();
-        
+
         // 生成主要的简洁API方法
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 注册事件监听器 - 使用默认配置（简单场景）");
@@ -1088,7 +1088,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
             sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
             sb.AppendLine("        /// <returns>服务代理</returns>");
-            sb.AppendLine("        public static async Task<T> GetServiceAsync<T>(this ISmartPulseRpcClient client, string serviceName = \"\", SmartConnectionOptions options = null) where T : class, IPulseService");
+            sb.AppendLine("        public static Task<T> GetServiceAsync<T>(this ISmartPulseRpcClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseService");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1113,7 +1113,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 }
                 sb.AppendLine("            {");
                 sb.AppendLine($"                var effectiveServiceName = string.IsNullOrEmpty(serviceName) ? \"{serviceNameHint}\" : serviceName;");
-                sb.AppendLine($"                return (T)(object)await client.GetServiceAsync<{fullTypeName}>(effectiveServiceName, options);");
+                sb.AppendLine($"                return client.GetServiceAsync<T>(effectiveServiceName, options);");
                 sb.AppendLine("            }");
             }
 
@@ -1131,7 +1131,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
             sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
             sb.AppendLine("        /// <returns>多实例服务管理器</returns>");
-            sb.AppendLine("        public static async Task<IMultiInstanceServiceManager<T>> GetMultiInstanceServiceAsync<T>(this ISmartPulseRpcClient client, string serviceName = \"\", SmartConnectionOptions options = null) where T : class, IPulseService");
+            sb.AppendLine("        public static Task<IMultiInstanceServiceManager<T>> GetMultiInstanceServiceAsync<T>(this ISmartPulseRpcClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseService");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1155,7 +1155,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 }
                 sb.AppendLine("            {");
                 sb.AppendLine($"                var effectiveServiceName = string.IsNullOrEmpty(serviceName) ? \"{serviceNameHint}\" : serviceName;");
-                sb.AppendLine($"                return await client.GetMultiInstanceServiceAsync<{fullTypeName}>(effectiveServiceName, options);");
+                sb.AppendLine($"                return client.GetMultiInstanceServiceAsync<T>(effectiveServiceName, options);");
                 sb.AppendLine("            }");
             }
 

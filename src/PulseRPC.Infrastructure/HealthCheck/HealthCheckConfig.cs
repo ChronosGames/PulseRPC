@@ -1,4 +1,6 @@
 using PulseRPC.Infrastructure;
+using PulseRPC.ServiceDiscovery;
+using PulseRPC.Routing;
 
 namespace PulseRPC.HealthCheck;
 
@@ -99,18 +101,10 @@ public class HealthCheckResult
         {
             ServiceId = $"health_check_{Guid.NewGuid()}",
             ServiceType = "HealthCheck",
-            Channel = new ChannelEndpoint
-            {
-                ChannelId = $"health_check_channel_{Guid.NewGuid()}",
-                ChannelName = "HealthCheckChannel",
-                Protocol = TransportProtocol.Tcp,
-                Address = new NetworkAddress
-                {
-                    Host = "localhost",
-                    Port = 0,
-                    UseTls = false
-                }
-            }
+            Host = "localhost",
+            Port = 0,
+            IsHealthy = true,
+            Protocol = "Tcp"
         };
     }
 

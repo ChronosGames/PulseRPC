@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Routing;
 using PulseRPC.SmartConnection;
+using PulseRPC.ServiceDiscovery;
 
 namespace PulseRPC.Client.SmartConnection;
 

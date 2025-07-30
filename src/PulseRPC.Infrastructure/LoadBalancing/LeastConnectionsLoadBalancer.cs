@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.ServiceDiscovery;
 using System.Collections.Concurrent;
 using PulseRPC.Infrastructure;
+using PulseRPC.Routing;
 
 namespace PulseRPC.LoadBalancing;
 
@@ -54,7 +56,7 @@ public class LeastConnectionsLoadBalancer(ILogger<LeastConnectionsLoadBalancer> 
             var connections = state.ActiveConnections;
 
             // 计算加权分数：考虑连接数和权重
-            var score = CalculateScore(connections, endpoint.Channel.Weight);
+            var score = CalculateScore(connections, endpoint.Weight);
 
             // 选择分数最高的端点（连接数最少，权重最高）
             if (score > bestScore || (score == bestScore && connections < minConnections))
