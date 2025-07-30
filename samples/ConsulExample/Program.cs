@@ -90,14 +90,14 @@ public class Program
         });
 
         // 5. 配置PulseRPC客户端
-        services.AddPulseRpcClient(options =>
+        services.AddPulseClient(options =>
         {
-            options.ServiceDiscoveryOptions = new()
-            {
-                RefreshInterval = TimeSpan.FromSeconds(15),
-                CacheTimeout = TimeSpan.FromMinutes(2),
-                EnableCaching = true
-            };
+            // options.ServiceDiscoveryOptions = new()
+            // {
+            //     RefreshInterval = TimeSpan.FromSeconds(15),
+            //     CacheTimeout = TimeSpan.FromMinutes(2),
+            //     EnableCaching = true
+            // };
             // options.LoadBalancingOptions = new()
             // {
             //     Strategy = PulseRPC.Client.LoadBalancing.LoadBalancingStrategy.Failover,
