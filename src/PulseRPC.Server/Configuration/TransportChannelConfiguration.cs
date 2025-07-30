@@ -96,7 +96,7 @@ public class ServerConfigurationBuilder
     {
         var options = new TransportOptions();
         configureOptions?.Invoke(options);
-        
+
         _transports.Add(TransportChannelConfiguration.Tcp(name, port, options, isDefault));
         return this;
     }
@@ -108,7 +108,7 @@ public class ServerConfigurationBuilder
     {
         var options = new TransportOptions();
         configureOptions?.Invoke(options);
-        
+
         _transports.Add(TransportChannelConfiguration.Kcp(name, port, options, isDefault));
         return this;
     }
@@ -120,7 +120,7 @@ public class ServerConfigurationBuilder
     {
         var options = new TransportOptions();
         configureOptions?.Invoke(options);
-        
+
         _transports.Add(TransportChannelConfiguration.WebSocket(name, port, options, isDefault));
         return this;
     }
