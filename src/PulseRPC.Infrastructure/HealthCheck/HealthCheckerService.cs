@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using PulseRPC.Infrastructure;
 using PulseRPC.ServiceDiscovery;
+using PulseRPC.Configuration;
 
 namespace PulseRPC.HealthCheck;
 

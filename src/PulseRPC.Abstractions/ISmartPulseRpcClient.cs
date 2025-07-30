@@ -1,4 +1,5 @@
 using System;
+using PulseRPC.ServiceDiscovery;
 using System.Threading;
 using System.Threading.Tasks;
 using PulseRPC.Authentication;

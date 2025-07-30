@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using PulseRPC.HealthCheck;
+using PulseRPC.Configuration;
 using PulseRPC.ServiceRegistration;
 
 namespace PulseRPC.HealthCheck;

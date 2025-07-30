@@ -1,4 +1,5 @@
 // using Microsoft.Extensions.Logging;
+using PulseRPC.ServiceDiscovery;
 // using Microsoft.Extensions.Options;
 // using System.Collections.Concurrent;
 // using PulseRPC.Caching;

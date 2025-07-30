@@ -92,14 +92,14 @@ public class SmartConnectionManager : IDisposable
     /// <summary>
     /// 服务发现
     /// </summary>
-    private async Task<Routing.ServiceEndpoint> DiscoverServiceEndpointAsync(
+    private async Task<ServiceEndpoint> DiscoverServiceEndpointAsync(
         string serviceName,
         SmartConnectionOptions options,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(serviceName))
         {
-            return new Routing.ServiceEndpoint
+            return new ServiceEndpoint
             {
                 Host = "localhost",
                 Port = 8000,
@@ -113,7 +113,7 @@ public class SmartConnectionManager : IDisposable
 
         if (discoveredEndpoint != null)
         {
-            return new Routing.ServiceEndpoint
+            return new ServiceEndpoint
             {
                 Host = discoveredEndpoint.Host,
                 Port = discoveredEndpoint.Port,
@@ -124,7 +124,7 @@ public class SmartConnectionManager : IDisposable
         }
 
         // 回退到默认端点
-        return new Routing.ServiceEndpoint
+        return new ServiceEndpoint
         {
             Host = "localhost",
             Port = 8000,
@@ -137,7 +137,7 @@ public class SmartConnectionManager : IDisposable
     /// </summary>
     private async Task<ServiceConnectionInfo> CreateConnectionAsync(
         string connectionKey,
-        Routing.ServiceEndpoint endpoint,
+        ServiceEndpoint endpoint,
         SmartConnectionOptions options,
         CancellationToken cancellationToken)
     {
@@ -280,7 +280,7 @@ public class ServiceConnectionInfo : IDisposable
     public string ConnectionKey { get; set; } = "";
     public IChannelManager ChannelManager { get; set; } = null!;
     public IClientChannel Channel { get; set; } = null!;
-    public Routing.ServiceEndpoint Endpoint { get; set; } = null!;
+    public ServiceEndpoint Endpoint { get; set; } = null!;
     public SmartConnectionOptions Options { get; set; } = null!;
     public DateTime CreatedAt { get; set; }
     public DateTime LastUsedAt { get; set; }

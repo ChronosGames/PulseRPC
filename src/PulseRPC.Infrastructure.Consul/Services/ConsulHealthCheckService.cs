@@ -2,6 +2,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.HealthCheck;
+using PulseRPC.Configuration;
 using PulseRPC.ServiceDiscovery;
 using PulseRPC.ServiceRegistration;
 
@@ -76,7 +77,7 @@ public class ConsulHealthCheckService : BackgroundService
         try
         {
             // 获取所有已注册的服务
-            var services = await _serviceDiscovery.GetRegisteredServicesAsync(cancellationToken);
+            var services = await _serviceDiscovery.GetServicesAsync("", cancellationToken);
             
             if (services.Count == 0)
             {
@@ -106,7 +107,10 @@ public class ConsulHealthCheckService : BackgroundService
             var status = isHealthy ? HealthStatus.Healthy : HealthStatus.Unhealthy;
 
             // 更新服务健康状态
-            await _serviceDiscovery.UpdateHealthAsync(service.ServiceId, status, cancellationToken);
+            if (_serviceDiscovery is ConsulServiceDiscovery consulDiscovery)
+            {
+                await consulDiscovery.UpdateHealthAsync(service.ServiceId, status, cancellationToken);
+            }
 
             _logger.LogDebug("Health check result for {ServiceId}: {Status}", 
                 service.ServiceId, status);
@@ -118,7 +122,10 @@ public class ConsulHealthCheckService : BackgroundService
             // 在检查失败时标记为不健康
             try
             {
-                await _serviceDiscovery.UpdateHealthAsync(service.ServiceId, HealthStatus.Unhealthy, cancellationToken);
+                if (_serviceDiscovery is ConsulServiceDiscovery consulDiscovery)
+                {
+                    await consulDiscovery.UpdateHealthAsync(service.ServiceId, HealthStatus.Unhealthy, cancellationToken);
+                }
             }
             catch (Exception updateEx)
             {
@@ -181,7 +188,7 @@ public class ConsulHealthCheckService : BackgroundService
         {
             var healthPath = _options.HealthCheck.HttpPath ?? "/health";
             var scheme = _options.Security.EnableTls ? "https" : "http";
-            var healthUrl = $"{scheme}://{service.Channel.Address.Host}:{service.Channel.Address.Port}{healthPath}";
+            var healthUrl = $"{scheme}://{service.Host}:{service.Port}{healthPath}";
 
             // 添加自定义头部
             if (_options.HealthCheck.HttpHeaders != null)
@@ -212,11 +219,11 @@ public class ConsulHealthCheckService : BackgroundService
         try
         {
             using var client = new System.Net.Sockets.TcpClient();
-            await client.ConnectAsync(service.Channel.Address.Host, service.Channel.Address.Port, cancellationToken);
+            await client.ConnectAsync(service.Host, service.Port, cancellationToken);
             
             var isHealthy = client.Connected;
             _logger.LogDebug("TCP health check for {ServiceId} at {EndPoint}: {Connected}", 
-                service.ServiceId, $"{service.Channel.Address.Host}:{service.Channel.Address.Port}", isHealthy);
+                service.ServiceId, $"{service.Host}:{service.Port}", isHealthy);
 
             return isHealthy;
         }

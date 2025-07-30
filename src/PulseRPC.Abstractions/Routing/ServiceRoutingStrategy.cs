@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using PulseRPC.Configuration;
 
 namespace PulseRPC.Routing;
 
@@ -72,7 +73,7 @@ public class ServiceRoutingConfiguration<T> where T : class, IPulseService
     /// <summary>
     /// 健康检查配置
     /// </summary>
-    public HealthCheckConfiguration HealthCheck { get; set; } = new();
+    public HealthCheckOptions HealthCheck { get; set; } = new();
 
     /// <summary>
     /// 最大重试次数
@@ -147,36 +148,7 @@ public class CircuitBreakerConfiguration
     public TimeSpan HalfOpenDuration { get; set; } = TimeSpan.FromSeconds(30);
 }
 
-/// <summary>
-/// 健康检查配置
-/// </summary>
-public class HealthCheckConfiguration
-{
-    /// <summary>
-    /// 是否启用健康检查
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// 检查间隔
-    /// </summary>
-    public TimeSpan Interval { get; set; } = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// 超时时间
-    /// </summary>
-    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(5);
-
-    /// <summary>
-    /// 不健康阈值
-    /// </summary>
-    public int UnhealthyThreshold { get; set; } = 3;
-
-    /// <summary>
-    /// 健康阈值
-    /// </summary>
-    public int HealthyThreshold { get; set; } = 2;
-}
+// 健康检查配置已统一到 PulseRPC.Configuration.HealthCheckOptions
 
 /// <summary>
 /// 重试延迟策略

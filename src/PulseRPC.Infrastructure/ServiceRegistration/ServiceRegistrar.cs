@@ -1,9 +1,12 @@
 using Microsoft.Extensions.Hosting;
+using PulseRPC.ServiceDiscovery;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Infrastructure;
 using System.Collections.Concurrent;
 using PulseRPC.HealthCheck;
+using PulseRPC.Configuration;
+using PulseRPC.Routing;
 
 namespace PulseRPC.ServiceRegistration;
 
@@ -46,10 +49,10 @@ public class ServiceRegistrar(
             {
                 ServiceId = serviceInfo.ServiceId,
                 ServiceType = serviceInfo.ServiceName,
-                InstanceName = serviceInfo.InstanceName,
-                Channel = serviceInfo.Channel,
-                Health = HealthStatus.Unknown,
-                Metadata = serviceInfo.Metadata ?? new ServiceMetadata()
+                Host = serviceInfo.Channel.Address.Host,
+                Port = serviceInfo.Channel.Address.Port,
+                IsHealthy = true,
+                Metadata = serviceInfo.Metadata?.Data.ToDictionary(kvp => kvp.Key, kvp => kvp.Value?.ToString() ?? "") ?? new Dictionary<string, string>()
             };
 
             // 执行注册
@@ -138,7 +141,7 @@ public class ServiceRegistrar(
             }
 
             // 更新端点健康状态
-            registeredInfo.ServiceEndpoint.Health = status;
+            registeredInfo.ServiceEndpoint.IsHealthy = (status == HealthStatus.Healthy);
             registeredInfo.HealthStatus = status;
             registeredInfo.LastHealthCheck = DateTime.UtcNow;
 
@@ -287,7 +290,7 @@ public class ServiceRegistrar(
                 var oldStatus = service.HealthStatus;
                 service.HealthStatus = result.Status;
                 service.LastHealthCheck = DateTime.UtcNow;
-                service.ServiceEndpoint.Health = result.Status;
+                service.ServiceEndpoint.IsHealthy = (result.Status == HealthStatus.Healthy);
 
                 // 状态变化时记录日志
                 if (oldStatus != result.Status)

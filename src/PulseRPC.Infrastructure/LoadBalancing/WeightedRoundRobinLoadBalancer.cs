@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.ServiceDiscovery;
 using System.Collections.Concurrent;
 using PulseRPC.Infrastructure;
+using PulseRPC.Routing;
 
 namespace PulseRPC.LoadBalancing;
 
@@ -41,14 +43,14 @@ public class WeightedRoundRobinLoadBalancer : ILoadBalancer
         var selectedEndpoint = SelectUsingWeightedRoundRobin(endpoints);
 
         _logger.LogDebug("Selected weighted endpoint: {Endpoint} (Weight: {Weight})",
-            selectedEndpoint, selectedEndpoint?.Channel.Weight);
+            selectedEndpoint, selectedEndpoint?.Weight);
 
         return Task.FromResult(selectedEndpoint);
     }
 
     private ServiceEndpoint? SelectUsingWeightedRoundRobin(IReadOnlyList<ServiceEndpoint> endpoints)
     {
-        var totalWeight = endpoints.Sum(e => e.Channel.Weight);
+        var totalWeight = endpoints.Sum(e => e.Weight);
         if (totalWeight <= 0)
         {
             // 如果所有权重都是0或负数，回退到简单轮询
@@ -60,8 +62,8 @@ public class WeightedRoundRobinLoadBalancer : ILoadBalancer
         foreach (var endpoint in endpoints)
         {
             var state = _endpointStates.AddOrUpdate(endpoint.ServiceId,
-                new WeightedEndpointState(endpoint.Channel.Weight),
-                (_, existing) => existing.UpdateWeight(endpoint.Channel.Weight));
+                new WeightedEndpointState(endpoint.Weight),
+                (_, existing) => existing.UpdateWeight(endpoint.Weight));
 
             // 增加当前权重
             state.AddCurrentWeight();
