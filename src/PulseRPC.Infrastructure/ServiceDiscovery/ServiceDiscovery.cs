@@ -263,7 +263,7 @@ public class ServiceDiscovery : IServiceDiscovery
         }
     }
 
-    private void ValidateEndpoint(ServiceEndpoint endpoint)
+    private static void ValidateEndpoint(ServiceEndpoint endpoint)
     {
         if (string.IsNullOrWhiteSpace(endpoint.ServiceId))
             throw new ArgumentException("Service ID cannot be null or empty", nameof(endpoint.ServiceId));
