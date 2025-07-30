@@ -52,7 +52,7 @@ public abstract class EventSubscription
 /// <summary>
 /// 泛型事件订阅
 /// </summary>
-public class EventSubscription<T> : EventSubscription where T : IEventData
+public class EventSubscription<T> : EventSubscription
 {
     private readonly EventHandler<T> _handler;
 

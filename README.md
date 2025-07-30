@@ -329,7 +329,7 @@ var smartClient = PulseRpcClientFactory.CreateSmartClient();
 var chatService = await smartClient.GetServiceAsync<IChatHub>();
 await chatService.SendMessageAsync("Hello, PulseRPC!");
 
-// 注册事件监听器
+// 注册事件监听器 - 极简设计，无需IEventData约束
 var subscription = await smartClient.RegisterEventListenerAsync(
     new ChatEventHandler(), "ChatService");
 ```

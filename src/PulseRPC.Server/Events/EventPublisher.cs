@@ -9,7 +9,7 @@ namespace PulseRPC.Server.Events;
 /// </summary>
 public interface IEventPublisher
 {
-    Task PublishEventAsync<T>(string eventName, T eventData) where T : IEventData;
+    Task PublishEventAsync<T>(string eventName, T eventData);
 }
 
 /// <summary>
@@ -34,7 +34,7 @@ public class EventPublisher : IEventPublisher
     /// <summary>
     /// 发布事件到所有连接的客户端
     /// </summary>
-    public async Task PublishEventAsync<T>(string eventName, T eventData) where T : IEventData
+    public async Task PublishEventAsync<T>(string eventName, T eventData)
     {
         if (string.IsNullOrEmpty(eventName))
             throw new ArgumentNullException(nameof(eventName));

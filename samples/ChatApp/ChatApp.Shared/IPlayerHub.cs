@@ -96,7 +96,7 @@ namespace ChatApp
 
     // 事件模型类
     [MemoryPackable]
-    public partial class PlayerJoinedEvent : IEventData
+    public partial class PlayerJoinedEvent
     {
         public Guid PlayerId { get; set; }
         public string PlayerName { get; set; } = string.Empty;
@@ -107,14 +107,14 @@ namespace ChatApp
     }
 
     [MemoryPackable]
-    public partial class PlayerLeftEvent : IEventData
+    public partial class PlayerLeftEvent
     {
         public Guid PlayerId { get; set; }
         public string Reason { get; set; } = string.Empty;
     }
 
     [MemoryPackable]
-    public partial class PlayerMovedEvent : IEventData
+    public partial class PlayerMovedEvent
     {
         public Guid PlayerId { get; set; }
         public float X { get; set; }
@@ -128,7 +128,7 @@ namespace ChatApp
     /// 玩家移动事件数据
     /// </summary>
     [MemoryPackable]
-    public partial class PlayersBatchMovedEvent : IEventData
+    public partial class PlayersBatchMovedEvent
     {
         public PlayerMovedEvent[]? Updates { get; set; }
     }

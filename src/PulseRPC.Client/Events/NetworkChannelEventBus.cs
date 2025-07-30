@@ -52,7 +52,6 @@ public class NetworkChannelEventBus : IEventBus
     /// 发布事件
     /// </summary>
     public async Task PublishAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default)
-        where T : IEventData
     {
         // 确保已初始化
         EnsureInitialized();
@@ -72,7 +71,7 @@ public class NetworkChannelEventBus : IEventBus
     /// <summary>
     /// 订阅事件
     /// </summary>
-    public ISubscriptionToken Subscribe<T>(string eventName, EventHandler<T> handler) where T : IEventData
+    public ISubscriptionToken Subscribe<T>(string eventName, EventHandler<T> handler)
     {
         if (string.IsNullOrEmpty(eventName))
             throw new ArgumentNullException(nameof(eventName));

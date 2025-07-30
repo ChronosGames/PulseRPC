@@ -5,14 +5,6 @@ using System.Threading.Tasks;
 namespace PulseRPC;
 
 /// <summary>
-/// 事件数据标记接口
-/// </summary>
-public interface IEventData
-{
-    // 标记接口，不包含成员
-}
-
-/// <summary>
 /// PulseRPC 事件处理器基础接口 - 标记类可接收服务器推送的事件
 /// </summary>
 public interface IPulseEventHandler
@@ -26,7 +18,7 @@ public interface IPulseEventHandler
 /// <typeparam name="T">事件数据类型</typeparam>
 /// <param name="sender">事件源</param>
 /// <param name="eventData">事件数据</param>
-public delegate void EventHandler<T>(object sender, T eventData) where T : IEventData;
+public delegate void EventHandler<T>(object sender, T eventData);
 
 /// <summary>
 /// 订阅令牌接口
@@ -62,13 +54,12 @@ public interface IEventBus
     /// <summary>
     /// 发布事件
     /// </summary>
-    Task PublishAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default)
-        where T : IEventData;
+    Task PublishAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 订阅事件
     /// </summary>
-    ISubscriptionToken Subscribe<T>(string eventName, EventHandler<T> handler) where T : IEventData;
+    ISubscriptionToken Subscribe<T>(string eventName, EventHandler<T> handler);
 
     /// <summary>
     /// 取消订阅

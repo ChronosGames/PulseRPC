@@ -162,7 +162,7 @@ public class ParallelResult<T> : BroadcastResult<T>
 /// <summary>
 /// 服务实例事件参数
 /// </summary>
-public class ServiceInstanceEventArgs : EventArgs, IEventData
+public class ServiceInstanceEventArgs : EventArgs
 {
     /// <summary>
     /// 实例信息
@@ -224,7 +224,7 @@ public enum ServiceInstanceEventType
 /// <summary>
 /// 负载均衡事件参数
 /// </summary>
-public class LoadBalancingEventArgs : EventArgs, IEventData
+public class LoadBalancingEventArgs : EventArgs
 {
     /// <summary>
     /// 服务名称
