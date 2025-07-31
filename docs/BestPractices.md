@@ -1,680 +1,929 @@
 # PulseRPC 最佳实践指南
 
-本文档提供使用PulseRPC框架的最佳实践建议，帮助您构建高性能、可维护和可扩展的分布式应用程序。
+本文档提供使用 PulseRPC 框架的最佳实践建议，帮助您构建高性能、可维护和可扩展的分布式应用程序。
 
 ## 📋 目录
 
 - [架构设计](#架构设计)
-- [服务设计](#服务设计)
+- [客户端最佳实践](#客户端最佳实践)
+- [服务端最佳实践](#服务端最佳实践)
+- [序列化优化](#序列化优化)
+- [传输层优化](#传输层优化)
+- [Unity 集成实践](#unity-集成实践)
 - [性能优化](#性能优化)
 - [错误处理](#错误处理)
-- [安全考虑](#安全考虑)
 - [监控与调试](#监控与调试)
 - [部署实践](#部署实践)
-- [维护指南](#维护指南)
 
 ## 架构设计
 
 ### 🏗️ 服务边界设计
 
-#### 1. 领域驱动设计
+#### 1. 基于领域的服务划分
 
 ```csharp
-// ✅ 好的实践：按领域划分服务
-public interface IUserService
+// ✅ 推荐：按业务领域划分接口
+[PulseRpcService]
+public interface IChatService
 {
-    Task<User> GetUserAsync(int userId);
-    Task<User> CreateUserAsync(CreateUserRequest request);
-    Task<User> UpdateUserAsync(int userId, UpdateUserRequest request);
+    Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request);
+    Task<GetMessagesResponse> GetMessagesAsync(GetMessagesRequest request);
+    Task<JoinRoomResponse> JoinRoomAsync(JoinRoomRequest request);
 }
 
-public interface IOrderService  
+[PulseRpcService]
+public interface IUserService  
 {
-    Task<Order> GetOrderAsync(int orderId);
-    Task<Order> CreateOrderAsync(CreateOrderRequest request);
-    Task<OrderStatus> GetOrderStatusAsync(int orderId);
+    Task<GetUserResponse> GetUserAsync(GetUserRequest request);
+    Task<UpdateUserResponse> UpdateUserAsync(UpdateUserRequest request);
+    Task<GetUserListResponse> GetUserListAsync(GetUserListRequest request);
 }
 
 // ❌ 避免：过于宽泛的服务接口
+[PulseRpcService]
 public interface IBusinessService
 {
-    Task<User> GetUserAsync(int userId);
-    Task<Order> GetOrderAsync(int orderId);
-    Task<Product> GetProductAsync(int productId);
-    // ... 混合了多个领域的方法
+    Task<object> ProcessAsync(object request); // 太模糊
+    Task<dynamic> HandleAsync(dynamic data);   // 类型不安全
 }
 ```
 
-#### 2. 服务粒度控制
+#### 2. 合理的接口粒度
 
 ```csharp
-// ✅ 推荐：适中的服务粒度
-public interface IPaymentService
+// ✅ 推荐：适中的接口粒度
+[PulseRpcService]
+public interface IChatHub
 {
-    Task<PaymentResult> ProcessPaymentAsync(PaymentRequest request);
-    Task<PaymentStatus> GetPaymentStatusAsync(string paymentId);
-    Task<RefundResult> RefundPaymentAsync(RefundRequest request);
-}
-
-// ❌ 避免：过于细粒度
-public interface IPaymentProcessorService
-{
-    Task<PaymentResult> ProcessCreditCardAsync(CreditCardRequest request);
-}
-
-public interface IPaymentStatusService
-{
-    Task<PaymentStatus> GetStatusAsync(string paymentId);
-}
-
-public interface IRefundService
-{
-    Task<RefundResult> ProcessRefundAsync(RefundRequest request);
-}
-```
-
-### 🔗 服务依赖管理
-
-#### 1. 依赖方向控制
-
-```csharp
-// ✅ 好的实践：定义清晰的依赖关系
-public class OrderService : IOrderService
-{
-    private readonly IUserService _userService;      // 用户服务
-    private readonly IProductService _productService; // 产品服务
-    private readonly IPaymentService _paymentService; // 支付服务
-
-    // 订单服务依赖其他服务，但不被底层服务依赖
-}
-```
-
-#### 2. 避免循环依赖
-
-```csharp
-// ❌ 避免：循环依赖
-public class UserService : IUserService
-{
-    private readonly IOrderService _orderService; // 用户服务依赖订单服务
-}
-
-public class OrderService : IOrderService  
-{
-    private readonly IUserService _userService; // 订单服务依赖用户服务
-}
-
-// ✅ 解决方案：引入领域事件
-public class UserService : IUserService
-{
-    private readonly IEventPublisher _eventPublisher;
+    // 核心聊天功能
+    Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request);
+    Task<BroadcastMessageResponse> BroadcastMessageAsync(BroadcastMessageRequest request);
     
-    public async Task<User> UpdateUserAsync(UpdateUserRequest request)
-    {
-        var user = await UpdateUserInternalAsync(request);
-        
-        // 发布事件而不是直接调用其他服务
-        await _eventPublisher.PublishAsync(new UserUpdatedEvent(user));
-        
-        return user;
-    }
-}
-```
-
-## 服务设计
-
-### 📋 接口设计原则
-
-#### 1. 使用异步模式
-
-```csharp
-// ✅ 推荐：异步接口
-public interface IUserService
-{
-    Task<User> GetUserAsync(int userId);
-    Task<IEnumerable<User>> GetUsersAsync(GetUsersRequest request);
-    Task<User> CreateUserAsync(CreateUserRequest request);
-}
-
-// ❌ 避免：同步接口
-public interface IUserService
-{
-    User GetUser(int userId);
-    IEnumerable<User> GetUsers(GetUsersRequest request);
-    User CreateUser(CreateUserRequest request);
-}
-```
-
-#### 2. 版本化API设计
-
-```csharp
-// ✅ 推荐：版本化接口
-namespace MyApp.Services.V1
-{
-    public interface IUserService
-    {
-        Task<User> GetUserAsync(int userId);
-    }
-}
-
-namespace MyApp.Services.V2
-{
-    public interface IUserService
-    {
-        Task<UserV2> GetUserAsync(int userId);
-        Task<UserProfile> GetUserProfileAsync(int userId); // 新增方法
-    }
-}
-
-// 服务注册时支持多版本
-services.AddPulseRpcService<V1.IUserService>(options =>
-{
-    options.ServiceName = "UserService";
-    options.Version = "1.0";
-});
-
-services.AddPulseRpcService<V2.IUserService>(options =>
-{
-    options.ServiceName = "UserService";
-    options.Version = "2.0";
-});
-```
-
-#### 3. 请求响应模型设计
-
-```csharp
-// ✅ 推荐：明确的请求响应模型
-public class GetUsersRequest
-{
-    public int PageIndex { get; set; } = 1;
-    public int PageSize { get; set; } = 10;
-    public string? NameFilter { get; set; }
-    public UserStatus? StatusFilter { get; set; }
-    public DateTime? CreatedAfter { get; set; }
-}
-
-public class GetUsersResponse
-{
-    public List<User> Users { get; set; } = new();
-    public int TotalCount { get; set; }
-    public int PageIndex { get; set; }
-    public int PageSize { get; set; }
-    public bool HasNextPage => PageIndex * PageSize < TotalCount;
-}
-
-// ❌ 避免：使用过多参数
-public interface IUserService
-{
-    Task<List<User>> GetUsersAsync(
-        int pageIndex,
-        int pageSize,
-        string? nameFilter,
-        UserStatus? statusFilter,
-        DateTime? createdAfter,
-        bool includeDeleted,
-        string? sortBy,
-        SortDirection sortDirection);
-}
-```
-
-### 🔧 服务实现最佳实践
-
-#### 1. 参数验证
-
-```csharp
-public class UserService : IUserService
-{
-    public async Task<User> GetUserAsync(int userId)
-    {
-        // ✅ 输入验证
-        if (userId <= 0)
-        {
-            throw new ArgumentException("用户ID必须大于0", nameof(userId));
-        }
-
-        var user = await _repository.GetByIdAsync(userId);
-        
-        if (user == null)
-        {
-            throw new NotFoundException($"用户不存在: {userId}");
-        }
-
-        return user;
-    }
-
-    public async Task<User> CreateUserAsync(CreateUserRequest request)
-    {
-        // ✅ 业务逻辑验证
-        if (string.IsNullOrWhiteSpace(request.Email))
-        {
-            throw new ValidationException("邮箱地址不能为空");
-        }
-
-        if (await _repository.ExistsByEmailAsync(request.Email))
-        {
-            throw new BusinessException($"邮箱已存在: {request.Email}");
-        }
-
-        // 执行业务逻辑...
-    }
-}
-```
-
-#### 2. 异常处理设计
-
-```csharp
-// ✅ 定义明确的异常层次
-public abstract class BusinessException : Exception
-{
-    public string ErrorCode { get; }
+    // 房间管理
+    Task<JoinRoomResponse> JoinRoomAsync(JoinRoomRequest request);
+    Task<LeaveRoomResponse> LeaveRoomAsync(LeaveRoomRequest request);
+    Task<GetRoomInfoResponse> GetRoomInfoAsync(GetRoomInfoRequest request);
     
-    protected BusinessException(string errorCode, string message) : base(message)
+    // 用户状态
+    Task<GetOnlineUsersResponse> GetOnlineUsersAsync(GetOnlineUsersRequest request);
+}
+
+// ❌ 避免：过度细化的接口
+[PulseRpcService]
+public interface IMessageSender
+{
+    Task<SendMessageResponse> SendAsync(SendMessageRequest request);
+}
+
+[PulseRpcService]
+public interface IRoomManager
+{
+    Task<JoinRoomResponse> JoinAsync(JoinRoomRequest request);
+}
+```
+
+### 🔗 依赖管理原则
+
+```csharp
+// ✅ 推荐：清晰的分层架构
+namespace MyApp.Services
+{
+    // 应用层 - 依赖领域层和基础设施层
+    public class ChatApplicationService
     {
-        ErrorCode = errorCode;
+        private readonly IChatDomainService _chatDomainService;
+        private readonly IUserRepository _userRepository;
+        private readonly IMessageRepository _messageRepository;
+        
+        // 处理应用级逻辑，协调领域服务
+    }
+    
+    // 领域层 - 包含核心业务逻辑
+    public class ChatDomainService : IChatDomainService
+    {
+        // 纯业务逻辑，不依赖外部系统
+        public async Task<Message> CreateMessage(User user, string content)
+        {
+            // 领域规则验证
+            if (string.IsNullOrWhiteSpace(content))
+                throw new DomainException("消息内容不能为空");
+                
+            return new Message(user.Id, content, DateTime.UtcNow);
+        }
+    }
+}
+```
+
+## 客户端最佳实践
+
+### 🔧 客户端配置
+
+```csharp
+// ✅ 推荐：使用 PulseRpcClientFactory 创建客户端
+public class ChatClient
+{
+    private readonly IPulseClient _client;
+    private readonly IChatService _chatService;
+
+    public ChatClient()
+    {
+        // 创建 TCP 客户端
+        _client = PulseRpcClientFactory.CreateTcpClient("chat", "localhost", 8000);
+        
+        // 获取服务代理
+        _chatService = _client.GetService<IChatService>();
+    }
+
+    public async Task<string> SendMessageAsync(string message)
+    {
+        try
+        {
+            var request = new SendMessageRequest { Message = message };
+            var response = await _chatService.SendMessageAsync(request);
+            return response.Result;
+        }
+        catch (PulseRpcException ex)
+        {
+            // 处理 RPC 异常
+            Console.WriteLine($"RPC 调用失败: {ex.Message}");
+            throw;
+        }
+    }
+}
+```
+
+### 🔄 连接管理
+
+```csharp
+// ✅ 推荐：实现 IDisposable 模式
+public class ChatClientManager : IDisposable
+{
+    private readonly IPulseClient _client;
+    private bool _disposed = false;
+
+    public ChatClientManager(string host, int port)
+    {
+        _client = PulseRpcClientFactory.CreateTcpClient("chat", host, port);
+    }
+
+    public async Task<T> CallServiceAsync<T>(Func<IChatService, Task<T>> serviceCall)
+    {
+        ThrowIfDisposed();
+        
+        var service = _client.GetService<IChatService>();
+        return await serviceCall(service);
+    }
+
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(ChatClientManager));
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _client?.Dispose();
+            _disposed = true;
+        }
+    }
+}
+```
+
+### 📦 批量操作优化
+
+```csharp
+// ✅ 推荐：使用批量接口减少网络往返
+[PulseRpcService]
+public interface IUserService
+{
+    // 单个操作
+    Task<GetUserResponse> GetUserAsync(GetUserRequest request);
+    
+    // 批量操作 - 减少网络开销
+    Task<GetMultipleUsersResponse> GetMultipleUsersAsync(GetMultipleUsersRequest request);
+}
+
+public class UserClient
+{
+    private readonly IUserService _userService;
+
+    public async Task<List<User>> GetUsersAsync(List<int> userIds)
+    {
+        // ✅ 批量获取而非多次单独调用
+        var request = new GetMultipleUsersRequest { UserIds = userIds };
+        var response = await _userService.GetMultipleUsersAsync(request);
+        return response.Users;
+    }
+}
+```
+
+## 服务端最佳实践
+
+### 🚀 服务实现
+
+```csharp
+// ✅ 推荐：良好的服务实现结构
+public class ChatService : IChatService
+{
+    private readonly ILogger<ChatService> _logger;
+    private readonly IChatDomainService _domainService;
+    private readonly IMessageRepository _messageRepository;
+    private readonly IConnectionManager _connectionManager;
+
+    public ChatService(
+        ILogger<ChatService> logger,
+        IChatDomainService domainService,
+        IMessageRepository messageRepository,
+        IConnectionManager connectionManager)
+    {
+        _logger = logger;
+        _domainService = domainService;
+        _messageRepository = messageRepository;
+        _connectionManager = connectionManager;
+    }
+
+    public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request)
+    {
+        // 参数验证
+        if (request == null)
+            throw new ArgumentNullException(nameof(request));
+            
+        if (string.IsNullOrWhiteSpace(request.Message))
+            throw new ArgumentException("消息内容不能为空", nameof(request.Message));
+
+        try
+        {
+            _logger.LogInformation("处理发送消息请求: {UserId} -> {RoomId}", 
+                request.UserId, request.RoomId);
+
+            // 领域逻辑处理
+            var message = await _domainService.CreateMessageAsync(
+                request.UserId, request.RoomId, request.Message);
+
+            // 持久化
+            await _messageRepository.SaveAsync(message);
+
+            // 广播给房间内其他用户
+            await _connectionManager.BroadcastToRoomAsync(
+                request.RoomId, message, excludeUserId: request.UserId);
+
+            _logger.LogInformation("消息发送成功: {MessageId}", message.Id);
+
+            return new SendMessageResponse
+            {
+                Success = true,
+                MessageId = message.Id,
+                Timestamp = message.CreatedAt
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "发送消息失败: {UserId} -> {RoomId}", 
+                request.UserId, request.RoomId);
+            throw;
+        }
+    }
+}
+```
+
+### 🔒 输入验证和安全
+
+```csharp
+// ✅ 推荐：分层验证策略
+[MemoryPackable]
+public partial class SendMessageRequest
+{
+    [MemoryPackOrder(0)]
+    public int UserId { get; set; }
+    
+    [MemoryPackOrder(1)]
+    public int RoomId { get; set; }
+    
+    [MemoryPackOrder(2)]
+    public string Message { get; set; } = string.Empty;
+    
+    // 客户端验证
+    public bool IsValid(out string errorMessage)
+    {
+        if (UserId <= 0)
+        {
+            errorMessage = "用户ID无效";
+            return false;
+        }
+        
+        if (RoomId <= 0)
+        {
+            errorMessage = "房间ID无效";
+            return false;
+        }
+        
+        if (string.IsNullOrWhiteSpace(Message))
+        {
+            errorMessage = "消息内容不能为空";
+            return false;
+        }
+        
+        if (Message.Length > 1000)
+        {
+            errorMessage = "消息内容过长";
+            return false;
+        }
+        
+        errorMessage = string.Empty;
+        return true;
     }
 }
 
-public class ValidationException : BusinessException
+// 服务端验证
+public class ChatService : IChatService
 {
-    public ValidationException(string message) 
-        : base("VALIDATION_ERROR", message) { }
-}
-
-public class NotFoundException : BusinessException
-{
-    public NotFoundException(string message) 
-        : base("NOT_FOUND", message) { }
-}
-
-public class BusinessLogicException : BusinessException
-{
-    public BusinessLogicException(string errorCode, string message) 
-        : base(errorCode, message) { }
-}
-
-// 全局异常处理
-public class GlobalExceptionHandler : IExceptionHandler
-{
-    public async Task<RpcResponse> HandleAsync(Exception exception, RpcRequest request)
+    public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request)
     {
-        return exception switch
+        // 服务端重复验证（防止客户端绕过）
+        if (!request.IsValid(out var errorMessage))
         {
-            ValidationException ex => new RpcResponse 
-            { 
-                Error = new RpcError 
-                { 
-                    Code = ex.ErrorCode, 
-                    Message = ex.Message,
-                    Type = "ValidationError"
-                } 
-            },
-            NotFoundException ex => new RpcResponse 
-            { 
-                Error = new RpcError 
-                { 
-                    Code = ex.ErrorCode, 
-                    Message = ex.Message,
-                    Type = "NotFound"
-                } 
-            },
-            _ => new RpcResponse 
-            { 
-                Error = new RpcError 
-                { 
-                    Code = "INTERNAL_ERROR", 
-                    Message = "内部服务器错误",
-                    Type = "InternalError"
-                } 
-            }
-        };
+            throw new ArgumentException($"请求参数无效: {errorMessage}");
+        }
+        
+        // 权限检查
+        if (!await _authorizationService.CanSendMessageAsync(request.UserId, request.RoomId))
+        {
+            throw new UnauthorizedAccessException("用户无权限在该房间发送消息");
+        }
+        
+        // 内容安全检查
+        if (await _contentModerationService.IsInappropriateAsync(request.Message))
+        {
+            throw new ArgumentException("消息内容不合规");
+        }
+        
+        // 业务逻辑处理...
+    }
+}
+```
+
+## 序列化优化
+
+### 📦 MemoryPack 最佳实践
+
+```csharp
+// ✅ 推荐：正确使用 MemoryPack 特性
+[MemoryPackable]
+public partial class ChatMessage
+{
+    [MemoryPackOrder(0)]
+    public int Id { get; set; }
+    
+    [MemoryPackOrder(1)]
+    public int SenderId { get; set; }
+    
+    [MemoryPackOrder(2)]
+    public int RoomId { get; set; }
+    
+    [MemoryPackOrder(3)]
+    public string Content { get; set; } = string.Empty;
+    
+    [MemoryPackOrder(4)]
+    public DateTime CreatedAt { get; set; }
+    
+    // MemoryPack 要求无参构造函数
+    public ChatMessage() { }
+    
+    public ChatMessage(int senderId, int roomId, string content)
+    {
+        SenderId = senderId;
+        RoomId = roomId;
+        Content = content;
+        CreatedAt = DateTime.UtcNow;
+    }
+}
+
+// ✅ 推荐：使用 Union 处理多态
+[MemoryPackable]
+[MemoryPackUnion(0, typeof(TextMessage))]
+[MemoryPackUnion(1, typeof(ImageMessage))]
+[MemoryPackUnion(2, typeof(FileMessage))]
+public abstract partial class BaseMessage
+{
+    [MemoryPackOrder(0)]
+    public int Id { get; set; }
+    
+    [MemoryPackOrder(1)]
+    public int SenderId { get; set; }
+    
+    [MemoryPackOrder(2)]
+    public DateTime CreatedAt { get; set; }
+}
+
+[MemoryPackable]
+public partial class TextMessage : BaseMessage
+{
+    [MemoryPackOrder(10)]
+    public string Content { get; set; } = string.Empty;
+}
+
+[MemoryPackable]
+public partial class ImageMessage : BaseMessage
+{
+    [MemoryPackOrder(10)]
+    public string ImageUrl { get; set; } = string.Empty;
+    
+    [MemoryPackOrder(11)]
+    public int Width { get; set; }
+    
+    [MemoryPackOrder(12)]
+    public int Height { get; set; }
+}
+```
+
+### 🚫 避免序列化陷阱
+
+```csharp
+// ❌ 避免：循环引用
+public class BadUser
+{
+    public int Id { get; set; }
+    public List<BadMessage> Messages { get; set; } = new(); // 可能导致循环引用
+}
+
+public class BadMessage
+{
+    public int Id { get; set; }
+    public BadUser Sender { get; set; } = null!; // 循环引用
+}
+
+// ✅ 推荐：使用 ID 引用而非对象引用
+[MemoryPackable]
+public partial class User
+{
+    [MemoryPackOrder(0)]
+    public int Id { get; set; }
+    
+    [MemoryPackOrder(1)]
+    public string Name { get; set; } = string.Empty;
+    
+    // 不直接包含 Messages 集合，避免循环引用
+}
+
+[MemoryPackable]
+public partial class Message
+{
+    [MemoryPackOrder(0)]
+    public int Id { get; set; }
+    
+    [MemoryPackOrder(1)]
+    public int SenderId { get; set; } // 使用 ID 而非对象引用
+    
+    [MemoryPackOrder(2)]
+    public string Content { get; set; } = string.Empty;
+}
+```
+
+## 传输层优化
+
+### 🌐 TCP vs KCP 选择
+
+```csharp
+// ✅ TCP 适用场景：可靠性要求高
+public class FileTransferClient
+{
+    public FileTransferClient()
+    {
+        // 文件传输使用 TCP 确保数据完整性
+        _client = PulseRpcClientFactory.CreateTcpClient("file-transfer", "localhost", 8001);
+    }
+}
+
+// ✅ KCP 适用场景：实时性要求高
+public class GameClient
+{
+    public GameClient()
+    {
+        // 游戏数据使用 KCP 获得更低延迟
+        _client = PulseRpcClientFactory.CreateKcpClient("game", "localhost", 8002);
+    }
+}
+
+// ✅ 混合使用：不同场景选择不同协议
+public class HybridGameClient
+{
+    private readonly IPulseClient _tcpClient;  // 用于重要数据
+    private readonly IPulseClient _kcpClient; // 用于实时数据
+
+    public HybridGameClient()
+    {
+        _tcpClient = PulseRpcClientFactory.CreateTcpClient("game-reliable", "localhost", 8001);
+        _kcpClient = PulseRpcClientFactory.CreateKcpClient("game-realtime", "localhost", 8002);
+    }
+
+    public async Task SaveGameAsync(GameSaveData data)
+    {
+        // 重要数据使用 TCP
+        var saveService = _tcpClient.GetService<IGameSaveService>();
+        await saveService.SaveAsync(data);
+    }
+
+    public async Task SendPlayerPositionAsync(Vector3 position)
+    {
+        // 实时数据使用 KCP
+        var realtimeService = _kcpClient.GetService<IRealtimeService>();
+        await realtimeService.UpdatePositionAsync(position);
+    }
+}
+```
+
+### 📊 连接池优化
+
+```csharp
+// ✅ 推荐：合理配置连接参数
+public class OptimizedClientFactory
+{
+    public static IPulseClient CreateOptimizedClient(string name, string host, int port)
+    {
+        return PulseRpcClientFactory.CreateClient(builder =>
+        {
+            builder.AddTcp(name, host, port, options =>
+            {
+                // TCP 相关优化
+                options.KeepAlive = true;
+                options.NoDelay = true;          // 禁用 Nagle 算法，降低延迟
+                options.ReceiveBufferSize = 64 * 1024;  // 64KB 接收缓冲区
+                options.SendBufferSize = 64 * 1024;     // 64KB 发送缓冲区
+                options.ConnectTimeout = TimeSpan.FromSeconds(10);
+                options.ReceiveTimeout = TimeSpan.FromSeconds(30);
+                options.SendTimeout = TimeSpan.FromSeconds(30);
+            });
+        });
+    }
+}
+```
+
+## Unity 集成实践
+
+### 🎮 Unity 客户端实现
+
+```csharp
+// ✅ Unity 中的 PulseRPC 客户端
+public class UnityGameClient : MonoBehaviour
+{
+    [SerializeField] private string serverHost = "localhost";
+    [SerializeField] private int serverPort = 8000;
+    
+    private IPulseClient _client;
+    private IGameService _gameService;
+    private bool _isConnected = false;
+
+    async void Start()
+    {
+        try
+        {
+            // 创建客户端
+            _client = PulseRpcClientFactory.CreateTcpClient("game", serverHost, serverPort);
+            _gameService = _client.GetService<IGameService>();
+            
+            // 测试连接
+            await _gameService.PingAsync();
+            _isConnected = true;
+            
+            Debug.Log("成功连接到游戏服务器");
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"连接游戏服务器失败: {ex.Message}");
+        }
+    }
+
+    public async Task<bool> LoginAsync(string username, string password)
+    {
+        if (!_isConnected) return false;
+
+        try
+        {
+            var request = new LoginRequest { Username = username, Password = password };
+            var response = await _gameService.LoginAsync(request);
+            return response.Success;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"登录失败: {ex.Message}");
+            return false;
+        }
+    }
+
+    void OnDestroy()
+    {
+        // Unity 中确保资源清理
+        _client?.Dispose();
+    }
+}
+```
+
+### 📱 Unity 异步处理
+
+```csharp
+// ✅ Unity 中处理异步操作
+public class AsyncGameManager : MonoBehaviour
+{
+    private IGameService _gameService;
+    private CancellationTokenSource _cancellationTokenSource;
+
+    void Start()
+    {
+        _cancellationTokenSource = new CancellationTokenSource();
+        // 初始化客户端...
+    }
+
+    // 使用 UniTask 或 Unity 的 async/await
+    public async Task<GameState> LoadGameStateAsync()
+    {
+        try
+        {
+            var request = new GetGameStateRequest { PlayerId = GetPlayerId() };
+            var response = await _gameService.GetGameStateAsync(request)
+                .ConfigureAwait(false); // 避免死锁
+            
+            // 切换回主线程更新 UI
+            await UnityMainThreadDispatcher.Instance.EnqueueAsync(() =>
+            {
+                UpdateGameUI(response.GameState);
+            });
+            
+            return response.GameState;
+        }
+        catch (OperationCanceledException)
+        {
+            Debug.Log("游戏状态加载被取消");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError($"加载游戏状态失败: {ex.Message}");
+            return null;
+        }
+    }
+
+    void OnDestroy()
+    {
+        _cancellationTokenSource?.Cancel();
+        _cancellationTokenSource?.Dispose();
     }
 }
 ```
 
 ## 性能优化
 
-### ⚡ 连接池优化
+### ⚡ 并发处理
 
 ```csharp
-// ✅ 连接池配置优化
-services.AddPulseRpcClient(options =>
+// ✅ 推荐：合理的并发控制
+public class HighPerformanceService
 {
-    options.ConnectionPool = new ConnectionPoolOptions
+    private readonly SemaphoreSlim _semaphore;
+    private readonly ILogger<HighPerformanceService> _logger;
+
+    public HighPerformanceService(ILogger<HighPerformanceService> logger)
     {
-        MaxConnections = Environment.ProcessorCount * 10, // 基于CPU核心数
-        MaxIdleTime = TimeSpan.FromMinutes(5),
-        ConnectionTimeout = TimeSpan.FromSeconds(30),
-        KeepAliveInterval = TimeSpan.FromMinutes(1),
-        EnableConnectionPooling = true
-    };
-});
-```
-
-### 📦 批量操作
-
-```csharp
-// ✅ 推荐：批量操作接口
-public interface IUserService
-{
-    Task<User> GetUserAsync(int userId);
-    Task<List<User>> GetUsersAsync(List<int> userIds); // 批量获取
-    
-    Task<User> CreateUserAsync(CreateUserRequest request);
-    Task<List<User>> CreateUsersAsync(List<CreateUserRequest> requests); // 批量创建
-}
-
-// 实现批量优化
-public class UserService : IUserService
-{
-    public async Task<List<User>> GetUsersAsync(List<int> userIds)
-    {
-        // ✅ 单次数据库查询而不是多次
-        return await _repository.GetByIdsAsync(userIds);
-    }
-}
-```
-
-### 🗂️ 缓存策略
-
-```csharp
-public class UserService : IUserService
-{
-    private readonly IMemoryCache _cache;
-    private readonly IUserRepository _repository;
-
-    public async Task<User> GetUserAsync(int userId)
-    {
-        // ✅ 缓存策略
-        var cacheKey = $"user:{userId}";
-        
-        if (_cache.TryGetValue(cacheKey, out User cachedUser))
-        {
-            return cachedUser;
-        }
-
-        var user = await _repository.GetByIdAsync(userId);
-        
-        if (user != null)
-        {
-            _cache.Set(cacheKey, user, TimeSpan.FromMinutes(10));
-        }
-
-        return user;
+        _logger = logger;
+        // 控制并发数量，避免资源耗尽
+        _semaphore = new SemaphoreSlim(Environment.ProcessorCount * 2);
     }
 
-    public async Task<User> UpdateUserAsync(int userId, UpdateUserRequest request)
+    public async Task<ProcessResult> ProcessBatchAsync(List<ProcessRequest> requests)
     {
-        var user = await _repository.UpdateAsync(userId, request);
-        
-        // ✅ 更新后清除缓存
-        _cache.Remove($"user:{userId}");
-        
-        return user;
-    }
-}
-```
-
-### 🔄 异步并发处理
-
-```csharp
-public class OrderService : IOrderService
-{
-    public async Task<Order> CreateOrderAsync(CreateOrderRequest request)
-    {
-        // ✅ 并行执行独立操作
-        var userTask = _userService.GetUserAsync(request.UserId);
-        var productTasks = request.Items.Select(item => 
-            _productService.GetProductAsync(item.ProductId));
-        
-        // 等待所有任务完成
-        var user = await userTask;
-        var products = await Task.WhenAll(productTasks);
-
-        // 验证和创建订单
-        ValidateOrder(user, products, request);
-        
-        return await _repository.CreateAsync(new Order
+        var tasks = requests.Select(async request =>
         {
-            UserId = user.Id,
-            Items = CreateOrderItems(products, request.Items),
-            // ...
+            await _semaphore.WaitAsync();
+            try
+            {
+                return await ProcessSingleRequestAsync(request);
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
         });
+
+        var results = await Task.WhenAll(tasks);
+        return new ProcessResult { Results = results.ToList() };
+    }
+
+    private async Task<ProcessSingleResult> ProcessSingleRequestAsync(ProcessRequest request)
+    {
+        // 单个请求处理逻辑
+        await Task.Delay(100); // 模拟处理时间
+        return new ProcessSingleResult { Success = true };
+    }
+}
+```
+
+### 📈 缓存策略
+
+```csharp
+// ✅ 推荐：多层缓存策略
+public class CachedUserService : IUserService
+{
+    private readonly IUserService _innerService;
+    private readonly IMemoryCache _memoryCache;
+    private readonly IDistributedCache _distributedCache;
+    private readonly ILogger<CachedUserService> _logger;
+
+    public async Task<GetUserResponse> GetUserAsync(GetUserRequest request)
+    {
+        var cacheKey = $"user:{request.UserId}";
+
+        // 一级缓存：内存缓存（最快）
+        if (_memoryCache.TryGetValue(cacheKey, out GetUserResponse cachedResponse))
+        {
+            _logger.LogDebug("从内存缓存获取用户: {UserId}", request.UserId);
+            return cachedResponse;
+        }
+
+        // 二级缓存：分布式缓存
+        var distributedData = await _distributedCache.GetStringAsync(cacheKey);
+        if (!string.IsNullOrEmpty(distributedData))
+        {
+            var response = JsonSerializer.Deserialize<GetUserResponse>(distributedData);
+            
+            // 回填内存缓存
+            _memoryCache.Set(cacheKey, response, TimeSpan.FromMinutes(5));
+            
+            _logger.LogDebug("从分布式缓存获取用户: {UserId}", request.UserId);
+            return response;
+        }
+
+        // 缓存未命中，调用实际服务
+        var result = await _innerService.GetUserAsync(request);
+
+        // 写入缓存
+        var serializedData = JsonSerializer.Serialize(result);
+        await _distributedCache.SetStringAsync(cacheKey, serializedData, 
+            new DistributedCacheEntryOptions
+            {
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromHours(1)
+            });
+
+        _memoryCache.Set(cacheKey, result, TimeSpan.FromMinutes(5));
+
+        _logger.LogDebug("从服务获取用户并缓存: {UserId}", request.UserId);
+        return result;
     }
 }
 ```
 
 ## 错误处理
 
-### 🔄 重试策略
+### 🔄 重试和容错
 
 ```csharp
-// ✅ 配置智能重试策略
-services.AddPulseRpcService<IPaymentService>(options =>
+// ✅ 推荐：智能重试机制
+public class ResilientServiceClient
 {
-    options.ServiceName = "PaymentService";
-    options.RetryCount = 3;
-    options.RetryPolicy = RetryPolicy.ExponentialBackoff;
-    options.RetryOptions = new ExponentialBackoffOptions
-    {
-        BaseDelay = TimeSpan.FromMilliseconds(500),
-        MaxDelay = TimeSpan.FromSeconds(30),
-        Multiplier = 2.0,
-        Jitter = true // 添加随机抖动避免雷群效应
-    };
-});
+    private readonly IPulseClient _client;
+    private readonly ILogger<ResilientServiceClient> _logger;
 
-// 特定异常的重试策略
-services.Configure<RetryPolicyOptions>(options =>
-{
-    options.RetriableExceptions = new[]
+    public async Task<T> CallWithRetryAsync<T>(
+        Func<Task<T>> operation,
+        int maxRetries = 3,
+        TimeSpan? baseDelay = null)
     {
-        typeof(TimeoutException),
-        typeof(SocketException),
-        typeof(HttpRequestException)
-    };
-    
-    options.NonRetriableExceptions = new[]
+        var delay = baseDelay ?? TimeSpan.FromMilliseconds(500);
+        var attempt = 0;
+
+        while (true)
+        {
+            try
+            {
+                return await operation();
+            }
+            catch (Exception ex) when (ShouldRetry(ex, attempt, maxRetries))
+            {
+                attempt++;
+                var waitTime = TimeSpan.FromMilliseconds(delay.TotalMilliseconds * Math.Pow(2, attempt - 1));
+                
+                _logger.LogWarning("操作失败，{Delay}ms 后进行第 {Attempt} 次重试: {Error}", 
+                    waitTime.TotalMilliseconds, attempt, ex.Message);
+                
+                await Task.Delay(waitTime);
+            }
+        }
+    }
+
+    private static bool ShouldRetry(Exception ex, int currentAttempt, int maxRetries)
     {
-        typeof(ArgumentException),
-        typeof(ValidationException),
-        typeof(UnauthorizedException)
-    };
-});
+        if (currentAttempt >= maxRetries) return false;
+
+        // 只对特定异常进行重试
+        return ex is SocketException ||
+               ex is TimeoutException ||
+               ex is TaskCanceledException ||
+               (ex is PulseRpcException rpcEx && rpcEx.IsTransient);
+    }
+}
 ```
 
-### ⚡ 熔断器模式
+### 🛡️ 全局异常处理
 
 ```csharp
-// ✅ 熔断器配置
-services.AddPulseRpcService<IExternalApiService>(options =>
+// ✅ 推荐：统一异常处理
+public class GlobalExceptionHandler
 {
-    options.ServiceName = "ExternalApiService";
-    options.CircuitBreakerOptions = new CircuitBreakerOptions
+    private readonly ILogger<GlobalExceptionHandler> _logger;
+
+    public async Task<ServiceResponse<T>> HandleAsync<T>(Func<Task<T>> operation, string operationName)
     {
-        Enabled = true,
-        FailureThreshold = 5,        // 5次失败后熔断
-        RecoveryTimeout = TimeSpan.FromMinutes(1), // 1分钟后尝试恢复
-        SamplingDuration = TimeSpan.FromMinutes(1), // 1分钟内的失败计数
-        MinimumThroughput = 10       // 最少10个请求后才开始计算失败率
-    };
-});
-```
-
-### 🛡️ 超时处理
-
-```csharp
-// ✅ 分层超时配置
-services.AddPulseRpcService<IUserService>(options =>
-{
-    options.ServiceName = "UserService";
-    options.Timeout = TimeSpan.FromSeconds(30); // 默认超时
-});
-
-services.AddPulseRpcService<IReportService>(options =>
-{
-    options.ServiceName = "ReportService";
-    options.Timeout = TimeSpan.FromMinutes(5); // 报表服务需要更长时间
-});
-
-// 方法级别超时控制
-public class OrderService : IOrderService
-{
-    public async Task<Order> CreateOrderAsync(CreateOrderRequest request)
-    {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-        
         try
         {
-            // 快速操作使用较短超时
-            var user = await _userService.GetUserAsync(request.UserId, cts.Token);
-            return await ProcessOrderAsync(user, request);
+            var result = await operation();
+            return ServiceResponse<T>.Success(result);
         }
-        catch (OperationCanceledException)
+        catch (ArgumentException ex)
         {
-            throw new TimeoutException("创建订单操作超时");
+            _logger.LogWarning("参数错误 - {Operation}: {Message}", operationName, ex.Message);
+            return ServiceResponse<T>.Failure("INVALID_ARGUMENT", ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            _logger.LogWarning("权限错误 - {Operation}: {Message}", operationName, ex.Message);
+            return ServiceResponse<T>.Failure("UNAUTHORIZED", "访问被拒绝");
+        }
+        catch (TimeoutException ex)
+        {
+            _logger.LogError("超时错误 - {Operation}: {Message}", operationName, ex.Message);
+            return ServiceResponse<T>.Failure("TIMEOUT", "操作超时");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "未处理异常 - {Operation}", operationName);
+            return ServiceResponse<T>.Failure("INTERNAL_ERROR", "内部服务器错误");
         }
     }
 }
-```
 
-## 安全考虑
-
-### 🔐 认证和授权
-
-```csharp
-// ✅ 服务端认证配置
-services.AddPulseRpcServer(options =>
+public class ServiceResponse<T>
 {
-    options.Authentication = new AuthenticationOptions
+    public bool Success { get; set; }
+    public string ErrorCode { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+    public T? Data { get; set; }
+
+    public static ServiceResponse<T> Success(T data) => new()
     {
-        Enabled = true,
-        Scheme = "Bearer",
-        Authority = "https://your-identity-server.com",
-        Audience = "pulse-rpc-api",
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        RequireHttpsMetadata = true
+        Success = true,
+        Data = data
     };
-});
 
-// 方法级别授权
-[Authorize(Roles = "Admin")]
-public async Task<User> DeleteUserAsync(int userId)
-{
-    // 只有管理员可以删除用户
-}
-
-[Authorize(Policy = "UserManagement")]
-public async Task<User> UpdateUserAsync(int userId, UpdateUserRequest request)
-{
-    // 需要用户管理权限
-}
-```
-
-### 🔒 数据保护
-
-```csharp
-public class UserService : IUserService
-{
-    public async Task<User> GetUserAsync(int userId)
+    public static ServiceResponse<T> Failure(string errorCode, string errorMessage) => new()
     {
-        var user = await _repository.GetByIdAsync(userId);
-        
-        // ✅ 敏感数据脱敏
-        return new User
-        {
-            Id = user.Id,
-            Name = user.Name,
-            Email = MaskEmail(user.Email), // 脱敏邮箱
-            Phone = MaskPhone(user.Phone), // 脱敏手机号
-            // 不返回密码等敏感信息
-        };
-    }
-
-    private string MaskEmail(string email)
-    {
-        if (string.IsNullOrEmpty(email)) return email;
-        
-        var parts = email.Split('@');
-        if (parts.Length != 2) return email;
-        
-        var localPart = parts[0];
-        var domain = parts[1];
-        
-        if (localPart.Length <= 2) return email;
-        
-        return $"{localPart[0]}***{localPart[^1]}@{domain}";
-    }
-}
-```
-
-### 🛡️ 输入验证
-
-```csharp
-// ✅ 严格的输入验证
-public class CreateUserRequest
-{
-    [Required(ErrorMessage = "用户名不能为空")]
-    [StringLength(50, MinimumLength = 2, ErrorMessage = "用户名长度必须在2-50个字符之间")]
-    [RegularExpression(@"^[a-zA-Z0-9\u4e00-\u9fa5]+$", ErrorMessage = "用户名只能包含字母、数字和中文")]
-    public string Name { get; set; } = string.Empty;
-
-    [Required(ErrorMessage = "邮箱不能为空")]
-    [EmailAddress(ErrorMessage = "邮箱格式不正确")]
-    [StringLength(100, ErrorMessage = "邮箱长度不能超过100个字符")]
-    public string Email { get; set; } = string.Empty;
-
-    [Phone(ErrorMessage = "手机号格式不正确")]
-    public string? Phone { get; set; }
-}
-
-// 自定义验证特性
-public class NoSqlInjectionAttribute : ValidationAttribute
-{
-    public override bool IsValid(object? value)
-    {
-        if (value is string str)
-        {
-            var dangerousPatterns = new[] { "'", "\"", ";", "--", "/*", "*/" };
-            return !dangerousPatterns.Any(pattern => str.Contains(pattern));
-        }
-        return true;
-    }
+        Success = false,
+        ErrorCode = errorCode,
+        ErrorMessage = errorMessage
+    };
 }
 ```
 
 ## 监控与调试
 
-### 📊 监控指标
+### 📊 性能监控
 
 ```csharp
-// ✅ 业务指标监控
-public class OrderService : IOrderService
+// ✅ 推荐：集成性能监控
+public class MonitoredChatService : IChatService
 {
+    private readonly IChatService _innerService;
     private readonly IMetricsCollector _metrics;
+    private readonly ILogger<MonitoredChatService> _logger;
 
-    public async Task<Order> CreateOrderAsync(CreateOrderRequest request)
+    public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request)
     {
-        using var timer = _metrics.StartTimer("order_creation_duration");
-        
+        var stopwatch = Stopwatch.StartNew();
+        var labels = new Dictionary<string, string>
+        {
+            ["method"] = nameof(SendMessageAsync),
+            ["room_id"] = request.RoomId.ToString()
+        };
+
         try
         {
-            _metrics.IncrementCounter("order_creation_attempts");
+            _metrics.IncrementCounter("rpc_requests_total", labels);
             
-            var order = await ProcessOrderAsync(request);
+            var response = await _innerService.SendMessageAsync(request);
             
-            _metrics.IncrementCounter("order_creation_success");
-            _metrics.RecordHistogram("order_value", order.TotalAmount);
-            
-            return order;
+            _metrics.IncrementCounter("rpc_requests_success_total", labels);
+            return response;
         }
         catch (Exception ex)
         {
-            _metrics.IncrementCounter("order_creation_failures", new Dictionary<string, string>
-            {
-                ["error_type"] = ex.GetType().Name
-            });
-            
+            labels["error_type"] = ex.GetType().Name;
+            _metrics.IncrementCounter("rpc_requests_error_total", labels);
             throw;
+        }
+        finally
+        {
+            stopwatch.Stop();
+            _metrics.RecordHistogram("rpc_request_duration_seconds", 
+                stopwatch.Elapsed.TotalSeconds, labels);
         }
     }
 }
@@ -683,79 +932,34 @@ public class OrderService : IOrderService
 ### 🔍 结构化日志
 
 ```csharp
-public class UserService : IUserService
+// ✅ 推荐：结构化日志记录
+public class ChatService : IChatService
 {
-    private readonly ILogger<UserService> _logger;
+    private readonly ILogger<ChatService> _logger;
 
-    public async Task<User> UpdateUserAsync(int userId, UpdateUserRequest request)
+    public async Task<SendMessageResponse> SendMessageAsync(SendMessageRequest request)
     {
-        // ✅ 结构化日志记录
         using var scope = _logger.BeginScope(new Dictionary<string, object>
         {
-            ["UserId"] = userId,
-            ["Operation"] = "UpdateUser",
-            ["RequestId"] = Guid.NewGuid()
+            ["CorrelationId"] = Guid.NewGuid(),
+            ["UserId"] = request.UserId,
+            ["RoomId"] = request.RoomId,
+            ["Operation"] = "SendMessage"
         });
 
-        _logger.LogInformation("开始更新用户信息 {UserId}", userId);
+        _logger.LogInformation("开始处理发送消息请求");
 
         try
         {
-            var user = await _repository.UpdateAsync(userId, request);
-            
-            _logger.LogInformation("用户信息更新成功 {UserId}, 更新字段: {UpdatedFields}", 
-                userId, GetUpdatedFields(request));
-            
-            return user;
+            // 业务逻辑...
+            var response = new SendMessageResponse { Success = true };
+
+            _logger.LogInformation("消息发送成功, MessageId: {MessageId}", response.MessageId);
+            return response;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "用户信息更新失败 {UserId}", userId);
-            throw;
-        }
-    }
-}
-```
-
-### 🕵️ 链路追踪
-
-```csharp
-public class OrderService : IOrderService
-{
-    private readonly ITracer _tracer;
-
-    public async Task<Order> CreateOrderAsync(CreateOrderRequest request)
-    {
-        using var span = _tracer.StartSpan("create_order");
-        span.SetTag("user.id", request.UserId);
-        span.SetTag("order.items_count", request.Items.Count);
-        
-        try
-        {
-            // 用户验证跨度
-            var user = await _tracer.WithSpanAsync("validate_user", async () =>
-            {
-                return await _userService.GetUserAsync(request.UserId);
-            }, span);
-
-            // 库存检查跨度
-            await _tracer.WithSpanAsync("check_inventory", async () =>
-            {
-                await ValidateInventoryAsync(request.Items);
-            }, span);
-
-            // 创建订单跨度
-            var order = await _tracer.WithSpanAsync("persist_order", async () =>
-            {
-                return await _repository.CreateAsync(request);
-            }, span);
-
-            span.SetStatus(SpanStatus.Ok);
-            return order;
-        }
-        catch (Exception ex)
-        {
-            span.RecordException(ex);
+            _logger.LogError(ex, "消息发送失败");
             throw;
         }
     }
@@ -767,51 +971,60 @@ public class OrderService : IOrderService
 ### 🐳 容器化部署
 
 ```dockerfile
-# ✅ 优化的Dockerfile
-FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+# ✅ 优化的 Dockerfile for .NET 9
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
 WORKDIR /app
 EXPOSE 8080
 
-# 创建非root用户
-RUN addgroup --system --gid 1001 dotnet
-RUN adduser --system --uid 1001 --ingroup dotnet dotnet
+# 创建非 root 用户
+RUN addgroup --system --gid 1001 pulserpc
+RUN adduser --system --uid 1001 --ingroup pulserpc pulserpc
 
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# 先复制项目文件，利用Docker缓存
-COPY ["MyService/MyService.csproj", "MyService/"]
-COPY ["MyService.Contracts/MyService.Contracts.csproj", "MyService.Contracts/"]
-RUN dotnet restore "MyService/MyService.csproj"
+# 先复制项目文件，利用 Docker 缓存
+COPY ["Directory.Packages.props", "./"]
+COPY ["Directory.Build.props", "./"]
+COPY ["src/MyPulseRPCService/MyPulseRPCService.csproj", "src/MyPulseRPCService/"]
+COPY ["src/PulseRPC.Abstractions/PulseRPC.Abstractions.csproj", "src/PulseRPC.Abstractions/"]
+COPY ["src/PulseRPC.Server/PulseRPC.Server.csproj", "src/PulseRPC.Server/"]
+
+RUN dotnet restore "src/MyPulseRPCService/MyPulseRPCService.csproj"
 
 # 复制源代码并构建
 COPY . .
-WORKDIR "/src/MyService"
-RUN dotnet build "MyService.csproj" -c Release -o /app/build
+WORKDIR "/src/src/MyPulseRPCService"
+RUN dotnet build "MyPulseRPCService.csproj" -c Release -o /app/build
 
 FROM build AS publish
-RUN dotnet publish "MyService.csproj" -c Release -o /app/publish
+RUN dotnet publish "MyPulseRPCService.csproj" -c Release -o /app/publish \
+    --no-restore --no-build
 
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 
-# 使用非root用户运行
-USER dotnet
+# 安全配置
+USER pulserpc
 
-ENTRYPOINT ["dotnet", "MyService.dll"]
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+ENTRYPOINT ["dotnet", "MyPulseRPCService.dll"]
 ```
 
-### ☸️ Kubernetes部署
+### ☸️ Kubernetes 配置
 
 ```yaml
-# ✅ 生产级Kubernetes配置
+# ✅ 生产级 Kubernetes 部署
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: user-service
+  name: pulserpc-service
   labels:
-    app: user-service
+    app: pulserpc-service
     version: v1.0.0
 spec:
   replicas: 3
@@ -822,19 +1035,19 @@ spec:
       maxSurge: 1
   selector:
     matchLabels:
-      app: user-service
+      app: pulserpc-service
   template:
     metadata:
       labels:
-        app: user-service
+        app: pulserpc-service
         version: v1.0.0
     spec:
       containers:
-      - name: user-service
-        image: user-service:v1.0.0
+      - name: pulserpc-service
+        image: pulserpc-service:v1.0.0
         ports:
         - containerPort: 8080
-          name: http
+          name: rpc
         env:
         - name: ASPNETCORE_ENVIRONMENT
           value: "Production"
@@ -844,23 +1057,27 @@ spec:
           value: "8080"
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "250m"
-          limits:
             memory: "512Mi"
             cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
         livenessProbe:
           httpGet:
             path: /health
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
         readinessProbe:
           httpGet:
             path: /ready
             port: 8080
-          initialDelaySeconds: 5
+          initialDelaySeconds: 10
           periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
         securityContext:
           allowPrivilegeEscalation: false
           runAsNonRoot: true
@@ -872,50 +1089,25 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: user-service
+  name: pulserpc-service
 spec:
   selector:
-    app: user-service
+    app: pulserpc-service
   ports:
-  - name: http
-    port: 80
+  - name: rpc
+    port: 8080
     targetPort: 8080
   type: ClusterIP
-```
-
-### 📈 水平扩展
-
-```csharp
-// ✅ 无状态服务设计
-public class UserService : IUserService
-{
-    // 避免使用实例变量保存状态
-    private readonly IUserRepository _repository;
-    private readonly IMemoryCache _cache; // 本地缓存，可接受数据不一致
-    
-    public UserService(IUserRepository repository, IMemoryCache cache)
-    {
-        _repository = repository;
-        _cache = cache;
-    }
-
-    public async Task<User> GetUserAsync(int userId)
-    {
-        // 每个请求都是独立的，不依赖服务实例状态
-        return await _repository.GetByIdAsync(userId);
-    }
-}
-
-// HPA配置
+---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: user-service-hpa
+  name: pulserpc-service-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: user-service
+    name: pulserpc-service
   minReplicas: 3
   maxReplicas: 20
   metrics:
@@ -933,160 +1125,4 @@ spec:
         averageUtilization: 80
 ```
 
-## 维护指南
-
-### 🔧 版本管理
-
-```csharp
-// ✅ 向后兼容的版本升级
-namespace MyApp.Services.V1
-{
-    public interface IUserService
-    {
-        Task<User> GetUserAsync(int userId);
-    }
-    
-    public class User
-    {
-        public int Id { get; set; }
-        public string Name { get; set; }
-        public string Email { get; set; }
-    }
-}
-
-namespace MyApp.Services.V2
-{
-    public interface IUserService
-    {
-        Task<UserV2> GetUserAsync(int userId);
-        Task<UserProfile> GetUserProfileAsync(int userId); // 新方法
-    }
-    
-    public class UserV2
-    {
-        public int Id { get; set; }
-        public string Name { get; set; }
-        public string Email { get; set; }
-        public DateTime CreatedAt { get; set; } // 新字段
-        public UserStatus Status { get; set; } // 新字段
-    }
-}
-
-// 服务端同时支持多版本
-services.AddScoped<V1.IUserService, UserServiceV1>();
-services.AddScoped<V2.IUserService, UserServiceV2>();
-```
-
-### 📊 性能监控
-
-```csharp
-// ✅ 建立性能基线
-public class PerformanceMonitoringService
-{
-    private readonly IMetricsCollector _metrics;
-    
-    public async Task MonitorServicePerformance()
-    {
-        // 系统指标
-        _metrics.RecordGauge("system.cpu_usage", GetCpuUsage());
-        _metrics.RecordGauge("system.memory_usage", GetMemoryUsage());
-        _metrics.RecordGauge("system.active_connections", GetActiveConnections());
-        
-        // 业务指标
-        _metrics.RecordGauge("business.orders_per_minute", GetOrdersPerMinute());
-        _metrics.RecordGauge("business.revenue_per_hour", GetRevenuePerHour());
-        
-        // SLA指标
-        _metrics.RecordHistogram("sla.response_time_p95", GetResponseTimeP95());
-        _metrics.RecordGauge("sla.error_rate", GetErrorRate());
-        _metrics.RecordGauge("sla.availability", GetAvailability());
-    }
-}
-```
-
-### 🚨 告警配置
-
-```yaml
-# Prometheus告警规则
-groups:
-- name: pulserpc.rules
-  rules:
-  - alert: HighErrorRate
-    expr: rate(pulserpc_requests_failed_total[5m]) > 0.1
-    for: 2m
-    labels:
-      severity: warning
-    annotations:
-      summary: "PulseRPC服务错误率过高"
-      description: "服务 {{ $labels.service }} 在过去5分钟内错误率超过10%"
-
-  - alert: HighResponseTime
-    expr: histogram_quantile(0.95, rate(pulserpc_request_duration_seconds_bucket[5m])) > 1.0
-    for: 5m
-    labels:
-      severity: critical
-    annotations:
-      summary: "PulseRPC服务响应时间过长"
-      description: "服务 {{ $labels.service }} P95响应时间超过1秒"
-
-  - alert: ServiceDown
-    expr: up{job="pulserpc"} == 0
-    for: 1m
-    labels:
-      severity: critical
-    annotations:
-      summary: "PulseRPC服务不可用"
-      description: "服务 {{ $labels.instance }} 已停止响应"
-```
-
-### 🔄 优雅关闭
-
-```csharp
-public class Program
-{
-    public static async Task Main(string[] args)
-    {
-        var host = CreateHostBuilder(args).Build();
-
-        // ✅ 注册优雅关闭处理
-        var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
-        
-        lifetime.ApplicationStopping.Register(() =>
-        {
-            Console.WriteLine("应用正在停止，等待当前请求完成...");
-        });
-
-        try
-        {
-            await host.RunAsync();
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"应用启动失败: {ex.Message}");
-            throw;
-        }
-    }
-}
-
-// 服务实现中的优雅关闭
-public class OrderService : IOrderService, IDisposable
-{
-    private readonly CancellationTokenSource _shutdownToken = new();
-
-    public async Task<Order> CreateOrderAsync(CreateOrderRequest request)
-    {
-        // 检查是否正在关闭
-        _shutdownToken.Token.ThrowIfCancellationRequested();
-        
-        // 执行业务逻辑...
-    }
-
-    public void Dispose()
-    {
-        _shutdownToken.Cancel();
-        _shutdownToken.Dispose();
-    }
-}
-```
-
-遵循这些最佳实践将帮助您构建健壮、高性能和可维护的PulseRPC应用程序。记住，最佳实践会随着技术发展而演进，请持续关注框架更新和社区经验分享。 
+遵循这些最佳实践将帮助您构建健壮、高性能和可维护的 PulseRPC 应用程序。随着框架的发展，请持续关注最新的实践建议和性能优化技巧。
