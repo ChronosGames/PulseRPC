@@ -1,0 +1,120 @@
+flowchart TD
+    A[开始] --> B[显示登录界面]
+    B --> C[用户输入账号密码]
+    C --> D["发送HTTP登录请求<br/>(POST /api/auth/login)"]
+    
+    D --> E{Authentication Server<br/>账号密码验证}
+    E -->|成功| F["返回JWT Token + GameTicket<br/>(JSON Response)"]
+    E -->|失败| G[显示错误信息]
+    G --> H{重试次数检查}
+    H -->|未超限| B
+    H -->|超限| I[锁定账号/退出]
+    
+    F --> J["请求区服列表<br/>(GET /api/zone/list)"]
+    J --> K{获取区服列表}
+    K -->|成功| L[显示区服选择界面]
+    K -->|失败| M[显示网络错误]
+    M --> N{是否重试}
+    N -->|是| J
+    N -->|否| O[退出游戏]
+    
+    L --> P[用户选择区服]
+    P --> Q[连接指定区服]
+    Q --> R{区服连接状态}
+    R -->|成功| S[获取资源版本信息]
+    R -->|服务器维护| T[显示维护提示]
+    R -->|连接失败| U[显示连接错误]
+    
+    T --> V{等待维护结束}
+    V -->|继续等待| T
+    V -->|返回选择| L
+    
+    U --> W{重新连接}
+    W -->|是| Q
+    W -->|选择其他区服| L
+    
+    S --> X[检查本地资源版本]
+    X --> Y{版本比较}
+    Y -->|需要更新| Z[显示更新提示]
+    Y -->|版本最新| AA[跳过更新]
+    
+    Z --> BB[开始下载资源]
+    BB --> CC{下载进度}
+    CC -->|下载中| DD[显示进度条]
+    DD --> CC
+    CC -->|下载完成| EE[验证资源完整性]
+    CC -->|下载失败| FF[显示下载错误]
+    
+    FF --> GG{重新下载}
+    GG -->|是| BB
+    GG -->|否| O
+    
+    EE --> HH{验证结果}
+    HH -->|验证通过| AA
+    HH -->|验证失败| II[重新下载]
+    II --> BB
+    
+    AA --> JJ[获取GameServer节点列表]
+    JJ --> KK{节点获取状态}
+    KK -->|成功| LL[测试各节点延迟]
+    KK -->|失败| MM[使用默认节点]
+    
+    LL --> NN[选择最佳GameServer节点]
+    NN --> OO["连接GameServer<br/>(携带GameTicket)"]
+    MM --> OO
+    
+    OO --> PP{GameServer连接状态}
+    PP -->|连接成功| QQ["GameServer票据验证<br/>(调用Auth Server API)"]
+    PP -->|连接失败| RR[尝试备用节点]
+    
+    RR --> SS{是否有备用节点}
+    SS -->|有| TT[连接备用节点]
+    SS -->|无| UU[显示无法连接提示]
+    TT --> PP
+    UU --> VV{返回重试}
+    VV -->|是| JJ
+    VV -->|否| O
+    
+    QQ --> WW["Authentication Server<br/>票据验证处理"]
+    WW --> XX{票据验证结果}
+    XX -->|验证成功| YY["GameServer获得用户信息<br/>建立游戏会话"]
+    XX -->|验证失败| ZZ[返回认证失败]
+    
+    ZZ --> AAA{重新认证}
+    AAA -->|是| D
+    AAA -->|否| L
+    
+    YY --> BBB[加载角色数据]
+    BBB --> CCC{角色数据加载}
+    CCC -->|加载成功| DDD[进入游戏世界]
+    CCC -->|加载失败| EEE[显示数据错误]
+    EEE --> FFF{重新加载}
+    FFF -->|是| BBB
+    FFF -->|否| L
+    
+    DDD --> GGG[登录流程完成]
+    I --> HHH[流程结束]
+    O --> HHH
+    GGG --> HHH
+    
+    %% 样式定义
+    style A fill:#e1f5fe
+    style F fill:#c8e6c9
+    style QQ fill:#fff3e0
+    style WW fill:#fff3e0
+    style XX fill:#fff3e0
+    style YY fill:#c8e6c9
+    style DDD fill:#c8e6c9
+    style HHH fill:#ffcdd2
+    style G fill:#ffeb3b
+    style M fill:#ffeb3b
+    style T fill:#ff9800
+    style U fill:#ffeb3b
+    style FF fill:#ffeb3b
+    style UU fill:#ffeb3b
+    style ZZ fill:#ffeb3b
+    style EEE fill:#ffeb3b
+    
+    %% 认证流程高亮
+    classDef authFlow fill:#fff3e0,stroke:#ff9800,stroke-width:2px
+    class D,F,QQ,WW,XX,YY authFlow
