@@ -239,9 +239,7 @@ try
     logger.LogInformation("GameApp AuthServer 正在启动...");
 
     // 检查是否为测试环境，跳过外部服务连接验证
-    var useInMemoryDatabaseForStartup = builder.Configuration.GetValue<bool>("UseInMemoryDatabase", false);
-
-    if (!useInMemoryDatabaseForStartup)
+    if (!useInMemoryDatabase)
     {
         // 测试 MongoDB 连接
         var mongoClient = scope.ServiceProvider.GetRequiredService<IMongoClient>();
