@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Caching.StackExchangeRedis;
 using GameApp.Infrastructure.Services;
 using GameApp.Infrastructure.Configuration;
 
@@ -17,53 +18,23 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // 配置选项
-        services.Configure<MongoDbOptions>(configuration.GetSection("MongoDB"));
-        services.Configure<RedisOptions>(configuration.GetSection("Redis"));
-        services.Configure<ConsulOptions>(configuration.GetSection("Consul"));
+        // 配置选项 (暂时简化)
+        // services.Configure<InfrastructureOptions>(
+        //     configuration.GetSection(InfrastructureOptions.SectionName));
 
         // 基础设施服务
-        services.AddSingleton<IMongoDbService, MongoDbService>();
-        services.AddSingleton<IRedisService, RedisService>();
-        services.AddSingleton<IConsulService, ConsulService>();
-        services.AddSingleton<IDistributedLockService, RedisDistributedLockService>();
+        services.AddScoped<IInfrastructureService, InfrastructureService>();
 
-        // 日志和监控
-        services.AddScoped<IStructuredLogger, StructuredLogger>();
-        services.AddSingleton<IMetricsCollector, MetricsCollector>();
-
-        // 配置管理
-        services.AddSingleton<IConfigurationService, ConfigurationService>();
+        // 缓存配置
+        services.AddStackExchangeRedisCache(options =>
+        {
+            var connectionString = configuration.GetConnectionString("Redis");
+            if (!string.IsNullOrEmpty(connectionString))
+            {
+                options.Configuration = connectionString;
+            }
+        });
 
         return services;
     }
-}
-
-/// <summary>
-/// MongoDB 配置选项
-/// </summary>
-public class MongoDbOptions
-{
-    public string ConnectionString { get; set; } = string.Empty;
-    public string DatabaseName { get; set; } = "gameapp_dev";
-}
-
-/// <summary>
-/// Redis 配置选项
-/// </summary>
-public class RedisOptions
-{
-    public string ConnectionString { get; set; } = "localhost:6379";
-    public string Password { get; set; } = string.Empty;
-    public int Database { get; set; } = 0;
-}
-
-/// <summary>
-/// Consul 配置选项
-/// </summary>
-public class ConsulOptions
-{
-    public string Host { get; set; } = "localhost";
-    public int Port { get; set; } = 8500;
-    public string Datacenter { get; set; } = "dc1";
 }

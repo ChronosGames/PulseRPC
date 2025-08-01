@@ -38,12 +38,12 @@ public class ExceptionHandlingMiddleware
 
         var (statusCode, message, details) = exception switch
         {
-            ArgumentException argEx => (HttpStatusCode.BadRequest, "请求参数无效", argEx.Message),
             ArgumentNullException nullEx => (HttpStatusCode.BadRequest, "必需参数不能为空", nullEx.ParamName ?? "Unknown parameter"),
             InvalidOperationException opEx => (HttpStatusCode.BadRequest, opEx.Message, "Operation not allowed"),
             UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "访问未授权", "Authentication required"),
             NotImplementedException => (HttpStatusCode.NotImplemented, "功能尚未实现", "Feature not implemented"),
             TimeoutException => (HttpStatusCode.RequestTimeout, "请求超时", "Request timed out"),
+            ArgumentException argEx => (HttpStatusCode.BadRequest, "请求参数无效", argEx.Message),
             _ => (HttpStatusCode.InternalServerError, "系统内部错误", "An unexpected error occurred")
         };
 

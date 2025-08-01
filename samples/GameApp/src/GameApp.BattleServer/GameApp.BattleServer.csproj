@@ -8,7 +8,7 @@
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
     <DockerfileContext>.</DockerfileContext>
     <Authors>GameApp Team</Authors>
-    <Description>GameApp 游戏服务器，基于 PulseRPC 提供游戏核心功能</Description>
+    <Description>GameApp 战斗服务器，基于 PulseRPC 提供实时战斗功能</Description>
   </PropertyGroup>
 
   <ItemGroup>

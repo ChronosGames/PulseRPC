@@ -5,10 +5,8 @@ using Microsoft.Extensions.Logging;
 using MongoDB.Driver;
 using StackExchange.Redis;
 using PulseRPC.Server;
-using GameApp.GameServer.Services;
-using GameApp.GameServer.Services.Cache;
-using GameApp.GameServer.Repositories;
-using GameApp.GameServer.Configuration;
+using GameApp.BattleServer.Services;
+using GameApp.BattleServer.Configuration;
 using GameApp.Infrastructure.Extensions;
 using GameApp.Shared.Services;
 
@@ -20,8 +18,8 @@ builder.Logging.AddConsole();
 builder.Logging.AddDebug();
 
 // 配置选项
-builder.Services.Configure<GameServerOptions>(
-    builder.Configuration.GetSection(GameServerOptions.SectionName));
+builder.Services.Configure<BattleServerOptions>(
+    builder.Configuration.GetSection(BattleServerOptions.SectionName));
 
 // MongoDB 配置
 builder.Services.AddSingleton<IMongoClient>(sp =>
@@ -55,34 +53,38 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 // 基础设施服务
 builder.Services.AddGameAppInfrastructure(builder.Configuration);
 
-// 游戏服务
-builder.Services.AddScoped<IPlayerServiceImpl, PlayerServiceImpl>();
-builder.Services.AddScoped<IWorldServiceImpl, WorldServiceImpl>();
-builder.Services.AddScoped<IPlayerEventPublisher, PlayerEventPublisher>();
-builder.Services.AddScoped<IWorldEventPublisher, WorldEventPublisher>();
+// 战斗服务
+builder.Services.AddScoped<IBattleServiceImpl, BattleServiceImpl>();
+builder.Services.AddScoped<ISkillServiceImpl, SkillServiceImpl>();
+builder.Services.AddScoped<IBattleEventPublisher, BattleEventPublisher>();
 
 // 数据访问服务
-builder.Services.AddScoped<IPlayerRepository, PlayerRepository>();
-builder.Services.AddScoped<IWorldRepository, WorldRepository>();
-builder.Services.AddScoped<IPlayerCacheService, PlayerCacheService>();
-builder.Services.AddScoped<IWorldCacheService, WorldCacheService>();
+builder.Services.AddScoped<IBattleRepository, BattleRepository>();
+builder.Services.AddScoped<ISkillRepository, SkillRepository>();
+builder.Services.AddScoped<IBattleCacheService, BattleCacheService>();
+
+// 战斗系统核心服务
+builder.Services.AddScoped<IBattleEngine, BattleEngine>();
+builder.Services.AddScoped<ISkillSystem, SkillSystem>();
+builder.Services.AddScoped<IDamageCalculator, DamageCalculator>();
+builder.Services.AddScoped<IBuffSystem, BuffSystem>();
 
 // PulseRPC 服务器配置
-var gameServerOptions = builder.Configuration.GetSection(GameServerOptions.SectionName).Get<GameServerOptions>() ??
-    new GameServerOptions();
+var battleServerOptions = builder.Configuration.GetSection(BattleServerOptions.SectionName).Get<BattleServerOptions>() ??
+    new BattleServerOptions();
 
 builder.Services.AddPulseRpcServer(builder =>
 {
-    // 添加 TCP 通道
-    builder.AddTcp("TcpChannel", gameServerOptions.TcpPort);
+    // 主要使用 KCP 通道用于低延迟战斗
+    builder.AddKcp("KcpChannel", battleServerOptions.KcpPort);
 
-    // 添加 KCP 通道
-    builder.AddKcp("KcpChannel", gameServerOptions.KcpPort);
+    // 添加 TCP 通道用于可靠传输
+    builder.AddTcp("TcpChannel", battleServerOptions.TcpPort);
 });
 
 // 注册 PulseRPC 服务
-builder.Services.AddSingleton<IPlayerService, PlayerServiceImpl>();
-builder.Services.AddSingleton<IWorldService, WorldServiceImpl>();
+builder.Services.AddSingleton<IBattleService, BattleServiceImpl>();
+builder.Services.AddSingleton<ISkillService, SkillServiceImpl>();
 
 // 构建应用
 var host = builder.Build();
@@ -92,7 +94,7 @@ var logger = host.Services.GetRequiredService<ILogger<Program>>();
 
 try
 {
-    logger.LogInformation("GameApp GameServer 正在启动...");
+    logger.LogInformation("GameApp BattleServer 正在启动...");
 
     // 测试 MongoDB 连接
     var mongoClient = host.Services.GetRequiredService<IMongoClient>();
@@ -105,15 +107,21 @@ try
     await db.PingAsync();
     logger.LogInformation("Redis 连接成功");
 
-    logger.LogInformation("GameApp GameServer 启动完成");
-    logger.LogInformation("TCP 端口: {TcpPort}", gameServerOptions.TcpPort);
-    logger.LogInformation("KCP 端口: {KcpPort}", gameServerOptions.KcpPort);
+    // 初始化战斗系统
+    var battleEngine = host.Services.GetRequiredService<IBattleEngine>();
+    await battleEngine.InitializeAsync();
+    logger.LogInformation("战斗引擎初始化完成");
+
+    logger.LogInformation("GameApp BattleServer 启动完成");
+    logger.LogInformation("TCP 端口: {TcpPort}", battleServerOptions.TcpPort);
+    logger.LogInformation("KCP 端口: {KcpPort}", battleServerOptions.KcpPort);
+    logger.LogInformation("服务器ID: {ServerId}", battleServerOptions.ServerId);
 
     // 运行服务器
     await host.RunAsync();
 }
 catch (Exception ex)
 {
-    logger.LogError(ex, "GameApp GameServer 启动失败");
+    logger.LogError(ex, "GameApp BattleServer 启动失败");
     throw;
 }

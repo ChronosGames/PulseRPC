@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server;
+using PulseRPC.Server.Events;
 using GameApp.Shared.Services;
 
 namespace GameApp.GameServer.Services;
@@ -9,10 +9,10 @@ namespace GameApp.GameServer.Services;
 /// </summary>
 public class PlayerEventPublisher : IPlayerEventPublisher
 {
-    private readonly IPulseEventPublisher _eventPublisher;
+    private readonly IEventPublisher _eventPublisher;
     private readonly ILogger<PlayerEventPublisher> _logger;
 
-    public PlayerEventPublisher(IPulseEventPublisher eventPublisher, ILogger<PlayerEventPublisher> logger)
+    public PlayerEventPublisher(IEventPublisher eventPublisher, ILogger<PlayerEventPublisher> logger)
     {
         _eventPublisher = eventPublisher;
         _logger = logger;
@@ -25,10 +25,8 @@ public class PlayerEventPublisher : IPlayerEventPublisher
     {
         try
         {
-            // 发送给特定玩家
-            await _eventPublisher.PublishAsync<IPlayerEvents>(
-                targetId: playerId,
-                eventHandler: handler => handler.OnPlayerStatusUpdate(eventData));
+            // 发送给所有客户端
+            await _eventPublisher.PublishEventAsync("PlayerStatusUpdate", eventData);
 
             _logger.LogDebug("Published player status update event: {PlayerId}", playerId);
         }
@@ -45,10 +43,8 @@ public class PlayerEventPublisher : IPlayerEventPublisher
     {
         try
         {
-            // 发送给特定玩家
-            await _eventPublisher.PublishAsync<IPlayerEvents>(
-                targetId: playerId,
-                eventHandler: handler => handler.OnPlayerLevelUp(eventData));
+            // 发送给所有客户端
+            await _eventPublisher.PublishEventAsync("PlayerLevelUp", eventData);
 
             _logger.LogInformation("Published player level up event: {PlayerId} -> Level {NewLevel}",
                 playerId, eventData.NewLevel);
@@ -66,10 +62,8 @@ public class PlayerEventPublisher : IPlayerEventPublisher
     {
         try
         {
-            // 发送给世界中的所有玩家（排除自己）
-            await _eventPublisher.PublishAsync<IPlayerEvents>(
-                filter: client => client.WorldId == worldId && client.PlayerId != eventData.PlayerId,
-                eventHandler: handler => handler.OnPlayerMoved(eventData));
+            // 发送给所有客户端
+            await _eventPublisher.PublishEventAsync("PlayerMoved", eventData);
 
             _logger.LogDebug("Published player moved event: {PlayerId} in {WorldId}",
                 eventData.PlayerId, worldId);

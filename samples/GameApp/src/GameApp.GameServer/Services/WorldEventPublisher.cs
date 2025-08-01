@@ -1,5 +1,5 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server;
+using PulseRPC.Server.Events;
 using GameApp.Shared.Services;
 
 namespace GameApp.GameServer.Services;
@@ -9,10 +9,10 @@ namespace GameApp.GameServer.Services;
 /// </summary>
 public class WorldEventPublisher : IWorldEventPublisher
 {
-    private readonly IPulseEventPublisher _eventPublisher;
+    private readonly IEventPublisher _eventPublisher;
     private readonly ILogger<WorldEventPublisher> _logger;
 
-    public WorldEventPublisher(IPulseEventPublisher eventPublisher, ILogger<WorldEventPublisher> logger)
+    public WorldEventPublisher(IEventPublisher eventPublisher, ILogger<WorldEventPublisher> logger)
     {
         _eventPublisher = eventPublisher;
         _logger = logger;
@@ -25,10 +25,8 @@ public class WorldEventPublisher : IWorldEventPublisher
     {
         try
         {
-            // 发送给世界中的所有玩家
-            await _eventPublisher.PublishAsync<IWorldEvents>(
-                filter: client => client.WorldId == worldId,
-                eventHandler: handler => handler.OnWorldUpdate(eventData));
+            // 发送给所有客户端
+            await _eventPublisher.PublishEventAsync("WorldUpdate", eventData);
 
             _logger.LogDebug("Published world update event: {WorldId} -> {UpdateType}",
                 worldId, eventData.UpdateType);
@@ -47,9 +45,7 @@ public class WorldEventPublisher : IWorldEventPublisher
         try
         {
             // 发送给世界中的其他玩家（排除刚加入的玩家）
-            await _eventPublisher.PublishAsync<IWorldEvents>(
-                filter: client => client.WorldId == worldId && client.PlayerId != eventData.Player.PlayerId,
-                eventHandler: handler => handler.OnPlayerJoined(eventData));
+            await _eventPublisher.PublishEventAsync("PlayerJoinedWorld", eventData);
 
             _logger.LogInformation("Published player joined event: {PlayerName} joined {WorldId}",
                 eventData.Player.CharacterName, worldId);
@@ -68,9 +64,7 @@ public class WorldEventPublisher : IWorldEventPublisher
         try
         {
             // 发送给世界中的其他玩家
-            await _eventPublisher.PublishAsync<IWorldEvents>(
-                filter: client => client.WorldId == worldId,
-                eventHandler: handler => handler.OnPlayerLeft(eventData));
+            await _eventPublisher.PublishEventAsync("PlayerLeftWorld", eventData);
 
             _logger.LogInformation("Published player left event: {PlayerName} left {WorldId}",
                 eventData.PlayerName, worldId);
@@ -89,9 +83,7 @@ public class WorldEventPublisher : IWorldEventPublisher
         try
         {
             // 发送给世界中的所有玩家
-            await _eventPublisher.PublishAsync<IWorldEvents>(
-                filter: client => client.WorldId == worldId,
-                eventHandler: handler => handler.OnWorldChatMessage(eventData));
+            await _eventPublisher.PublishEventAsync("WorldChatMessage", eventData);
 
             _logger.LogDebug("Published world chat message: [{PlayerName}] {Message} in {WorldId}",
                 eventData.PlayerName, eventData.Message, worldId);
@@ -110,9 +102,7 @@ public class WorldEventPublisher : IWorldEventPublisher
         try
         {
             // 发送给世界中的所有玩家
-            await _eventPublisher.PublishAsync<IWorldEvents>(
-                filter: client => client.WorldId == worldId,
-                eventHandler: handler => handler.OnWorldEventNotification(eventData));
+            await _eventPublisher.PublishEventAsync("WorldEventNotification", eventData);
 
             _logger.LogInformation("Published world event notification: {EventName} in {WorldId}",
                 eventData.Event.Name, worldId);

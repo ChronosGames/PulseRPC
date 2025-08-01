@@ -292,7 +292,7 @@ public class ZoneService : IZoneService
 
             if (currentPlayers.HasValue)
             {
-                zone.CurrentPlayers = currentPlayers;
+                zone.CurrentPlayers = currentPlayers.TryParse(out int players) ? players : 0;
                 zone.LoadLevel = CalculateLoadLevel(zone.CurrentPlayers, zone.MaxPlayers);
             }
 
@@ -302,7 +302,7 @@ public class ZoneService : IZoneService
 
             if (healthStatus.HasValue)
             {
-                zone.Status = healthStatus;
+                zone.Status = healthStatus!;
             }
         }
         catch (Exception ex)
