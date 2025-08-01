@@ -14,28 +14,28 @@ public interface IPlayerService : IPulseService
     /// <summary>
     /// 玩家登录游戏服务器
     /// </summary>
-    ValueTask<LoginResponse> LoginAsync(LoginRequest request);
+    Task<LoginResponse> LoginAsync(LoginRequest request);
 
     /// <summary>
     /// 获取玩家信息
     /// </summary>
-    ValueTask<PlayerInfo> GetPlayerInfoAsync(GetPlayerInfoRequest request);
+    Task<PlayerInfo> GetPlayerInfoAsync(GetPlayerInfoRequest request);
 
     /// <summary>
     /// 更新玩家位置 - 使用 KCP 通道进行低延迟传输
     /// </summary>
     [Channel("KcpChannel")]
-    ValueTask UpdatePositionAsync(UpdatePositionRequest request);
+    Task UpdatePositionAsync(UpdatePositionRequest request);
 
     /// <summary>
     /// 玩家登出
     /// </summary>
-    ValueTask LogoutAsync(LogoutRequest request);
+    Task LogoutAsync(LogoutRequest request);
 
     /// <summary>
     /// 获取玩家统计信息
     /// </summary>
-    ValueTask<PlayerStatistics> GetStatisticsAsync(GetStatisticsRequest request);
+    Task<PlayerStatistics> GetStatisticsAsync(GetStatisticsRequest request);
 }
 
 /// <summary>

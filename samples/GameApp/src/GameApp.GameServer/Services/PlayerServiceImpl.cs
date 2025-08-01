@@ -36,7 +36,7 @@ public class PlayerServiceImpl : IPulseService, IPlayerService, IPlayerServiceIm
     /// <summary>
     /// 玩家登录游戏服务器
     /// </summary>
-    public async ValueTask<LoginResponse> LoginAsync(LoginRequest request)
+    public async Task<LoginResponse> LoginAsync(LoginRequest request)
     {
         try
         {
@@ -113,7 +113,7 @@ public class PlayerServiceImpl : IPulseService, IPlayerService, IPlayerServiceIm
     /// <summary>
     /// 获取玩家信息
     /// </summary>
-    public async ValueTask<PlayerInfo> GetPlayerInfoAsync(GetPlayerInfoRequest request)
+    public async Task<PlayerInfo> GetPlayerInfoAsync(GetPlayerInfoRequest request)
     {
         try
         {
@@ -150,7 +150,7 @@ public class PlayerServiceImpl : IPulseService, IPlayerService, IPlayerServiceIm
     /// 更新玩家位置 - 使用 KCP 通道
     /// </summary>
     [Channel("KcpChannel")]
-    public async ValueTask UpdatePositionAsync(UpdatePositionRequest request)
+    public async Task UpdatePositionAsync(UpdatePositionRequest request)
     {
         try
         {
@@ -196,7 +196,7 @@ public class PlayerServiceImpl : IPulseService, IPlayerService, IPlayerServiceIm
     /// <summary>
     /// 玩家登出
     /// </summary>
-    public async ValueTask LogoutAsync(LogoutRequest request)
+    public async Task LogoutAsync(LogoutRequest request)
     {
         try
         {
@@ -244,7 +244,7 @@ public class PlayerServiceImpl : IPulseService, IPlayerService, IPlayerServiceIm
     /// <summary>
     /// 获取玩家统计信息
     /// </summary>
-    public async ValueTask<PlayerStatistics> GetStatisticsAsync(GetStatisticsRequest request)
+    public async Task<PlayerStatistics> GetStatisticsAsync(GetStatisticsRequest request)
     {
         try
         {

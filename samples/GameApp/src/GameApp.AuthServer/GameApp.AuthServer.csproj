@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
@@ -19,7 +19,7 @@
     <PackageReference Include="Swashbuckle.AspNetCore" />
     <PackageReference Include="BCrypt.Net-Next" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" />
-    <PackageReference Include="Microsoft.AspNetCore.RateLimiting" />
+
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
   </ItemGroup>
 

@@ -15,27 +15,27 @@ public interface IWorldService : IPulseService
     /// <summary>
     /// 加入世界
     /// </summary>
-    ValueTask<JoinWorldResponse> JoinWorldAsync(JoinWorldRequest request);
+    Task<JoinWorldResponse> JoinWorldAsync(JoinWorldRequest request);
 
     /// <summary>
     /// 离开世界
     /// </summary>
-    ValueTask LeaveWorldAsync(LeaveWorldRequest request);
+    Task LeaveWorldAsync(LeaveWorldRequest request);
 
     /// <summary>
     /// 获取世界状态
     /// </summary>
-    ValueTask<WorldState> GetWorldStateAsync(GetWorldStateRequest request);
+    Task<WorldState> GetWorldStateAsync(GetWorldStateRequest request);
 
     /// <summary>
     /// 世界聊天
     /// </summary>
-    ValueTask SendWorldChatAsync(WorldChatRequest request);
+    Task SendWorldChatAsync(WorldChatRequest request);
 
     /// <summary>
     /// 获取附近玩家
     /// </summary>
-    ValueTask<NearbyPlayersResponse> GetNearbyPlayersAsync(NearbyPlayersRequest request);
+    Task<NearbyPlayersResponse> GetNearbyPlayersAsync(NearbyPlayersRequest request);
 }
 
 /// <summary>

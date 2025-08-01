@@ -111,21 +111,28 @@ services:
       dockerfile: Dockerfile.dev
     container_name: gameapp-battleserver-dev
     ports:
-      - "7002:7000"
-      - "7003:7001"
+      - "8000:8000"
+      - "8001:8001"
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__MongoDB: "mongodb://admin:dev_password@mongodb-dev:27017/gameapp_dev?authSource=admin"
       ConnectionStrings__Redis: "redis-dev:6379"
       Redis__Password: "dev_password"
+      Redis__Database: 1
+      BattleServer__TcpPort: 8000
+      BattleServer__KcpPort: 8001
+      BattleServer__ServerId: "battleserver-dev"
+      BattleServer__ServerName: "BattleServer Development"
+      BattleServer__EnableDebugMode: true
       Consul__Host: "consul-dev"
-      PulseRPC__TcpPort: 7000
-      PulseRPC__KcpPort: 7001
+      Consul__Port: 8500
+      Consul__Datacenter: "gameapp-dev"
     depends_on:
       - mongodb-dev
       - redis-dev
       - consul-dev
       - authserver-dev
+      - gameserver-dev
     networks:
       - gameapp-dev
     restart: unless-stopped

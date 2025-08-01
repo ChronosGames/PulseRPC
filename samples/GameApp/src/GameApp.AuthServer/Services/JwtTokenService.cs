@@ -80,7 +80,7 @@ public class JwtTokenService : ITokenService
     /// <summary>
     /// 验证 JWT Token
     /// </summary>
-    public TokenValidationResult ValidateJwtToken(string token)
+    public Models.TokenValidationResult ValidateJwtToken(string token)
     {
         try
         {
@@ -103,7 +103,7 @@ public class JwtTokenService : ITokenService
 
             var userClaims = ExtractUserClaims(token);
 
-            return new TokenValidationResult
+            return new Models.TokenValidationResult
             {
                 IsValid = true,
                 UserClaims = userClaims,
@@ -114,7 +114,7 @@ public class JwtTokenService : ITokenService
         catch (SecurityTokenExpiredException)
         {
             _logger.LogWarning("Token validation failed: Token expired");
-            return new TokenValidationResult
+            return new Models.TokenValidationResult
             {
                 IsValid = false,
                 Message = "Token has expired"
@@ -123,7 +123,7 @@ public class JwtTokenService : ITokenService
         catch (SecurityTokenException ex)
         {
             _logger.LogWarning("Token validation failed: {Message}", ex.Message);
-            return new TokenValidationResult
+            return new Models.TokenValidationResult
             {
                 IsValid = false,
                 Message = "Invalid token"
@@ -132,7 +132,7 @@ public class JwtTokenService : ITokenService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error during token validation");
-            return new TokenValidationResult
+            return new Models.TokenValidationResult
             {
                 IsValid = false,
                 Message = "Token validation error"

@@ -195,13 +195,10 @@ public class UserService : IUserService
                 .Push(u => u.Security.LoginHistory, loginHistory)
                 .Set(u => u.UpdatedAt, DateTime.UtcNow);
 
-            // 限制登录历史记录数量（保留最近50条）
-            var updateWithSlice = update.Combine(
-                Builders<User>.Update.PushEach(u => u.Security.LoginHistory, new LoginHistory[0],
-                    options: new PushEachOptions { Slice = -50 })
-            );
-
             await _userCollection.UpdateOneAsync(filter, update);
+
+            // TODO: 实现登录历史记录数量限制（保留最近50条）
+            // 这可以通过定期清理任务或聚合管道来实现
 
             _logger.LogDebug("Updated login info for user: {UserId}", userId);
         }

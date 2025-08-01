@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.ComponentModel.DataAnnotations;
 using Microsoft.AspNetCore.RateLimiting;
 using GameApp.AuthServer.Models;
 using GameApp.AuthServer.Services;

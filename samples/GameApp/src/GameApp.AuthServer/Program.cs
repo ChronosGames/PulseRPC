@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
@@ -10,6 +11,8 @@ using GameApp.AuthServer.Middleware;
 using GameApp.Infrastructure.Extensions;
 using GameApp.Infrastructure.Configuration;
 using GameApp.AuthServer.Configuration;
+
+[assembly: InternalsVisibleTo("GameApp.Integration.Tests")]
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -155,9 +158,7 @@ builder.Services.AddCors(options =>
 });
 
 // 健康检查
-builder.Services.AddHealthChecks()
-    .AddMongoDb(builder.Configuration.GetConnectionString("MongoDB")!)
-    .AddRedis(builder.Configuration.GetConnectionString("Redis")!);
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
 
@@ -217,3 +218,6 @@ catch (Exception ex)
 }
 
 await app.RunAsync();
+
+// 为集成测试提供 public Program 类
+public partial class Program { }

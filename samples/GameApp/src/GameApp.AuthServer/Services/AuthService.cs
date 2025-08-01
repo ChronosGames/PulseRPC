@@ -404,7 +404,7 @@ public class AuthService : IAuthService
     {
         var key = $"failed_login:{deviceId}";
         var failedAttempts = await _redisDatabase.StringGetAsync(key);
-        return failedAttempts.HasValue && failedAttempts > 5;
+        return failedAttempts.HasValue && failedAttempts.TryParse(out int attempts) && attempts > 5;
     }
 
     /// <summary>

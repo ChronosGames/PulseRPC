@@ -38,7 +38,7 @@ public class WorldServiceImpl : IPulseService, IWorldService, IWorldServiceImpl
     /// <summary>
     /// 加入世界
     /// </summary>
-    public async ValueTask<JoinWorldResponse> JoinWorldAsync(JoinWorldRequest request)
+    public async Task<JoinWorldResponse> JoinWorldAsync(JoinWorldRequest request)
     {
         try
         {
@@ -149,7 +149,7 @@ public class WorldServiceImpl : IPulseService, IWorldService, IWorldServiceImpl
     /// <summary>
     /// 离开世界
     /// </summary>
-    public async ValueTask LeaveWorldAsync(LeaveWorldRequest request)
+    public async Task LeaveWorldAsync(LeaveWorldRequest request)
     {
         try
         {
@@ -164,7 +164,7 @@ public class WorldServiceImpl : IPulseService, IWorldService, IWorldServiceImpl
     /// <summary>
     /// 获取世界状态
     /// </summary>
-    public async ValueTask<WorldState> GetWorldStateAsync(GetWorldStateRequest request)
+    public async Task<WorldState> GetWorldStateAsync(GetWorldStateRequest request)
     {
         try
         {
@@ -199,7 +199,7 @@ public class WorldServiceImpl : IPulseService, IWorldService, IWorldServiceImpl
     /// <summary>
     /// 世界聊天
     /// </summary>
-    public async ValueTask SendWorldChatAsync(WorldChatRequest request)
+    public async Task SendWorldChatAsync(WorldChatRequest request)
     {
         try
         {
@@ -265,7 +265,7 @@ public class WorldServiceImpl : IPulseService, IWorldService, IWorldServiceImpl
     /// <summary>
     /// 获取附近玩家
     /// </summary>
-    public async ValueTask<NearbyPlayersResponse> GetNearbyPlayersAsync(NearbyPlayersRequest request)
+    public async Task<NearbyPlayersResponse> GetNearbyPlayersAsync(NearbyPlayersRequest request)
     {
         try
         {
