@@ -9,6 +9,7 @@ using GameApp.AuthServer.Services;
 using GameApp.AuthServer.Middleware;
 using GameApp.Infrastructure.Extensions;
 using GameApp.Infrastructure.Configuration;
+using GameApp.AuthServer.Configuration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -80,10 +81,17 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     return ConnectionMultiplexer.Connect(configuration);
 });
 
+// JWT 配置
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+
 // JWT 认证配置
-var jwtKey = builder.Configuration["Jwt:SecretKey"] ??
+var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ??
+    throw new InvalidOperationException("JWT configuration not found");
+
+if (string.IsNullOrEmpty(jwtOptions.SecretKey))
     throw new InvalidOperationException("JWT secret key not configured");
-var key = Encoding.ASCII.GetBytes(jwtKey);
+
+var key = Encoding.ASCII.GetBytes(jwtOptions.SecretKey);
 
 builder.Services.AddAuthentication(options =>
 {
@@ -97,9 +105,9 @@ builder.Services.AddAuthentication(options =>
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(key),
         ValidateIssuer = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"] ?? "GameApp",
+        ValidIssuer = jwtOptions.Issuer,
         ValidateAudience = true,
-        ValidAudience = builder.Configuration["Jwt:Audience"] ?? "GameApp.Client",
+        ValidAudience = jwtOptions.Audience,
         ValidateLifetime = true,
         ClockSkew = TimeSpan.Zero
     };
