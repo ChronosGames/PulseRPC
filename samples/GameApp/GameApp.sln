@@ -44,10 +44,10 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.AuthServer", "src\GameApp.AuthServer\GameApp.AuthServer.csproj", "{C4FE74E1-B743-11D0-AE1A-00A0C90FFFC5}"
 EndProject
 
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.GameServer", "src\GameApp.GameServer\GameApp.GameServer.csproj", "{G8FE74E1-B743-11D0-AE1A-00A0C90FFFC9}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.GameServer", "src\GameApp.GameServer\GameApp.GameServer.csproj", "{00000000-0000-0000-0000-000000000000}"
 EndProject
 
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.BattleServer", "src\GameApp.BattleServer\GameApp.BattleServer.csproj", "{I0FE74E1-B743-11D0-AE1A-00A0C90FFFFB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.BattleServer", "src\GameApp.BattleServer\GameApp.BattleServer.csproj", "{00000000-0000-0000-0000-000000000000}"
 EndProject
 
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{E6FE74E1-B743-11D0-AE1A-00A0C90FFFC7}"
@@ -56,10 +56,10 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.AuthServer.Tests", "tests\GameApp.AuthServer.Tests\GameApp.AuthServer.Tests.csproj", "{F7FE74E1-B743-11D0-AE1A-00A0C90FFFC8}"
 EndProject
 
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.Integration.Tests", "tests\GameApp.Integration.Tests\GameApp.Integration.Tests.csproj", "{H9FE74E1-B743-11D0-AE1A-00A0C90FFFCA}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.Integration.Tests", "tests\GameApp.Integration.Tests\GameApp.Integration.Tests.csproj", "{00000000-0000-0000-0000-000000000000}"
 EndProject
 
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.SystemTests", "tests\GameApp.SystemTests\GameApp.SystemTests.csproj", "{J1FE74E1-B743-11D0-AE1A-00A0C90FFFFCB}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.SystemTests", "tests\GameApp.SystemTests\GameApp.SystemTests.csproj", "{00000000-0000-0000-0000-000000000000}"
 EndProject
 
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "client", "client", "{D5FE74E1-B743-11D0-AE1A-00A0C90FFFC6}"
@@ -116,6 +116,7 @@ Global
 		{F7FE74E1-B743-11D0-AE1A-00A0C90FFFC8} = {E6FE74E1-B743-11D0-AE1A-00A0C90FFFC7}
 		{H9FE74E1-B743-11D0-AE1A-00A0C90FFFCA} = {E6FE74E1-B743-11D0-AE1A-00A0C90FFFC7}
 		{J1FE74E1-B743-11D0-AE1A-00A0C90FFFFCB} = {E6FE74E1-B743-11D0-AE1A-00A0C90FFFC7}
+		{00000000-0000-0000-0000-000000000000} = {E6FE74E1-B743-11D0-AE1A-00A0C90FFFC7}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {1E9F4D2A-8B3C-4D5E-9F0A-1B2C3D4E5F6A}
