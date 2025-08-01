@@ -1,0 +1,248 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  NODE_VERSION: '20.x'
+
+jobs:
+  # 代码质量检查
+  code-quality:
+    runs-on: ubuntu-latest
+    name: Code Quality Check
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Restore dependencies
+      run: dotnet restore samples/GameApp/GameApp.sln
+
+    - name: Code format check
+      run: dotnet format samples/GameApp/GameApp.sln --verify-no-changes --verbosity diagnostic
+
+    - name: Security scan
+      run: |
+        dotnet list samples/GameApp/GameApp.sln package --vulnerable --include-transitive || true
+
+  # 构建和单元测试
+  build-and-test:
+    runs-on: ubuntu-latest
+    name: Build and Unit Tests
+    needs: code-quality
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
+    - name: Restore dependencies
+      run: dotnet restore samples/GameApp/GameApp.sln
+
+    - name: Build solution
+      run: dotnet build samples/GameApp/GameApp.sln --no-restore --configuration Release
+
+    - name: Run unit tests
+      run: |
+        dotnet test samples/GameApp/tests/GameApp.AuthServer.Tests/ \
+          --no-build --configuration Release \
+          --collect:"XPlat Code Coverage" \
+          --results-directory ./coverage
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        directory: ./coverage
+        flags: unittests
+        name: codecov-umbrella
+
+  # Docker 镜像构建
+  docker-build:
+    runs-on: ubuntu-latest
+    name: Docker Build
+    needs: build-and-test
+
+    strategy:
+      matrix:
+        service: [authserver, gameserver, battleserver]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: samples/GameApp/
+        file: samples/GameApp/src/GameApp.${{ matrix.service }}/Dockerfile
+        push: false
+        tags: gameapp/${{ matrix.service }}:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Test Docker image
+      run: |
+        docker run --rm gameapp/${{ matrix.service }}:${{ github.sha }} --help || true
+
+  # 集成测试
+  integration-tests:
+    runs-on: ubuntu-latest
+    name: Integration Tests
+    needs: docker-build
+
+    services:
+      mongodb:
+        image: mongo:7.0
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: test_password
+        ports:
+          - 27017:27017
+
+      redis:
+        image: redis:7.0-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+      consul:
+        image: hashicorp/consul:1.15
+        env:
+          CONSUL_BIND_INTERFACE: eth0
+        ports:
+          - 8500:8500
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Wait for services
+      run: |
+        sleep 30
+        curl -f http://localhost:8500/v1/status/leader
+        echo "Services are ready"
+
+    - name: Run integration tests
+      env:
+        ConnectionStrings__MongoDB: mongodb://admin:test_password@localhost:27017/gameapp_test?authSource=admin
+        ConnectionStrings__Redis: localhost:6379
+        Consul__Host: localhost
+        Consul__Port: 8500
+      run: |
+        dotnet test samples/GameApp/tests/GameApp.Integration.Tests/ \
+          --configuration Release \
+          --logger trx \
+          --results-directory ./test-results
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: integration-test-results
+        path: ./test-results
+
+  # 安全扫描
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Scan
+    needs: build-and-test
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: 'samples/GameApp'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # 性能测试
+  performance-tests:
+    runs-on: ubuntu-latest
+    name: Performance Tests
+    needs: integration-tests
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Start test environment
+      run: |
+        cd samples/GameApp/docker
+        docker-compose up -d mongodb-dev redis-dev consul-dev
+        sleep 30
+
+    - name: Run performance tests
+      run: |
+        dotnet run --project samples/GameApp/tests/GameApp.SystemTests/ \
+          --configuration Release -- performance
+
+    - name: Cleanup
+      if: always()
+      run: |
+        cd samples/GameApp/docker
+        docker-compose down -v
+
+  # 构建状态通知
+  notification:
+    runs-on: ubuntu-latest
+    name: Build Notification
+    needs: [code-quality, build-and-test, docker-build, integration-tests, security-scan]
+    if: always()
+
+    steps:
+    - name: Notify build success
+      if: needs.build-and-test.result == 'success' && needs.integration-tests.result == 'success'
+      run: |
+        echo "✅ Build and tests passed successfully!"
+        echo "Ready for deployment to staging environment."
+
+    - name: Notify build failure
+      if: needs.build-and-test.result == 'failure' || needs.integration-tests.result == 'failure'
+      run: |
+        echo "❌ Build or tests failed!"
+        echo "Please check the logs and fix the issues."
+        exit 1

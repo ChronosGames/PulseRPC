@@ -1,0 +1,91 @@
+# Production Dockerfile for AuthServer
+# Multi-stage build with security optimizations
+
+# Build stage
+FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
+WORKDIR /src
+
+# Install security updates
+RUN apk update && apk upgrade && apk add --no-cache curl
+
+# Copy project files
+COPY ["src/GameApp.AuthServer/GameApp.AuthServer.csproj", "src/GameApp.AuthServer/"]
+COPY ["src/GameApp.Shared/GameApp.Shared.csproj", "src/GameApp.Shared/"]
+COPY ["src/GameApp.Infrastructure/GameApp.Infrastructure.csproj", "src/GameApp.Infrastructure/"]
+COPY ["Directory.Packages.props", "./"]
+COPY ["Directory.Build.props", "./"]
+
+# Restore dependencies
+RUN dotnet restore "src/GameApp.AuthServer/GameApp.AuthServer.csproj"
+
+# Copy source code
+COPY . .
+WORKDIR "/src/src/GameApp.AuthServer"
+
+# Build application
+RUN dotnet build "GameApp.AuthServer.csproj" -c Release -o /app/build --no-restore
+
+# Publish stage
+FROM build AS publish
+RUN dotnet publish "GameApp.AuthServer.csproj" \
+    -c Release \
+    -o /app/publish \
+    --no-restore \
+    --no-build \
+    -p:PublishTrimmed=true \
+    -p:PublishSingleFile=false \
+    -p:PublishReadyToRun=true
+
+# Runtime stage
+FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine AS runtime
+
+# Security hardening
+RUN apk update && apk upgrade && apk add --no-cache \
+    curl \
+    ca-certificates \
+    && rm -rf /var/cache/apk/*
+
+# Create non-root user
+RUN addgroup -g 1000 -S gameapp && \
+    adduser -u 1000 -S gameapp -G gameapp
+
+# Create application directory
+WORKDIR /app
+RUN chown -R gameapp:gameapp /app
+
+# Copy published application
+COPY --from=publish --chown=gameapp:gameapp /app/publish .
+
+# Create directories for logs and data
+RUN mkdir -p /app/logs /app/data && \
+    chown -R gameapp:gameapp /app/logs /app/data
+
+# Switch to non-root user
+USER gameapp
+
+# Configure environment
+ENV ASPNETCORE_ENVIRONMENT=Production \
+    ASPNETCORE_URLS=http://+:5000 \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    DOTNET_USE_POLLING_FILE_WATCHER=true \
+    DOTNET_EnableDiagnostics=0
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:5000/api/auth/health || exit 1
+
+# Expose port
+EXPOSE 5000
+
+# Labels for container metadata
+LABEL maintainer="GameApp Team <team@gameapp.com>" \
+      version="1.0.0" \
+      description="GameApp AuthServer - Production optimized container" \
+      org.opencontainers.image.title="GameApp AuthServer" \
+      org.opencontainers.image.description="Authentication service for GameApp" \
+      org.opencontainers.image.vendor="GameApp Team" \
+      org.opencontainers.image.version="1.0.0"
+
+# Entry point
+ENTRYPOINT ["dotnet", "GameApp.AuthServer.dll"]

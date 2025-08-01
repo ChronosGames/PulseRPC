@@ -1,0 +1,345 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+      version:
+        description: 'Version to deploy'
+        required: true
+        default: 'latest'
+        type: string
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: gameapp
+  DOTNET_VERSION: '9.0.x'
+
+jobs:
+  # 构建和推送 Docker 镜像
+  build-and-push:
+    runs-on: ubuntu-latest
+    name: Build and Push Images
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+
+    strategy:
+      matrix:
+        service: [authserver, gameserver, battleserver]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      id: build
+      uses: docker/build-push-action@v5
+      with:
+        context: samples/GameApp/
+        file: samples/GameApp/src/GameApp.${{ matrix.service }}/Dockerfile.prod
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+        build-args: |
+          BUILD_VERSION=${{ github.sha }}
+          BUILD_DATE=${{ github.event.head_commit.timestamp }}
+
+  # 部署到 Staging 环境
+  deploy-staging:
+    runs-on: ubuntu-latest
+    name: Deploy to Staging
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging'
+    environment: staging
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup deployment tools
+      run: |
+        # Install docker-compose
+        sudo curl -L "https://github.com/docker/compose/releases/download/v2.21.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+        sudo chmod +x /usr/local/bin/docker-compose
+
+    - name: Deploy to staging
+      env:
+        DEPLOY_HOST: ${{ secrets.STAGING_HOST }}
+        DEPLOY_USER: ${{ secrets.STAGING_USER }}
+        DEPLOY_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+      run: |
+        # Setup SSH
+        mkdir -p ~/.ssh
+        echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+
+        # Deploy to staging server
+        scp -i ~/.ssh/deploy_key -r samples/GameApp/deploy/staging/* $DEPLOY_USER@$DEPLOY_HOST:/opt/gameapp/staging/
+
+        ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          cd /opt/gameapp/staging
+          export IMAGE_TAG=${{ github.sha }}
+          docker-compose -f docker-compose.staging.yml pull
+          docker-compose -f docker-compose.staging.yml up -d
+
+          # Health check
+          sleep 30
+          curl -f http://localhost:5000/api/auth/health || exit 1
+          echo "Staging deployment successful!"
+        EOF
+
+    - name: Run smoke tests
+      env:
+        STAGING_URL: ${{ secrets.STAGING_URL }}
+      run: |
+        # Basic health checks
+        curl -f $STAGING_URL/api/auth/health
+        curl -f $STAGING_URL/api/monitoring/health
+
+        # API smoke tests
+        cd samples/GameApp/tests/GameApp.SystemTests
+        dotnet test --filter Category=Smoke --logger console
+
+    - name: Notify staging deployment
+      if: success()
+      run: |
+        echo "✅ Staging deployment successful!"
+        echo "Environment: https://staging.gameapp.com"
+        echo "Version: ${{ github.sha }}"
+
+  # 部署到 Production 环境
+  deploy-production:
+    runs-on: ubuntu-latest
+    name: Deploy to Production
+    needs: [build-and-push, deploy-staging]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.environment == 'production'
+    environment: production
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Create deployment
+      id: deployment
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const deployment = await github.rest.repos.createDeployment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: context.sha,
+            environment: 'production',
+            description: 'Deploy to production',
+            auto_merge: false,
+            required_contexts: []
+          });
+          return deployment.data.id;
+
+    - name: Set deployment status to in_progress
+      uses: actions/github-script@v6
+      with:
+        script: |
+          await github.rest.repos.createDeploymentStatus({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            deployment_id: ${{ steps.deployment.outputs.result }},
+            state: 'in_progress',
+            description: 'Deployment in progress'
+          });
+
+    - name: Deploy to production
+      id: prod-deploy
+      env:
+        DEPLOY_HOST: ${{ secrets.PRODUCTION_HOST }}
+        DEPLOY_USER: ${{ secrets.PRODUCTION_USER }}
+        DEPLOY_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+        IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+      run: |
+        # Setup SSH
+        mkdir -p ~/.ssh
+        echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+
+        # Backup current deployment
+        ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          cd /opt/gameapp/production
+          cp docker-compose.yml docker-compose.backup.$(date +%Y%m%d_%H%M%S).yml
+        EOF
+
+        # Deploy to production server
+        scp -i ~/.ssh/deploy_key -r samples/GameApp/deploy/production/* $DEPLOY_USER@$DEPLOY_HOST:/opt/gameapp/production/
+
+        ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          cd /opt/gameapp/production
+          export IMAGE_TAG=${{ github.sha }}
+
+          # Rolling update
+          ./scripts/rolling-update.sh
+
+          # Health check
+          sleep 60
+          curl -f http://localhost/api/auth/health || exit 1
+          curl -f http://localhost/api/monitoring/health || exit 1
+
+          echo "Production deployment successful!"
+        EOF
+
+    - name: Run production tests
+      env:
+        PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+        API_KEY: ${{ secrets.PRODUCTION_API_KEY }}
+      run: |
+        # Comprehensive health checks
+        curl -f $PRODUCTION_URL/api/auth/health
+        curl -f $PRODUCTION_URL/api/monitoring/health
+
+        # Performance validation
+        cd samples/GameApp/tests/GameApp.SystemTests
+        dotnet test --filter Category=Production --logger console
+
+    - name: Set deployment status to success
+      if: success()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          await github.rest.repos.createDeploymentStatus({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            deployment_id: ${{ steps.deployment.outputs.result }},
+            state: 'success',
+            description: 'Deployment successful',
+            environment_url: '${{ secrets.PRODUCTION_URL }}'
+          });
+
+    - name: Set deployment status to failure
+      if: failure()
+      uses: actions/github-script@v6
+      with:
+        script: |
+          await github.rest.repos.createDeploymentStatus({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            deployment_id: ${{ steps.deployment.outputs.result }},
+            state: 'failure',
+            description: 'Deployment failed'
+          });
+
+    - name: Notify production deployment
+      if: success()
+      run: |
+        echo "🚀 Production deployment successful!"
+        echo "Environment: https://gameapp.com"
+        echo "Version: ${{ github.ref_name }}"
+
+  # 回滚机制
+  rollback:
+    runs-on: ubuntu-latest
+    name: Rollback Deployment
+    if: failure() && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    needs: [deploy-staging, deploy-production]
+    environment: production
+
+    steps:
+    - name: Rollback production deployment
+      env:
+        DEPLOY_HOST: ${{ secrets.PRODUCTION_HOST }}
+        DEPLOY_USER: ${{ secrets.PRODUCTION_USER }}
+        DEPLOY_KEY: ${{ secrets.PRODUCTION_SSH_KEY }}
+      run: |
+        # Setup SSH
+        mkdir -p ~/.ssh
+        echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+
+        # Execute rollback
+        ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          cd /opt/gameapp/production
+          ./scripts/rollback.sh
+
+          # Verify rollback
+          sleep 30
+          curl -f http://localhost/api/auth/health || exit 1
+          echo "Rollback successful!"
+        EOF
+
+    - name: Notify rollback
+      run: |
+        echo "🔄 Production rollback completed!"
+        echo "Previous version has been restored."
+
+# 清理旧的镜像和部署
+  cleanup:
+    runs-on: ubuntu-latest
+    name: Cleanup Old Resources
+    needs: [deploy-production]
+    if: success()
+
+    steps:
+    - name: Clean up old container images
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const packages = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+            package_type: 'container',
+            package_name: 'gameapp/authserver',
+            org: context.repo.owner
+          });
+
+          // Keep only the latest 10 versions
+          const toDelete = packages.data.slice(10);
+          for (const pkg of toDelete) {
+            await github.rest.packages.deletePackageVersionForOrg({
+              package_type: 'container',
+              package_name: 'gameapp/authserver',
+              org: context.repo.owner,
+              package_version_id: pkg.id
+            });
+          }
+
+          console.log(`Cleaned up ${toDelete.length} old container images`);
