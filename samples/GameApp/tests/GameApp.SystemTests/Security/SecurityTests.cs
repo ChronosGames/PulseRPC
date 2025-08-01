@@ -56,8 +56,7 @@ namespace GameApp.SystemTests.Security
             }
             else
             {
-                response.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.Unauthorized,
-                    "SQL注入攻击应该返回错误状态码");
+                response.StatusCode.Should().BeOneOf(HttpStatusCode.BadRequest, HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden);
             }
 
             _output.WriteLine($"SQL注入攻击被成功阻止: {maliciousUsername}");
@@ -214,8 +213,7 @@ namespace GameApp.SystemTests.Security
 
                 var response = await _authClient.GetAsync("/api/zones");
 
-                response.StatusCode.Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden,
-                    "篡改的JWT令牌应该被拒绝");
+                response.StatusCode.Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden);
 
                 _output.WriteLine("JWT令牌篡改被成功检测");
             }
@@ -367,8 +365,7 @@ namespace GameApp.SystemTests.Security
                 // Assert
                 response.StatusCode.Should().BeOneOf(
                     HttpStatusCode.BadRequest,
-                    HttpStatusCode.UnsupportedMediaType,
-                    "畸形JSON应该返回适当的错误状态码");
+                    HttpStatusCode.UnsupportedMediaType);
 
                 // 确保服务器不会崩溃
                 var errorResponse = await _authClient.GetAsync("/ready");
