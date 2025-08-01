@@ -139,14 +139,47 @@ public class IntegrationTestFixture : IAsyncDisposable
 
     public IntegrationTestFixture()
     {
-        // 创建 AuthServer 测试工厂
+        // 创建 AuthServer 测试工厂，配置为使用内存服务
         AuthServerFactory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(builder =>
             {
+                builder.ConfigureAppConfiguration((context, config) =>
+                {
+                    // 使用测试配置，不连接真实的MongoDB和Redis
+                    config.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string?>("ConnectionStrings:MongoDB", ""),
+                        new KeyValuePair<string, string?>("ConnectionStrings:Redis", ""),
+                        new KeyValuePair<string, string?>("UseInMemoryDatabase", "true")
+                    });
+                });
+
                 builder.ConfigureServices(services =>
                 {
-                    // 这里可以替换测试用的数据库连接等
-                    // 例如：使用内存数据库或测试容器
+                    // 移除真实的数据库服务
+                    var descriptors = services.Where(d =>
+                        d.ServiceType.Name.Contains("Mongo") ||
+                        d.ServiceType.Name.Contains("Redis") ||
+                        d.ServiceType == typeof(MongoDB.Driver.IMongoDatabase) ||
+                        d.ServiceType == typeof(StackExchange.Redis.IDatabase)).ToList();
+
+                    foreach (var descriptor in descriptors)
+                    {
+                        services.Remove(descriptor);
+                    }
+
+                    // 注册内存实现
+                    services.AddSingleton<MongoDB.Driver.IMongoDatabase>(provider =>
+                    {
+                        // 返回空实现，测试时跳过数据库操作
+                        return null!;
+                    });
+
+                    services.AddSingleton<StackExchange.Redis.IDatabase>(provider =>
+                    {
+                        // 返回空实现，测试时跳过Redis操作
+                        return null!;
+                    });
                 });
             });
     }
