@@ -110,7 +110,10 @@ cd GameApp/samples/GameApp
 ### 2. 启动开发环境
 
 ```bash
-# 启动基础设施服务 (MongoDB + Redis + Consul)
+# 方式1: 启动完整的游戏服务 (推荐)
+./scripts/start-gameserver.sh
+
+# 方式2: 分步启动基础设施服务
 ./scripts/start-dev.sh
 
 # 查看服务状态
@@ -121,6 +124,9 @@ docker-compose -f docker/docker-compose.yml ps
 
 | 服务 | 地址 | 说明 |
 |------|------|------|
+| **AuthServer** | http://localhost:8080 | 认证服务 HTTP API |
+| **GameServer TCP** | tcp://localhost:7000 | 游戏服务器 TCP 通道 |
+| **GameServer KCP** | udp://localhost:7001 | 游戏服务器 KCP 通道 |
 | **Consul UI** | http://localhost:8500 | 服务发现管理界面 |
 | **MongoDB** | mongodb://admin:dev_password@localhost:27017/gameapp_dev | 数据库连接 |
 | **Redis** | redis://localhost:6379 | 缓存服务 (密码: dev_password) |
@@ -135,9 +141,9 @@ dotnet build GameApp.sln
 cd src/GameApp.AuthServer
 dotnet run
 
-# 在新终端运行 GameServer (待实现)
-# cd src/GameApp.GameServer
-# dotnet run
+# 在新终端运行 GameServer
+cd src/GameApp.GameServer
+dotnet run
 
 # 在新终端运行 BattleServer (待实现)
 # cd src/GameApp.BattleServer

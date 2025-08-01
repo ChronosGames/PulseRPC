@@ -88,9 +88,13 @@ services:
       ConnectionStrings__MongoDB: "mongodb://admin:dev_password@mongodb-dev:27017/gameapp_dev?authSource=admin"
       ConnectionStrings__Redis: "redis-dev:6379"
       Redis__Password: "dev_password"
+      GameServer__TcpPort: 7000
+      GameServer__KcpPort: 7001
+      GameServer__ServerId: "gameserver-dev"
+      GameServer__ServerName: "GameServer Development"
       Consul__Host: "consul-dev"
-      PulseRPC__TcpPort: 7000
-      PulseRPC__KcpPort: 7001
+      Consul__Port: 8500
+      Consul__Datacenter: "gameapp-dev"
     depends_on:
       - mongodb-dev
       - redis-dev
