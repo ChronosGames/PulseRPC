@@ -1,0 +1,140 @@
+version: '3.8'
+
+services:
+  # MongoDB 开发数据库
+  mongodb-dev:
+    image: mongo:7.0
+    container_name: gameapp-mongodb-dev
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: dev_password
+      MONGO_INITDB_DATABASE: gameapp_dev
+    volumes:
+      - mongodb-dev-data:/data/db
+      - ./mongodb/init-dev.js:/docker-entrypoint-initdb.d/init.js
+    networks:
+      - gameapp-dev
+    restart: unless-stopped
+
+  # Redis 开发缓存
+  redis-dev:
+    image: redis:7.0-alpine
+    container_name: gameapp-redis-dev
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass dev_password --appendonly yes
+    volumes:
+      - redis-dev-data:/data
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - gameapp-dev
+    restart: unless-stopped
+
+  # Consul 开发服务发现
+  consul-dev:
+    image: consul:1.15
+    container_name: gameapp-consul-dev
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
+    environment:
+      CONSUL_BIND_INTERFACE: eth0
+      CONSUL_CLIENT_INTERFACE: eth0
+    volumes:
+      - consul-dev-data:/consul/data
+      - ./consul/consul.json:/consul/config/consul.json
+    networks:
+      - gameapp-dev
+    restart: unless-stopped
+    command: consul agent -config-dir=/consul/config
+
+  # AuthServer 开发服务
+  authserver-dev:
+    build:
+      context: ../src/GameApp.AuthServer
+      dockerfile: Dockerfile.dev
+    container_name: gameapp-authserver-dev
+    ports:
+      - "8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__MongoDB: "mongodb://admin:dev_password@mongodb-dev:27017/gameapp_dev?authSource=admin"
+      ConnectionStrings__Redis: "redis-dev:6379"
+      Redis__Password: "dev_password"
+      Consul__Host: "consul-dev"
+      Jwt__SecretKey: "your-256-bit-secret-key-for-development-use-only"
+    depends_on:
+      - mongodb-dev
+      - redis-dev
+      - consul-dev
+    networks:
+      - gameapp-dev
+    restart: unless-stopped
+
+  # GameServer 开发服务
+  gameserver-dev:
+    build:
+      context: ../src/GameApp.GameServer
+      dockerfile: Dockerfile.dev
+    container_name: gameapp-gameserver-dev
+    ports:
+      - "7000:7000"
+      - "7001:7001"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__MongoDB: "mongodb://admin:dev_password@mongodb-dev:27017/gameapp_dev?authSource=admin"
+      ConnectionStrings__Redis: "redis-dev:6379"
+      Redis__Password: "dev_password"
+      Consul__Host: "consul-dev"
+      PulseRPC__TcpPort: 7000
+      PulseRPC__KcpPort: 7001
+    depends_on:
+      - mongodb-dev
+      - redis-dev
+      - consul-dev
+      - authserver-dev
+    networks:
+      - gameapp-dev
+    restart: unless-stopped
+
+  # BattleServer 开发服务
+  battleserver-dev:
+    build:
+      context: ../src/GameApp.BattleServer
+      dockerfile: Dockerfile.dev
+    container_name: gameapp-battleserver-dev
+    ports:
+      - "7002:7000"
+      - "7003:7001"
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__MongoDB: "mongodb://admin:dev_password@mongodb-dev:27017/gameapp_dev?authSource=admin"
+      ConnectionStrings__Redis: "redis-dev:6379"
+      Redis__Password: "dev_password"
+      Consul__Host: "consul-dev"
+      PulseRPC__TcpPort: 7000
+      PulseRPC__KcpPort: 7001
+    depends_on:
+      - mongodb-dev
+      - redis-dev
+      - consul-dev
+      - authserver-dev
+    networks:
+      - gameapp-dev
+    restart: unless-stopped
+
+networks:
+  gameapp-dev:
+    driver: bridge
+    name: gameapp-dev-network
+
+volumes:
+  mongodb-dev-data:
+    name: gameapp-mongodb-dev-data
+  redis-dev-data:
+    name: gameapp-redis-dev-data
+  consul-dev-data:
+    name: gameapp-consul-dev-data

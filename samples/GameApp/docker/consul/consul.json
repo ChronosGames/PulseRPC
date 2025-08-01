@@ -1,0 +1,88 @@
+{
+  "datacenter": "gameapp-dev",
+  "data_dir": "/consul/data",
+  "log_level": "INFO",
+  "node_name": "consul-dev",
+  "bind_addr": "0.0.0.0",
+  "client_addr": "0.0.0.0",
+  "retry_join": [],
+  "server": true,
+  "bootstrap_expect": 1,
+  "ui_config": {
+    "enabled": true
+  },
+  "connect": {
+    "enabled": true
+  },
+  "ports": {
+    "grpc": 8502
+  },
+  "acl": {
+    "enabled": false,
+    "default_policy": "allow"
+  },
+  "services": [
+    {
+      "name": "gameapp-authserver",
+      "id": "gameapp-authserver-dev",
+      "port": 8080,
+      "address": "authserver-dev",
+      "tags": ["auth", "http", "v1.0", "development"],
+      "check": {
+        "http": "http://authserver-dev:8080/health",
+        "interval": "10s",
+        "timeout": "3s"
+      },
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "zone": "zone001"
+      }
+    },
+    {
+      "name": "gameapp-gameserver",
+      "id": "gameapp-gameserver-dev",
+      "port": 7000,
+      "address": "gameserver-dev",
+      "tags": ["game", "pulserpc", "tcp", "v1.0", "development"],
+      "check": {
+        "tcp": "gameserver-dev:7000",
+        "interval": "10s",
+        "timeout": "3s"
+      },
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "zone": "zone001",
+        "protocol": "pulserpc",
+        "transport": "tcp",
+        "kcp_port": "7001"
+      }
+    },
+    {
+      "name": "gameapp-battleserver",
+      "id": "gameapp-battleserver-dev",
+      "port": 7000,
+      "address": "battleserver-dev",
+      "tags": ["battle", "pulserpc", "kcp", "v1.0", "development"],
+      "check": {
+        "tcp": "battleserver-dev:7000",
+        "interval": "10s",
+        "timeout": "3s"
+      },
+      "meta": {
+        "version": "1.0.0",
+        "environment": "development",
+        "zone": "zone001",
+        "protocol": "pulserpc",
+        "transport": "kcp",
+        "tcp_port": "7000"
+      }
+    }
+  ],
+  "key_prefix": {
+    "gameapp/": {
+      "policy": "write"
+    }
+  }
+}

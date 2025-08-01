@@ -1,0 +1,80 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}"
+EndProject
+
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{2150E333-8FDC-42A3-9474-1A3956D46DE8}"
+	ProjectSection(SolutionItems) = preProject
+		docs\README.md = docs\README.md
+		docs\architecture.md = docs\architecture.md
+		docs\api-design.md = docs\api-design.md
+		docs\database-design.md = docs\database-design.md
+		docs\development-plan.md = docs\development-plan.md
+		docs\deployment-plan.md = docs\deployment-plan.md
+		docs\game_login_flowchart.mermaid = docs\game_login_flowchart.mermaid
+	EndProjectSection
+EndProject
+
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "scripts", "scripts", "{F184B08F-C81C-45F6-A57F-5ABD9991F28F}"
+	ProjectSection(SolutionItems) = preProject
+		scripts\start-dev.sh = scripts\start-dev.sh
+		scripts\stop-dev.sh = scripts\stop-dev.sh
+		scripts\reset-dev.sh = scripts\reset-dev.sh
+	EndProjectSection
+EndProject
+
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docker", "docker", "{6C7C4B20-1B8A-4E1A-9C2D-3E4F5A6B7C8D}"
+	ProjectSection(SolutionItems) = preProject
+		docker\docker-compose.yml = docker\docker-compose.yml
+		docker\mongodb\init-dev.js = docker\mongodb\init-dev.js
+		docker\redis\redis.conf = docker\redis\redis.conf
+		docker\consul\consul.json = docker\consul\consul.json
+	EndProjectSection
+EndProject
+
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.Shared", "src\GameApp.Shared\GameApp.Shared.csproj", "{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}"
+EndProject
+
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.Infrastructure", "src\GameApp.Infrastructure\GameApp.Infrastructure.csproj", "{B3FE74E1-B743-11D0-AE1A-00A0C90FFFC4}"
+EndProject
+
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GameApp.AuthServer", "src\GameApp.AuthServer\GameApp.AuthServer.csproj", "{C4FE74E1-B743-11D0-AE1A-00A0C90FFFC5}"
+EndProject
+
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "client", "client", "{D5FE74E1-B743-11D0-AE1A-00A0C90FFFC6}"
+EndProject
+
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B3FE74E1-B743-11D0-AE1A-00A0C90FFFC4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B3FE74E1-B743-11D0-AE1A-00A0C90FFFC4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B3FE74E1-B743-11D0-AE1A-00A0C90FFFC4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B3FE74E1-B743-11D0-AE1A-00A0C90FFFC4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C4FE74E1-B743-11D0-AE1A-00A0C90FFFC5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C4FE74E1-B743-11D0-AE1A-00A0C90FFFC5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C4FE74E1-B743-11D0-AE1A-00A0C90FFFC5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C4FE74E1-B743-11D0-AE1A-00A0C90FFFC5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{A2FE74E1-B743-11D0-AE1A-00A0C90FFFC3} = {8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}
+		{B3FE74E1-B743-11D0-AE1A-00A0C90FFFC4} = {8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}
+		{C4FE74E1-B743-11D0-AE1A-00A0C90FFFC5} = {8BC9CEB8-8B4A-11D0-AE1A-00A0C91BC942}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {1E9F4D2A-8B3C-4D5E-9F0A-1B2C3D4E5F6A}
+	EndGlobalSection
+EndGlobal

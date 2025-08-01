@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+    <Authors>GameApp Team</Authors>
+    <Description>GameApp 共享类库，包含数据模型、服务接口和通用工具</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MemoryPack" />
+    <PackageReference Include="PulseRPC.Abstractions" />
+  </ItemGroup>
+
+  <!-- Unity 相关文件排除 -->
+  <ItemGroup>
+    <None Remove="**\package.json" />
+    <None Remove="**\*.asmdef" />
+    <None Remove="**\*.meta" />
+  </ItemGroup>
+
+</Project>
