@@ -1,0 +1,256 @@
+# Prometheus Configuration for GameApp Production
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    cluster: 'gameapp-production'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "rules/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    metrics_path: /metrics
+    scrape_interval: 30s
+
+  # GameApp AuthServer
+  - job_name: 'gameapp-authserver'
+    static_configs:
+      - targets:
+        - 'authserver-1:5000'
+        - 'authserver-2:5000'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: [__address__]
+        regex: '(.*):.*'
+        target_label: service
+        replacement: 'authserver'
+
+  # GameApp GameServer
+  - job_name: 'gameapp-gameserver'
+    static_configs:
+      - targets:
+        - 'gameserver-1:7000'
+        - 'gameserver-2:7002'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: [__address__]
+        regex: '(.*):.*'
+        target_label: service
+        replacement: 'gameserver'
+
+  # GameApp BattleServer
+  - job_name: 'gameapp-battleserver'
+    static_configs:
+      - targets:
+        - 'battleserver-1:8000'
+        - 'battleserver-2:8002'
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+      - source_labels: [__address__]
+        regex: '(.*):.*'
+        target_label: service
+        replacement: 'battleserver'
+
+  # MongoDB Exporter
+  - job_name: 'mongodb'
+    static_configs:
+      - targets: ['mongodb-exporter:9216']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'mongodb'
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'redis'
+
+  # Node Exporter (system metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'system'
+
+  # cAdvisor (container metrics)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'containers'
+
+  # Nginx Exporter
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'nginx'
+
+  # Consul
+  - job_name: 'consul'
+    static_configs:
+      - targets:
+        - 'consul-1:8500'
+        - 'consul-2:8500'
+        - 'consul-3:8500'
+    metrics_path: '/v1/agent/metrics'
+    params:
+      format: ['prometheus']
+    scrape_interval: 30s
+    scrape_timeout: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: service
+        replacement: 'consul'
+
+  # Blackbox Exporter (endpoint monitoring)
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://api.gameapp.com/api/auth/health
+        - https://gameapp.com/health
+        - https://monitoring.gameapp.com
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Blackbox Exporter (TCP monitoring for game servers)
+  - job_name: 'blackbox-tcp'
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets:
+        - gameserver-1:7000
+        - gameserver-2:7002
+        - battleserver-1:8000
+        - battleserver-2:8002
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+      - source_labels: [__param_target]
+        regex: '(.*server).*'
+        target_label: service
+        replacement: '${1}'
+
+# Storage configuration
+storage:
+  tsdb:
+    retention.time: 30d
+    retention.size: 50GB
+    wal-compression: true
+
+# Recording rules for common queries
+recording_rules:
+  - name: gameapp.rules
+    interval: 30s
+    rules:
+      # Request rate
+      - record: gameapp:http_requests_per_second
+        expr: sum(rate(http_requests_total[5m])) by (service, instance, method, status)
+
+      # Error rate
+      - record: gameapp:http_error_rate
+        expr: sum(rate(http_requests_total{status=~"4..|5.."}[5m])) by (service, instance) / sum(rate(http_requests_total[5m])) by (service, instance)
+
+      # Response time percentiles
+      - record: gameapp:http_request_duration_p95
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (service, instance, le))
+
+      - record: gameapp:http_request_duration_p99
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (service, instance, le))
+
+      # System metrics
+      - record: gameapp:cpu_usage_percent
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+      - record: gameapp:memory_usage_percent
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+      # Game-specific metrics
+      - record: gameapp:active_connections
+        expr: sum(gameserver_active_connections) by (service, instance)
+
+      - record: gameapp:active_battles
+        expr: sum(battleserver_active_battles) by (service, instance)
+
+      - record: gameapp:players_online
+        expr: sum(gameserver_players_online) by (service)
+
+# Remote write configuration (for long-term storage)
+# remote_write:
+#   - url: "https://prometheus-remote-write.example.com/api/v1/write"
+#     basic_auth:
+#       username: "gameapp"
+#       password: "your-remote-write-password"
+#     queue_config:
+#       max_samples_per_send: 1000
+#       max_shards: 200
+#       capacity: 2500
+
+# Remote read configuration (for historical data)
+# remote_read:
+#   - url: "https://prometheus-remote-read.example.com/api/v1/read"
+#     basic_auth:
+#       username: "gameapp"
+#       password: "your-remote-read-password"

@@ -1,0 +1,310 @@
+# GameApp Alerting Rules for Production Environment
+groups:
+  # Critical System Alerts
+  - name: gameapp.critical
+    rules:
+      # Service Down Alerts
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "{{ $labels.service }} service is down"
+          description: "{{ $labels.service }} on {{ $labels.instance }} has been down for more than 1 minute."
+          runbook_url: "https://docs.gameapp.com/runbooks/service-down"
+
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: gameapp:http_error_rate > 0.1
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "High error rate detected"
+          description: "{{ $labels.service }} on {{ $labels.instance }} has error rate of {{ $value | humanizePercentage }} for more than 5 minutes."
+          runbook_url: "https://docs.gameapp.com/runbooks/high-error-rate"
+
+      # Database Connection Issues
+      - alert: MongoDBDown
+        expr: mongodb_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: database
+        annotations:
+          summary: "MongoDB is down"
+          description: "MongoDB instance {{ $labels.instance }} is not responding."
+          runbook_url: "https://docs.gameapp.com/runbooks/mongodb-down"
+
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: cache
+        annotations:
+          summary: "Redis is down"
+          description: "Redis instance {{ $labels.instance }} is not responding."
+          runbook_url: "https://docs.gameapp.com/runbooks/redis-down"
+
+  # Performance Alerts
+  - name: gameapp.performance
+    rules:
+      # High Response Time
+      - alert: HighResponseTime
+        expr: gameapp:http_request_duration_p95 > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "High response time detected"
+          description: "{{ $labels.service }} on {{ $labels.instance }} has 95th percentile response time of {{ $value }}s for more than 5 minutes."
+          runbook_url: "https://docs.gameapp.com/runbooks/high-response-time"
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: gameapp:cpu_usage_percent > 80
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage on {{ $labels.instance }} is {{ $value }}% for more than 10 minutes."
+          runbook_url: "https://docs.gameapp.com/runbooks/high-cpu"
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: gameapp:memory_usage_percent > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage on {{ $labels.instance }} is {{ $value }}% for more than 5 minutes."
+          runbook_url: "https://docs.gameapp.com/runbooks/high-memory"
+
+      # Disk Space
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 20
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Disk space is low"
+          description: "Disk space on {{ $labels.instance }} mount {{ $labels.mountpoint }} is {{ $value }}% full."
+          runbook_url: "https://docs.gameapp.com/runbooks/disk-space-low"
+
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 10
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Disk space is critically low"
+          description: "Disk space on {{ $labels.instance }} mount {{ $labels.mountpoint }} is {{ $value }}% full."
+          runbook_url: "https://docs.gameapp.com/runbooks/disk-space-critical"
+
+  # Game-Specific Alerts
+  - name: gameapp.game
+    rules:
+      # Connection Limits
+      - alert: HighConnectionCount
+        expr: gameapp:active_connections > 8000
+        for: 5m
+        labels:
+          severity: warning
+          team: game
+        annotations:
+          summary: "High connection count"
+          description: "{{ $labels.service }} on {{ $labels.instance }} has {{ $value }} active connections."
+          runbook_url: "https://docs.gameapp.com/runbooks/high-connections"
+
+      # Battle Server Capacity
+      - alert: HighBattleCount
+        expr: gameapp:active_battles > 800
+        for: 5m
+        labels:
+          severity: warning
+          team: game
+        annotations:
+          summary: "High battle count"
+          description: "{{ $labels.service }} on {{ $labels.instance }} has {{ $value }} active battles."
+          runbook_url: "https://docs.gameapp.com/runbooks/high-battles"
+
+      # Player Count Anomaly
+      - alert: PlayerCountDrop
+        expr: (gameapp:players_online offset 1h) - gameapp:players_online > 1000
+        for: 10m
+        labels:
+          severity: warning
+          team: game
+        annotations:
+          summary: "Significant player count drop"
+          description: "Player count has dropped by {{ $value }} in the last hour."
+          runbook_url: "https://docs.gameapp.com/runbooks/player-drop"
+
+  # Infrastructure Alerts
+  - name: gameapp.infrastructure
+    rules:
+      # Load Balancer Health
+      - alert: LoadBalancerDown
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Load balancer endpoint is down"
+          description: "Load balancer check for {{ $labels.instance }} is failing."
+          runbook_url: "https://docs.gameapp.com/runbooks/lb-down"
+
+      # SSL Certificate Expiry
+      - alert: SSLCertificateExpiring
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 7
+        for: 1h
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "SSL certificate expiring soon"
+          description: "SSL certificate for {{ $labels.instance }} expires in {{ $value | humanizeDuration }}."
+          runbook_url: "https://docs.gameapp.com/runbooks/ssl-expiry"
+
+      - alert: SSLCertificateExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 86400 * 3
+        for: 1h
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "SSL certificate expiring very soon"
+          description: "SSL certificate for {{ $labels.instance }} expires in {{ $value | humanizeDuration }}."
+          runbook_url: "https://docs.gameapp.com/runbooks/ssl-expiry"
+
+  # Database Alerts
+  - name: gameapp.database
+    rules:
+      # MongoDB Replica Set
+      - alert: MongoDBReplicaSetMemberDown
+        expr: mongodb_members_state != 1
+        for: 2m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "MongoDB replica set member is down"
+          description: "MongoDB replica set member {{ $labels.instance }} is in state {{ $value }}."
+          runbook_url: "https://docs.gameapp.com/runbooks/mongodb-replica"
+
+      # MongoDB Connections
+      - alert: MongoDBHighConnections
+        expr: mongodb_connections{state="current"} / mongodb_connections{state="available"} > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          team: database
+        annotations:
+          summary: "MongoDB high connection usage"
+          description: "MongoDB on {{ $labels.instance }} is using {{ $value | humanizePercentage }} of available connections."
+          runbook_url: "https://docs.gameapp.com/runbooks/mongodb-connections"
+
+      # Redis Memory Usage
+      - alert: RedisHighMemoryUsage
+        expr: redis_memory_used_bytes / redis_config_maxmemory > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: cache
+        annotations:
+          summary: "Redis high memory usage"
+          description: "Redis on {{ $labels.instance }} is using {{ $value | humanizePercentage }} of allocated memory."
+          runbook_url: "https://docs.gameapp.com/runbooks/redis-memory"
+
+  # Security Alerts
+  - name: gameapp.security
+    rules:
+      # High Rate of Authentication Failures
+      - alert: HighAuthenticationFailures
+        expr: sum(rate(http_requests_total{status="401"}[5m])) by (instance) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate of authentication failures"
+          description: "{{ $labels.instance }} is experiencing {{ $value }} authentication failures per second."
+          runbook_url: "https://docs.gameapp.com/runbooks/auth-failures"
+
+      # Suspicious Request Patterns
+      - alert: HighErrorRate4xx
+        expr: sum(rate(http_requests_total{status=~"4.."}[5m])) by (instance) > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "High rate of 4xx errors"
+          description: "{{ $labels.instance }} is experiencing {{ $value }} 4xx errors per second."
+          runbook_url: "https://docs.gameapp.com/runbooks/high-4xx"
+
+  # Backup and Recovery Alerts
+  - name: gameapp.backup
+    rules:
+      # Backup Job Failures
+      - alert: BackupJobFailed
+        expr: backup_job_success == 0
+        for: 1h
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Backup job failed"
+          description: "Backup job {{ $labels.job }} has failed."
+          runbook_url: "https://docs.gameapp.com/runbooks/backup-failed"
+
+      # Backup Age
+      - alert: BackupTooOld
+        expr: time() - backup_last_success_timestamp > 86400 * 2
+        for: 1h
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Backup is too old"
+          description: "Last successful backup was {{ $value | humanizeDuration }} ago."
+          runbook_url: "https://docs.gameapp.com/runbooks/backup-old"
+
+  # Network Alerts
+  - name: gameapp.network
+    rules:
+      # High Network Errors
+      - alert: HighNetworkErrors
+        expr: rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High network error rate"
+          description: "Network interface {{ $labels.device }} on {{ $labels.instance }} is experiencing {{ $value }} errors per second."
+          runbook_url: "https://docs.gameapp.com/runbooks/network-errors"
+
+      # TCP Connection Failures
+      - alert: TCPConnectionFailures
+        expr: probe_success{job="blackbox-tcp"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: game
+        annotations:
+          summary: "TCP connection check failed"
+          description: "TCP connection to {{ $labels.instance }} is failing."
+          runbook_url: "https://docs.gameapp.com/runbooks/tcp-connection"

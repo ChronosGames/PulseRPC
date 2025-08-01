@@ -1,0 +1,562 @@
+version: '3.8'
+
+services:
+  # Reverse Proxy and Load Balancer
+  nginx:
+    image: nginx:1.24-alpine
+    container_name: gameapp-nginx-prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - authserver-1
+      - authserver-2
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # AuthServer instances (High Availability)
+  authserver-1:
+    image: ${REGISTRY:-ghcr.io/gameapp}/authserver:${IMAGE_TAG:-latest}
+    container_name: gameapp-authserver-1
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://0.0.0.0:5000
+      - ConnectionStrings__MongoDB=${MONGODB_CONNECTION_STRING}
+      - ConnectionStrings__Redis=${REDIS_CONNECTION_STRING}
+      - JwtOptions__SecretKey=${JWT_SECRET_KEY}
+      - JwtOptions__Issuer=GameAppAuthServer
+      - JwtOptions__Audience=GameAppClients
+      - Consul__Host=consul-1
+      - Consul__Port=8500
+      - Consul__Datacenter=gameapp-prod
+      - Serilog__MinimumLevel__Default=Information
+      - Serilog__WriteTo__0__Name=Console
+      - Serilog__WriteTo__1__Name=File
+      - Serilog__WriteTo__1__Args__path=/app/logs/authserver-1.log
+    volumes:
+      - authserver_1_logs:/app/logs
+      - authserver_1_data:/app/data
+    depends_on:
+      - mongodb-primary
+      - redis-master
+      - consul-1
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/auth/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  authserver-2:
+    image: ${REGISTRY:-ghcr.io/gameapp}/authserver:${IMAGE_TAG:-latest}
+    container_name: gameapp-authserver-2
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://0.0.0.0:5000
+      - ConnectionStrings__MongoDB=${MONGODB_CONNECTION_STRING}
+      - ConnectionStrings__Redis=${REDIS_CONNECTION_STRING}
+      - JwtOptions__SecretKey=${JWT_SECRET_KEY}
+      - JwtOptions__Issuer=GameAppAuthServer
+      - JwtOptions__Audience=GameAppClients
+      - Consul__Host=consul-1
+      - Consul__Port=8500
+      - Consul__Datacenter=gameapp-prod
+      - Serilog__MinimumLevel__Default=Information
+      - Serilog__WriteTo__0__Name=Console
+      - Serilog__WriteTo__1__Name=File
+      - Serilog__WriteTo__1__Args__path=/app/logs/authserver-2.log
+    volumes:
+      - authserver_2_logs:/app/logs
+      - authserver_2_data:/app/data
+    depends_on:
+      - mongodb-primary
+      - redis-master
+      - consul-1
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 1G
+          cpus: '1.0'
+
+  # GameServer instances (High Availability)
+  gameserver-1:
+    image: ${REGISTRY:-ghcr.io/gameapp}/gameserver:${IMAGE_TAG:-latest}
+    container_name: gameapp-gameserver-1
+    ports:
+      - "7000:7000"
+      - "7001:7001/udp"
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+      - ConnectionStrings__MongoDB=${MONGODB_CONNECTION_STRING}
+      - ConnectionStrings__Redis=${REDIS_CONNECTION_STRING}
+      - GameServer__ServerId=gameserver-1
+      - GameServer__ServerName=GameServer Production 1
+      - GameServer__TcpPort=7000
+      - GameServer__KcpPort=7001
+      - GameServer__MaxConnections=10000
+      - Consul__Host=consul-1
+      - Consul__Port=8500
+      - Consul__Datacenter=gameapp-prod
+    volumes:
+      - gameserver_1_logs:/app/logs
+      - gameserver_1_data:/app/data
+    depends_on:
+      - mongodb-primary
+      - redis-master
+      - consul-1
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '2.0'
+
+  gameserver-2:
+    image: ${REGISTRY:-ghcr.io/gameapp}/gameserver:${IMAGE_TAG:-latest}
+    container_name: gameapp-gameserver-2
+    ports:
+      - "7002:7000"
+      - "7003:7001/udp"
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+      - ConnectionStrings__MongoDB=${MONGODB_CONNECTION_STRING}
+      - ConnectionStrings__Redis=${REDIS_CONNECTION_STRING}
+      - GameServer__ServerId=gameserver-2
+      - GameServer__ServerName=GameServer Production 2
+      - GameServer__TcpPort=7000
+      - GameServer__KcpPort=7001
+      - GameServer__MaxConnections=10000
+      - Consul__Host=consul-1
+      - Consul__Port=8500
+      - Consul__Datacenter=gameapp-prod
+    volumes:
+      - gameserver_2_logs:/app/logs
+      - gameserver_2_data:/app/data
+    depends_on:
+      - mongodb-primary
+      - redis-master
+      - consul-1
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '2.0'
+
+  # BattleServer instances (High Availability)
+  battleserver-1:
+    image: ${REGISTRY:-ghcr.io/gameapp}/battleserver:${IMAGE_TAG:-latest}
+    container_name: gameapp-battleserver-1
+    ports:
+      - "8000:8000"
+      - "8001:8001/udp"
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+      - ConnectionStrings__MongoDB=${MONGODB_CONNECTION_STRING}
+      - ConnectionStrings__Redis=${REDIS_CONNECTION_STRING}
+      - BattleServer__ServerId=battleserver-1
+      - BattleServer__ServerName=BattleServer Production 1
+      - BattleServer__TcpPort=8000
+      - BattleServer__KcpPort=8001
+      - BattleServer__MaxBattles=1000
+      - Consul__Host=consul-1
+      - Consul__Port=8500
+      - Consul__Datacenter=gameapp-prod
+    volumes:
+      - battleserver_1_logs:/app/logs
+      - battleserver_1_data:/app/data
+    depends_on:
+      - mongodb-primary
+      - redis-master
+      - consul-1
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '2.0'
+
+  battleserver-2:
+    image: ${REGISTRY:-ghcr.io/gameapp}/battleserver:${IMAGE_TAG:-latest}
+    container_name: gameapp-battleserver-2
+    ports:
+      - "8002:8000"
+      - "8003:8001/udp"
+    environment:
+      - DOTNET_ENVIRONMENT=Production
+      - ConnectionStrings__MongoDB=${MONGODB_CONNECTION_STRING}
+      - ConnectionStrings__Redis=${REDIS_CONNECTION_STRING}
+      - BattleServer__ServerId=battleserver-2
+      - BattleServer__ServerName=BattleServer Production 2
+      - BattleServer__TcpPort=8000
+      - BattleServer__KcpPort=8001
+      - BattleServer__MaxBattles=1000
+      - Consul__Host=consul-1
+      - Consul__Port=8500
+      - Consul__Datacenter=gameapp-prod
+    volumes:
+      - battleserver_2_logs:/app/logs
+      - battleserver_2_data:/app/data
+    depends_on:
+      - mongodb-primary
+      - redis-master
+      - consul-1
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '2.0'
+
+  # MongoDB Replica Set
+  mongodb-primary:
+    image: mongo:7.0
+    container_name: gameapp-mongodb-primary
+    command: mongod --config /etc/mongod.conf --replSet gameapp-replica
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: gameapp_prod
+    volumes:
+      - mongodb_primary_data:/data/db
+      - mongodb_primary_config:/data/configdb
+      - mongodb_logs:/var/log/mongodb
+      - ./mongodb/mongod.conf:/etc/mongod.conf:ro
+      - ./mongodb/init-replica.js:/docker-entrypoint-initdb.d/init-replica.js:ro
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '4.0'
+        reservations:
+          memory: 2G
+          cpus: '2.0'
+
+  mongodb-secondary-1:
+    image: mongo:7.0
+    container_name: gameapp-mongodb-secondary-1
+    command: mongod --config /etc/mongod.conf --replSet gameapp-replica
+    volumes:
+      - mongodb_secondary_1_data:/data/db
+      - mongodb_secondary_1_config:/data/configdb
+      - ./mongodb/mongod.conf:/etc/mongod.conf:ro
+    depends_on:
+      - mongodb-primary
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+
+  mongodb-secondary-2:
+    image: mongo:7.0
+    container_name: gameapp-mongodb-secondary-2
+    command: mongod --config /etc/mongod.conf --replSet gameapp-replica
+    volumes:
+      - mongodb_secondary_2_data:/data/db
+      - mongodb_secondary_2_config:/data/configdb
+      - ./mongodb/mongod.conf:/etc/mongod.conf:ro
+    depends_on:
+      - mongodb-primary
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+
+  # Redis Cluster
+  redis-master:
+    image: redis:7.0-alpine
+    container_name: gameapp-redis-master
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - redis_master_data:/data
+      - ./redis/redis-master.conf:/etc/redis/redis.conf:ro
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+
+  redis-slave:
+    image: redis:7.0-alpine
+    container_name: gameapp-redis-slave
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - redis_slave_data:/data
+      - ./redis/redis-slave.conf:/etc/redis/redis.conf:ro
+    depends_on:
+      - redis-master
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+
+  # Service Discovery Cluster
+  consul-1:
+    image: hashicorp/consul:1.15
+    container_name: gameapp-consul-1
+    command: >
+      consul agent
+      -server
+      -bootstrap-expect=3
+      -ui
+      -client=0.0.0.0
+      -bind=0.0.0.0
+      -data-dir=/consul/data
+      -config-dir=/consul/config
+      -node=consul-1
+      -datacenter=gameapp-prod
+    volumes:
+      - consul_1_data:/consul/data
+      - ./consul:/consul/config:ro
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+
+  consul-2:
+    image: hashicorp/consul:1.15
+    container_name: gameapp-consul-2
+    command: >
+      consul agent
+      -server
+      -retry-join=consul-1
+      -client=0.0.0.0
+      -bind=0.0.0.0
+      -data-dir=/consul/data
+      -config-dir=/consul/config
+      -node=consul-2
+      -datacenter=gameapp-prod
+    volumes:
+      - consul_2_data:/consul/data
+      - ./consul:/consul/config:ro
+    depends_on:
+      - consul-1
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+
+  consul-3:
+    image: hashicorp/consul:1.15
+    container_name: gameapp-consul-3
+    command: >
+      consul agent
+      -server
+      -retry-join=consul-1
+      -client=0.0.0.0
+      -bind=0.0.0.0
+      -data-dir=/consul/data
+      -config-dir=/consul/config
+      -node=consul-3
+      -datacenter=gameapp-prod
+    volumes:
+      - consul_3_data:/consul/data
+      - ./consul:/consul/config:ro
+    depends_on:
+      - consul-1
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+
+  # Monitoring Stack
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: gameapp-prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--storage.tsdb.retention.time=30d'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: gameapp-grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+
+  # Log aggregation
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+    container_name: gameapp-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.8.0
+    container_name: gameapp-logstash
+    volumes:
+      - ./logging/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./logging/logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      - elasticsearch
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.8.0
+    container_name: gameapp-kibana
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - gameapp-prod
+    restart: unless-stopped
+
+volumes:
+  # Application logs and data
+  authserver_1_logs:
+  authserver_1_data:
+  authserver_2_logs:
+  authserver_2_data:
+  gameserver_1_logs:
+  gameserver_1_data:
+  gameserver_2_logs:
+  gameserver_2_data:
+  battleserver_1_logs:
+  battleserver_1_data:
+  battleserver_2_logs:
+  battleserver_2_data:
+  nginx_logs:
+
+  # Database data
+  mongodb_primary_data:
+  mongodb_primary_config:
+  mongodb_secondary_1_data:
+  mongodb_secondary_1_config:
+  mongodb_secondary_2_data:
+  mongodb_secondary_2_config:
+  mongodb_logs:
+
+  # Cache data
+  redis_master_data:
+  redis_slave_data:
+
+  # Service discovery data
+  consul_1_data:
+  consul_2_data:
+  consul_3_data:
+
+  # Monitoring data
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:
+
+networks:
+  gameapp-prod:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
