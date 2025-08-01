@@ -215,6 +215,8 @@ if (app.Environment.IsDevelopment())
 }
 
 // 自定义中间件
+app.UseMiddleware<PerformanceMonitoringMiddleware>();
+app.UseMiddleware<ResponseCachingMiddleware>();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseMiddleware<RequestLoggingMiddleware>();
 
