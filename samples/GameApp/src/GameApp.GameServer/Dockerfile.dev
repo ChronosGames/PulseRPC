@@ -1,0 +1,36 @@
+# GameServer Development Dockerfile
+FROM mcr.microsoft.com/dotnet/runtime:8.0 AS base
+WORKDIR /app
+EXPOSE 7000 7001
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Copy project files
+COPY ["src/GameApp.GameServer/GameApp.GameServer.csproj", "src/GameApp.GameServer/"]
+COPY ["src/GameApp.Shared/GameApp.Shared.csproj", "src/GameApp.Shared/"]
+COPY ["src/GameApp.Infrastructure/GameApp.Infrastructure.csproj", "src/GameApp.Infrastructure/"]
+COPY ["Directory.Packages.props", ""]
+
+# Restore dependencies
+RUN dotnet restore "src/GameApp.GameServer/GameApp.GameServer.csproj"
+
+# Copy source code
+COPY . .
+
+# Build application
+WORKDIR "/src/src/GameApp.GameServer"
+RUN dotnet build "GameApp.GameServer.csproj" -c Debug -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "GameApp.GameServer.csproj" -c Debug -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:7000/health || exit 1
+
+ENTRYPOINT ["dotnet", "GameApp.GameServer.dll"]
