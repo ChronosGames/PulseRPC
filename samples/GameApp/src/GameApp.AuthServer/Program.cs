@@ -55,24 +55,29 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// MongoDB 配置
-builder.Services.AddSingleton<IMongoClient>(sp =>
-{
-    var connectionString = builder.Configuration.GetConnectionString("MongoDB") ??
-        throw new InvalidOperationException("MongoDB connection string not configured");
-    return new MongoClient(connectionString);
-});
+// 检查是否为测试环境
+var useInMemoryDatabase = builder.Configuration.GetValue<bool>("UseInMemoryDatabase", false);
 
-builder.Services.AddSingleton(sp =>
+if (!useInMemoryDatabase)
 {
-    var client = sp.GetRequiredService<IMongoClient>();
-    return client.GetDatabase("gameapp_dev");
-});
+    // MongoDB 配置 - 生产环境
+    builder.Services.AddSingleton<IMongoClient>(sp =>
+    {
+        var connectionString = builder.Configuration.GetConnectionString("MongoDB") ??
+            throw new InvalidOperationException("MongoDB connection string not configured");
+        return new MongoClient(connectionString);
+    });
 
-// Redis 配置
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-{
-    var connectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+    builder.Services.AddSingleton(sp =>
+    {
+        var client = sp.GetRequiredService<IMongoClient>();
+        return client.GetDatabase("gameapp_dev");
+    });
+
+    // Redis 配置 - 生产环境
+    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    {
+        var connectionString = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
     var password = builder.Configuration["Redis:Password"];
 
     var configuration = ConfigurationOptions.Parse(connectionString);
@@ -82,7 +87,43 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     }
 
     return ConnectionMultiplexer.Connect(configuration);
-});
+    });
+
+    builder.Services.AddSingleton(sp =>
+    {
+        var redis = sp.GetRequiredService<IConnectionMultiplexer>();
+        return redis.GetDatabase();
+    });
+}
+else
+{
+    // 测试环境 - 使用模拟服务
+    builder.Services.AddSingleton<IMongoClient>(sp =>
+    {
+        // 返回模拟的MongoClient，不会实际连接
+        return new MongoDB.Driver.MongoClient("mongodb://localhost:27017");
+    });
+
+    builder.Services.AddSingleton<MongoDB.Driver.IMongoDatabase>(sp =>
+    {
+        // 返回模拟数据库，测试时不执行实际操作
+        var client = sp.GetRequiredService<IMongoClient>();
+        return client.GetDatabase("test_db");
+    });
+
+    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    {
+        // 返回模拟的Redis连接
+        return ConnectionMultiplexer.Connect("localhost:6379");
+    });
+
+    builder.Services.AddSingleton<StackExchange.Redis.IDatabase>(sp =>
+    {
+        // 返回模拟的Redis数据库
+        var redis = sp.GetRequiredService<IConnectionMultiplexer>();
+        return redis.GetDatabase();
+    });
+}
 
 // JWT 配置
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
@@ -197,16 +238,26 @@ try
 {
     logger.LogInformation("GameApp AuthServer 正在启动...");
 
-    // 测试 MongoDB 连接
-    var mongoClient = scope.ServiceProvider.GetRequiredService<IMongoClient>();
-    await mongoClient.ListDatabaseNamesAsync();
-    logger.LogInformation("MongoDB 连接成功");
+    // 检查是否为测试环境，跳过外部服务连接验证
+    var useInMemoryDatabaseForStartup = builder.Configuration.GetValue<bool>("UseInMemoryDatabase", false);
 
-    // 测试 Redis 连接
-    var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
-    var db = redis.GetDatabase();
-    await db.PingAsync();
-    logger.LogInformation("Redis 连接成功");
+    if (!useInMemoryDatabaseForStartup)
+    {
+        // 测试 MongoDB 连接
+        var mongoClient = scope.ServiceProvider.GetRequiredService<IMongoClient>();
+        await mongoClient.ListDatabaseNamesAsync();
+        logger.LogInformation("MongoDB 连接成功");
+
+        // 测试 Redis 连接
+        var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
+        var db = redis.GetDatabase();
+        await db.PingAsync();
+        logger.LogInformation("Redis 连接成功");
+    }
+    else
+    {
+        logger.LogInformation("测试环境：跳过外部服务连接验证");
+    }
 
     logger.LogInformation("GameApp AuthServer 启动完成，监听端口: {Port}",
         builder.Configuration["ASPNETCORE_URLS"] ?? "http://localhost:8080");
