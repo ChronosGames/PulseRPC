@@ -4,6 +4,8 @@ using Microsoft.Extensions.Caching.StackExchangeRedis;
 using GameApp.Infrastructure.Services;
 using GameApp.Infrastructure.Configuration;
 using GameApp.Infrastructure.Performance;
+using GameApp.Infrastructure.Logging;
+using GameApp.Infrastructure.Monitoring;
 
 namespace GameApp.Infrastructure.Extensions;
 
@@ -26,12 +28,19 @@ public static class ServiceCollectionExtensions
         // 基础设施服务
         services.AddScoped<IInfrastructureService, InfrastructureService>();
 
-        // 性能监控服务
+                // 性能监控服务
         services.AddSingleton<IPerformanceService, PerformanceService>();
         services.AddScoped<IDatabasePerformanceService, DatabasePerformanceService>();
 
-        // 性能优化后台服务
+        // 日志服务
+        services.AddSingleton<IStructuredLogger, StructuredLogger>();
+
+        // 监控告警服务
+        services.AddSingleton<IAlertService, AlertService>();
+
+        // 后台服务
         services.AddHostedService<PerformanceOptimizationBackgroundService>();
+        services.AddHostedService<MonitoringBackgroundService>();
 
         // 缓存配置
         services.AddStackExchangeRedisCache(options =>
