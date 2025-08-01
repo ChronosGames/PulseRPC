@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Caching.StackExchangeRedis;
 using GameApp.Infrastructure.Services;
 using GameApp.Infrastructure.Configuration;
+using GameApp.Infrastructure.Performance;
 
 namespace GameApp.Infrastructure.Extensions;
 
@@ -24,6 +25,13 @@ public static class ServiceCollectionExtensions
 
         // 基础设施服务
         services.AddScoped<IInfrastructureService, InfrastructureService>();
+
+        // 性能监控服务
+        services.AddSingleton<IPerformanceService, PerformanceService>();
+        services.AddScoped<IDatabasePerformanceService, DatabasePerformanceService>();
+
+        // 性能优化后台服务
+        services.AddHostedService<PerformanceOptimizationBackgroundService>();
 
         // 缓存配置
         services.AddStackExchangeRedisCache(options =>

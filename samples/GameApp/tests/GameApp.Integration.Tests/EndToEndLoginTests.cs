@@ -6,7 +6,6 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit;
-using PulseRPC.Client;
 using GameApp.AuthServer;
 using GameApp.Shared.Services;
 
