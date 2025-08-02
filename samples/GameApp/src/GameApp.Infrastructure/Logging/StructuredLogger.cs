@@ -94,7 +94,7 @@ namespace GameApp.Infrastructure.Logging
             return new PerformanceScope(this, operation, properties);
         }
 
-        private Dictionary<string, object> CreateLogData(string category, string message, object? data, Dictionary<string, object>? properties)
+        private static Dictionary<string, object> CreateLogData(string category, string message, object? data, Dictionary<string, object>? properties)
         {
             var logData = new Dictionary<string, object>
             {
@@ -137,7 +137,7 @@ namespace GameApp.Infrastructure.Logging
             };
         }
 
-        private LogLevel GetSecurityLogLevel(SecurityEventType eventType)
+        private static LogLevel GetSecurityLogLevel(SecurityEventType eventType)
         {
             return eventType switch
             {

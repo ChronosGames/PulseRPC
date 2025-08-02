@@ -123,7 +123,7 @@ services:
       BattleServer__KcpPort: 8001
       BattleServer__ServerId: "battleserver-dev"
       BattleServer__ServerName: "BattleServer Development"
-      BattleServer__EnableDebugMode: true
+      BattleServer__EnableDebugMode: "true"
       Consul__Host: "consul-dev"
       Consul__Port: 8500
       Consul__Datacenter: "gameapp-dev"

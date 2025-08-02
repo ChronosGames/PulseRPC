@@ -11,6 +11,7 @@ using GameApp.AuthServer.Middleware;
 using GameApp.Infrastructure.Extensions;
 using GameApp.Infrastructure.Configuration;
 using GameApp.AuthServer.Configuration;
+using MongoDB.Bson;
 
 [assembly: InternalsVisibleTo("GameApp.Integration.Tests")]
 
@@ -98,11 +99,7 @@ if (!useInMemoryDatabase)
 else
 {
     // 测试环境 - 使用模拟服务
-    builder.Services.AddSingleton<IMongoClient>(sp =>
-    {
-        // 返回模拟的MongoClient，不会实际连接
-        return new MongoDB.Driver.MongoClient("mongodb://localhost:27017");
-    });
+    builder.Services.AddSingleton<IMongoClient>(_ => new MongoClient("mongodb://localhost:27017"));
 
     builder.Services.AddSingleton<MongoDB.Driver.IMongoDatabase>(sp =>
     {
@@ -111,11 +108,7 @@ else
         return client.GetDatabase("test_db");
     });
 
-    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-    {
-        // 返回模拟的Redis连接
-        return ConnectionMultiplexer.Connect("localhost:6379");
-    });
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect("localhost:6379"));
 
     builder.Services.AddSingleton<StackExchange.Redis.IDatabase>(sp =>
     {
@@ -246,7 +239,6 @@ try
         // 测试 MongoDB 连接
         var mongoClient = scope.ServiceProvider.GetRequiredService<IMongoClient>();
         await mongoClient.ListDatabaseNamesAsync();
-        logger.LogInformation("MongoDB 连接成功");
 
         // 测试 Redis 连接
         var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();

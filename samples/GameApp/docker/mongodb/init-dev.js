@@ -9,10 +9,7 @@ db.createUser({
   user: 'gameapp_admin',
   pwd: 'gameapp_admin_password',
   roles: [
-    {
-      role: 'readWrite',
-      db: 'gameapp_dev'
-    }
+    { role: 'readWrite', db: 'gameapp_dev' },
   ]
 });
 

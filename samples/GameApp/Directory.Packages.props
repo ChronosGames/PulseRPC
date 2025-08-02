@@ -38,7 +38,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.RateLimiting" Version="8.0.11" />
 
     <!-- 数据库和缓存 -->
-    <PackageVersion Include="MongoDB.Driver" Version="2.23.1" />
+    <PackageVersion Include="MongoDB.Driver" Version="3.4.2" />
     <PackageVersion Include="StackExchange.Redis" Version="2.7.33" />
 
     <!-- 服务发现 -->
@@ -56,10 +56,10 @@
 
     <!-- 测试相关 -->
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
-    <PackageVersion Include="xunit" Version="2.6.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="2.5.3" />
     <PackageVersion Include="coverlet.collector" Version="6.0.0" />
-    <PackageVersion Include="FluentAssertions" Version="6.12.0" />
+    <PackageVersion Include="FluentAssertions" Version="8.5.0" />
     <PackageVersion Include="Moq" Version="4.20.69" />
 
     <!-- 容器测试 -->
@@ -70,5 +70,4 @@
     <!-- 性能测试 -->
     <PackageVersion Include="NBomber" Version="6.0.0" />
   </ItemGroup>
-
 </Project>
