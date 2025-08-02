@@ -50,6 +50,13 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     return ConnectionMultiplexer.Connect(configuration);
 });
 
+// 注册IDatabase
+builder.Services.AddScoped<IDatabase>(provider =>
+{
+    var multiplexer = provider.GetService<IConnectionMultiplexer>();
+    return multiplexer!.GetDatabase();
+});
+
 // 基础设施服务
 builder.Services.AddGameAppInfrastructure(builder.Configuration);
 

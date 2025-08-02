@@ -23,7 +23,7 @@ namespace GameApp.Unity.Network
         {
             try
             {
-                Debug.Log($"Battle state updated: {eventData.BattleInfo?.BattleId} - Status: {eventData.BattleInfo?.Status}");
+                Debug.Log($"Battle state updated: {eventData.BattleId} - Status: {eventData.Status}");
                 BattleStateUpdated?.Invoke(eventData);
             }
             catch (Exception ex)
@@ -39,7 +39,7 @@ namespace GameApp.Unity.Network
         {
             try
             {
-                Debug.Log($"Skill used: Player {eventData.UserId} used skill {eventData.SkillId} - Damage: {eventData.Damage}");
+                Debug.Log($"Skill used: Player {eventData.PlayerId} used skill {eventData.Skill.SkillId}");
                 SkillUsed?.Invoke(eventData);
             }
             catch (Exception ex)
@@ -55,7 +55,7 @@ namespace GameApp.Unity.Network
         {
             try
             {
-                Debug.Log($"Damage dealt: {eventData.Damage} from {eventData.AttackerId} to {eventData.DefenderId} - Type: {eventData.DamageType}");
+                Debug.Log($"Damage dealt: from {eventData.SourcePlayerId}");
                 DamageDealt?.Invoke(eventData);
             }
             catch (Exception ex)
@@ -71,7 +71,7 @@ namespace GameApp.Unity.Network
         {
             try
             {
-                Debug.Log($"Player defeated: {eventData.PlayerId} by {eventData.KillerId}");
+                Debug.Log($"Player defeated: {eventData.PlayerId} by {eventData.KillerPlayerId}");
                 PlayerDefeated?.Invoke(eventData);
             }
             catch (Exception ex)

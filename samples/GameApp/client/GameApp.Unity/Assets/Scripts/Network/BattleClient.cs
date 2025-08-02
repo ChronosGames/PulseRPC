@@ -4,6 +4,9 @@ using System.Threading.Tasks;
 using UnityEngine;
 using PulseRPC.Client;
 using GameApp.Shared.Services;
+using PulseRPC;
+
+#nullable enable
 
 namespace GameApp.Unity.Network
 {
@@ -19,7 +22,7 @@ namespace GameApp.Unity.Network
         // 事件监听器
         private BattleEventsImpl _battleEvents;
 
-        public bool IsConnected => _pulseClient?.IsConnected ?? false;
+        public bool IsConnected => _pulseClient.IsConnected;
         public string CurrentBattleId { get; private set; } = string.Empty;
         public BattleInfo? CurrentBattle { get; private set; }
 
@@ -45,10 +48,11 @@ namespace GameApp.Unity.Network
                 Debug.Log($"Initializing BattleClient: {serverAddress}:{tcpPort}/{kcpPort}");
 
                 // 创建 PulseRPC 客户端，优先使用KCP进行低延迟战斗
-                _pulseClient = PulseClientBuilder.Create()
-                    .AddKcp("KcpChannel", serverAddress, kcpPort)  // 主要用于实时战斗
-                    .AddTcp("TcpChannel", serverAddress, tcpPort)  // 用于可靠传输
-                    .Build();
+                _pulseClient = PulseRpcClientFactory.CreateClient(builder =>
+                    {
+                        builder.AddKcp("KcpChannel", serverAddress, kcpPort); // 主要用于实时战斗
+                        builder.AddTcp("TcpChannel", serverAddress, tcpPort); // 用于可靠传输
+                    });
 
                 // 连接到服务器
                 await _pulseClient.ConnectAsync();
@@ -61,7 +65,7 @@ namespace GameApp.Unity.Network
                 _battleEvents = new BattleEventsImpl();
                 _battleEvents.BattleStateUpdated += OnBattleStateUpdate;
                 _battleEvents.SkillUsed += OnSkillUse;
-                _battleEvents.DamageDealt += OnDamageDealt;
+                _battleEvents.DamageDealt += OnDamageDealt2;
                 _battleEvents.PlayerDefeated += OnPlayerDefeat;
                 _battleEvents.BattleEnded += OnBattleEnd;
 
@@ -175,13 +179,13 @@ namespace GameApp.Unity.Network
                     BattleId = CurrentBattleId,
                     PlayerId = playerId,
                     SkillId = skillId,
-                    TargetPosition = new Position3D
+                    TargetPosition = new BattlePosition
                     {
                         X = targetPosition.x,
                         Y = targetPosition.y,
                         Z = targetPosition.z
                     },
-                    TargetPlayerId = targetPlayerId
+                    TargetPlayerIds = new List<int> { targetPlayerId ?? 0 },
                 };
 
                 var result = await _battleService.UseSkillAsync(request);
@@ -224,7 +228,7 @@ namespace GameApp.Unity.Network
                 {
                     BattleId = CurrentBattleId,
                     PlayerId = playerId,
-                    Position = new Position3D
+                    Position = new BattlePosition
                     {
                         X = position.x,
                         Y = position.y,
@@ -335,8 +339,8 @@ namespace GameApp.Unity.Network
                 Debug.LogError($"Get player skills error: {ex.Message}");
                 return new PlayerSkillsResponse
                 {
-                    Success = false,
-                    Message = $"获取技能列表失败: {ex.Message}",
+                    // Success = false,
+                    // Message = $"获取技能列表失败: {ex.Message}",
                     Skills = new List<PlayerSkill>()
                 };
             }
@@ -381,7 +385,12 @@ namespace GameApp.Unity.Network
 
         private void OnBattleStateUpdate(BattleStateUpdateEvent eventData)
         {
-            CurrentBattle = eventData.BattleInfo;
+            CurrentBattle = new BattleInfo()
+            {
+                BattleId = eventData.BattleId,
+                Status = eventData.Status,
+                Players = eventData.Players,
+            };
             OnBattleStateUpdated?.Invoke(eventData);
         }
 
@@ -390,9 +399,9 @@ namespace GameApp.Unity.Network
             OnSkillUsed?.Invoke(eventData);
         }
 
-        private void OnDamageDealt(DamageDealtEvent eventData)
+        private void OnDamageDealt2(DamageDealtEvent eventData)
         {
-            OnDamageDealt?.Invoke(eventData);
+            this.OnDamageDealt?.Invoke(eventData);
         }
 
         private void OnPlayerDefeat(PlayerDefeatedEvent eventData)

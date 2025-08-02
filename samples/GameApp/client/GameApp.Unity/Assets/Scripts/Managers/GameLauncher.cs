@@ -115,7 +115,7 @@ namespace GameApp.Unity.Managers
         private async Task InitializeNetworkClients()
         {
             // 初始化 AuthClient
-            _authClient = new AuthClient();
+            _authClient = new AuthClient(gameConfig.AuthServerUrl);
 
             // 初始化 GameClient
             _gameClient = new GameClient();
@@ -124,8 +124,8 @@ namespace GameApp.Unity.Managers
             _battleManager = FindObjectOfType<BattleManager>();
             if (_battleManager == null)
             {
-                var battleManagerGO = new GameObject("BattleManager");
-                _battleManager = battleManagerGO.AddComponent<BattleManager>();
+                var battleManagerGo = new GameObject("BattleManager");
+                _battleManager = battleManagerGo.AddComponent<BattleManager>();
             }
 
             Debug.Log("Network clients initialized");
@@ -182,14 +182,14 @@ namespace GameApp.Unity.Managers
                 Debug.Log($"Starting authentication for user: {username}");
 
                 // 执行登录
-                var loginResponse = await _authClient.LoginAsync(username, password);
+                var loginResponse = await _authClient.LoginAsync(username, password, SystemInfo.deviceUniqueIdentifier);
 
                 if (loginResponse.Success)
                 {
                     Debug.Log("Authentication successful");
 
                     // 可以在这里保存用户信息和游戏票据
-                    string gameTicket = loginResponse.GameTicket;
+                    string gameTicket = loginResponse.Data.GameTicket;
 
                     // 自动登录到游戏服务器
                     if (_isConnectedToGame)

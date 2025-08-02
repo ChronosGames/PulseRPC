@@ -3,6 +3,9 @@ using System.Threading.Tasks;
 using UnityEngine;
 using PulseRPC.Client;
 using GameApp.Shared.Services;
+using GameApp.Unity.Managers;
+using GameApp.Unity.Utils;
+using PulseRPC;
 
 namespace GameApp.Unity.Network
 {
@@ -36,10 +39,14 @@ namespace GameApp.Unity.Network
                 Debug.Log($"Initializing GameClient: {serverAddress}:{tcpPort}/{kcpPort}");
 
                 // 创建 PulseRPC 客户端
-                _pulseClient = PulseClientBuilder.Create()
-                    .AddTcp("TcpChannel", serverAddress, tcpPort)
-                    .AddKcp("KcpChannel", serverAddress, kcpPort)
-                    .Build();
+                _pulseClient = PulseRpcClientFactory.CreateClient(builder =>
+                {
+                    // TCP通道用于可靠消息传输
+                    builder.AddTcp("TcpChannel", serverAddress, tcpPort);
+
+                    // KCP通道用于低延迟游戏数据传输
+                    builder.AddKcp("KcpChannel", serverAddress, kcpPort);
+                });
 
                 // 连接到服务器
                 await _pulseClient.ConnectAsync();
@@ -70,7 +77,7 @@ namespace GameApp.Unity.Network
         /// <summary>
         /// 玩家登录游戏服务器
         /// </summary>
-        public async Task<LoginResponse> LoginAsync(string gameTicket)
+        public async Task<GameApp.Shared.Services.LoginResponse> LoginAsync(string gameTicket)
         {
             try
             {
@@ -79,7 +86,7 @@ namespace GameApp.Unity.Network
                     throw new InvalidOperationException("GameClient not initialized");
                 }
 
-                var request = new LoginRequest
+                var request = new GameApp.Shared.Services.LoginRequest
                 {
                     GameTicket = gameTicket,
                     DeviceId = SystemInfo.deviceUniqueIdentifier,
@@ -107,7 +114,7 @@ namespace GameApp.Unity.Network
             catch (Exception ex)
             {
                 Debug.LogError($"Player login error: {ex.Message}");
-                return new LoginResponse
+                return new GameApp.Shared.Services.LoginResponse
                 {
                     Success = false,
                     Message = $"登录失败: {ex.Message}"

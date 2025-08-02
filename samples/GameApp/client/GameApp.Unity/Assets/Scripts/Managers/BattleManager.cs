@@ -5,6 +5,8 @@ using UnityEngine;
 using GameApp.Unity.Network;
 using GameApp.Shared.Services;
 
+#nullable enable
+
 namespace GameApp.Unity.Managers
 {
     /// <summary>
@@ -72,7 +74,7 @@ namespace GameApp.Unity.Managers
                 // 订阅战斗事件
                 _battleClient.OnBattleStateUpdated += OnBattleStateUpdate;
                 _battleClient.OnSkillUsed += OnSkillUse;
-                _battleClient.OnDamageDealt += OnDamageDealt;
+                _battleClient.OnDamageDealt += OnDamageDealt2;
                 _battleClient.OnPlayerDefeated += OnPlayerDefeat;
                 _battleClient.OnBattleEnded += OnBattleEnd;
 
@@ -241,7 +243,7 @@ namespace GameApp.Unity.Managers
             try
             {
                 var response = await _battleClient.GetPlayerSkillsAsync(playerId);
-                return response.Success ? response.Skills : new List<PlayerSkill>();
+                return response.Skills;
             }
             catch (Exception ex)
             {
@@ -277,19 +279,19 @@ namespace GameApp.Unity.Managers
 
         private void OnBattleStateUpdate(BattleStateUpdateEvent eventData)
         {
-            Debug.Log($"Battle state updated: {eventData.BattleInfo?.Status}");
+            Debug.Log($"Battle state updated: {eventData.Status}");
             OnBattleStateUpdated?.Invoke(eventData);
         }
 
         private void OnSkillUse(SkillUsedEvent eventData)
         {
-            Debug.Log($"Skill used: Player {eventData.UserId} used skill {eventData.SkillId}");
+            Debug.Log($"Skill used: Player {eventData.PlayerId} used skill {eventData.Skill.SkillId}");
             OnSkillUsed?.Invoke(eventData);
         }
 
-        private void OnDamageDealt(DamageDealtEvent eventData)
+        private void OnDamageDealt2(DamageDealtEvent eventData)
         {
-            Debug.Log($"Damage dealt: {eventData.Damage} to player {eventData.DefenderId}");
+            // Debug.Log($"Damage dealt: {eventData.Damage} to player {eventData.DefenderId}");
             OnDamageDealt?.Invoke(eventData);
         }
 

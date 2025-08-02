@@ -316,7 +316,7 @@ namespace GameApp.Unity.Managers
             OnChatMessageReceived?.Invoke(playerName, message, chatType);
 
             // 这里可以更新UI显示聊天消息
-            UIManager.Instance?.ShowChatMessage(playerName, message, chatType);
+            Managers.UIManager.Instance?.ShowChatMessage(playerName, message, chatType);
         }
 
         /// <summary>
@@ -443,7 +443,7 @@ namespace GameApp.Unity.Managers
             Debug.Log($"World Event: {worldEvent.Name} - {worldEvent.Type}");
 
             // 这里可以实现具体的UI通知逻辑
-            UIManager.Instance?.ShowWorldEventNotification(worldEvent.Name, worldEvent.Type);
+            Managers.UIManager.Instance?.ShowWorldEventNotification(worldEvent.Name, worldEvent.Type);
         }
 
         #endregion
