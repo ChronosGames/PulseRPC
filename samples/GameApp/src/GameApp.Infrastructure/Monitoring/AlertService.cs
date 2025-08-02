@@ -263,7 +263,7 @@ namespace GameApp.Infrastructure.Monitoring
             }
         }
 
-        private double? GetMetricValue(string metricName, PerformanceStats stats, SystemResourceUsage resources)
+        private static double? GetMetricValue(string metricName, PerformanceStats stats, SystemResourceUsage resources)
         {
             return metricName switch
             {

@@ -193,6 +193,7 @@ builder.Services.AddCors(options =>
 
 // 健康检查
 builder.Services.AddHealthChecks();
+builder.Services.AddMemoryCache();
 
 var app = builder.Build();
 

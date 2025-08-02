@@ -1,0 +1,7 @@
+{
+  "name": "com.chronosgames.pulserpc.samples.gameapp.shared.unity",
+  "version": "1.0.0",
+  "displayName": "GameApp.Shared.Unity",
+  "description": "GameApp.Shared.Unity",
+  "unity": "2022.3"
+}

@@ -1,0 +1,17 @@
+{
+    "name": "GameApp.Unity",
+    "rootNamespace": "GameApp.Unity",
+    "references": [
+        "GameApp.Shared.Unity",
+        "PulseRPC.Client.Unity"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": true,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -287,10 +287,10 @@ namespace GameApp.Unity.Managers
 
         private void OnBattleStateUpdated(BattleStateUpdateEvent eventData)
         {
-            Debug.Log($"Battle scene updated: {eventData.BattleInfo?.Status}");
+            Debug.Log($"Battle scene updated: {eventData.Status}");
 
             // 根据战斗状态更新场景
-            if (eventData.BattleInfo?.Status == "InProgress")
+            if (eventData.Status == "InProgress")
             {
                 // 战斗开始，可以播放开始特效
             }
@@ -299,7 +299,7 @@ namespace GameApp.Unity.Managers
         private void OnSkillUsed(SkillUsedEvent eventData)
         {
             // 获取使用技能的玩家位置
-            var playerObj = GetOrCreateBattlePlayer(eventData.UserId);
+            var playerObj = GetOrCreateBattlePlayer(eventData.PlayerId);
             if (playerObj != null)
             {
                 Vector3 playerPos = playerObj.transform.position;
@@ -310,22 +310,28 @@ namespace GameApp.Unity.Managers
                 );
 
                 // 播放技能特效
-                PlaySkillEffect(eventData.SkillId, playerPos, targetPos);
+                PlaySkillEffect(eventData.Skill.SkillId, playerPos, targetPos);
 
-                Debug.Log($"Player {eventData.UserId} used skill {eventData.SkillName} at {targetPos}");
+                Debug.Log($"Player {eventData.PlayerId} used skill {eventData.Skill.Name} at {targetPos}");
             }
         }
 
         private void OnDamageDealt(DamageDealtEvent eventData)
         {
-            // 显示伤害数字
-            var defenderObj = GetOrCreateBattlePlayer(eventData.DefenderId);
-            if (defenderObj != null)
+            foreach (var damageInfo in eventData.DamageResults)
             {
-                ShowDamageNumber(defenderObj.transform.position, eventData.Damage, eventData.DamageType);
-            }
+                Debug.Log($"Damage dealt: {damageInfo.Damage} to player {damageInfo.TargetPlayerId} by player {eventData.SourcePlayerId}");
 
-            Debug.Log($"Damage dealt: {eventData.Damage} to player {eventData.DefenderId}");
+
+                // 显示伤害数字
+                var defenderObj = GetOrCreateBattlePlayer(damageInfo.TargetPlayerId);
+                if (defenderObj != null)
+                {
+                    ShowDamageNumber(defenderObj.transform.position, damageInfo.Damage, damageInfo.Type.ToString());
+                }
+
+                Debug.Log($"Damage dealt: {damageInfo.Damage} to player {damageInfo.TargetPlayerId}");
+            }
         }
 
         private void OnPlayerDefeated(PlayerDefeatedEvent eventData)

@@ -2,8 +2,8 @@ using System;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using UnityEngine;
 using Newtonsoft.Json;
+using UnityEngine;
 
 namespace GameApp.Unity.Network
 {

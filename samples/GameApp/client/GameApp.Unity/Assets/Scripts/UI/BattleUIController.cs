@@ -170,14 +170,14 @@ namespace GameApp.Unity.UI
             if (skillIndex < _playerSkills.Count)
             {
                 var skill = _playerSkills[skillIndex];
-                AddLog($"使用技能: {skill.SkillName}");
+                AddLog($"使用技能: {skill.Name}");
 
                 // 使用技能，默认目标位置为原点
                 bool success = await _battleManager.UseSkillAsync(skill.SkillId, Vector3.zero);
 
                 if (!success)
                 {
-                    AddLog($"技能 {skill.SkillName} 使用失败！");
+                    AddLog($"技能 {skill.Name} 使用失败！");
                 }
             }
             else
@@ -223,7 +223,7 @@ namespace GameApp.Unity.UI
                     {
                         if (i < _playerSkills.Count)
                         {
-                            buttonText.text = _playerSkills[i].SkillName;
+                            buttonText.text = _playerSkills[i].Name;
                             skillButtons[i].interactable = true;
                         }
                         else
@@ -328,22 +328,25 @@ namespace GameApp.Unity.UI
 
         private void OnBattleStateUpdated(BattleStateUpdateEvent eventData)
         {
-            AddLog($"战斗状态更新: {eventData.BattleInfo?.Status}");
+            AddLog($"战斗状态更新: {eventData.Status}");
 
-            if (battleInfoText != null)
+            if (battleInfoText)
             {
-                battleInfoText.text = $"战斗ID: {eventData.BattleInfo?.BattleId}\n状态: {eventData.BattleInfo?.Status}";
+                battleInfoText.text = $"战斗ID: {eventData.BattleId}\n状态: {eventData.Status}";
             }
         }
 
         private void OnSkillUsed(SkillUsedEvent eventData)
         {
-            AddLog($"玩家 {eventData.UserId} 使用了技能 {eventData.SkillName}，造成 {eventData.Damage} 点伤害");
+            AddLog($"玩家 {eventData.PlayerId} 使用了技能 {eventData.Skill.Name} ({eventData.Skill.SkillId})");
         }
 
         private void OnDamageDealt(DamageDealtEvent eventData)
         {
-            AddLog($"伤害：{eventData.Damage} ({eventData.DamageType}) - {eventData.AttackerId} → {eventData.DefenderId}");
+            foreach (var info in eventData.DamageResults)
+            {
+                AddLog($"伤害：{info.Damage} ({info.Type}) - {eventData.SourcePlayerId} → {info.TargetPlayerId}");
+            }
 
             // 如果是当前玩家受到伤害，更新血量显示
             // 这里需要根据实际的玩家ID来判断
@@ -366,15 +369,17 @@ namespace GameApp.Unity.UI
         private void OnDestroy()
         {
             // 清理事件监听器
-            if (_battleManager != null)
+            if (!_battleManager)
             {
-                _battleManager.OnConnectionStatusChanged -= UpdateConnectionStatus;
-                _battleManager.OnBattleStateUpdated -= OnBattleStateUpdated;
-                _battleManager.OnSkillUsed -= OnSkillUsed;
-                _battleManager.OnDamageDealt -= OnDamageDealt;
-                _battleManager.OnPlayerDefeated -= OnPlayerDefeated;
-                _battleManager.OnBattleEnded -= OnBattleEnded;
+                return;
             }
+
+            _battleManager.OnConnectionStatusChanged -= UpdateConnectionStatus;
+            _battleManager.OnBattleStateUpdated -= OnBattleStateUpdated;
+            _battleManager.OnSkillUsed -= OnSkillUsed;
+            _battleManager.OnDamageDealt -= OnDamageDealt;
+            _battleManager.OnPlayerDefeated -= OnPlayerDefeated;
+            _battleManager.OnBattleEnded -= OnBattleEnded;
         }
     }
 }
