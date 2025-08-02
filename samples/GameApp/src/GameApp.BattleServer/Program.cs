@@ -73,13 +73,13 @@ builder.Services.AddScoped<IBuffSystem, BuffSystem>();
 var battleServerOptions = builder.Configuration.GetSection(BattleServerOptions.SectionName).Get<BattleServerOptions>() ??
     new BattleServerOptions();
 
-builder.Services.AddPulseRpcServer(builder =>
+builder.Services.AddPulseRpcServer(b =>
 {
     // 主要使用 KCP 通道用于低延迟战斗
-    builder.AddKcp("KcpChannel", battleServerOptions.KcpPort);
+    b.AddKcp("KcpChannel", battleServerOptions.KcpPort);
 
     // 添加 TCP 通道用于可靠传输
-    builder.AddTcp("TcpChannel", battleServerOptions.TcpPort);
+    b.AddTcp("TcpChannel", battleServerOptions.TcpPort);
 });
 
 // 注册 PulseRPC 服务

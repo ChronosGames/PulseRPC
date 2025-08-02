@@ -11,6 +11,7 @@ using GameApp.GameServer.Repositories;
 using GameApp.GameServer.Configuration;
 using GameApp.Infrastructure.Extensions;
 using GameApp.Shared.Services;
+using MongoDB.Bson;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -71,13 +72,13 @@ builder.Services.AddScoped<IWorldCacheService, WorldCacheService>();
 var gameServerOptions = builder.Configuration.GetSection(GameServerOptions.SectionName).Get<GameServerOptions>() ??
     new GameServerOptions();
 
-builder.Services.AddPulseRpcServer(builder =>
+builder.Services.AddPulseRpcServer(b =>
 {
     // 添加 TCP 通道
-    builder.AddTcp("TcpChannel", gameServerOptions.TcpPort);
+    b.AddTcp("TcpChannel", gameServerOptions.TcpPort);
 
     // 添加 KCP 通道
-    builder.AddKcp("KcpChannel", gameServerOptions.KcpPort);
+    b.AddKcp("KcpChannel", gameServerOptions.KcpPort);
 });
 
 // 注册 PulseRPC 服务

@@ -129,7 +129,7 @@
 
 ```
 GameApp/
-├── 📁 src/                          # ✅ 完整服务端实现
+├── 📁 src/                         # ✅ 完整服务端实现
 │   ├── GameApp.Shared/             # 共享模型和接口
 │   ├── GameApp.Infrastructure/     # 基础设施服务 (监控、日志、性能)
 │   ├── GameApp.AuthServer/         # 认证服务 (HTTP API + 监控)
