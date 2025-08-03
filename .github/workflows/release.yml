@@ -94,8 +94,8 @@ jobs:
       # Store artifacts.
       - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
         with:
-          name: PulseRPC.Client.Unity.unitypackage
-          path: ./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity*.unitypackage
+          name: PulseRPC.Client.Unity.${{ inputs.tag }}.unitypackage
+          path: ./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity.${{ inputs.tag }}.unitypackage
           retention-days: 1
 
   # release
@@ -111,6 +111,8 @@ jobs:
       tag: ${{ inputs.tag }}
       nuget-push: true
       release-format: '{0}'
+      release-upload: true
+      release-asset-path: ./PulseRPC.Client.Unity.${{ inputs.tag }}.unitypackage/PulseRPC.Client.Unity.${{ inputs.tag }}.unitypackage
     secrets: inherit
 
   cleanup:
