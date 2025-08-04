@@ -1,7 +1,5 @@
 ---
-description: 
-globs: 
-alwaysApply: true
+alwaysApply: false
 ---
 ## RIPER-5 + O1 思维 + 代理执行协议
 
