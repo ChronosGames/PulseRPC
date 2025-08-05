@@ -7,6 +7,7 @@
     <Authors>GameApp Team</Authors>
     <Description>GameApp 共享类库，包含数据模型、服务接口和通用工具</Description>
     <TargetFrameworks>net9.0;netstandard2.1</TargetFrameworks>
+    <LangVersion>11</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>

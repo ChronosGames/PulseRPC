@@ -20,7 +20,7 @@ RUN dotnet restore "src/GameApp.BattleServer/GameApp.BattleServer.csproj"
 
 # Copy source code
 COPY . .
-WORKDIR "/src/src/GameApp.BattleServer"
+WORKDIR "/src/GameApp.BattleServer"
 
 # Build application
 RUN dotnet build "GameApp.BattleServer.csproj" -c Release -o /app/build --no-restore

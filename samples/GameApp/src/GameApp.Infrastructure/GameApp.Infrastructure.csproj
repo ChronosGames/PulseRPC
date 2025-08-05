@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <Authors>GameApp Team</Authors>
     <Description>GameApp 基础设施服务，包含通用服务、缓存、日志等</Description>
+    <LangVersion>default</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
