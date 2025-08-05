@@ -110,6 +110,14 @@ dotnet run --project PulseRPC.Benchmark.Client -- run \
   --connections 10 \
   --rate 100 \
   --verbose
+  
+dotnet run --project PulseRPC.Benchmark.Client -- run `
+  --server localhost:8080 `
+  --scenario throughput `
+  --duration 60 `
+  --connections 10 `
+  --rate 100 `
+  --verbose
 
 # 使用配置文件运行
 dotnet run --project PulseRPC.Benchmark.Client -- run --config configs/high-load-test.json
@@ -311,6 +319,18 @@ dotnet test perf/BenchmarkApp/PulseRPC.Benchmark.Tests/
 - **峰值 QPS**: 45,000 请求/秒
 - **吞吐量**: 176 MB/s
 - **CPU 使用率**: 35%（8 核）
+
+│ 指标     │ 数值           │
+├──────────┼────────────────┤
+│ 测试场景 │ throughput     │
+│ 总耗时   │ 00:01:11       │
+│ 总请求数 │ 3,748          │
+│ 成功请求 │ 3,748 (100.0%) │
+│ 失败请求 │ 0              │
+│ 平均QPS  │ 52.7           │
+│ 平均延迟 │ 15.7 ms        │
+│ P95 延迟 │ 17.3 ms        │
+│ P99 延迟 │ 21.8 ms
 
 ### 稳定性测试（24 小时压力测试）
 - **成功率**: 99.97%

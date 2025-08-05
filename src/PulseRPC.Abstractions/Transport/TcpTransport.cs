@@ -69,85 +69,6 @@ public readonly struct ChunkHeader
 }
 
 /// <summary>
-/// 大包接收状态（线程安全）
-/// </summary>
-public sealed class LargePacketState
-{
-    private readonly object _lock = new object();
-    private readonly Dictionary<int, byte[]> _chunks;
-    private int _receivedChunks;
-
-    public int ChunkId { get; }
-    public int TotalChunks { get; }
-    public ushort MessageId { get; }
-    public DateTime StartTime { get; }
-
-    public LargePacketState(int chunkId, int totalChunks, ushort messageId)
-    {
-        ChunkId = chunkId;
-        TotalChunks = totalChunks;
-        MessageId = messageId;
-        StartTime = DateTime.UtcNow;
-        _chunks = new Dictionary<int, byte[]>(totalChunks);
-        _receivedChunks = 0;
-    }
-
-    public bool AddChunk(int index, byte[] data)
-    {
-        lock (_lock)
-        {
-            if (_chunks.ContainsKey(index))
-                return false;
-
-            _chunks[index] = data;
-            _receivedChunks++;
-            return _receivedChunks == TotalChunks;
-        }
-    }
-
-    public byte[]? GetCompleteData()
-    {
-        lock (_lock)
-        {
-            if (_receivedChunks != TotalChunks)
-                return null;
-
-            var totalSize = 0;
-            for (int i = 0; i < TotalChunks; i++)
-            {
-                if (_chunks.TryGetValue(i, out var chunk))
-                    totalSize += chunk.Length;
-            }
-
-            var result = new byte[totalSize];
-            var offset = 0;
-
-            for (int i = 0; i < TotalChunks; i++)
-            {
-                if (_chunks.TryGetValue(i, out var chunk))
-                {
-                    Buffer.BlockCopy(chunk, 0, result, offset, chunk.Length);
-                    offset += chunk.Length;
-                }
-            }
-
-            return result;
-        }
-    }
-
-    public float Progress
-    {
-        get
-        {
-            lock (_lock)
-            {
-                return (float)_receivedChunks / TotalChunks;
-            }
-        }
-    }
-}
-
-/// <summary>
 /// TCP传输基类，提供TCP连接的基础功能
 /// </summary>
 public abstract class TcpTransport : ITransport
@@ -155,9 +76,9 @@ public abstract class TcpTransport : ITransport
     protected readonly TransportOptions _options;
     protected readonly ILogger _logger;
     protected readonly byte[] _receiveBuffer;
-    protected readonly ConcurrentDictionary<int, LargePacketState> _largePacketStates;
-    protected readonly Task _cleanupTask;
+    protected readonly LargePacketHandler _packetHandler;
     protected readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+    protected readonly byte[] _headerBuffer; // 可重用的头部缓冲区
 
     protected int _nextChunkId;
     protected Socket? _socket;
@@ -170,13 +91,13 @@ public abstract class TcpTransport : ITransport
     protected long _totalBytesReceived;
     protected bool _disposed;
 
-    public string Name => "TCP";
+    public string Name => "TCP-Optimized";
     public TransportType Type => TransportType.Tcp;
     public bool IsConnected => _state == ConnectionState.Connected && _socket?.Connected == true;
     public ConnectionState State => _state;
 
-    public EndPoint LocalEndPoint => _socket?.LocalEndPoint!;
-    public EndPoint RemoteEndPoint => _socket?.RemoteEndPoint!;
+    public System.Net.EndPoint LocalEndPoint => _socket?.LocalEndPoint!;
+    public System.Net.EndPoint RemoteEndPoint => _socket?.RemoteEndPoint!;
 
     public long TotalBytesSent => Interlocked.Read(ref _totalBytesSent);
     public long TotalBytesReceived => Interlocked.Read(ref _totalBytesReceived);
@@ -184,61 +105,64 @@ public abstract class TcpTransport : ITransport
     public event System.EventHandler<TransportStateEventArgs>? StateChanged;
     public event System.EventHandler<TransportDataEventArgs>? DataReceived;
 
-    public TcpTransport(TransportOptions? options = null, ILogger? logger = null)
+    protected TcpTransport(TransportOptions? options = null, ILogger? logger = null)
     {
         _options = options ?? new TransportOptions();
         _logger = logger ?? NullLogger.Instance;
         _receiveBuffer = new byte[_options.ReadBufferSize];
-        _largePacketStates = new ConcurrentDictionary<int, LargePacketState>();
+        _headerBuffer = new byte[MessageHeader.Size + ChunkHeader.Size]; // 预分配可重用缓冲区
+        _packetHandler = new LargePacketHandler();
         _nextChunkId = 1;
         _cts = new CancellationTokenSource();
-
-        // 启动清理任务
-        _cleanupTask = CleanupExpiredLargePacketsAsync();
     }
 
     /// <summary>
-    /// 发送原始字节数据（传输层核心方法）
+    /// 发送数据 - 使用流式分片避免大对象分配
     /// </summary>
     public virtual async Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
-        if (!IsConnected)
+        if (!IsConnected || _stream == null)
         {
             return false;
         }
 
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
 
-        // 检查是否需要分块传输
-        if (data.Length > _options.SmallPacketThreshold)
+        // 小包直接发送
+        if (data.Length <= _options.SmallPacketThreshold)
         {
-            return await SendLargePacketAsync(0, data, linkedCts.Token);
+            return await SendSmallPacketAsync(data, linkedCts.Token);
         }
 
-        await _sendLock.WaitAsync(linkedCts.Token);
+        // 大包使用流式分片发送
+        return await SendLargePacketStreamingAsync(data, linkedCts.Token);
+    }
+
+    /// <summary>
+    /// 发送小包数据
+    /// </summary>
+    private async Task<bool> SendSmallPacketAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+    {
+        await _sendLock.WaitAsync(cancellationToken);
         try
         {
-            if (_stream == null)
-                return false;
-
-            // 创建传输层消息头
+            // 创建消息头
             var header = new MessageHeader(data.Length, 0, MessageHeader.FlagNone);
-            var headerBytes = new byte[MessageHeader.Size];
-            WriteMessageHeader(headerBytes, 0, header);
 
-            // 写入消息头
-            await _stream.WriteAsync(headerBytes, linkedCts.Token);
+            // 使用 AsyncSpanHelper 避免在 async 方法中直接操作 Span
+            var success = await AsyncSpanHelper.SendSmallPacketAsync(
+                _stream!, _headerBuffer, data, header, cancellationToken);
 
-            // 写入数据
-            await _stream.WriteAsync(data, linkedCts.Token);
-            await _stream.FlushAsync(linkedCts.Token);
+            if (success)
+            {
+                Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + data.Length);
+            }
 
-            Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + data.Length);
-            return true;
+            return success;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "发送数据失败");
+            _logger.LogError(ex, "发送小包数据失败");
             return false;
         }
         finally
@@ -248,9 +172,9 @@ public abstract class TcpTransport : ITransport
     }
 
     /// <summary>
-    /// 发送大包数据（分块传输）
+    /// 流式发送大包 - 避免创建临时分片数组
     /// </summary>
-    private async Task<bool> SendLargePacketAsync(ushort messageId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+    private async Task<bool> SendLargePacketStreamingAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
     {
         var chunkId = Interlocked.Increment(ref _nextChunkId);
         var totalChunks = (data.Length + _options.ChunkSize - 1) / _options.ChunkSize;
@@ -267,9 +191,9 @@ public abstract class TcpTransport : ITransport
                 if (i == totalChunks - 1)
                     flags |= MessageHeader.FlagEndOfChunk;
 
-                var header = new MessageHeader(
+                var messageHeader = new MessageHeader(
                     ChunkHeader.Size + chunkSize,
-                    messageId,
+                    0, // messageId
                     flags);
 
                 var chunkHeader = new ChunkHeader(chunkId, i, totalChunks, chunkSize);
@@ -277,24 +201,18 @@ public abstract class TcpTransport : ITransport
                 await _sendLock.WaitAsync(cancellationToken);
                 try
                 {
-                    if (_stream == null)
+                    // 使用 AsyncSpanHelper 发送分片数据
+                    var success = await AsyncSpanHelper.SendChunkAsync(
+                        _stream!, _headerBuffer, chunkData, messageHeader, chunkHeader, cancellationToken);
+
+                    if (success)
+                    {
+                        Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + ChunkHeader.Size + chunkSize);
+                    }
+                    else
+                    {
                         return false;
-
-                    // 写入消息头
-                    var headerBytes = new byte[MessageHeader.Size];
-                    WriteMessageHeader(headerBytes, 0, header);
-                    await _stream.WriteAsync(headerBytes, cancellationToken);
-
-                    // 写入块头
-                    var chunkHeaderBytes = new byte[ChunkHeader.Size];
-                    WriteChunkHeader(chunkHeaderBytes, 0, chunkHeader);
-                    await _stream.WriteAsync(chunkHeaderBytes, cancellationToken);
-
-                    // 写入块数据
-                    await _stream.WriteAsync(chunkData, cancellationToken);
-                    await _stream.FlushAsync(cancellationToken);
-
-                    Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + ChunkHeader.Size + chunkSize);
+                    }
                 }
                 finally
                 {
@@ -306,13 +224,13 @@ public abstract class TcpTransport : ITransport
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "发送大包数据失败");
+            _logger.LogError(ex, "流式发送大包数据失败");
             return false;
         }
     }
 
     /// <summary>
-    /// 接收循环 - 处理传输层消息和分块重组
+    /// 接收循环 - 使用优化的分片处理器
     /// </summary>
     protected async Task ReceiveLoopAsync()
     {
@@ -322,14 +240,13 @@ public abstract class TcpTransport : ITransport
 
             while (!_cts.IsCancellationRequested && IsConnected)
             {
-                // 读取传输层消息头
+                // 读取消息头
                 if (!await ReadExactBytesAsync(headerBuffer, 0, MessageHeader.Size))
                 {
                     break;
                 }
 
-                // 解析传输层消息头
-                var header = ReadMessageHeader(headerBuffer, 0);
+                var header = AsyncSpanHelper.ReadMessageHeaderSync(headerBuffer.AsSpan());
 
                 // 验证长度
                 if (header.Length <= 0 || header.Length > _options.ReadBufferSize * 2)
@@ -349,14 +266,14 @@ public abstract class TcpTransport : ITransport
 
                 Interlocked.Add(ref _totalBytesReceived, MessageHeader.Size + header.Length);
 
-                // 处理分块消息
+                // 处理消息
                 if (header.IsChunked)
                 {
-                    ProcessReceivedChunk(header, new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length));
+                    await ProcessChunkedMessageAsync(header, new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length));
                 }
                 else
                 {
-                    // 触发数据接收事件（传输层完整消息）
+                    // 直接触发数据接收事件
                     DataReceived?.Invoke(this, new TransportDataEventArgs(new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length)));
                 }
             }
@@ -367,7 +284,6 @@ public abstract class TcpTransport : ITransport
         }
         catch (Exception ex) when (ex is SocketException || ex is IOException)
         {
-            // 连接中断
             if (!_cts.IsCancellationRequested)
             {
                 ChangeState(ConnectionState.Disconnected, $"连接断开: {ex.Message}", ex);
@@ -375,27 +291,26 @@ public abstract class TcpTransport : ITransport
         }
         catch (Exception ex)
         {
-            // 其他错误
             _logger.LogError(ex, "接收循环异常");
             ChangeState(ConnectionState.Disconnected, $"接收异常: {ex.Message}", ex);
         }
     }
 
     /// <summary>
-    /// 处理接收到的分块数据
+    /// 处理分片消息 - 使用优化的处理器
     /// </summary>
-    private void ProcessReceivedChunk(MessageHeader header, ReadOnlyMemory<byte> data)
+    private async Task ProcessChunkedMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
     {
         try
         {
             if (data.Length < ChunkHeader.Size)
             {
-                _logger.LogWarning("分块数据太小，无法包含块头");
+                _logger.LogWarning("分片数据太小，无法包含块头");
                 return;
             }
 
             // 读取块头
-            var chunkHeader = ReadChunkHeader(data.Span, 0);
+            var chunkHeader = AsyncSpanHelper.ReadChunkHeaderSync(data.Span.Slice(0, ChunkHeader.Size));
             var chunkData = data.Slice(ChunkHeader.Size);
 
             // 验证块大小
@@ -406,71 +321,43 @@ public abstract class TcpTransport : ITransport
                 return;
             }
 
-            // 获取或创建大包状态
-            var state = _largePacketStates.GetOrAdd(chunkHeader.ChunkId,
-                _ => new LargePacketState(chunkHeader.ChunkId, chunkHeader.TotalChunks, header.MessageId));
-
-            // 添加分块
-            var chunkDataArray = chunkData.ToArray();
-            if (!state.AddChunk(chunkHeader.ChunkIndex, chunkDataArray))
+            // 使用优化的分片处理器
+            if (_packetHandler.ProcessChunk(chunkHeader, chunkData.Span, out var completeData))
             {
-                return;
+                // 大包重组完成，触发数据接收事件
+                DataReceived?.Invoke(this, new TransportDataEventArgs(completeData));
             }
-
-            // 大包接收完成
-            var completeData = state.GetCompleteData();
-            if (completeData == null)
-            {
-                return;
-            }
-
-            // 移除状态
-            _largePacketStates.TryRemove(chunkHeader.ChunkId, out _);
-
-            // 触发数据接收事件（完整的大包数据）
-            DataReceived?.Invoke(this, new TransportDataEventArgs(new ReadOnlyMemory<byte>(completeData)));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "处理分块数据异常");
+            _logger.LogError(ex, "处理分片消息异常");
         }
     }
 
     /// <summary>
-    /// 清理过期的大包状态
+    /// 启动清理任务
     /// </summary>
-    private async Task CleanupExpiredLargePacketsAsync()
+    protected void StartCleanupTask()
     {
-        while (!_cts.IsCancellationRequested)
+        _ = Task.Run(async () =>
         {
-            try
+            while (!_cts.IsCancellationRequested)
             {
-                await Task.Delay(TimeSpan.FromMinutes(1), _cts.Token);
-
-                var expiredIds = _largePacketStates
-                    .Where(kvp => DateTime.UtcNow - kvp.Value.StartTime > TimeSpan.FromMinutes(5))
-                    .Select(kvp => kvp.Key)
-                    .ToList();
-
-                foreach (var id in expiredIds)
+                try
                 {
-                    _largePacketStates.TryRemove(id, out _);
+                    await Task.Delay(TimeSpan.FromMinutes(1), _cts.Token);
+                    _packetHandler.CleanupExpiredPackets(TimeSpan.FromMinutes(5));
                 }
-
-                if (expiredIds.Count > 0)
+                catch (OperationCanceledException)
                 {
-                    _logger.LogInformation("清理了 {Count} 个过期的大包状态", expiredIds.Count);
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "清理过期包异常");
                 }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "清理过期大包状态异常");
-            }
-        }
+        }, _cts.Token);
     }
 
     /// <summary>
@@ -498,49 +385,6 @@ public abstract class TcpTransport : ITransport
         return true;
     }
 
-    /// <summary>
-    /// 写入传输层消息头
-    /// </summary>
-    private static void WriteMessageHeader(byte[] buffer, int offset, MessageHeader header)
-    {
-        BitConverter.GetBytes(header.Length).CopyTo(buffer, offset);
-        BitConverter.GetBytes(header.MessageId).CopyTo(buffer, offset + 4);
-        BitConverter.GetBytes(header.Flags).CopyTo(buffer, offset + 6);
-    }
-
-    /// <summary>
-    /// 读取传输层消息头
-    /// </summary>
-    private static MessageHeader ReadMessageHeader(byte[] buffer, int offset)
-    {
-        var length = BitConverter.ToInt32(buffer, offset);
-        var messageId = BitConverter.ToUInt16(buffer, offset + 4);
-        var flags = BitConverter.ToUInt16(buffer, offset + 6);
-        return new MessageHeader(length, messageId, flags);
-    }
-
-    /// <summary>
-    /// 写入块头
-    /// </summary>
-    private static void WriteChunkHeader(byte[] buffer, int offset, ChunkHeader header)
-    {
-        BitConverter.GetBytes(header.ChunkId).CopyTo(buffer, offset);
-        BitConverter.GetBytes(header.ChunkIndex).CopyTo(buffer, offset + 4);
-        BitConverter.GetBytes(header.TotalChunks).CopyTo(buffer, offset + 8);
-        BitConverter.GetBytes(header.ChunkSize).CopyTo(buffer, offset + 12);
-    }
-
-    /// <summary>
-    /// 读取块头
-    /// </summary>
-    private static ChunkHeader ReadChunkHeader(ReadOnlySpan<byte> buffer, int offset)
-    {
-        var chunkId = BitConverter.ToInt32(buffer.Slice(offset, 4));
-        var chunkIndex = BitConverter.ToInt32(buffer.Slice(offset + 4, 4));
-        var totalChunks = BitConverter.ToInt32(buffer.Slice(offset + 8, 4));
-        var chunkSize = BitConverter.ToInt32(buffer.Slice(offset + 12, 4));
-        return new ChunkHeader(chunkId, chunkIndex, totalChunks, chunkSize);
-    }
 
     /// <summary>
     /// 更改连接状态
@@ -563,12 +407,19 @@ public abstract class TcpTransport : ITransport
     /// </summary>
     public virtual void Dispose()
     {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
         _cts.Cancel();
 
         try
         {
             _stream?.Dispose();
             _socket?.Dispose();
+            _packetHandler?.Dispose();
+            _sendLock?.Dispose();
         }
         catch (Exception ex)
         {
@@ -576,32 +427,5 @@ public abstract class TcpTransport : ITransport
         }
 
         _cts.Dispose();
-    }
-
-    public async ValueTask CloseAsync()
-    {
-        if (_socket?.Connected == true)
-        {
-#if NET5_0_OR_GREATER
-                await _socket.DisconnectAsync(false);
-#else
-            _socket.Shutdown(SocketShutdown.Both);
-            _socket.Close();
-#endif
-        }
-        _socket?.Close();
-    }
-
-    public async ValueTask DisconnectAsync()
-    {
-        if (_socket?.Connected == true)
-        {
-#if NET5_0_OR_GREATER
-                await _socket.DisconnectAsync(false);
-#else
-            _socket.Shutdown(SocketShutdown.Both);
-            _socket.Close();
-#endif
-        }
     }
 }

@@ -1,1 +1,2 @@
 #nullable enable
+static PulseRPC.Transport.ZeroCopySerializer.PackMessage<THeader, TPayload>(System.Span<byte> destination, THeader header, TPayload? payload) -> int
