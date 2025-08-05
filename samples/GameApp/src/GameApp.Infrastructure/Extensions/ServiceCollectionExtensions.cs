@@ -1,8 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Caching.StackExchangeRedis;
-using GameApp.Infrastructure.Services;
-using GameApp.Infrastructure.Configuration;
 using GameApp.Infrastructure.Performance;
 using GameApp.Infrastructure.Logging;
 using GameApp.Infrastructure.Monitoring;
@@ -21,14 +18,7 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // 配置选项 (暂时简化)
-        // services.Configure<InfrastructureOptions>(
-        //     configuration.GetSection(InfrastructureOptions.SectionName));
-
-        // 基础设施服务
-        services.AddScoped<IInfrastructureService, InfrastructureService>();
-
-                // 性能监控服务
+        // 性能监控服务
         services.AddSingleton<IPerformanceService, PerformanceService>();
         services.AddScoped<IDatabasePerformanceService, DatabasePerformanceService>();
 

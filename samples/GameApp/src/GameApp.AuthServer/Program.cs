@@ -9,9 +9,7 @@ using StackExchange.Redis;
 using GameApp.AuthServer.Services;
 using GameApp.AuthServer.Middleware;
 using GameApp.Infrastructure.Extensions;
-using GameApp.Infrastructure.Configuration;
 using GameApp.AuthServer.Configuration;
-using MongoDB.Bson;
 
 [assembly: InternalsVisibleTo("GameApp.Integration.Tests")]
 

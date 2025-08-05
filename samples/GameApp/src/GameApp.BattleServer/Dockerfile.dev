@@ -19,7 +19,7 @@ RUN dotnet restore "src/GameApp.BattleServer/GameApp.BattleServer.csproj"
 COPY . .
 
 # Build application
-WORKDIR "/src/src/GameApp.BattleServer"
+WORKDIR "/src/GameApp.BattleServer"
 RUN dotnet build "GameApp.BattleServer.csproj" -c Debug -o /app/build
 
 FROM build AS publish
