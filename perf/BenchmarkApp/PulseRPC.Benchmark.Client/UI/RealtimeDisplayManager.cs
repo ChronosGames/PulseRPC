@@ -166,9 +166,9 @@ public class RealtimeDisplayManager(
         table.AddRow("成功请求", $"{results.SuccessfulRequests:N0} ({results.SuccessRate:P1})");
         table.AddRow("失败请求", results.FailedRequests.ToString("N0"));
         table.AddRow("平均QPS", results.RequestsPerSecond.ToString("N1"));
-        table.AddRow("平均延迟", $"{results.AverageLatencyMs:F1} ms");
-        table.AddRow("P95 延迟", $"{results.P95LatencyMs:F1} ms");
-        table.AddRow("P99 延迟", $"{results.P99LatencyMs:F1} ms");
+        table.AddRow("平均延迟", $"{results.AverageLatencyMs:F3} ms");
+        table.AddRow("P95 延迟", $"{results.P95LatencyMs:F3} ms");
+        table.AddRow("P99 延迟", $"{results.P99LatencyMs:F3} ms");
 
         AnsiConsole.Write(table);
         AnsiConsole.WriteLine();
@@ -240,7 +240,7 @@ public class RealtimeDisplayManager(
                 {
                     Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] 请求: {_displayData.Progress.TotalRequests}, " +
                                     $"QPS: {_displayData.Progress.RequestsPerSecond:F1}, " +
-                                    $"延迟: {_displayData.Progress.AverageLatencyMs:F1}ms");
+                                    $"延迟: {_displayData.Progress.AverageLatencyMs:F3}ms");
                     lastUpdate = DateTime.UtcNow;
                 }
 

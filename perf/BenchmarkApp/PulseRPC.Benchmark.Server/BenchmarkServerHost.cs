@@ -5,6 +5,10 @@ using PulseRPC.Benchmark.Metrics.Abstractions;
 using PulseRPC.Benchmark.Server.Configuration;
 using PulseRPC.Benchmark.Server.Services;
 using PulseRPC.Benchmark.Server.Extensions;
+using PulseRPC.Benchmark.Shared;
+using PulseRPC.Server;
+using PulseRPC.Server.Services;
+using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Benchmark.Server;
 
@@ -16,6 +20,9 @@ public class BenchmarkServerHost(
     ILogger<BenchmarkServerHost> logger,
     IServiceProvider serviceProvider,
     ServerConfiguration config,
+    ServiceRegistry serviceRegistry,
+    IServerChannelManager channelManager,
+    IPulseRpcServer pulseServer,
     IMetricsCollector metricsCollector)
     : BackgroundService
 {
@@ -23,6 +30,8 @@ public class BenchmarkServerHost(
     private readonly IServiceProvider _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
     private readonly ServerConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
     private readonly IMetricsCollector _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
+    private readonly IPulseRpcServer _pulseServer = pulseServer ?? throw new ArgumentNullException(nameof(pulseServer));
+    private readonly ServiceRegistry _serviceRegistry = serviceRegistry ?? throw new ArgumentNullException(nameof(serviceRegistry));
 
     private readonly Lock _stateLock = new();
     private ServerState _currentState = ServerState.Stopped;
@@ -131,9 +140,14 @@ public class BenchmarkServerHost(
         try
         {
             // 注册基准测试服务
-            var benchmarkService = _serviceProvider.GetRequiredService<BenchmarkServiceImpl>();
+            var benchmarkService = _serviceProvider.GetRequiredService<IBenchmarkService>();
+
+            // 启动服务器监听已配置的传输端口
+            await _pulseServer.StartAsync(cancellationToken);
 
             _logger.LogInformation("✅ PulseRPC服务器已启动在端口 {Port}", _config.Port);
+
+            _serviceRegistry.RegisterService<IBenchmarkService, BenchmarkServiceImpl>((BenchmarkServiceImpl)benchmarkService);
 
             // 记录服务器启动指标
             await _metricsCollector.CollectAsync("server_started", new
@@ -181,6 +195,16 @@ public class BenchmarkServerHost(
 
         try
         {
+            // 停止服务器
+            try
+            {
+                await _pulseServer.StopAsync(CancellationToken.None);
+            }
+            catch (Exception stopEx)
+            {
+                _logger.LogWarning(stopEx, "停止服务器时发生非致命错误");
+            }
+
             // 记录服务器停止指标
             await _metricsCollector.CollectAsync("server_stopped", new
             {

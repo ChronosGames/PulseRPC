@@ -41,10 +41,10 @@ public interface IChannelManager : IDisposable
     /// <summary>
     /// 获取服务代理
     /// </summary>
-    T GetService<T>() where T : class, IPulseService;
+    T GetService2<T>() where T : class, IPulseService;
 
     /// <summary>
     /// 注册事件监听器
     /// </summary>
-    ISubscriptionToken RegisterEventListener<T>(T listener) where T : class, IPulseEventHandler;
+    ISubscriptionToken RegisterEventListener2<T>(T listener) where T : class, IPulseEventHandler;
 }

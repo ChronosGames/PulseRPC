@@ -104,7 +104,7 @@ public abstract class BenchmarkClientBase : IDisposable
         }
 
         // 获取服务代理
-        BenchmarkService = ChannelManager.GetBenchmarkService();
+        BenchmarkService = ChannelManager.GetService<IBenchmarkService>();
 
         Logger.LogInformation("基准测试客户端初始化完成");
     }

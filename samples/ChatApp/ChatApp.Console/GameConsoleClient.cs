@@ -61,7 +61,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         try
         {
             // 使用源代码生成器生成的扩展方法获取服务代理
-            _playerService = _channelManager.GetPlayerHub();
+            _playerService = _channelManager.GetService<IPlayerHub>();
 
             // 使用简洁的一行 API - 源代码生成器会处理多接口实现
             _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));

@@ -203,11 +203,11 @@ public class ProgressDisplayService : IDisposable
             text.AppendLine($"   成功请求: {progress.SuccessfulRequests:N0}");
             text.AppendLine($"   失败请求: {progress.FailedRequests:N0}");
             text.AppendLine($"   成功率: {(progress.TotalRequests > 0 ? (double)progress.SuccessfulRequests / progress.TotalRequests : 0):P2}");
-            text.AppendLine($"   当前QPS: {progress.CurrentQPS:F2}");
+            text.AppendLine($"   当前QPS: {progress.CurrentQPS:F3}");
 
             if (progress.AverageLatencyMs > 0)
             {
-                text.AppendLine($"   平均延迟: {progress.AverageLatencyMs:F2} ms");
+                text.AppendLine($"   平均延迟: {progress.AverageLatencyMs:F3} ms");
             }
         }
 

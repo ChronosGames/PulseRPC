@@ -37,7 +37,7 @@ public class MultiInstanceConnectionManager : IDisposable
     /// <summary>
     /// 获取服务代理 - 自动路由
     /// </summary>
-    public async Task<T> GetServiceAsync<T>(
+    public async Task<T> GetServiceAsync2<T>(
         string serviceName,
         IRoutingContext? routingContext = null,
         SmartConnectionOptions? options = null) where T : class, IPulseService
@@ -49,17 +49,16 @@ public class MultiInstanceConnectionManager : IDisposable
         var selectedInstance = SelectBestInstance<T>(instances, routingContext ?? RoutingContext.ByKey(""));
 
         // 获取或创建连接
-        var connection = await _connectionManager.GetOrCreateConnectionAsync<T>(
-            $"{serviceName}-{selectedInstance.InstanceId}", options);
+        var connection = await _connectionManager.GetOrCreateConnectionAsync<T>($"{serviceName}-{selectedInstance.InstanceId}", options);
 
         // 返回服务代理
-        return connection.ChannelManager.GetService<T>();
+        return connection.ChannelManager.GetService2<T>();
     }
 
     /// <summary>
     /// 获取特定实例的服务代理
     /// </summary>
-    public async Task<T> GetServiceAsync<T>(
+    public async Task<T> GetServiceAsync2<T>(
         string serviceName,
         string instanceId,
         SmartConnectionOptions? options = null) where T : class, IPulseService
@@ -72,9 +71,8 @@ public class MultiInstanceConnectionManager : IDisposable
             throw new ServiceInstanceNotFoundException($"服务实例未找到: {serviceName}#{instanceId}");
         }
 
-        var connection = await _connectionManager.GetOrCreateConnectionAsync<T>(
-            $"{serviceName}-{instanceId}", options);
-        return connection.ChannelManager.GetService<T>();
+        var connection = await _connectionManager.GetOrCreateConnectionAsync<T>($"{serviceName}-{instanceId}", options);
+        return connection.ChannelManager.GetService2<T>();
     }
 
     /// <summary>
@@ -198,7 +196,7 @@ public class MultiInstanceConnectionManager : IDisposable
             {
                 InstanceId = $"{serviceName}-1",
                 ServiceName = serviceName,
-                Endpoint = new ServiceDiscovery.ServiceEndpoint { ServiceId = $"{serviceName}-1", ServiceType = serviceName, Host = "localhost", Port = 8000 },
+                Endpoint = new ServiceEndpoint { ServiceId = $"{serviceName}-1", ServiceType = serviceName, Host = "localhost", Port = 8000 },
                 Weight = 100,
                 IsHealthy = true,
                 Region = "default",
@@ -208,7 +206,7 @@ public class MultiInstanceConnectionManager : IDisposable
             {
                 InstanceId = $"{serviceName}-2",
                 ServiceName = serviceName,
-                Endpoint = new ServiceDiscovery.ServiceEndpoint { ServiceId = $"{serviceName}-2", ServiceType = serviceName, Host = "localhost", Port = 8001 },
+                Endpoint = new ServiceEndpoint { ServiceId = $"{serviceName}-2", ServiceType = serviceName, Host = "localhost", Port = 8001 },
                 Weight = 100,
                 IsHealthy = true,
                 Region = "default",

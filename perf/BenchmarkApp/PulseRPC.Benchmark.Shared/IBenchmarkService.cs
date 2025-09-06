@@ -9,6 +9,7 @@ namespace PulseRPC.Benchmark.Shared
     /// 基准测试服务接口
     /// 提供各种性能测试场景的RPC服务方法
     /// </summary>
+    [Channel("TcpChannel")]
     public interface IBenchmarkService : IPulseService
     {
         /// <summary>
@@ -27,7 +28,7 @@ namespace PulseRPC.Benchmark.Shared
         /// <param name="request">Ping请求</param>
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>Ping响应</returns>
-        Task<PingResponse> PingAsync(PingRequest request, CancellationToken cancellationToken = default);
+        Task<PingResponse> PingAsync(PingRequest request);
 
         /// <summary>
         /// 吞吐量测试 - 批量消息处理性能测试

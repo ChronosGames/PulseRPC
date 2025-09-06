@@ -37,28 +37,8 @@ public partial class ServiceRegistry
     private readonly IServerChannelManager? _channelManager;
     private readonly ISerializerProvider? _serializerProvider;
     private readonly ILogger<ServiceRegistry>? _logger;
-    private bool _rpcHandlingEnabled = false;
 
-    // 保持单例模式
-    private static ServiceRegistry? _instance;
-    private static readonly object _lock = new();
-
-    public static ServiceRegistry Instance
-    {
-        get
-        {
-            if (_instance == null)
-            {
-                lock (_lock)
-                {
-                    _instance ??= new ServiceRegistry();
-                }
-            }
-            return _instance;
-        }
-    }
-
-    private ServiceRegistry(AuthenticationMiddleware? authMiddleware = null,
+    public ServiceRegistry(AuthenticationMiddleware? authMiddleware = null,
         IServerChannelManager? channelManager = null,
         ISerializerProvider? serializerProvider = null,
         ILogger<ServiceRegistry>? logger = null)
@@ -67,48 +47,20 @@ public partial class ServiceRegistry
         _channelManager = channelManager;
         _serializerProvider = serializerProvider;
         _logger = logger;
-    }
 
-    /// <summary>
-    /// 创建带认证中间件的服务注册中心实例
-    /// </summary>
-    /// <param name="authMiddleware">认证中间件</param>
-    /// <returns>服务注册中心实例</returns>
-    public static ServiceRegistry CreateWithAuth(AuthenticationMiddleware authMiddleware)
-    {
-        return new ServiceRegistry(authMiddleware);
-    }
-
-    /// <summary>
-    /// 创建带完整RPC处理能力的服务注册中心实例
-    /// </summary>
-    /// <param name="authMiddleware">认证中间件</param>
-    /// <param name="channelManager">通道管理器</param>
-    /// <param name="serializerProvider">序列化器提供程序</param>
-    /// <param name="logger">日志记录器</param>
-    /// <returns>服务注册中心实例</returns>
-    public static ServiceRegistry CreateWithRpcHandling(
-        AuthenticationMiddleware authMiddleware,
-        IServerChannelManager channelManager,
-        ISerializerProvider serializerProvider,
-        ILogger<ServiceRegistry> logger)
-    {
-        var registry = new ServiceRegistry(authMiddleware, channelManager, serializerProvider, logger);
-        registry.EnableRpcMessageHandling();
-        return registry;
+        EnableRpcMessageHandling();
     }
 
     /// <summary>
     /// 启用RPC消息处理
     /// </summary>
-    public void EnableRpcMessageHandling()
+    private void EnableRpcMessageHandling()
     {
-        if (_rpcHandlingEnabled || _channelManager == null || _serializerProvider == null)
+        if (_channelManager == null || _serializerProvider == null)
             return;
 
         _channelManager.ChannelConnected += OnChannelConnected;
         _channelManager.ChannelDisconnected += OnChannelDisconnected;
-        _rpcHandlingEnabled = true;
 
         _logger?.LogInformation("ServiceRegistry RPC消息处理已启用");
     }
@@ -802,7 +754,7 @@ public partial class ServiceRegistry
 
             await _authMiddleware!.AuthenticateRequestAsync(transport, serviceName, methodName, methodInfo.MethodInfo);
 
-            _logger?.LogInformation("[方法调用] 认证检查通过: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
+            _logger?.LogDebug("[方法调用] 认证检查通过: {ServiceName}.{MethodName}, 连接ID: {ConnectionId}",
                 serviceName, methodName, transport.ConnectionId);
 
             // 设置请求上下文 - 这是修复RequestContext.Current返回null的关键
@@ -838,7 +790,7 @@ public partial class ServiceRegistry
                         var parameter = typeof(ISerializer)
                             .GetMethod(nameof(ISerializer.Deserialize))!
                             .MakeGenericMethod(parameterTypes[0])
-                            .Invoke(serializer, new object[] { new ReadOnlySequence<byte>(requestData) });
+                            .Invoke(serializer, [new ReadOnlySequence<byte>(requestData)]);
                         parameters[0] = parameter;
 
                         _logger?.LogDebug("[方法调用] 单参数反序列化完成: Type={Type}", parameterTypes[0].Name);
@@ -851,7 +803,7 @@ public partial class ServiceRegistry
                 }
 
                 // 调用方法
-                _logger?.LogInformation("[方法调用] 执行业务逻辑: {ServiceName}.{MethodName}, 参数数量: {ParameterCount}",
+                _logger?.LogDebug("[方法调用] 执行业务逻辑: {ServiceName}.{MethodName}, 参数数量: {ParameterCount}",
                     serviceName, methodName, parameters.Length);
 
                 var result = methodInfo.MethodInfo.Invoke(serviceInfo.Implementation, parameters);
@@ -892,7 +844,7 @@ public partial class ServiceRegistry
                     }
                 }
 
-                _logger?.LogInformation("[方法调用] 业务逻辑执行完成: {ServiceName}.{MethodName}, 返回值类型: {ReturnType}",
+                _logger?.LogDebug("[方法调用] 业务逻辑执行完成: {ServiceName}.{MethodName}, 返回值类型: {ReturnType}",
                     serviceName, methodName, result?.GetType().Name ?? "null");
 
                 return result;
@@ -1070,11 +1022,10 @@ public partial class ServiceRegistry
 
         try
         {
-            _logger?.LogInformation("[ServiceRegistry] {ConnectionId} 收到RPC数据: Size={Size} bytes, Data=[{DataHex}]",
+            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 收到RPC数据: Size={Size} bytes, Data=[{DataHex}]",
                 channel.ConnectionId, e.Data.Length, Convert.ToHexString(e.Data.Span[..Math.Min(e.Data.Length, 64)]));
 
             // 解析RPC消息头
-            _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始解析RPC消息", channel.ConnectionId);
             var parsedMessage = ParseMessage(e.Data);
 
             if (parsedMessage == null)
@@ -1090,12 +1041,8 @@ public partial class ServiceRegistry
             switch (parsedMessage.Header.Type)
             {
                 case MessageType.Request:
-                    _logger?.LogInformation("[ServiceRegistry] {ConnectionId} RPC请求消息解析成功: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
+                    _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始调用服务方法: 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}",
                         channel.ConnectionId, parsedMessage.Header.ServiceName, parsedMessage.Header.MethodName, parsedMessage.Header.MessageId);
-
-                    // 调用服务方法
-                    _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 开始调用服务方法: {ServiceName}.{MethodName}",
-                        channel.ConnectionId, parsedMessage.Header.ServiceName, parsedMessage.Header.MethodName);
 
                     var serverConnection = channel.Transport;
                     var result = await InvokeMethodAsync(
@@ -1104,7 +1051,7 @@ public partial class ServiceRegistry
                         parsedMessage.Body,
                         serverConnection);
 
-                    _logger?.LogInformation("[ServiceRegistry] {ConnectionId} 服务方法调用完成: {ServiceName}.{MethodName}, 请求ID={RequestId}",
+                    _logger?.LogDebug("[ServiceRegistry] {ConnectionId} 服务方法调用完成: {ServiceName}.{MethodName}, 请求ID={RequestId}",
                         channel.ConnectionId, parsedMessage.Header.ServiceName, parsedMessage.Header.MethodName, parsedMessage.Header.MessageId);
 
                     // 发送响应
@@ -1286,7 +1233,7 @@ public partial class ServiceRegistry
                     Convert.ToHexString(bodyBytes, 0, Math.Min(bodyBytes.Length, 32)));
             }
 
-            _logger?.LogInformation("[消息解析] 消息解析完成: Type={Type}, 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}, 体大小={BodySize}",
+            _logger?.LogDebug("[消息解析] 消息解析完成: Type={Type}, 服务={ServiceName}, 方法={MethodName}, 请求ID={RequestId}, 体大小={BodySize}",
                 header.Type, header.ServiceName, header.MethodName, header.MessageId, bodyLength);
 
             return new ParsedMessage

@@ -105,11 +105,11 @@ public class ChannelManager : IChannelManager
             _ => throw new NotSupportedException($"不支持的传输类型: {type}")
         };
 
-        var channel = new TransportChannel(
+        var channel = new OptimizedTransportChannel(
             name,
             transport,
             PulseRPCSerializerProvider.Instance,
-            logger: _loggerFactory.CreateLogger<TransportChannel>());
+            logger: _loggerFactory.CreateLogger<OptimizedTransportChannel>());
 
         RegisterChannel(name, channel, isDefault);
     }
@@ -117,7 +117,7 @@ public class ChannelManager : IChannelManager
     /// <summary>
     /// 获取服务代理
     /// </summary>
-    public T GetService<T>() where T : class, IPulseService
+    public T GetService2<T>() where T : class, IPulseService
     {
         // 简化实现 - 通过反射创建代理
         // 注意：这里应该使用Source Generator生成的代理类
@@ -127,7 +127,7 @@ public class ChannelManager : IChannelManager
     /// <summary>
     /// 注册事件监听器 - 通过源代码生成器实现，零反射
     /// </summary>
-    public ISubscriptionToken RegisterEventListener<T>(T listener) where T : class, IPulseEventHandler
+    public ISubscriptionToken RegisterEventListener2<T>(T listener) where T : class, IPulseEventHandler
     {
         // 直接抛出异常，提示应该使用源代码生成器生成的扩展方法
         throw new NotImplementedException("RegisterEventListener<T> 应该通过 PulseRPC.Client.SourceGenerator 生成的扩展方法调用。请确保项目正确引用了源代码生成器。");

@@ -7,7 +7,10 @@ using PulseRPC.Benchmark.Metrics.Collectors;
 using PulseRPC.Benchmark.Metrics.Core;
 using PulseRPC.Benchmark.Server.Configuration;
 using PulseRPC.Benchmark.Server.Services;
+using PulseRPC.Benchmark.Shared;
 using PulseRPC.Server;
+using PulseRPC.Server.Processing;
+using PulseRPC.Server.Transport;
 using CollectorConfiguration = PulseRPC.Benchmark.Metrics.Abstractions.CollectorConfiguration;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
@@ -162,8 +165,31 @@ internal class Program
                     };
                 });
 
-                // 3. 核心服务
-                services.AddPulseRpcServer();
+                // 3. 核心服务与传输通道
+                services.AddPulseRpcServer(b =>
+                {
+                    // 基准服务使用 TCP 通道监听指定端口
+                    b.AddTcp("TcpChannel", port, isDefault: true);
+                });
+
+                // 使用高吞吐量处理器（依赖配置）
+                services.AddHighThroughputProcessor(options =>
+                {
+                    options.Enabled = true;
+                    options.L1BufferSize = 8192;        // 8K消息缓冲
+                    options.L2QueueCapacity = 200;      // 200个批次队列
+                    options.L3QueueCapacity = 100;      // 100个响应批次队列
+                    options.BatchIntervalMs = 1;        // 1ms批处理间隔
+                    options.MaxBatchSize = 128;         // 每批最多128条消息
+                    options.CriticalMessageTimeoutUs = 50;  // 关键消息50微秒超时
+                    options.NormalMessageDropRate = 0.9;     // 90%丢弃率（高负载时）
+                    options.BatchSoftTimeoutMs = 20;    // 20ms软超时
+                    options.PerformanceCheckFrequency = 20; // 每20条消息检查性能
+                    options.EnableDetailedLogging = false;  // 生产环境禁用详细日志
+                });
+
+                // 使用增强的通道管理器
+                services.AddSingleton<IServerChannelManager, EnhancedServerChannelManager>();
 
                 // 4. 指标收集器（依赖配置）
                 MetricsConfigurationBuilderExtensions.CreateProductionConfiguration();
@@ -171,8 +197,8 @@ internal class Program
                 //
                 services.AddSingleton<IMetricsCollector, RealTimeMetricsCollector>();
 
-                // 5. 业务服务
-                services.AddSingleton<BenchmarkServiceImpl>();
+                // 5. 业务服务注册到 PulseRPC（同时提供实现以便内部解析）
+                services.AddPulseRpcService<IBenchmarkService, BenchmarkServiceImpl>();
 
                 // 6. 健康检查
                 // services.AddSingleton<HealthCheckService>();

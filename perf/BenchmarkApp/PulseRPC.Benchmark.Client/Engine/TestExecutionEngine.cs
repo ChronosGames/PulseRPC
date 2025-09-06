@@ -5,6 +5,7 @@ using PulseRPC.Benchmark.Client.Transport;
 using PulseRPC.Benchmark.Core.Interfaces;
 using PulseRPC.Benchmark.Core.Models;
 using PulseRPC.Benchmark.Metrics.Collectors;
+using PulseRPC.Benchmark.Shared.Models;
 
 namespace PulseRPC.Benchmark.Client.Engine;
 
@@ -102,8 +103,7 @@ public class TestExecutionEngine
             results.Success = true;
 
             StateChanged?.Invoke(TestState.Completed);
-            _logger.LogInformation("测试执行完成: {Scenario}, 耗时: {Duration}",
-                config.ScenarioName, results.TotalDuration);
+            _logger.LogInformation("测试执行完成: {Scenario}, 耗时: {Duration}",　config.ScenarioName, results.TotalDuration);
 
             return results;
         }
@@ -134,7 +134,7 @@ public class TestExecutionEngine
         if (_isRunning && _cancellationTokenSource != null)
         {
             _logger.LogInformation("正在停止测试...");
-            _cancellationTokenSource.Cancel();
+            await _cancellationTokenSource.CancelAsync();
 
             // 等待测试完全停止
             var timeout = TimeSpan.FromSeconds(30);
@@ -288,7 +288,7 @@ public class TestExecutionEngine
             testTasks.Add(requestTask);
 
             // 更新进度
-            if (requestCount % 100 == 0) // 每100个请求更新一次进度
+            if ((requestCount & 0xFF) == 0xFE) // 每0xFF个请求更新一次进度
             {
                 var progress = new TestProgress
                 {
@@ -310,7 +310,7 @@ public class TestExecutionEngine
             }
 
             // 控制请求速率
-            await Task.Delay(requestInterval, cancellationToken);
+            // await Task.Delay(requestInterval, cancellationToken);
         }
 
         // 等待所有请求完成
@@ -331,17 +331,27 @@ public class TestExecutionEngine
         CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
-
         try
         {
-            // 这里应该调用实际的场景执行方法
-            await Task.Delay(Random.Shared.Next(1, 10), cancellationToken); // 模拟请求处理时间
+            // 真实发送 Ping 请求并测量延迟
+            var connection = _connectionManager.GetConnection(connectionId);
+            if (connection == null)
+            {
+                throw new InvalidOperationException($"连接不存在或未连接: {connectionId}");
+            }
+
+            var ping = new PingRequest
+            {
+                RequestId = requestId,
+                SequenceNumber = requestId,
+                PayloadSize = 0
+            };
+
+            await connection.SendRequestAsync<PingRequest, PingResponse>(ping, cancellationToken);
 
             stopwatch.Stop();
 
-            // 记录成功请求
-            results.IncrementSuccessfulRequests();
-            results.AddLatency(stopwatch.Elapsed.TotalMilliseconds);
+            results.IncrementSuccessfulRequests(stopwatch.Elapsed.TotalMilliseconds);
 
             // 记录指标（模拟实现）
             // await _metricsCollector.CollectAsync("request_completed", new
@@ -364,8 +374,7 @@ public class TestExecutionEngine
             // 记录失败请求
             results.IncrementFailedRequests();
 
-            _logger.LogDebug(ex, "请求执行失败: RequestId={RequestId}, ConnectionId={ConnectionId}",
-                requestId, connectionId);
+            _logger.LogDebug(ex, "请求执行失败: RequestId={RequestId}, ConnectionId={ConnectionId}", requestId, connectionId);
 
             // 记录错误指标（模拟实现）
             // await _metricsCollector.CollectAsync("request_failed", new
@@ -519,7 +528,12 @@ public class TestResults
     public int SuccessfulRequests => _successfulRequests;
     public int FailedRequests => _failedRequests;
 
-    public void IncrementSuccessfulRequests() => Interlocked.Increment(ref _successfulRequests);
+    public void IncrementSuccessfulRequests(double latencyMs)
+    {
+        Interlocked.Increment(ref _successfulRequests);
+        _latencies.Add(latencyMs);
+    }
+
     public void IncrementFailedRequests() => Interlocked.Increment(ref _failedRequests);
 
     public double RequestsPerSecond => TotalRequests / Math.Max(TotalDuration.TotalSeconds, 1);
@@ -533,11 +547,6 @@ public class TestResults
     public double MaxLatencyMs { get; private set; }
 
     private readonly ConcurrentBag<double> _latencies = new();
-
-    public void AddLatency(double latencyMs)
-    {
-        _latencies.Add(latencyMs);
-    }
 
     public void CalculateStatistics()
     {

@@ -8,6 +8,7 @@ using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Services;
 using PulseRPC.Server.Transport;
+using PulseRPC.Server.Processing;
 
 namespace PulseRPC.Server;
 
@@ -27,40 +28,19 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
 
         // 注册通道管理器
-        services.AddSingleton<IServerChannelManager>(sp =>
-        {
-            var logger = sp.GetRequiredService<ILogger<ServerChannelManager>>();
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            return new ServerChannelManager(logger, loggerFactory);
-        });
+        services.AddSingleton<IServerChannelManager, ServerChannelManager>();
 
         // 注册认证中间件
         services.AddSingleton<AuthenticationMiddleware>();
 
         // 注册ServiceRegistry（使用工厂方法）
-        services.AddSingleton<ServiceRegistry>(sp =>
-        {
-            var authMiddleware = sp.GetRequiredService<AuthenticationMiddleware>();
-            var channelManager = sp.GetRequiredService<IServerChannelManager>();
-            var serializerProvider = sp.GetRequiredService<ISerializerProvider>();
-            var logger = sp.GetRequiredService<ILogger<ServiceRegistry>>();
-
-            return ServiceRegistry.CreateWithRpcHandling(authMiddleware, channelManager, serializerProvider, logger);
-        });
+        services.AddSingleton<ServiceRegistry>();
 
         // 注册事件发布器
         services.AddSingleton<IEventPublisher, EventPublisher>();
 
         // 注册默认服务器实例（无传输配置）
-        services.TryAddSingleton<IPulseRpcServer>(sp =>
-        {
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var serverChannelManager = sp.GetRequiredService<IServerChannelManager>();
-            var serverOptions = sp.GetService<IOptions<ServerOptions>>() ??
-                Options.Create(new ServerOptions());
-
-            return new PulseRpcServerManager(serverChannelManager, loggerFactory, serverOptions);
-        });
+        services.TryAddSingleton<IPulseRpcServer, PulseRpcServerManager>();
 
         // 注册服务工厂
         services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
@@ -712,4 +692,149 @@ public interface IPulseRpcContext
     /// 上下文数据
     /// </summary>
     Dictionary<string, object> Items { get; }
+}
+
+/// <summary>
+/// 高吞吐量消息处理器扩展方法
+/// </summary>
+public static class HighThroughputProcessorExtensions
+{
+    /// <summary>
+    /// 添加高吞吐量消息处理器支持
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="configuration">配置</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddHighThroughputProcessor(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // 注册高吞吐量处理器配置
+        services.Configure<HighThroughputProcessorOptions>(
+            configuration.GetSection("PulseRPC:Server:HighThroughputProcessor"));
+
+        return services.AddHighThroughputProcessorServices();
+    }
+
+    /// <summary>
+    /// 添加高吞吐量消息处理器支持 (使用配置回调)
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="configureOptions">配置回调</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddHighThroughputProcessor(
+        this IServiceCollection services,
+        Action<HighThroughputProcessorOptions> configureOptions)
+    {
+        services.Configure(configureOptions);
+        return services.AddHighThroughputProcessorServices();
+    }
+
+    /// <summary>
+    /// 添加默认启用的高吞吐量消息处理器
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddHighThroughputProcessor(this IServiceCollection services)
+    {
+        services.Configure<HighThroughputProcessorOptions>(options =>
+        {
+            options.Enabled = true;
+        });
+
+        return services.AddHighThroughputProcessorServices();
+    }
+
+    /// <summary>
+    /// 配置高吞吐量处理器性能参数
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="l1BufferSize">L1缓冲区大小</param>
+    /// <param name="batchIntervalMs">批处理间隔(毫秒)</param>
+    /// <param name="maxBatchSize">最大批处理大小</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection ConfigureHighThroughputProcessor(
+        this IServiceCollection services,
+        int l1BufferSize = 2048,
+        int batchIntervalMs = 2,
+        int maxBatchSize = 32)
+    {
+        services.Configure<HighThroughputProcessorOptions>(options =>
+        {
+            options.Enabled = true;
+            options.L1BufferSize = l1BufferSize;
+            options.BatchIntervalMs = batchIntervalMs;
+            options.MaxBatchSize = maxBatchSize;
+        });
+
+        return services.AddHighThroughputProcessorServices();
+    }
+
+    /// <summary>
+    /// 配置高吞吐量处理器背压策略
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="normalDropRate">普通消息丢弃率(0.0-1.0)</param>
+    /// <param name="criticalTimeoutUs">关键消息超时(微秒)</param>
+    /// <param name="enableDetailedLogging">是否启用详细日志</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection ConfigureHighThroughputBackpressure(
+        this IServiceCollection services,
+        double normalDropRate = 0.8,
+        int criticalTimeoutUs = 100,
+        bool enableDetailedLogging = false)
+    {
+        services.Configure<HighThroughputProcessorOptions>(options =>
+        {
+            options.NormalMessageDropRate = normalDropRate;
+            options.CriticalMessageTimeoutUs = criticalTimeoutUs;
+            options.EnableDetailedLogging = enableDetailedLogging;
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    /// 添加基础高吞吐量处理器服务
+    /// </summary>
+    private static IServiceCollection AddHighThroughputProcessorServices(this IServiceCollection services)
+    {
+        // 注册消息处理器管理器
+        services.TryAddSingleton<IHighThroughputProcessorManager, HighThroughputProcessorManager>();
+
+        // 添加临时的消息处理注册表实现
+        services.TryAddSingleton<IMessageHandlerRegistry, DefaultMessageHandlerRegistry>();
+
+        return services;
+    }
+}
+
+/// <summary>
+/// 临时的默认消息处理注册表实现
+/// </summary>
+internal class DefaultMessageHandlerRegistry : IMessageHandlerRegistry
+{
+    private readonly ILogger<DefaultMessageHandlerRegistry> _logger;
+
+    public DefaultMessageHandlerRegistry(ILogger<DefaultMessageHandlerRegistry> logger)
+    {
+        _logger = logger;
+    }
+
+    public async Task<object?> HandleAsync(ServerMessage message)
+    {
+        // 默认实现：简单回显处理
+        _logger.LogDebug("处理消息: {MessageType}, SequenceId: {SequenceId}",
+            message.GetType().Name, message.SequenceId);
+
+        await Task.Delay(1); // 模拟处理延迟
+
+        return new
+        {
+            Type = message.GetType().Name,
+            SequenceId = message.SequenceId,
+            ProcessedAt = DateTime.UtcNow,
+            Message = "Processed successfully"
+        };
+    }
 }

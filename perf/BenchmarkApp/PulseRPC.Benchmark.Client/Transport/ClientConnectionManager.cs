@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Concurrent;
-using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Benchmark.Shared;
+using PulseRPC.Client;
+using PulseRPC.Benchmark.Shared.Models;
 
 namespace PulseRPC.Benchmark.Client.Transport;
 
@@ -49,7 +51,7 @@ public class ClientConnectionManager(ILogger<ClientConnectionManager> logger)
             // 解析服务器地址
             var (host, port) = ParseServerAddress(serverAddress);
 
-            // 创建新连接
+            // 创建新连接（真实 PulseRPC 客户端 + 服务代理）
             var connection = new ClientConnection(connectionId, host, port, _logger);
             await connection.ConnectAsync(cancellationToken);
 
@@ -198,6 +200,9 @@ public class ClientConnection : IDisposable
     private volatile bool _isConnected;
     private volatile bool _disposed;
 
+    private IPulseClient? _pulseClient;
+    private IBenchmarkService? _service;
+
     public string ConnectionId { get; }
     public string Host { get; }
     public int Port { get; }
@@ -228,9 +233,16 @@ public class ClientConnection : IDisposable
         {
             _logger.LogDebug("连接到服务器: {Host}:{Port}", Host, Port);
 
-            // 这里应该实现实际的PulseRPC连接逻辑
-            // 目前使用模拟实现
-            await Task.Delay(100, cancellationToken); // 模拟连接时间
+            // 创建 PulseRPC 客户端（仅 TCP 通道）
+            _pulseClient = PulseRpcClientFactory.CreateClient(builder =>
+            {
+                builder.AddTcp("TcpChannel", Host, Port);
+            });
+
+            await _pulseClient.ConnectAsync(cancellationToken);
+
+            // 获取服务代理
+            _service = _pulseClient.GetService<IBenchmarkService>();
 
             _isConnected = true;
             ConnectedAt = DateTime.UtcNow;
@@ -257,8 +269,12 @@ public class ClientConnection : IDisposable
         {
             _logger.LogDebug("断开连接: {ConnectionId}", ConnectionId);
 
-            // 这里应该实现实际的连接关闭逻辑
-            await Task.Delay(50); // 模拟断开时间
+            if (_pulseClient != null)
+            {
+                await _pulseClient.DisconnectAsync();
+                _pulseClient = null;
+            }
+            _service = null;
 
             _isConnected = false;
             _logger.LogDebug("连接已断开: {ConnectionId}", ConnectionId);
@@ -283,11 +299,25 @@ public class ClientConnection : IDisposable
         {
             LastActivityAt = DateTime.UtcNow;
 
-            // 这里应该实现实际的请求发送逻辑
-            await Task.Delay(Random.Shared.Next(1, 10), cancellationToken);
+            if (_service == null)
+                throw new InvalidOperationException("服务代理未初始化");
 
-            // 模拟响应
-            return default(TResponse)!;
+            object? responseObj = null;
+
+            // 根据请求类型路由到基准服务方法（当前支持 Ping/Echo）
+            switch (request)
+            {
+                case PingRequest pingReq:
+                    responseObj = await _service.PingAsync(pingReq);
+                    break;
+                case EchoRequest echoReq:
+                    responseObj = await _service.EchoAsync(echoReq, cancellationToken);
+                    break;
+                default:
+                    throw new NotSupportedException($"不支持的请求类型: {typeof(TRequest).Name}");
+            }
+
+            return (TResponse)responseObj!;
         }
         catch (Exception ex)
         {
