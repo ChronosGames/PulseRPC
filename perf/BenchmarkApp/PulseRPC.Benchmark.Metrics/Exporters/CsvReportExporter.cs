@@ -120,13 +120,13 @@ public class CsvReportExporter : IBenchmarkReportGenerator
     {
         csvBuilder.AppendLine("# 延迟统计");
         csvBuilder.AppendLine("指标,值（毫秒）");
-        csvBuilder.AppendLine($"平均延迟,{data.Metrics.Latency.AverageMs:F2}");
-        csvBuilder.AppendLine($"最小延迟,{data.Metrics.Latency.MinMs:F2}");
-        csvBuilder.AppendLine($"最大延迟,{data.Metrics.Latency.MaxMs:F2}");
-        csvBuilder.AppendLine($"P50延迟,{data.Metrics.Latency.P50Ms:F2}");
-        csvBuilder.AppendLine($"P95延迟,{data.Metrics.Latency.P95Ms:F2}");
-        csvBuilder.AppendLine($"P99延迟,{data.Metrics.Latency.P99Ms:F2}");
-        csvBuilder.AppendLine($"P99.9延迟,{data.Metrics.Latency.P999Ms:F2}");
+        csvBuilder.AppendLine($"平均延迟,{data.Metrics.Latency.AverageMs:F3}");
+        csvBuilder.AppendLine($"最小延迟,{data.Metrics.Latency.MinMs:F3}");
+        csvBuilder.AppendLine($"最大延迟,{data.Metrics.Latency.MaxMs:F3}");
+        csvBuilder.AppendLine($"P50延迟,{data.Metrics.Latency.P50Ms:F3}");
+        csvBuilder.AppendLine($"P95延迟,{data.Metrics.Latency.P95Ms:F3}");
+        csvBuilder.AppendLine($"P99延迟,{data.Metrics.Latency.P99Ms:F3}");
+        csvBuilder.AppendLine($"P99.9延迟,{data.Metrics.Latency.P999Ms:F3}");
         csvBuilder.AppendLine($"标准差,{data.Metrics.Latency.StandardDeviation:F2}");
         csvBuilder.AppendLine();
 
@@ -137,7 +137,7 @@ public class CsvReportExporter : IBenchmarkReportGenerator
             csvBuilder.AppendLine("时间戳,延迟（毫秒）");
             foreach (var point in data.Metrics.Latency.Distribution)
             {
-                csvBuilder.AppendLine($"{point.Timestamp:yyyy-MM-dd HH:mm:ss.fff},{point.LatencyMs:F2}");
+                csvBuilder.AppendLine($"{point.Timestamp:yyyy-MM-dd HH:mm:ss.fff},{point.LatencyMs:F3}");
             }
             csvBuilder.AppendLine();
         }
@@ -229,4 +229,4 @@ public class CsvReportExporter : IBenchmarkReportGenerator
 
         await Task.CompletedTask;
     }
-} 
+}

@@ -10,7 +10,7 @@ namespace PulseRPC.Client;
 /// <summary>
 /// PulseRPC 客户端实现
 /// </summary>
-internal class PulseRpcClientManager : global::PulseRPC.IPulseClient
+internal class PulseRpcClientManager : IPulseClient
 {
     private readonly IChannelManager _channelManager;
     private readonly ILogger<PulseRpcClientManager> _logger;
@@ -160,7 +160,7 @@ internal class PulseRpcClientManager : global::PulseRPC.IPulseClient
     /// <summary>
     /// 获取服务代理 - 自动处理服务发现和连接管理
     /// </summary>
-    public async Task<T> GetServiceAsync<T>(string? serviceName = null, CancellationToken cancellationToken = default) where T : class, IPulseService
+    public async Task<T> GetServiceAsync2<T>(string? serviceName = null, CancellationToken cancellationToken = default) where T : class, IPulseService
     {
         // TODO: 实现服务代理获取逻辑
         throw new NotImplementedException("服务代理功能待实现");
@@ -169,7 +169,7 @@ internal class PulseRpcClientManager : global::PulseRPC.IPulseClient
     /// <summary>
     /// 注册事件监听器
     /// </summary>
-    public async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, string? serviceName = null, CancellationToken cancellationToken = default) where T : class, IPulseEventHandler
+    public async Task<ISubscriptionToken> RegisterEventListenerAsync2<T>(T listener, string? serviceName = null, CancellationToken cancellationToken = default) where T : class, IPulseEventHandler
     {
         // TODO: 实现事件监听器注册逻辑
         throw new NotImplementedException("事件监听器功能待实现");

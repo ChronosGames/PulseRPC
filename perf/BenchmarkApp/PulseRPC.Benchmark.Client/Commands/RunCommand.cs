@@ -255,12 +255,12 @@ public class RunCommand(
         Console.WriteLine($"⚡ 平均QPS: {results.RequestsPerSecond:F2}");
         Console.WriteLine();
         Console.WriteLine("⏱️  延迟统计");
-        Console.WriteLine($"   平均值: {results.AverageLatencyMs:F2} ms");
-        Console.WriteLine($"   中位数: {results.MedianLatencyMs:F2} ms");
-        Console.WriteLine($"   P95:   {results.P95LatencyMs:F2} ms");
-        Console.WriteLine($"   P99:   {results.P99LatencyMs:F2} ms");
-        Console.WriteLine($"   最小值: {results.MinLatencyMs:F2} ms");
-        Console.WriteLine($"   最大值: {results.MaxLatencyMs:F2} ms");
+        Console.WriteLine($"   平均值: {results.AverageLatencyMs:F3} ms");
+        Console.WriteLine($"   中位数: {results.MedianLatencyMs:F3} ms");
+        Console.WriteLine($"   P95:   {results.P95LatencyMs:F3} ms");
+        Console.WriteLine($"   P99:   {results.P99LatencyMs:F3} ms");
+        Console.WriteLine($"   最小值: {results.MinLatencyMs:F3} ms");
+        Console.WriteLine($"   最大值: {results.MaxLatencyMs:F3} ms");
         Console.WriteLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     }
 

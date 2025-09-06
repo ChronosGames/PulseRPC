@@ -87,7 +87,7 @@ public class PingPongScenario(ILoggerFactory loggerFactory) : BenchmarkClientBas
     private async Task WarmupPhase(BenchmarkConfiguration config, CancellationToken cancellationToken)
     {
         var warmupIterations = Math.Min(config.WarmupIterations, 10); // 减少预热次数
-        
+
         // 快速预热，不记录详细日志
         for (int i = 0; i < warmupIterations; i++)
         {
@@ -119,7 +119,7 @@ public class PingPongScenario(ILoggerFactory loggerFactory) : BenchmarkClientBas
 
         try
         {
-            var response = await BenchmarkService.PingAsync(request, cancellationToken);
+            var response = await BenchmarkService.PingAsync(request);
 
             var endTicks = Stopwatch.GetTimestamp();
             var latency = (endTicks - startTicks) * 1000.0 / Stopwatch.Frequency;

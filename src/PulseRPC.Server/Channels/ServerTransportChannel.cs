@@ -1,8 +1,4 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 using PulseRPC.Authentication;
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
@@ -20,7 +16,7 @@ public class ServerTransportChannel : IServerChannel
 {
     private readonly IServerTransport _transport;
     private readonly ConcurrentDictionary<string, object> _properties;
-    private readonly object _authLock = new object();
+    private readonly Lock _authLock = new Lock();
     private readonly ILogger<ServerTransportChannel>? _logger;
 
     private IAuthenticationContext? _authenticationContext;
@@ -157,7 +153,7 @@ public class ServerTransportChannel : IServerChannel
 
         if (sender is IServerTransport connection)
         {
-            _logger?.LogInformation("[通道数据转发] {ConnectionId} 接收到传输数据: Size={Size} bytes, Data=[{DataHex}]",
+            _logger?.LogDebug("[通道数据转发] {ConnectionId} 接收到传输数据: Size={Size} bytes, Data=[{DataHex}]",
                 connection.ConnectionId, e.Data.Length, Convert.ToHexString(e.Data.Span[..Math.Min(e.Data.Length, 64)]));
 
             _logger?.LogDebug("[通道数据转发] {ConnectionId} 转发给订阅者，订阅者数量: {SubscriberCount}",

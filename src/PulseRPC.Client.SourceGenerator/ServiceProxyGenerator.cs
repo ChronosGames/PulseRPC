@@ -1495,28 +1495,28 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         }
 
         // 为每个服务接口生成扩展方法
-        foreach (var interfaceSymbol in serviceTypes)
-        {
-            if (interfaceSymbol == null) continue;
-
-            var interfaceName = interfaceSymbol.Name;
-            var fullTypeName = GetFullTypeName(interfaceSymbol);
-
-            // 去掉I前缀
-            var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
-
-            sb.AppendLine($"        /// <summary>");
-            sb.AppendLine($"        /// 获取 {interfaceName} 服务");
-            sb.AppendLine($"        /// </summary>");
-            sb.AppendLine($"        public static {fullTypeName} Get{serviceName}(this IChannelManager channelManager)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            if (channelManager == null)");
-            sb.AppendLine($"                throw new ArgumentNullException(nameof(channelManager));");
-            sb.AppendLine();
-            sb.AppendLine($"            return new {fullTypeName}Proxy(channelManager);");
-            sb.AppendLine("        }");
-            sb.AppendLine();
-        }
+        // foreach (var interfaceSymbol in serviceTypes)
+        // {
+        //     if (interfaceSymbol == null) continue;
+        //
+        //     var interfaceName = interfaceSymbol.Name;
+        //     var fullTypeName = GetFullTypeName(interfaceSymbol);
+        //
+        //     // 去掉I前缀
+        //     var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
+        //
+        //     sb.AppendLine($"        /// <summary>");
+        //     sb.AppendLine($"        /// 获取 {interfaceName} 服务");
+        //     sb.AppendLine($"        /// </summary>");
+        //     sb.AppendLine($"        public static {fullTypeName} Get{serviceName}(this IChannelManager channelManager)");
+        //     sb.AppendLine("        {");
+        //     sb.AppendLine($"            if (channelManager == null)");
+        //     sb.AppendLine($"                throw new ArgumentNullException(nameof(channelManager));");
+        //     sb.AppendLine();
+        //     sb.AppendLine($"            return new {fullTypeName}Proxy(channelManager);");
+        //     sb.AppendLine("        }");
+        //     sb.AppendLine();
+        // }
 
         // 为每个事件接口生成扩展方法
         foreach (var interfaceSymbol in eventTypes)

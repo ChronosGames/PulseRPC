@@ -31,7 +31,7 @@ public interface IPulseClient : IDisposable
     /// <param name="serviceName">服务名称，为空则使用接口名</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>服务代理</returns>
-    Task<T> GetServiceAsync<T>(string? serviceName = null, CancellationToken cancellationToken = default)
+    Task<T> GetServiceAsync2<T>(string? serviceName = null, CancellationToken cancellationToken = default)
         where T : class, IPulseService;
 
     /// <summary>
@@ -42,7 +42,7 @@ public interface IPulseClient : IDisposable
     /// <param name="serviceName">服务名称，为空则使用接口名</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>订阅令牌</returns>
-    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, string? serviceName = null,
+    Task<ISubscriptionToken> RegisterEventListenerAsync2<T>(T listener, string? serviceName = null,
         CancellationToken cancellationToken = default) where T : class, IPulseEventHandler;
 
     /// <summary>

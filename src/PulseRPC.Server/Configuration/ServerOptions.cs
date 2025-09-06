@@ -109,4 +109,75 @@ public class ServerOptions
     /// 是否启用TCP_NODELAY
     /// </summary>
     public bool NoDelay { get; set; } = true;
+
+    /// <summary>
+    /// 高吞吐量消息处理器配置
+    /// </summary>
+    public HighThroughputProcessorOptions HighThroughputProcessor { get; set; } = new();
+}
+
+/// <summary>
+/// 高吞吐量消息处理器配置选项
+/// </summary>
+public class HighThroughputProcessorOptions
+{
+    /// <summary>
+    /// 是否启用高吞吐量消息处理器
+    /// </summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// L1缓冲区大小（无锁环形缓冲区）
+    /// </summary>
+    public int L1BufferSize { get; set; } = 2048;
+
+    /// <summary>
+    /// L2批量处理队列容量
+    /// </summary>
+    public int L2QueueCapacity { get; set; } = 100;
+
+    /// <summary>
+    /// L3响应发送队列容量
+    /// </summary>
+    public int L3QueueCapacity { get; set; } = 50;
+
+    /// <summary>
+    /// 批处理间隔（毫秒）
+    /// </summary>
+    public int BatchIntervalMs { get; set; } = 2;
+
+    /// <summary>
+    /// 每批最大消息数量
+    /// </summary>
+    public int MaxBatchSize { get; set; } = 32;
+
+    /// <summary>
+    /// 关键消息强制入队超时（微秒）
+    /// </summary>
+    public int CriticalMessageTimeoutUs { get; set; } = 100;
+
+    /// <summary>
+    /// 普通消息背压丢弃率（0.0-1.0）
+    /// </summary>
+    public double NormalMessageDropRate { get; set; } = 0.8;
+
+    /// <summary>
+    /// 批处理软超时阈值（毫秒）
+    /// </summary>
+    public int BatchSoftTimeoutMs { get; set; } = 50;
+
+    /// <summary>
+    /// 性能检查频率（每处理多少条消息检查一次）
+    /// </summary>
+    public int PerformanceCheckFrequency { get; set; } = 10;
+
+    /// <summary>
+    /// L2队列满时的紧急等待时间（毫秒）
+    /// </summary>
+    public int L2BackpressureWaitMs { get; set; } = 1;
+
+    /// <summary>
+    /// 是否启用详细性能日志
+    /// </summary>
+    public bool EnableDetailedLogging { get; set; }
 }

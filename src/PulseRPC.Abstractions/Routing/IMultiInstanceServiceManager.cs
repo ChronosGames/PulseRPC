@@ -18,12 +18,12 @@ public interface IMultiInstanceServiceManager<T> : IDisposable where T : class, 
     /// <summary>
     /// 根据路由上下文获取服务代理
     /// </summary>
-    Task<T> GetServiceAsync(IRoutingContext routingContext);
+    Task<T> GetServiceAsync2(IRoutingContext routingContext);
 
     /// <summary>
     /// 获取特定实例的服务代理
     /// </summary>
-    Task<T> GetServiceAsync(string instanceId);
+    Task<T> GetServiceAsync2(string instanceId);
 
     /// <summary>
     /// 执行广播调用（所有实例）
@@ -34,7 +34,7 @@ public interface IMultiInstanceServiceManager<T> : IDisposable where T : class, 
     /// 执行聚合调用（多实例结果聚合）
     /// </summary>
     Task<TAggregated> AggregateAsync<TResult, TAggregated>(
-        Func<T, Task<TResult>> operation, 
+        Func<T, Task<TResult>> operation,
         Func<IEnumerable<TResult>, TAggregated> aggregator);
 
     /// <summary>
@@ -255,4 +255,4 @@ public class LoadBalancingEventArgs : EventArgs
     /// 事件时间
     /// </summary>
     public DateTime EventTime { get; set; } = DateTime.UtcNow;
-} 
+}

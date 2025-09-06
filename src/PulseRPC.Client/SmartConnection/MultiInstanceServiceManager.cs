@@ -43,7 +43,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
             {
                 InstanceId = $"{_serviceName}-1",
                 ServiceName = _serviceName,
-                Endpoint = new ServiceDiscovery.ServiceEndpoint { ServiceId = $"{_serviceName}-1", ServiceType = _serviceName, Host = "localhost", Port = 8000 },
+                Endpoint = new ServiceEndpoint { ServiceId = $"{_serviceName}-1", ServiceType = _serviceName, Host = "localhost", Port = 8000 },
                 Weight = 100,
                 IsHealthy = true,
                 Region = "default",
@@ -53,7 +53,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
             {
                 InstanceId = $"{_serviceName}-2",
                 ServiceName = _serviceName,
-                Endpoint = new ServiceDiscovery.ServiceEndpoint { ServiceId = $"{_serviceName}-2", ServiceType = _serviceName, Host = "localhost", Port = 8001 },
+                Endpoint = new ServiceEndpoint { ServiceId = $"{_serviceName}-2", ServiceType = _serviceName, Host = "localhost", Port = 8001 },
                 Weight = 100,
                 IsHealthy = true,
                 Region = "default",
@@ -62,14 +62,14 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
         };
     }
 
-    public async Task<T> GetServiceAsync(IRoutingContext routingContext)
+    public Task<T> GetServiceAsync2(IRoutingContext routingContext)
     {
-        return await _connectionManager.GetServiceAsync<T>(_serviceName, routingContext, _defaultOptions);
+        return _connectionManager.GetServiceAsync2<T>(_serviceName, routingContext, _defaultOptions);
     }
 
-    public async Task<T> GetServiceAsync(string instanceId)
+    public Task<T> GetServiceAsync2(string instanceId)
     {
-        return await _connectionManager.GetServiceAsync<T>(_serviceName, instanceId, _defaultOptions);
+        return _connectionManager.GetServiceAsync2<T>(_serviceName, instanceId, _defaultOptions);
     }
 
     public async Task<BroadcastResult<TResult>> BroadcastAsync<TResult>(Func<T, Task<TResult>> operation)
@@ -99,7 +99,7 @@ public class MultiInstanceServiceManager<T> : IMultiInstanceServiceManager<T> wh
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var service = await GetServiceAsync(instanceId);
+            var service = await GetServiceAsync2(instanceId);
             var result = await operation(service);
 
             return new BroadcastResultItem<TResult>

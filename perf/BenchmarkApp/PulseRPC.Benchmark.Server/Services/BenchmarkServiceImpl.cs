@@ -90,13 +90,14 @@ public class BenchmarkServiceImpl : IBenchmarkService
         }
     }
 
-    public async Task<PingResponse> PingAsync(PingRequest request, CancellationToken cancellationToken = default)
+    public Task<PingResponse> PingAsync(PingRequest request)
     {
         // 极简优化版本 - 移除所有不必要的开销
         try
         {
             // 快速统计计数，不使用字符串操作和字典
             Interlocked.Increment(ref _totalRequests);
+            Interlocked.Increment(ref _successfulRequests);
 
             // 直接返回响应，移除时间计算和日志
             var response = new PingResponse
@@ -108,14 +109,14 @@ public class BenchmarkServiceImpl : IBenchmarkService
                 Success = true
             };
 
-            Interlocked.Increment(ref _successfulRequests);
-            return response;
+            return Task.FromResult(response);
         }
         catch
         {
             // 快速错误处理，不记录详细信息
             Interlocked.Increment(ref _failedRequests);
-            return new PingResponse
+
+            return Task.FromResult(new PingResponse
             {
                 RequestId = request.RequestId,
                 SequenceNumber = request.SequenceNumber,
@@ -123,7 +124,7 @@ public class BenchmarkServiceImpl : IBenchmarkService
                 RoundTripTimeNs = 0,
                 Success = false,
                 ErrorMessage = "Server Error"
-            };
+            });
         }
     }
 

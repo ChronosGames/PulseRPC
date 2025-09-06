@@ -29,30 +29,6 @@ public static class PulseRpcClientFactory
         // 构建并返回客户端
         return builder.Build();
     }
-
-    /// <summary>
-    /// 创建简单的 TCP 客户端
-    /// </summary>
-    /// <param name="name">通道名称</param>
-    /// <param name="host">服务器主机</param>
-    /// <param name="port">服务器端口</param>
-    /// <returns>配置好的 TCP 客户端</returns>
-    public static IPulseClient CreateTcpClient(string name, string host, int port)
-    {
-        return CreateClient(builder => builder.AddTcp(name, host, port));
-    }
-
-    /// <summary>
-    /// 创建简单的 KCP 客户端
-    /// </summary>
-    /// <param name="name">通道名称</param>
-    /// <param name="host">服务器主机</param>
-    /// <param name="port">服务器端口</param>
-    /// <returns>配置好的 KCP 客户端</returns>
-    public static IPulseClient CreateKcpClient(string name, string host, int port)
-    {
-        return CreateClient(builder => builder.AddKcp(name, host, port));
-    }
 }
 
 /// <summary>

@@ -14,9 +14,9 @@ internal class PulseClientBuilder : IPulseClientBuilder
     private readonly List<ClientTransportConfiguration> _transports = new();
     private readonly IServiceProvider _serviceProvider;
     private global::PulseRPC.ServiceDiscoveryOptions? _serviceDiscoveryOptions;
-    private global::PulseRPC.IAuthenticationProvider? _authenticationProvider;
+    private IAuthenticationProvider? _authenticationProvider;
     private TimeSpan _timeout = TimeSpan.FromSeconds(30);
-    private global::PulseRPC.RetryOptions _retryOptions = new();
+    private RetryOptions _retryOptions = new();
     private global::PulseRPC.ConnectionPoolOptions _connectionPoolOptions = new();
 
     public PulseClientBuilder(IServiceProvider serviceProvider)
@@ -90,7 +90,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 配置认证
     /// </summary>
-    public IPulseClientBuilder WithAuthentication(global::PulseRPC.IAuthenticationProvider provider)
+    public IPulseClientBuilder WithAuthentication(IAuthenticationProvider provider)
     {
         _authenticationProvider = provider;
         return this;
@@ -108,7 +108,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 配置重试策略
     /// </summary>
-    public IPulseClientBuilder WithRetry(Action<global::PulseRPC.RetryOptions> configure)
+    public IPulseClientBuilder WithRetry(Action<RetryOptions> configure)
     {
         configure(_retryOptions);
         return this;
@@ -126,7 +126,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 构建客户端
     /// </summary>
-    public global::PulseRPC.IPulseClient Build()
+    public IPulseClient Build()
     {
         if (_transports.Count == 0)
         {
