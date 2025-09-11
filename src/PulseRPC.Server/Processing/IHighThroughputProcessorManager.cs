@@ -26,7 +26,7 @@ public interface IHighThroughputProcessorManager : IDisposable
     /// <summary>
     /// 获取所有处理器统计信息
     /// </summary>
-    Dictionary<string, ProcessorStats> GetAllStats();
+    Dictionary<string, EngineStatistics> GetAllStats();
 
     /// <summary>
     /// 获取管理器状态

@@ -296,9 +296,9 @@ PulseRPC.Transport              → PulseRPC.Core.Memory
 
 ### 6.2 第二阶段 (3-4周): 消息处理优化
 - [x] 实现CompiledMessageDispatcher（Source Generator）
-- [ ] 开发TieredMessageProcessor分层处理
-- [ ] 创建PriorityAwareScheduler优先级调度
-- [ ] 集成WorkStealingMessageProcessor并发处理
+- [x] 开发TieredMessageProcessor分层处理
+- [x] 创建PriorityAwareScheduler优先级调度
+- [x] 集成WorkStealingMessageProcessor并发处理
 
 ### 6.3 第三阶段 (2-3周): I/O和序列化优化  
 - [ ] 实现BatchedNetworkWriter批量写入

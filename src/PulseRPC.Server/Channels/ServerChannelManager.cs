@@ -1,20 +1,29 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Authentication;
+using Microsoft.Extensions.Options;
+using PulseRPC.Server.Engine;
+using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Server.Transport;
+namespace PulseRPC.Server.Processing;
 
 /// <summary>
-/// 服务器通道管理器，管理所有客户端连接的传输通道
+/// 增强的服务器通道管理器 - 集成高吞吐量消息处理器
 /// </summary>
 public class ServerChannelManager : IServerChannelManager
 {
     private readonly ConcurrentDictionary<string, IServerChannel> _channels;
+    private readonly IHighThroughputProcessorManager? _processorManager;
+    private readonly IOptions<MessageEngineConfiguration> _processorOptions;
     private readonly ILogger<ServerChannelManager> _logger;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly Timer _cleanupTimer;
     private volatile bool _disposed;
+
+    // 统计信息
+    private long _totalChannelsCreated;
+    private long _totalChannelsRemoved;
+    private long _totalHighThroughputProcessorsCreated;
 
     /// <summary>
     /// 通道超时时间（毫秒）
@@ -46,14 +55,22 @@ public class ServerChannelManager : IServerChannelManager
     /// </summary>
     public event System.EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;
 
-    public ServerChannelManager(ILogger<ServerChannelManager> logger, ILoggerFactory? loggerFactory = null)
+    public ServerChannelManager(
+        ILogger<ServerChannelManager> logger,
+        IOptions<MessageEngineConfiguration> processorOptions,
+        ILoggerFactory? loggerFactory = null,
+        IHighThroughputProcessorManager? processorManager = null)
     {
         _channels = new ConcurrentDictionary<string, IServerChannel>();
+        _processorManager = processorManager;
+        _processorOptions = processorOptions;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _loggerFactory = loggerFactory;
 
         // 启动清理定时器，每60秒清理一次过期连接
         _cleanupTimer = new Timer(CleanupExpiredChannels, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+
+        _logger.LogInformation("增强服务器通道管理器已启动");
     }
 
     /// <summary>
@@ -76,7 +93,13 @@ public class ServerChannelManager : IServerChannelManager
         // 添加到管理字典
         if (_channels.TryAdd(transport.ConnectionId, channel))
         {
-            _logger.LogInformation("已添加传输通道: {ConnectionId}", transport.ConnectionId);
+            Interlocked.Increment(ref _totalChannelsCreated);
+
+            _logger.LogInformation("已添加传输通道: {ConnectionId}, 总数: {TotalCount}", transport.ConnectionId, _channels.Count);
+
+            // 如果启用了高吞吐量处理器，为此通道创建处理器
+            _ = Task.Run(async () => await TryCreateHighThroughputProcessorAsync(channel));
+
             ChannelConnected?.Invoke(this, new ChannelEventArgs(channel));
             return channel;
         }
@@ -89,6 +112,27 @@ public class ServerChannelManager : IServerChannelManager
     }
 
     /// <summary>
+    /// 尝试为通道创建高吞吐量处理器
+    /// </summary>
+    private async Task TryCreateHighThroughputProcessorAsync(IServerChannel channel)
+    {
+        if (!_processorOptions.Value.Enabled || _processorManager == null)
+            return;
+
+        try
+        {
+            var processor = await _processorManager.CreateProcessorAsync(channel.ConnectionId, channel);
+            Interlocked.Increment(ref _totalHighThroughputProcessorsCreated);
+
+            _logger.LogDebug("已为通道创建高吞吐量处理器: {ConnectionId}", channel.ConnectionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "为通道创建高吞吐量处理器失败: {ConnectionId}", channel.ConnectionId);
+        }
+    }
+
+    /// <summary>
     /// 获取指定的传输通道
     /// </summary>
     /// <param name="connectionId">连接ID</param>
@@ -96,9 +140,7 @@ public class ServerChannelManager : IServerChannelManager
     public IServerChannel? GetChannel(string connectionId)
     {
         if (string.IsNullOrEmpty(connectionId))
-        {
             return null;
-        }
 
         _channels.TryGetValue(connectionId, out var channel);
         return channel;
@@ -112,16 +154,17 @@ public class ServerChannelManager : IServerChannelManager
     public bool RemoveChannel(string connectionId)
     {
         if (string.IsNullOrEmpty(connectionId))
-        {
             return false;
-        }
 
         if (!_channels.TryRemove(connectionId, out var channel))
-        {
             return false;
-        }
 
-        _logger.LogInformation("已移除传输通道: {ConnectionId}", connectionId);
+        Interlocked.Increment(ref _totalChannelsRemoved);
+
+        _logger.LogInformation("已移除传输通道: {ConnectionId}, 剩余: {RemainingCount}", connectionId, _channels.Count);
+
+        // 移除对应的高吞吐量处理器
+        _ = Task.Run(async () => await TryRemoveHighThroughputProcessorAsync(connectionId));
 
         // 取消订阅事件
         channel.StateChanged -= OnChannelStateChanged;
@@ -133,6 +176,28 @@ public class ServerChannelManager : IServerChannelManager
         channel.Dispose();
 
         return true;
+    }
+
+    /// <summary>
+    /// 尝试移除高吞吐量处理器
+    /// </summary>
+    private async Task TryRemoveHighThroughputProcessorAsync(string connectionId)
+    {
+        if (_processorManager == null)
+            return;
+
+        try
+        {
+            var removed = await _processorManager.RemoveProcessorAsync(connectionId);
+            if (removed)
+            {
+                _logger.LogDebug("已移除高吞吐量处理器: {ConnectionId}", connectionId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "移除高吞吐量处理器失败: {ConnectionId}", connectionId);
+        }
     }
 
     /// <summary>
@@ -161,9 +226,7 @@ public class ServerChannelManager : IServerChannelManager
     public IEnumerable<IServerChannel> GetChannelsByUser(string username)
     {
         if (string.IsNullOrEmpty(username))
-        {
             return Enumerable.Empty<IServerChannel>();
-        }
 
         return _channels.Values
             .Where(c => c.IsAuthenticated &&
@@ -198,14 +261,44 @@ public class ServerChannelManager : IServerChannelManager
     }
 
     /// <summary>
+    /// 获取高吞吐量处理器统计信息
+    /// </summary>
+    public Dictionary<string, EngineStatistics> GetProcessorStats()
+    {
+        if (_processorManager == null)
+            return new Dictionary<string, EngineStatistics>();
+
+        return _processorManager.GetAllStats();
+    }
+
+    /// <summary>
+    /// 获取通道管理器统计信息
+    /// </summary>
+    public ChannelManagerStats GetChannelManagerStats()
+    {
+        var processorStats = GetProcessorStats();
+        var totalProcessed = processorStats.Values.Sum(s => s.TotalMessagesProcessed);
+        var totalDropped = processorStats.Values.Sum(s => s.TotalMessagesDropped);
+
+        return new ChannelManagerStats
+        {
+            ActiveChannels = _channels.Count,
+            TotalChannelsCreated = Interlocked.Read(ref _totalChannelsCreated),
+            TotalChannelsRemoved = Interlocked.Read(ref _totalChannelsRemoved),
+            TotalHighThroughputProcessorsCreated = Interlocked.Read(ref _totalHighThroughputProcessorsCreated),
+            TotalMessagesProcessed = totalProcessed,
+            TotalMessagesDropped = totalDropped,
+            HighThroughputProcessorEnabled = _processorOptions.Value.Enabled
+        };
+    }
+
+    /// <summary>
     /// 处理通道状态变更事件
     /// </summary>
     private void OnChannelStateChanged(object? sender, TransportStateEventArgs e)
     {
         if (sender is not ITransportChannel channel)
-        {
             return;
-        }
 
         _logger.LogDebug("通道状态变更: {ConnectionId} - {OldState} -> {NewState}",
             channel.ConnectionId, e.PreviousState, e.CurrentState);
@@ -223,9 +316,7 @@ public class ServerChannelManager : IServerChannelManager
     private void CleanupExpiredChannels(object? state)
     {
         if (_disposed)
-        {
             return;
-        }
 
         try
         {
@@ -259,9 +350,7 @@ public class ServerChannelManager : IServerChannelManager
     public void Dispose()
     {
         if (_disposed)
-        {
             return;
-        }
 
         _disposed = true;
 
@@ -285,23 +374,9 @@ public class ServerChannelManager : IServerChannelManager
             }
         }
 
-        _logger.LogInformation("ServerChannelManager 已释放");
+        var stats = GetChannelManagerStats();
+        _logger.LogInformation("增强服务器通道管理器已释放，最终统计: 通道创建={ChannelsCreated}, 通道移除={ChannelsRemoved}, 处理器创建={ProcessorsCreated}",
+            stats.TotalChannelsCreated, stats.TotalChannelsRemoved, stats.TotalHighThroughputProcessorsCreated);
     }
 }
 
-/// <summary>
-/// 通道事件参数
-/// </summary>
-public class ChannelEventArgs(ITransportChannel channel) : EventArgs
-{
-    public ITransportChannel Channel { get; } = channel ?? throw new ArgumentNullException(nameof(channel));
-}
-
-/// <summary>
-/// 通道认证事件参数
-/// </summary>
-public class ChannelAuthenticatedEventArgs(ITransportChannel channel, IAuthenticationContext authContext)
-    : ChannelEventArgs(channel)
-{
-    public IAuthenticationContext AuthenticationContext { get; } = authContext ?? throw new ArgumentNullException(nameof(authContext));
-}

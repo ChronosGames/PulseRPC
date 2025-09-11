@@ -189,7 +189,7 @@ internal class Program
                 });
 
                 // 使用增强的通道管理器
-                services.AddSingleton<IServerChannelManager, EnhancedServerChannelManager>();
+                services.AddSingleton<IServerChannelManager, ServerChannelManager>();
 
                 // 4. 指标收集器（依赖配置）
                 MetricsConfigurationBuilderExtensions.CreateProductionConfiguration();

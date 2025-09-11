@@ -41,12 +41,10 @@ internal class PulseRpcServerManager : IPulseRpcServer
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly IServerChannelManager _serverChannelManager;
-    // private readonly IServiceRegistry? _serviceRegistry;
     private readonly ServerOptions _serverOptions;
     private readonly ILogger<PulseRpcServerManager> _logger;
     private readonly Dictionary<string, TransportInfo> _transports = new();
     private readonly Dictionary<string, IServerListener> _listeners = new();
-    private readonly Dictionary<string, string> _registeredServiceIds = new(); // 传输名称 -> 服务ID
     private bool _isRunning;
 
     /// <summary>
@@ -57,8 +55,7 @@ internal class PulseRpcServerManager : IPulseRpcServer
     public PulseRpcServerManager(
         IServerChannelManager serverChannelManager,
         ILoggerFactory loggerFactory,
-        IOptions<ServerOptions> serverOptions/*,
-        IServiceRegistry? serviceRegistry = null*/)
+        IOptions<ServerOptions> serverOptions)
     {
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _serverChannelManager = serverChannelManager;

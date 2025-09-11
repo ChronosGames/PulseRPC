@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Engine;
-using PulseRPC.Server.Memory;
 using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Processing;
@@ -43,7 +42,7 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
     /// <summary>
     /// 为连接创建高吞吐量处理器
     /// </summary>
-    public async Task<HighPerformanceMessageEngine> CreateProcessorAsync(string connectionId, PulseRPC.Server.Transport.IServerChannel serverChannel)
+    public async Task<HighPerformanceMessageEngine> CreateProcessorAsync(string connectionId, IServerChannel serverChannel)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(HighThroughputProcessorManager));
@@ -82,7 +81,7 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
             else
             {
                 // 添加失败，释放处理器
-                processor.Dispose();
+                await processor.DisposeAsync();
                 throw new InvalidOperationException($"无法添加处理器到管理集合: {connectionId}");
             }
         }
@@ -108,7 +107,7 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
 
         try
         {
-            processor.Dispose();
+            await processor.DisposeAsync();
             Interlocked.Increment(ref _totalProcessorsRemoved);
 
             _logger.LogInformation("已移除高吞吐量处理器: ConnectionId={ConnectionId}, 剩余={RemainingCount}",
@@ -138,15 +137,15 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
     /// <summary>
     /// 获取所有处理器统计信息
     /// </summary>
-    public Dictionary<string, ProcessorStats> GetAllStats()
+    public Dictionary<string, EngineStatistics> GetAllStats()
     {
-        var stats = new Dictionary<string, ProcessorStats>();
+        var stats = new Dictionary<string, EngineStatistics>();
 
         foreach (var kvp in _processors)
         {
             try
             {
-                stats[kvp.Key] = kvp.Value.GetStats();
+                stats[kvp.Key] = kvp.Value.GetStatistics();
             }
             catch (Exception ex)
             {
@@ -163,8 +162,8 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
     public ManagerStats GetManagerStats()
     {
         var allStats = GetAllStats();
-        var totalProcessed = allStats.Values.Sum(s => s.TotalProcessed);
-        var totalDropped = allStats.Values.Sum(s => s.TotalDropped);
+        var totalProcessed = allStats.Values.Sum(s => s.TotalMessagesProcessed);
+        var totalDropped = allStats.Values.Sum(s => s.TotalMessagesDropped);
 
         return new ManagerStats
         {

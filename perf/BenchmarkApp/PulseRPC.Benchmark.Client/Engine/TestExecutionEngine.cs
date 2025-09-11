@@ -290,6 +290,9 @@ public class TestExecutionEngine
             // 更新进度
             if ((requestCount & 0xFF) == 0xFE) // 每0xFF个请求更新一次进度
             {
+                // 计算统计信息
+                results.CalculateStatistics();
+
                 var progress = new TestProgress
                 {
                     ElapsedTime = DateTime.UtcNow - results.StartTime,
@@ -298,7 +301,7 @@ public class TestExecutionEngine
                     ActiveConnections = config.ConcurrentConnections,
                     SuccessfulRequests = results.SuccessfulRequests,
                     FailedRequests = results.FailedRequests,
-                    AverageLatencyMs = results.TotalRequests > 0 ? results.AverageLatencyMs : 0,
+                    AverageLatencyMs = results.AverageLatencyMs,
                     RecentQPS = requestCount / Math.Max((DateTime.UtcNow - results.StartTime).TotalSeconds, 1),
                     PeakQPS = Math.Max(requestCount / Math.Max((DateTime.UtcNow - results.StartTime).TotalSeconds, 1), 0),
                     MinLatencyMs = results.MinLatencyMs,
