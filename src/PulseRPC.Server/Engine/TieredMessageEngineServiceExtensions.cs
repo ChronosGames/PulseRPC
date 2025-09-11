@@ -1,7 +1,11 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Processing;
+
+// 类型别名兼容性
+using TieredProcessorOptions = PulseRPC.Server.Engine.TieredMessageProcessorOptions;
 
 namespace PulseRPC.Server.Engine;
 
@@ -38,44 +42,21 @@ public static class TieredMessageEngineServiceExtensions
             });
         }
 
-        // 注册TieredProcessorOptions配置
+        // 注册TieredProcessorOptions配置（使用默认值）
         services.Configure<TieredProcessorOptions>(options =>
         {
-            // 从现有的ServerOptions中获取配置
-            var serviceProvider = services.BuildServiceProvider();
-            var serverOptions = serviceProvider.GetService<IOptions<ServerOptions>>();
-            
-            if (serverOptions?.Value.HighThroughputProcessor != null)
-            {
-                var htOptions = serverOptions.Value.HighThroughputProcessor;
-                
-                // 映射现有配置到新的TieredProcessorOptions
-                options.L1BufferSize = htOptions.L1BufferSize;
-                options.L1BackpressureThreshold = (int)(htOptions.L1BufferSize * 0.8);
-                options.L2MaxBatchSize = htOptions.MaxBatchSize;
-                options.L2QueueCapacity = htOptions.L2QueueCapacity;
-                options.L2BatchIntervalMs = htOptions.BatchIntervalMs;
-                options.L3SmallPoolSize = 1024;
-                options.L3MediumPoolSize = 256;
-                options.L3LargePoolSize = 64;
-                options.L3MaxPooledBufferSize = 1024 * 1024;
-                options.NormalMessageDropRate = htOptions.NormalMessageDropRate;
-                options.CriticalMessageTimeoutMs = htOptions.CriticalMessageTimeoutUs / 1000;
-                options.L2BackpressureWaitMs = htOptions.L2BackpressureWaitMs;
-                options.EnablePerformanceMonitoring = true;
-                options.EnableDetailedLogging = htOptions.EnableDetailedLogging;
-                options.PerformanceCheckFrequency = htOptions.PerformanceCheckFrequency;
-                options.BatchSoftTimeoutMs = htOptions.BatchSoftTimeoutMs;
-            }
+            // 使用默认配置值，这些值将通过类的默认属性值设置
+            // 可以通过其他配置方法进行自定义
         });
 
         // 注册核心引擎管理器
         services.AddSingleton<ITieredMessageEngineManager, TieredMessageEngineManager>();
-        
+
         if (useCompatibilityAdapter)
         {
-            // 注册兼容性适配器，替换原有的IHighThroughputProcessorManager
-            services.Replace(ServiceDescriptor.Singleton<IHighThroughputProcessorManager, TieredProcessorManagerAdapter>());
+            // 注册兼容性适配器，替换原有的IHighThroughputProcessorManager  
+            services.RemoveAll<IHighThroughputProcessorManager>();
+            services.AddSingleton<IHighThroughputProcessorManager, HighThroughputProcessorManager>();
         }
 
         return services;
@@ -90,7 +71,7 @@ public static class TieredMessageEngineServiceExtensions
         // 配置后处理器，用于从现有配置迁移
         services.AddSingleton<IConfigureOptions<TieredEngineManagerOptions>, TieredEngineConfigurationMigrator>();
         services.AddSingleton<IConfigureOptions<TieredProcessorOptions>, TieredProcessorConfigurationMigrator>();
-        
+
         return services;
     }
 
@@ -105,10 +86,10 @@ public static class TieredMessageEngineServiceExtensions
         {
             services.Configure(configureOptions);
         }
-        
+
         services.AddSingleton<ITieredEngineMonitorService, TieredEngineMonitorService>();
         services.AddHostedService<TieredEngineMonitoringHostedService>();
-        
+
         return services;
     }
 }
@@ -119,16 +100,16 @@ public static class TieredMessageEngineServiceExtensions
 internal sealed class TieredEngineConfigurationMigrator : IConfigureOptions<TieredEngineManagerOptions>
 {
     private readonly IOptions<ServerOptions> _serverOptions;
-    
+
     public TieredEngineConfigurationMigrator(IOptions<ServerOptions> serverOptions)
     {
         _serverOptions = serverOptions;
     }
-    
+
     public void Configure(TieredEngineManagerOptions options)
     {
         var htOptions = _serverOptions.Value.HighThroughputProcessor;
-        
+
         // 从现有配置迁移设置
         options.DefaultL1BufferSize = htOptions.L1BufferSize;
         options.DefaultL2QueueCapacity = htOptions.L2QueueCapacity;
@@ -150,36 +131,36 @@ internal sealed class TieredEngineConfigurationMigrator : IConfigureOptions<Tier
 internal sealed class TieredProcessorConfigurationMigrator : IConfigureOptions<TieredProcessorOptions>
 {
     private readonly IOptions<ServerOptions> _serverOptions;
-    
+
     public TieredProcessorConfigurationMigrator(IOptions<ServerOptions> serverOptions)
     {
         _serverOptions = serverOptions;
     }
-    
+
     public void Configure(TieredProcessorOptions options)
     {
         var htOptions = _serverOptions.Value.HighThroughputProcessor;
-        
+
         // L1缓冲区配置
         options.L1BufferSize = htOptions.L1BufferSize;
         options.L1BackpressureThreshold = (int)(htOptions.L1BufferSize * 0.8);
-        
+
         // L2批处理配置
         options.L2MaxBatchSize = htOptions.MaxBatchSize;
         options.L2QueueCapacity = htOptions.L2QueueCapacity;
         options.L2BatchIntervalMs = htOptions.BatchIntervalMs;
-        
+
         // L3内存池配置（使用优化的默认值）
         options.L3SmallPoolSize = 1024;
         options.L3MediumPoolSize = 256;
         options.L3LargePoolSize = 64;
         options.L3MaxPooledBufferSize = 1024 * 1024;
-        
+
         // 背压策略配置
         options.NormalMessageDropRate = htOptions.NormalMessageDropRate;
         options.CriticalMessageTimeoutMs = Math.Max(1, htOptions.CriticalMessageTimeoutUs / 1000);
         options.L2BackpressureWaitMs = htOptions.L2BackpressureWaitMs;
-        
+
         // 性能监控配置
         options.EnablePerformanceMonitoring = true;
         options.EnableDetailedLogging = htOptions.EnableDetailedLogging;
@@ -197,12 +178,12 @@ public class MonitoringOptions
     /// 统计收集间隔
     /// </summary>
     public TimeSpan StatisticsCollectionInterval { get; set; } = TimeSpan.FromSeconds(30);
-    
+
     /// <summary>
     /// 是否启用详细监控
     /// </summary>
     public bool EnableDetailedMonitoring { get; set; } = true;
-    
+
     /// <summary>
     /// 性能告警阈值
     /// </summary>
@@ -218,17 +199,17 @@ public class PerformanceThresholds
     /// L1缓冲区利用率告警阈值
     /// </summary>
     public double L1UtilizationWarningThreshold { get; set; } = 0.8;
-    
+
     /// <summary>
     /// 背压率告警阈值
     /// </summary>
     public double BackpressureRateWarningThreshold { get; set; } = 0.1;
-    
+
     /// <summary>
     /// 消息错误率告警阈值
     /// </summary>
     public double ErrorRateWarningThreshold { get; set; } = 0.01;
-    
+
     /// <summary>
     /// P95延迟告警阈值（毫秒）
     /// </summary>
@@ -309,7 +290,7 @@ internal sealed class TieredEngineMonitorService : ITieredEngineMonitorService
 {
     private readonly ITieredMessageEngineManager _engineManager;
     private readonly IOptions<MonitoringOptions> _options;
-    
+
     public TieredEngineMonitorService(
         ITieredMessageEngineManager engineManager,
         IOptions<MonitoringOptions> options)
@@ -317,11 +298,11 @@ internal sealed class TieredEngineMonitorService : ITieredEngineMonitorService
         _engineManager = engineManager;
         _options = options;
     }
-    
+
     public async Task<MonitoringReport> GetCurrentReportAsync()
     {
         var managerStats = await _engineManager.GetStatisticsAsync();
-        
+
         return new MonitoringReport
         {
             Timestamp = DateTime.UtcNow,
@@ -330,13 +311,13 @@ internal sealed class TieredEngineMonitorService : ITieredEngineMonitorService
             SystemResources = CreateSystemResourceReport()
         };
     }
-    
+
     public async Task<List<MonitoringAlert>> CheckAlertsAsync()
     {
         var report = await GetCurrentReportAsync();
         var alerts = new List<MonitoringAlert>();
         var thresholds = _options.Value.Thresholds;
-        
+
         foreach (var connectionReport in report.ConnectionReports)
         {
             // 检查背压率告警
@@ -351,7 +332,7 @@ internal sealed class TieredEngineMonitorService : ITieredEngineMonitorService
                     Severity = AlertSeverity.Warning
                 });
             }
-            
+
             // 检查错误率告警
             if (connectionReport.ErrorRate > thresholds.ErrorRateWarningThreshold)
             {
@@ -364,7 +345,7 @@ internal sealed class TieredEngineMonitorService : ITieredEngineMonitorService
                     Severity = AlertSeverity.Error
                 });
             }
-            
+
             // 检查P95延迟告警
             if (connectionReport.P95Latency.TotalMilliseconds > thresholds.P95LatencyWarningThresholdMs)
             {
@@ -378,14 +359,14 @@ internal sealed class TieredEngineMonitorService : ITieredEngineMonitorService
                 });
             }
         }
-        
+
         return alerts;
     }
-    
+
     private List<ConnectionPerformanceReport> CreateConnectionReports(ManagerStatistics managerStats)
     {
         var reports = new List<ConnectionPerformanceReport>();
-        
+
         foreach (var adapterStat in managerStats.AdapterStatistics)
         {
             if (adapterStat.TieredProcessorSummary != null)
@@ -402,10 +383,10 @@ internal sealed class TieredEngineMonitorService : ITieredEngineMonitorService
                 });
             }
         }
-        
+
         return reports;
     }
-    
+
     private SystemResourceReport CreateSystemResourceReport()
     {
         return new SystemResourceReport
@@ -426,7 +407,7 @@ internal sealed class TieredEngineMonitoringHostedService : Microsoft.Extensions
     private readonly ITieredEngineMonitorService _monitorService;
     private readonly IOptions<MonitoringOptions> _options;
     private readonly Microsoft.Extensions.Logging.ILogger<TieredEngineMonitoringHostedService> _logger;
-    
+
     public TieredEngineMonitoringHostedService(
         ITieredEngineMonitorService monitorService,
         IOptions<MonitoringOptions> options,
@@ -436,7 +417,7 @@ internal sealed class TieredEngineMonitoringHostedService : Microsoft.Extensions
         _options = options;
         _logger = logger;
     }
-    
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -444,7 +425,7 @@ internal sealed class TieredEngineMonitoringHostedService : Microsoft.Extensions
             try
             {
                 var alerts = await _monitorService.CheckAlertsAsync();
-                
+
                 foreach (var alert in alerts)
                 {
                     var logLevel = alert.Severity switch
@@ -455,11 +436,11 @@ internal sealed class TieredEngineMonitoringHostedService : Microsoft.Extensions
                         AlertSeverity.Critical => Microsoft.Extensions.Logging.LogLevel.Critical,
                         _ => Microsoft.Extensions.Logging.LogLevel.Information
                     };
-                    
+
                     _logger.Log(logLevel, "TieredEngine监控告警: {AlertType} - {Message} (连接: {ConnectionId})",
                         alert.AlertType, alert.Message, alert.ConnectionId);
                 }
-                
+
                 await Task.Delay(_options.Value.StatisticsCollectionInterval, stoppingToken);
             }
             catch (OperationCanceledException)

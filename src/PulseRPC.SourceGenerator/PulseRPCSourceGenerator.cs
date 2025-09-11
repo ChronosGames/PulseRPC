@@ -71,6 +71,9 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             // 生成序列化优化代码
             GenerateSerializationOptimization(context, serviceModels);
 
+            // 生成编译时消息分发器
+            GenerateCompiledMessageDispatcher(context, serviceModels);
+
             // 生成抽象接口
             GenerateAbstractionInterfaces(context);
 
@@ -122,6 +125,15 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     {
         var sourceText = SerializationGenerator.GenerateSourceText(serviceModels);
         context.AddSource("OptimizedSerialization.g.cs", sourceText);
+    }
+
+    /// <summary>
+    /// 生成编译时消息分发器
+    /// </summary>
+    private static void GenerateCompiledMessageDispatcher(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
+    {
+        var sourceText = MessageDispatcherGenerator.GenerateSourceText(serviceModels);
+        context.AddSource("CompiledMessageDispatcher.g.cs", sourceText);
     }
 
     /// <summary>

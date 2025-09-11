@@ -1,14 +1,5 @@
 ﻿namespace PulseRPC.Transport;
 
-public enum MessageStatus
-{
-    Pending,
-    Processing,
-    Completed,
-    Failed,
-    Critical
-}
-
 public class MessageResponse
 {
     public long SequenceId { get; set; }
@@ -32,5 +23,6 @@ public enum MessagePriority
 {
     Low = 0,
     Normal = 1,
-    Critical = 2
+    High = 2,
+    Critical = 3
 }

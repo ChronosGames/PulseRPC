@@ -1,3 +1,6 @@
+using PulseRPC.Server.Engine;
+using PulseRPC.Server.Memory;
+
 namespace PulseRPC.Server.Processing;
 
 /// <summary>
@@ -8,7 +11,7 @@ public interface IHighThroughputProcessorManager : IDisposable
     /// <summary>
     /// 为连接创建高吞吐量处理器
     /// </summary>
-    Task<ServerHighThroughputMessageProcessor> CreateProcessorAsync(string connectionId, PulseRPC.Server.Transport.IServerChannel serverChannel);
+    Task<HighPerformanceMessageEngine> CreateProcessorAsync(string connectionId, PulseRPC.Server.Transport.IServerChannel serverChannel);
 
     /// <summary>
     /// 移除连接的处理器
@@ -18,7 +21,7 @@ public interface IHighThroughputProcessorManager : IDisposable
     /// <summary>
     /// 获取连接的处理器
     /// </summary>
-    ServerHighThroughputMessageProcessor? GetProcessor(string connectionId);
+    HighPerformanceMessageEngine? GetProcessor(string connectionId);
 
     /// <summary>
     /// 获取所有处理器统计信息

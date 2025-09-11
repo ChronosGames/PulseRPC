@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PulseRPC.Server.Engine;
+using PulseRPC.Server.Memory;
 using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Processing;
@@ -10,9 +12,9 @@ namespace PulseRPC.Server.Processing;
 /// </summary>
 public class HighThroughputProcessorManager : IHighThroughputProcessorManager
 {
-    private readonly ConcurrentDictionary<string, ServerHighThroughputMessageProcessor> _processors;
-    private readonly IMessageHandlerRegistry _handlerRegistry;
-    private readonly IOptions<HighThroughputProcessorOptions> _options;
+    private readonly ConcurrentDictionary<string, HighPerformanceMessageEngine> _processors;
+    private readonly IMessageDispatcher _messageDispatcher;
+    private readonly IOptions<MessageEngineConfiguration> _options;
     private readonly ILogger<HighThroughputProcessorManager> _logger;
     private readonly ILoggerFactory _loggerFactory;
 
@@ -23,25 +25,25 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
     private volatile bool _disposed;
 
     public HighThroughputProcessorManager(
-        IMessageHandlerRegistry handlerRegistry,
-        IOptions<HighThroughputProcessorOptions> options,
+        IMessageDispatcher messageDispatcher,
+        IOptions<MessageEngineConfiguration> options,
         ILogger<HighThroughputProcessorManager> logger,
         ILoggerFactory loggerFactory)
     {
-        _processors = new ConcurrentDictionary<string, ServerHighThroughputMessageProcessor>();
-        _handlerRegistry = handlerRegistry;
+        _processors = new ConcurrentDictionary<string, HighPerformanceMessageEngine>();
+        _messageDispatcher = messageDispatcher;
         _options = options;
         _logger = logger;
         _loggerFactory = loggerFactory;
         _startTime = DateTime.UtcNow;
 
-        _logger.LogInformation("高吞吐量处理器管理器已初始化, 启用状态: {Enabled}", options.Value.Enabled);
+        _logger.LogInformation("高吞吐量处理器管理器已初始化");
     }
 
     /// <summary>
     /// 为连接创建高吞吐量处理器
     /// </summary>
-    public async Task<ServerHighThroughputMessageProcessor> CreateProcessorAsync(string connectionId, PulseRPC.Server.Transport.IServerChannel serverChannel)
+    public async Task<HighPerformanceMessageEngine> CreateProcessorAsync(string connectionId, PulseRPC.Server.Transport.IServerChannel serverChannel)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(HighThroughputProcessorManager));
@@ -49,8 +51,6 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
         if (string.IsNullOrEmpty(connectionId))
             throw new ArgumentException("连接ID不能为空", nameof(connectionId));
 
-        if (!_options.Value.Enabled)
-            throw new InvalidOperationException("高吞吐量处理器未启用");
 
         // 检查是否已存在
         if (_processors.ContainsKey(connectionId))
@@ -61,14 +61,13 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
         try
         {
             // 创建专用日志器
-            var processorLogger = _loggerFactory.CreateLogger<ServerHighThroughputMessageProcessor>();
+            var processorLogger = _loggerFactory.CreateLogger<HighPerformanceMessageEngine>();
 
             // 创建处理器
-            var processor = new ServerHighThroughputMessageProcessor(
+            var processor = new HighPerformanceMessageEngine(
                 connectionId,
-                serverChannel,
-                _handlerRegistry,
-                _options,
+                _messageDispatcher,
+                _options.Value,
                 processorLogger);
 
             // 添加到管理集合
@@ -83,7 +82,7 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
             else
             {
                 // 添加失败，释放处理器
-                await processor.DisposeAsync();
+                processor.Dispose();
                 throw new InvalidOperationException($"无法添加处理器到管理集合: {connectionId}");
             }
         }
@@ -109,7 +108,7 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
 
         try
         {
-            await processor.DisposeAsync();
+            processor.Dispose();
             Interlocked.Increment(ref _totalProcessorsRemoved);
 
             _logger.LogInformation("已移除高吞吐量处理器: ConnectionId={ConnectionId}, 剩余={RemainingCount}",
@@ -127,7 +126,7 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
     /// <summary>
     /// 获取连接的处理器
     /// </summary>
-    public ServerHighThroughputMessageProcessor? GetProcessor(string connectionId)
+    public HighPerformanceMessageEngine? GetProcessor(string connectionId)
     {
         if (string.IsNullOrEmpty(connectionId))
             return null;
@@ -190,26 +189,17 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
 
         _logger.LogInformation("正在释放高吞吐量处理器管理器，当前处理器数量: {Count}", _processors.Count);
 
-        // 并行释放所有处理器
-        var disposeTasks = _processors.Values.Select(async processor =>
+        // 释放所有处理器
+        foreach (var processor in _processors.Values)
         {
             try
             {
-                await processor.DisposeAsync();
+                processor.Dispose();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "释放处理器时发生异常");
             }
-        }).ToArray();
-
-        try
-        {
-            Task.WhenAll(disposeTasks).Wait(TimeSpan.FromSeconds(10));
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "等待处理器释放时发生异常");
         }
 
         _processors.Clear();

@@ -67,135 +67,135 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             });
 
         // 注册服务代理源代码输出
-        context.RegisterSourceOutput(allServiceTypes.Combine(configProvider), (spc, combined) =>
-        {
-            var serviceTypes = combined.Left;
-            var config = combined.Right;
-
-            // 检查配置选项
-            var writeFilesToDisk = config.GlobalOptions.TryGetValue("build_property.PulseRPC_WriteFilesToDisk", out var writeFiles) &&
-                                   (writeFiles.Equals("true", StringComparison.OrdinalIgnoreCase));
-            var outputFolder = config.GlobalOptions.TryGetValue("build_property.PulseRPC_OutputFolder", out var folder) ? folder : "Generated";
-
-            // 生成服务代理
-            foreach (var serviceTypeInfo in serviceTypes)
-            {
-                if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
-                {
-                    var proxyCode = GenerateServiceProxy(namedType);
-                    var fileName = $"{namedType.Name}Proxy.g.cs";
-                    spc.AddSource(fileName, SourceText.From(proxyCode, Encoding.UTF8));
-
-                    // 如果配置为写入磁盘，则尝试写入文件
-                    if (writeFilesToDisk)
-                    {
-                        TryWriteFileToDisk(fileName, proxyCode, outputFolder);
-                    }
-                }
-                else
-                {
-                    spc.ReportDiagnostic(Diagnostic.Create(
-                        new DiagnosticDescriptor(
-                            "PRPC101",
-                            "无效的服务类型",
-                            $"无法为类型 {serviceTypeInfo.Type} 生成代理，因为它不是 INamedTypeSymbol",
-                            "PulseRPC",
-                            DiagnosticSeverity.Error,
-                            true),
-                        Location.None));
-                }
-            }
-
-            // 生成扩展方法
-            var namedTypes = serviceTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
-            if (namedTypes.Length > 0)
-            {
-                var extensionsCode = GenerateChannelManagerExtensions(namedTypes, ImmutableArray<INamedTypeSymbol>.Empty);
-                var fileName = "ServiceChannelManagerExtensions.g.cs";
-                spc.AddSource(fileName, SourceText.From(extensionsCode, Encoding.UTF8));
-
-                // 如果配置为写入磁盘，则尝试写入文件
-                if (writeFilesToDisk)
-                {
-                    TryWriteFileToDisk(fileName, extensionsCode, outputFolder);
-                }
-            }
-        });
+        // context.RegisterSourceOutput(allServiceTypes.Combine(configProvider), (spc, combined) =>
+        // {
+        //     var serviceTypes = combined.Left;
+        //     var config = combined.Right;
+        //
+        //     // 检查配置选项
+        //     var writeFilesToDisk = config.GlobalOptions.TryGetValue("build_property.PulseRPC_WriteFilesToDisk", out var writeFiles) &&
+        //                            (writeFiles.Equals("true", StringComparison.OrdinalIgnoreCase));
+        //     var outputFolder = config.GlobalOptions.TryGetValue("build_property.PulseRPC_OutputFolder", out var folder) ? folder : "Generated";
+        //
+        //     // 生成服务代理
+        //     foreach (var serviceTypeInfo in serviceTypes)
+        //     {
+        //         if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
+        //         {
+        //             var proxyCode = GenerateServiceProxy(namedType);
+        //             var fileName = $"{namedType.Name}Proxy.g.cs";
+        //             spc.AddSource(fileName, SourceText.From(proxyCode, Encoding.UTF8));
+        //
+        //             // 如果配置为写入磁盘，则尝试写入文件
+        //             if (writeFilesToDisk)
+        //             {
+        //                 TryWriteFileToDisk(fileName, proxyCode, outputFolder);
+        //             }
+        //         }
+        //         else
+        //         {
+        //             spc.ReportDiagnostic(Diagnostic.Create(
+        //                 new DiagnosticDescriptor(
+        //                     "PRPC101",
+        //                     "无效的服务类型",
+        //                     $"无法为类型 {serviceTypeInfo.Type} 生成代理，因为它不是 INamedTypeSymbol",
+        //                     "PulseRPC",
+        //                     DiagnosticSeverity.Error,
+        //                     true),
+        //                 Location.None));
+        //         }
+        //     }
+        //
+        //     // 生成扩展方法
+        //     var namedTypes = serviceTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+        //     if (namedTypes.Length > 0)
+        //     {
+        //         var extensionsCode = GenerateChannelManagerExtensions(namedTypes, ImmutableArray<INamedTypeSymbol>.Empty);
+        //         var fileName = "ServiceChannelManagerExtensions.g.cs";
+        //         spc.AddSource(fileName, SourceText.From(extensionsCode, Encoding.UTF8));
+        //
+        //         // 如果配置为写入磁盘，则尝试写入文件
+        //         if (writeFilesToDisk)
+        //         {
+        //             TryWriteFileToDisk(fileName, extensionsCode, outputFolder);
+        //         }
+        //     }
+        // });
 
         // 注册事件处理器源代码输出
-        context.RegisterSourceOutput(allEventTypes.Combine(configProvider), (spc, combined) =>
-        {
-            var eventTypes = combined.Left;
-            var config = combined.Right;
-
-            // 检查配置选项
-            var writeFilesToDisk = config.GlobalOptions.TryGetValue("build_property.PulseRPC_WriteFilesToDisk", out var writeFiles) &&
-                                   (writeFiles.Equals("true", StringComparison.OrdinalIgnoreCase));
-            var outputFolder = config.GlobalOptions.TryGetValue("build_property.PulseRPC_OutputFolder", out var folder) ? folder : "Generated";
-
-            // 生成事件处理器
-            foreach (var eventTypeInfo in eventTypes)
-            {
-                if (eventTypeInfo.Type is INamedTypeSymbol namedType)
-                {
-                    var handlerCode = GenerateEventHandler(namedType);
-                    var handlerFileName = $"{namedType.Name}Handler.g.cs";
-                    spc.AddSource(handlerFileName, SourceText.From(handlerCode, Encoding.UTF8));
-
-                    if (writeFilesToDisk)
-                    {
-                        TryWriteFileToDisk(handlerFileName, handlerCode, outputFolder);
-                    }
-
-                    // 生成事件处理器接口
-                    var handlerInterfaceCode = GenerateEventHandlerInterface(namedType);
-                    var interfaceFileName = $"I{namedType.Name}Handler.g.cs";
-                    spc.AddSource(interfaceFileName, SourceText.From(handlerInterfaceCode, Encoding.UTF8));
-
-                    if (writeFilesToDisk)
-                    {
-                        TryWriteFileToDisk(interfaceFileName, handlerInterfaceCode, outputFolder);
-                    }
-                }
-                else
-                {
-                    spc.ReportDiagnostic(Diagnostic.Create(
-                        new DiagnosticDescriptor(
-                            "PRPC102",
-                            "无效的事件类型",
-                            $"无法为类型 {eventTypeInfo.Type} 生成事件处理器，因为它不是 INamedTypeSymbol",
-                            "PulseRPC",
-                            DiagnosticSeverity.Error,
-                            true),
-                        Location.None));
-                }
-            }
-
-            // 生成 EventListenerExtensions 的 partial 实现
-            var namedTypes = eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
-            if (namedTypes.Length > 0)
-            {
-                var partialImplementationCode = GenerateEventListenerExtensionsPartial(namedTypes);
-                var fileName = "EventListenerExtensions.Partial.g.cs";
-                spc.AddSource(fileName, SourceText.From(partialImplementationCode, Encoding.UTF8));
-
-                if (writeFilesToDisk)
-                {
-                    TryWriteFileToDisk(fileName, partialImplementationCode, outputFolder);
-                }
-
-                var eventExtensionsCode = GenerateChannelManagerExtensions(
-                    ImmutableArray<INamedTypeSymbol>.Empty,
-                    namedTypes);
-                var extensionsFileName = "EventChannelManagerExtensions.g.cs";
-                spc.AddSource(extensionsFileName, SourceText.From(eventExtensionsCode, Encoding.UTF8));
-
-                if (writeFilesToDisk)
-                {
-                    TryWriteFileToDisk(extensionsFileName, eventExtensionsCode, outputFolder);
-                }
-            }
-        });
+        // context.RegisterSourceOutput(allEventTypes.Combine(configProvider), (spc, combined) =>
+        // {
+        //     var eventTypes = combined.Left;
+        //     var config = combined.Right;
+        //
+        //     // 检查配置选项
+        //     var writeFilesToDisk = config.GlobalOptions.TryGetValue("build_property.PulseRPC_WriteFilesToDisk", out var writeFiles) &&
+        //                            (writeFiles.Equals("true", StringComparison.OrdinalIgnoreCase));
+        //     var outputFolder = config.GlobalOptions.TryGetValue("build_property.PulseRPC_OutputFolder", out var folder) ? folder : "Generated";
+        //
+        //     // 生成事件处理器
+        //     foreach (var eventTypeInfo in eventTypes)
+        //     {
+        //         if (eventTypeInfo.Type is INamedTypeSymbol namedType)
+        //         {
+        //             var handlerCode = GenerateEventHandler(namedType);
+        //             var handlerFileName = $"{namedType.Name}Handler.g.cs";
+        //             spc.AddSource(handlerFileName, SourceText.From(handlerCode, Encoding.UTF8));
+        //
+        //             if (writeFilesToDisk)
+        //             {
+        //                 TryWriteFileToDisk(handlerFileName, handlerCode, outputFolder);
+        //             }
+        //
+        //             // 生成事件处理器接口
+        //             var handlerInterfaceCode = GenerateEventHandlerInterface(namedType);
+        //             var interfaceFileName = $"I{namedType.Name}Handler.g.cs";
+        //             spc.AddSource(interfaceFileName, SourceText.From(handlerInterfaceCode, Encoding.UTF8));
+        //
+        //             if (writeFilesToDisk)
+        //             {
+        //                 TryWriteFileToDisk(interfaceFileName, handlerInterfaceCode, outputFolder);
+        //             }
+        //         }
+        //         else
+        //         {
+        //             spc.ReportDiagnostic(Diagnostic.Create(
+        //                 new DiagnosticDescriptor(
+        //                     "PRPC102",
+        //                     "无效的事件类型",
+        //                     $"无法为类型 {eventTypeInfo.Type} 生成事件处理器，因为它不是 INamedTypeSymbol",
+        //                     "PulseRPC",
+        //                     DiagnosticSeverity.Error,
+        //                     true),
+        //                 Location.None));
+        //         }
+        //     }
+        //
+        //     // 生成 EventListenerExtensions 的 partial 实现
+        //     var namedTypes = eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+        //     if (namedTypes.Length > 0)
+        //     {
+        //         var partialImplementationCode = GenerateEventListenerExtensionsPartial(namedTypes);
+        //         var fileName = "EventListenerExtensions.Partial.g.cs";
+        //         spc.AddSource(fileName, SourceText.From(partialImplementationCode, Encoding.UTF8));
+        //
+        //         if (writeFilesToDisk)
+        //         {
+        //             TryWriteFileToDisk(fileName, partialImplementationCode, outputFolder);
+        //         }
+        //
+        //         var eventExtensionsCode = GenerateChannelManagerExtensions(
+        //             ImmutableArray<INamedTypeSymbol>.Empty,
+        //             namedTypes);
+        //         var extensionsFileName = "EventChannelManagerExtensions.g.cs";
+        //         spc.AddSource(extensionsFileName, SourceText.From(eventExtensionsCode, Encoding.UTF8));
+        //
+        //         if (writeFilesToDisk)
+        //         {
+        //             TryWriteFileToDisk(extensionsFileName, eventExtensionsCode, outputFolder);
+        //         }
+        //     }
+        // });
     }
 
     private static ServiceTypeInfo[] GetServiceTypesFromClass(GeneratorSyntaxContext context)
@@ -1754,24 +1754,24 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
     /// <summary>
     /// 尝试将生成的代码写入到磁盘文件
     /// </summary>
-    private static void TryWriteFileToDisk(string fileName, string content, string outputFolder)
-    {
-        try
-        {
-            // 确保输出目录存在
-            if (!Directory.Exists(outputFolder))
-            {
-                Directory.CreateDirectory(outputFolder);
-            }
-
-            var fullPath = Path.Combine(outputFolder, fileName);
-            File.WriteAllText(fullPath, content, Encoding.UTF8);
-        }
-        catch
-        {
-            // 忽略文件写入错误，因为 SourceGenerator 应该能够在没有文件输出的情况下工作
-        }
-    }
+    // private static void TryWriteFileToDisk(string fileName, string content, string outputFolder)
+    // {
+    //     try
+    //     {
+    //         // 确保输出目录存在
+    //         if (!Directory.Exists(outputFolder))
+    //         {
+    //             Directory.CreateDirectory(outputFolder);
+    //         }
+    //
+    //         var fullPath = Path.Combine(outputFolder, fileName);
+    //         File.WriteAllText(fullPath, content, Encoding.UTF8);
+    //     }
+    //     catch
+    //     {
+    //         // 忽略文件写入错误，因为 SourceGenerator 应该能够在没有文件输出的情况下工作
+    //     }
+    // }
 
     /// <summary>
     /// 获取类型的完整名称，正确处理全局命名空间

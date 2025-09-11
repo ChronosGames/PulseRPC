@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PulseRPC.Server.Engine;
+using PulseRPC.Server.Memory;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 
@@ -13,7 +15,7 @@ public class EnhancedServerChannelManager : IServerChannelManager
 {
     private readonly ConcurrentDictionary<string, IServerChannel> _channels;
     private readonly IHighThroughputProcessorManager? _processorManager;
-    private readonly IOptions<HighThroughputProcessorOptions> _processorOptions;
+    private readonly IOptions<MessageEngineConfiguration> _processorOptions;
     private readonly ILogger<EnhancedServerChannelManager> _logger;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly Timer _cleanupTimer;
@@ -56,7 +58,7 @@ public class EnhancedServerChannelManager : IServerChannelManager
 
     public EnhancedServerChannelManager(
         ILogger<EnhancedServerChannelManager> logger,
-        IOptions<HighThroughputProcessorOptions> processorOptions,
+        IOptions<MessageEngineConfiguration> processorOptions,
         ILoggerFactory? loggerFactory = null,
         IHighThroughputProcessorManager? processorManager = null)
     {
@@ -69,7 +71,7 @@ public class EnhancedServerChannelManager : IServerChannelManager
         // 启动清理定时器，每60秒清理一次过期连接
         _cleanupTimer = new Timer(CleanupExpiredChannels, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
-        _logger.LogInformation("增强服务器通道管理器已启动，高吞吐量处理器: {ProcessorEnabled}", _processorOptions.Value.Enabled ? "启用" : "禁用");
+        _logger.LogInformation("增强服务器通道管理器已启动");
     }
 
     /// <summary>
