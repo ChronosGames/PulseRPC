@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Serialization;
 using PulseRPC.Server.Authentication;
+using PulseRPC.Server.Engine;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Services;
 using PulseRPC.Server.Transport;
@@ -709,9 +710,9 @@ public static class HighThroughputProcessorExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        // 注册高吞吐量处理器配置
-        services.Configure<HighThroughputProcessorOptions>(
-            configuration.GetSection("PulseRPC:Server:HighThroughputProcessor"));
+        // 注册消息引擎配置
+        services.Configure<MessageEngineConfiguration>(
+            configuration.GetSection("PulseRPC:Server:MessageEngine"));
 
         return services.AddHighThroughputProcessorServices();
     }
@@ -724,7 +725,7 @@ public static class HighThroughputProcessorExtensions
     /// <returns>服务集合</returns>
     public static IServiceCollection AddHighThroughputProcessor(
         this IServiceCollection services,
-        Action<HighThroughputProcessorOptions> configureOptions)
+        Action<MessageEngineConfiguration> configureOptions)
     {
         services.Configure(configureOptions);
         return services.AddHighThroughputProcessorServices();
@@ -737,9 +738,9 @@ public static class HighThroughputProcessorExtensions
     /// <returns>服务集合</returns>
     public static IServiceCollection AddHighThroughputProcessor(this IServiceCollection services)
     {
-        services.Configure<HighThroughputProcessorOptions>(options =>
+        services.Configure<MessageEngineConfiguration>(options =>
         {
-            options.Enabled = true;
+            // 默认配置已设置
         });
 
         return services.AddHighThroughputProcessorServices();
@@ -759,9 +760,8 @@ public static class HighThroughputProcessorExtensions
         int batchIntervalMs = 2,
         int maxBatchSize = 32)
     {
-        services.Configure<HighThroughputProcessorOptions>(options =>
+        services.Configure<MessageEngineConfiguration>(options =>
         {
-            options.Enabled = true;
             options.L1BufferSize = l1BufferSize;
             options.BatchIntervalMs = batchIntervalMs;
             options.MaxBatchSize = maxBatchSize;
@@ -784,7 +784,7 @@ public static class HighThroughputProcessorExtensions
         int criticalTimeoutUs = 100,
         bool enableDetailedLogging = false)
     {
-        services.Configure<HighThroughputProcessorOptions>(options =>
+        services.Configure<MessageEngineConfiguration>(options =>
         {
             options.NormalMessageDropRate = normalDropRate;
             options.CriticalMessageTimeoutUs = criticalTimeoutUs;
@@ -802,8 +802,15 @@ public static class HighThroughputProcessorExtensions
         // 注册消息处理器管理器
         services.TryAddSingleton<IHighThroughputProcessorManager, HighThroughputProcessorManager>();
 
-        // 添加临时的消息处理注册表实现
-        services.TryAddSingleton<IMessageHandlerRegistry, DefaultMessageHandlerRegistry>();
+        // 注册消息分发器
+        services.TryAddSingleton<IMessageDispatcher, CompiledMessageDispatcher>();
+        
+        // 添加向后兼容性包装器
+        services.TryAddSingleton<IMessageHandlerRegistry>(sp =>
+            new MessageHandlerRegistryWrapper(sp.GetRequiredService<IMessageDispatcher>()));
+
+        // 注册消息引擎配置选项
+        services.Configure<MessageEngineConfiguration>(options => { });
 
         return services;
     }
