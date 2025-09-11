@@ -304,11 +304,11 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
 
         // 并行处理批次中的消息
         var processingTasks = new Task[batch.Messages.Length];
-        var messages = batch.Messages.Span;
+        var messages = batch.Messages;
 
         for (int i = 0; i < messages.Length; i++)
         {
-            var messageSlot = messages[i];
+            var messageSlot = messages.Span[i];
             processingTasks[i] = ProcessMessageSlot(messageSlot);
         }
 
@@ -331,7 +331,7 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
         // 清理内存
         for (int i = 0; i < messages.Length; i++)
         {
-            messages[i].Data.Dispose();
+            messages.Span[i].Data.Dispose();
         }
 
         // 更新指标

@@ -78,17 +78,17 @@ public class MessageEngineConfiguration
     /// 启用分层内存池，默认true
     /// </summary>
     public bool EnableTieredMemoryPool { get; set; } = true;
-    
+
     /// <summary>
     /// 是否启用高性能消息引擎，默认true
     /// </summary>
     public bool Enabled { get; set; } = true;
-    
+
     /// <summary>
     /// 普通消息丢弃阈值，默认0.8
     /// </summary>
     public double NormalMessageDropThreshold { get; set; } = 0.8;
-    
+
     /// <summary>
     /// 负载均衡模式，默认轮询
     /// </summary>
@@ -115,7 +115,7 @@ public abstract class ServerMessage : ClientMessage
     /// 服务端处理时间戳
     /// </summary>
     public DateTime ServerTimestamp { get; set; } = DateTime.UtcNow;
-    
+
     /// <summary>
     /// 处理优先级
     /// </summary>
@@ -169,38 +169,5 @@ public class CompiledMessageDispatcher : IMessageDispatcher
             _logger.LogError(ex, "消息处理失败: {MessageType}", message.GetType().Name);
             return new { Success = false, Error = ex.Message };
         }
-    }
-}
-
-/// <summary>
-/// 消息处理器注册表接口 - 兼容性接口
-/// REMOVEME: 将在下一个主要版本中移除，请使用 IMessageDispatcher
-/// </summary>
-[Obsolete("请使用 IMessageDispatcher 接口，此接口将在下一个主要版本中移除")]
-public interface IMessageHandlerRegistry
-{
-    /// <summary>
-    /// 处理消息
-    /// </summary>
-    Task<object?> HandleAsync(ServerMessage message);
-}
-
-/// <summary>
-/// 消息处理器注册表包装器 - 将IMessageDispatcher适配为IMessageHandlerRegistry
-///
-/// REMOVEME: 此兼容性包装器将在下一个主要版本中移除
-/// </summary>
-internal class MessageHandlerRegistryWrapper : IMessageHandlerRegistry
-{
-    private readonly IMessageDispatcher _dispatcher;
-
-    public MessageHandlerRegistryWrapper(IMessageDispatcher dispatcher)
-    {
-        _dispatcher = dispatcher;
-    }
-
-    public Task<object?> HandleAsync(ServerMessage message)
-    {
-        return _dispatcher.HandleAsync(message);
     }
 }

@@ -371,12 +371,12 @@ public sealed class PriorityAwareScheduler : IAsyncDisposable
     {
         lock (_criticalQueue)
         {
-            _metrics.CriticalQueueDepth.Set(_criticalQueue.Count);
+            _metrics.SetCriticalQueueDepth(_criticalQueue.Count);
         }
 
-        _metrics.NormalQueueDepth.Set(_normalReader.CanCount ? _normalReader.Count : 0);
-        _metrics.BulkQueueDepth.Set(_bulkReader.CanCount ? _bulkReader.Count : 0);
-        _metrics.ConcurrencyUtilization.Set(1.0 - (double)_concurrencyLimiter.CurrentCount / _options.MaxConcurrentTasks);
+        _metrics.SetNormalQueueDepth(_normalReader.CanCount ? _normalReader.Count : 0);
+        _metrics.SetBulkQueueDepth(_bulkReader.CanCount ? _bulkReader.Count : 0);
+        _metrics.SetConcurrencyUtilization(1.0 - (double)_concurrencyLimiter.CurrentCount / _options.MaxConcurrentTasks);
     }
 
     /// <summary>

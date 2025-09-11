@@ -9,8 +9,6 @@ using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Engine;
 
-// MessageResponse定义已移至HighPerformanceMessageEngine.cs
-
 /// <summary>
 /// 适配器统计信息
 /// </summary>

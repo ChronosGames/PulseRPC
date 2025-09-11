@@ -57,7 +57,7 @@ public sealed class AdaptiveBatchScheduler : IAsyncDisposable
 
     // 回调处理
     private readonly List<IBatchProcessor> _processors = new();
-    private readonly object _processorsLock = new();
+    private readonly Lock _processorsLock = new();
 
     #endregion
 
@@ -497,7 +497,7 @@ internal sealed class LatencyTracker
 {
     private readonly Queue<long> _latencies = new();
     private readonly int _maxSamples = 100;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     public void RecordLatency(TimeSpan latency)
     {
@@ -544,13 +544,13 @@ internal sealed class LoadAnalyzer
 {
     private readonly Queue<double> _loadSamples = new();
     private readonly int _maxSamples = 50;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
     private long _adaptationCount;
 
     public void RecordLoad(int queueDepth)
     {
         // 简化的负载计算：基于队列深度
-        double load = Math.Min(1.0, queueDepth / 100.0);
+        var load = Math.Min(1.0, queueDepth / 100.0);
 
         lock (_lock)
         {

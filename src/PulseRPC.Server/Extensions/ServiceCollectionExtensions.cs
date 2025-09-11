@@ -804,44 +804,10 @@ public static class HighThroughputProcessorExtensions
 
         // 注册消息分发器
         services.TryAddSingleton<IMessageDispatcher, CompiledMessageDispatcher>();
-        
-        // 添加向后兼容性包装器
-        services.TryAddSingleton<IMessageHandlerRegistry>(sp =>
-            new MessageHandlerRegistryWrapper(sp.GetRequiredService<IMessageDispatcher>()));
 
         // 注册消息引擎配置选项
         services.Configure<MessageEngineConfiguration>(options => { });
 
         return services;
-    }
-}
-
-/// <summary>
-/// 临时的默认消息处理注册表实现
-/// </summary>
-internal class DefaultMessageHandlerRegistry : IMessageHandlerRegistry
-{
-    private readonly ILogger<DefaultMessageHandlerRegistry> _logger;
-
-    public DefaultMessageHandlerRegistry(ILogger<DefaultMessageHandlerRegistry> logger)
-    {
-        _logger = logger;
-    }
-
-    public async Task<object?> HandleAsync(ServerMessage message)
-    {
-        // 默认实现：简单回显处理
-        _logger.LogDebug("处理消息: {MessageType}, SequenceId: {SequenceId}",
-            message.GetType().Name, message.SequenceId);
-
-        await Task.Delay(1); // 模拟处理延迟
-
-        return new
-        {
-            Type = message.GetType().Name,
-            SequenceId = message.SequenceId,
-            ProcessedAt = DateTime.UtcNow,
-            Message = "Processed successfully"
-        };
     }
 }

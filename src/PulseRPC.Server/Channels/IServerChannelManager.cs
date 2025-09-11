@@ -1,6 +1,39 @@
+using PulseRPC.Authentication;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Transport;
+
+/// <summary>
+/// 通道事件参数
+/// </summary>
+public class ChannelEventArgs(ITransportChannel channel) : EventArgs
+{
+    public ITransportChannel Channel { get; } = channel ?? throw new ArgumentNullException(nameof(channel));
+}
+
+/// <summary>
+/// 通道认证事件参数
+/// </summary>
+public class ChannelAuthenticatedEventArgs(ITransportChannel channel, IAuthenticationContext authContext)
+    : ChannelEventArgs(channel)
+{
+    public IAuthenticationContext AuthenticationContext { get; } = authContext ?? throw new ArgumentNullException(nameof(authContext));
+}
+
+/// <summary>
+/// 通道管理器统计信息
+/// </summary>
+public class ChannelManagerStats
+{
+    public int ActiveChannels { get; set; }
+    public long TotalChannelsCreated { get; set; }
+    public long TotalChannelsRemoved { get; set; }
+    public long TotalHighThroughputProcessorsCreated { get; set; }
+    public long TotalMessagesProcessed { get; set; }
+    public long TotalMessagesDropped { get; set; }
+    public bool HighThroughputProcessorEnabled { get; set; }
+}
+
 
 /// <summary>
 /// 服务器通道管理器接口

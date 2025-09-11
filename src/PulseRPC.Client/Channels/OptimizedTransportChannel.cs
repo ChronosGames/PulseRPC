@@ -34,10 +34,10 @@ public class OptimizedTransportChannel : IClientChannel
     private bool _disposed;
 
     // 优化: 预分配的缓冲区和线程本地存储
-    private static readonly ThreadLocal<ArrayBufferWriter<byte>> ThreadLocalBufferWriter = 
+    private static readonly ThreadLocal<ArrayBufferWriter<byte>> ThreadLocalBufferWriter =
         new(() => new ArrayBufferWriter<byte>(4096));
-    
-    private static readonly ThreadLocal<byte[]> ThreadLocalTempBuffer = 
+
+    private static readonly ThreadLocal<byte[]> ThreadLocalTempBuffer =
         new(() => new byte[8192]);
 
     // 优化: 预分配的消息头池
@@ -65,11 +65,11 @@ public class OptimizedTransportChannel : IClientChannel
         _serializerProvider = serializerProvider;
         _options = options ?? new TransportChannelOptions();
         _logger = logger ?? NullLogger<OptimizedTransportChannel>.Instance;
-        
+
         // 初始化对象池
         _messageHeaderPool = new UnityCompatibleObjectPool<MessageHeader>(() => new MessageHeader(), ResetMessageHeader, 32);
         _bufferWriterPool = new UnityCompatibleObjectPool<ArrayBufferWriter<byte>>(() => new ArrayBufferWriter<byte>(4096), ResetBufferWriter, 32);
-        
+
         _messageQueue = Channel.CreateBounded<NetworkMessage>(new BoundedChannelOptions(_options.MessageQueueCapacity)
         {
             FullMode = BoundedChannelFullMode.Wait
@@ -186,10 +186,10 @@ public class OptimizedTransportChannel : IClientChannel
         try
         {
             bufferWriter.Clear();
-            
+
             // 优化: 直接序列化到缓冲区，避免临时分配
             SerializeMessageOptimized(bufferWriter, header, request);
-            
+
             await _sendLock.WaitAsync(cancellationToken);
             try
             {
@@ -217,10 +217,10 @@ public class OptimizedTransportChannel : IClientChannel
 
         // 使用临时缓冲区进行序列化，避免多次分配
         var tempBuffer = ThreadLocalTempBuffer.Value!;
-        
+
         // 序列化头部到临时缓冲区
         var headerSpan = SerializeToSpan(serializer, header, tempBuffer.AsSpan(0, 1024));
-        
+
         // 序列化载荷到临时缓冲区
         ReadOnlySpan<byte> payloadSpan = default;
         if (payload != null)
@@ -342,7 +342,7 @@ public class OptimizedTransportChannel : IClientChannel
     }
 
     // ... 其余方法保持不变，但可以进行类似的优化
-    
+
     private async Task ProcessMessageQueueAsync()
     {
         try
@@ -469,7 +469,7 @@ public class OptimizedTransportChannel : IClientChannel
             {
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    _logger.LogWarning("收到无效的消息头长度: {HeaderLength}, 数据总长度: {DataLength}", 
+                    _logger.LogWarning("收到无效的消息头长度: {HeaderLength}, 数据总长度: {DataLength}",
                         headerLength, data.Length);
                 }
                 return;
@@ -580,7 +580,7 @@ public class OptimizedTransportChannel : IClientChannel
     private void ProcessEvent(NetworkMessage message)
     {
         var eventName = message.Header.MethodName;
-        
+
         _eventCallback?.Invoke(eventName, message.Body);
 
         List<EventSubscription>? subscriptions;
@@ -829,7 +829,7 @@ public class UnityCompatibleObjectPool<T> where T : class
         try
         {
             _resetAction(item);
-            
+
             if (_currentCount < _maxCapacity)
             {
                 _objects.Enqueue(item);

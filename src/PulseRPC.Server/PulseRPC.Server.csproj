@@ -23,6 +23,7 @@
     <PackageReference Include="System.Diagnostics.PerformanceCounter" />
     <PackageReference Include="System.IO.Pipelines" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <PackageReference Include="System.Threading.Channels" />
   </ItemGroup>
 
 </Project>

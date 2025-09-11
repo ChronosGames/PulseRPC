@@ -1,7 +1,6 @@
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Runtime.CompilerServices;
@@ -21,7 +20,7 @@ using MessageStatus = PulseRPC.Server.Memory.MessageStatus;
 namespace PulseRPC.Server.Engine;
 
 /// <summary>
-/// 高性能消息引擎 - 替代ServerHighThroughputMessageProcessor和HighPerformanceMessageEngineV2
+/// 高性能消息引擎
 /// 基于技术规格说明书实现的统一高性能消息处理架构
 ///
 /// 核心特性：
@@ -71,7 +70,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
     private readonly string _engineId;
     private readonly MessageEngineConfiguration _options;
-    private readonly IMessageHandlerRegistry _handlerRegistry;
     private readonly ILogger<HighPerformanceMessageEngine> _logger;
 
     // 三级缓冲架构核心组件
@@ -118,25 +116,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     {
         _engineId = engineId ?? throw new ArgumentNullException(nameof(engineId));
         _options = configuration ?? throw new ArgumentNullException(nameof(configuration));
-        _handlerRegistry = new MessageHandlerRegistryWrapper(messageDispatcher ?? throw new ArgumentNullException(nameof(messageDispatcher)));
-        _logger = logger ?? NullLogger<HighPerformanceMessageEngine>.Instance;
-
-        InitializeEngine();
-    }
-
-    /// <summary>
-    /// 构造高性能消息引擎 (使用 IMessageHandlerRegistry - 向后兼容)
-    /// </summary>
-    [Obsolete("请使用 IMessageDispatcher 构造函数")]
-    public HighPerformanceMessageEngine(
-        string engineId,
-        IOptions<MessageEngineConfiguration> options,
-        IMessageHandlerRegistry handlerRegistry,
-        ILogger<HighPerformanceMessageEngine>? logger = null)
-    {
-        _engineId = engineId ?? throw new ArgumentNullException(nameof(engineId));
-        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
-        _handlerRegistry = handlerRegistry ?? throw new ArgumentNullException(nameof(handlerRegistry));
         _logger = logger ?? NullLogger<HighPerformanceMessageEngine>.Instance;
 
         InitializeEngine();
@@ -238,7 +217,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             // 从L3内存池租用缓冲区
             var bufferArray = _l3MemoryPool.Rent(messageData.Length);
             messageData.CopyTo(bufferArray.AsMemory());
-            
+
             // 创建引用计数缓冲区
             var refCountedBuffer = new ReferenceCountedBuffer(bufferArray, buffer => _l3MemoryPool.Return(buffer));
 
@@ -672,31 +651,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             // 内存统计
             MemoryPoolStatistics = _l3MemoryPool.GetStatistics()
         };
-    }
-
-    /// <summary>
-    /// 向后兼容的统计方法
-    /// </summary>
-    [Obsolete("请使用 GetStatistics 方法")]
-    public ProcessorStats GetStats()
-    {
-        var stats = GetStatistics();
-        return new ProcessorStats
-        {
-            TotalProcessed = stats.TotalMessagesProcessed,
-            TotalDropped = stats.TotalMessagesDropped,
-            CurrentThroughput = stats.CurrentThroughput,
-            AverageLatencyMs = stats.AverageLatencyMs
-        };
-    }
-
-    /// <summary>
-    /// 向后兼容的同步启动方法
-    /// </summary>
-    [Obsolete("请使用 StartAsync 方法")]
-    public void Start()
-    {
-        StartAsync().AsTask().Wait();
     }
 
     #endregion
