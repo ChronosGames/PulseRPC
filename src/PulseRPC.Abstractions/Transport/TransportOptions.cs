@@ -6,17 +6,17 @@ namespace PulseRPC.Transport;
 /// <summary>
 /// 传输选项
 /// </summary>
-public class TransportOptions
+public abstract class TransportOptions
 {
     /// <summary>
     /// 读取缓冲区大小
     /// </summary>
-    public int ReadBufferSize { get; set; } = 8192;
+    public int RecvBufferSize { get; set; } = 8192;
 
     /// <summary>
     /// 写入缓冲区大小
     /// </summary>
-    public int WriteBufferSize { get; set; } = 8192;
+    public int SendBufferSize { get; set; } = 8192;
 
     /// <summary>
     /// 连接超时 (毫秒)
@@ -44,7 +44,9 @@ public class TransportOptions
     public int UdpReceiveTimeout { get; set; } = 1000;
 
     /// <summary>
-    /// NoDelay选项 (TCP)
+    /// 无延迟模式
+    /// 0: 默认，正常模式，有延迟
+    /// 1: 无延迟模式，适用于交互性强，实时性高的场景
     /// </summary>
     public bool NoDelay { get; set; } = true;
 
@@ -92,34 +94,38 @@ public class TransportOptions
     /// 分块大小
     /// </summary>
     public int ChunkSize { get; set; } = 32 * 1024;
-
-    /// <summary>
-    /// KCP相关选项
-    /// </summary>
-    public KcpOptions Kcp { get; set; } = new KcpOptions();
-
-    /// <summary>
-    /// 自定义选项
-    /// </summary>
-    public Dictionary<string, object> CustomOptions { get; } = new Dictionary<string, object>();
 }
 
 /// <summary>
-/// KCP选项
+/// TCP传输配置
 /// </summary>
-public class KcpOptions
+public class TcpTransportOptions : TransportOptions
+{
+    /// <summary>
+    /// 连接超时时间
+    /// </summary>
+    public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    /// <summary>
+    /// Socket LingerState
+    /// </summary>
+    public bool EnableLinger { get; set; } = false;
+
+    /// <summary>
+    /// Linger超时时间
+    /// </summary>
+    public int LingerTime { get; set; } = 0;
+}
+
+/// <summary>
+/// KCP传输配置
+/// </summary>
+public class KcpTransportOptions : TransportOptions
 {
     /// <summary>
     /// KCP会话ID
     /// </summary>
     public uint ConversationId { get; set; } = 1;
-
-    /// <summary>
-    /// 无延迟模式
-    /// 0: 默认，正常模式，有延迟
-    /// 1: 无延迟模式，适用于交互性强，实时性高的场景
-    /// </summary>
-    public int NoDelay { get; set; } = 1;
 
     /// <summary>
     /// 内部更新间隔(毫秒)
@@ -138,7 +144,7 @@ public class KcpOptions
     /// false: 不关闭拥塞控制
     /// true: 关闭拥塞控制，适用于高带宽低延迟网络
     /// </summary>
-    public bool DisableFlowControl { get; set; } = false;
+    public bool DisableFlowControl { get; set; } = true;
 
     /// <summary>
     /// 发送窗口大小
@@ -148,5 +154,5 @@ public class KcpOptions
     /// <summary>
     /// 接收窗口大小
     /// </summary>
-    public int ReceiveWindow { get; set; } = 128;
+    public int RecvWindow { get; set; } = 128;
 }

@@ -1,0 +1,451 @@
+using System;
+using System.Buffers;
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Channels;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using PulseRPC.Messaging;
+using PulseRPC.Serialization;
+using PulseRPC.Server.Dispatch;
+using PulseRPC.Transport;
+
+namespace PulseRPC.Server.Response;
+
+/// <summary>
+/// 高性能响应处理器接口
+/// </summary>
+public interface IResponseProcessor : IDisposable
+{
+    /// <summary>
+    /// 启动响应处理器
+    /// </summary>
+    Task StartAsync(CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// 停止响应处理器
+    /// </summary>
+    Task StopAsync(CancellationToken cancellationToken = default);
+    
+    /// <summary>
+    /// 处理消息处理结果
+    /// </summary>
+    ValueTask ProcessMessageResultAsync(MessageProcessedEventArgs eventArgs);
+}
+
+/// <summary>
+/// 高性能响应处理器实现
+/// 负责序列化响应和发送给客户端
+/// </summary>
+internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
+{
+    private readonly ITransportManager _transportManager;
+    private readonly ISerializerProvider _serializerProvider;
+    private readonly ILogger<HighPerformanceResponseProcessor> _logger;
+    private readonly ResponseProcessorOptions _options;
+    
+    // 高性能通道用于响应处理
+    private readonly Channel<ResponseTask> _responseChannel;
+    private readonly ChannelWriter<ResponseTask> _responseWriter;
+    private readonly ChannelReader<ResponseTask> _responseReader;
+    
+    // 序列化器缓存
+    private readonly ConcurrentDictionary<string, ISerializer> _serializerCache = new();
+    
+    // 处理任务
+    private Task[]? _processingTasks;
+    private readonly CancellationTokenSource _shutdownCts = new();
+    
+    // 性能统计
+    private long _totalResponsesSent;
+    private long _totalResponseErrors;
+    private long _totalSerializationTime;
+    
+    public HighPerformanceResponseProcessor(
+        ITransportManager transportManager,
+        ISerializerProvider? serializerProvider = null,
+        ResponseProcessorOptions? options = null,
+        ILogger<HighPerformanceResponseProcessor>? logger = null)
+    {
+        _transportManager = transportManager ?? throw new ArgumentNullException(nameof(transportManager));
+        _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
+        _options = options ?? new ResponseProcessorOptions();
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HighPerformanceResponseProcessor>.Instance;
+        
+        // 创建有界响应通道
+        var channelOptions = new BoundedChannelOptions(_options.ChannelCapacity)
+        {
+            SingleReader = false, // 多个处理器线程
+            SingleWriter = false, // 多个调度器线程写入
+            AllowSynchronousContinuations = false,
+            BoundedChannelFullMode = BoundedChannelFullMode.Wait // 背压控制
+        };
+        
+        _responseChannel = Channel.CreateBounded<ResponseTask>(channelOptions);
+        _responseWriter = _responseChannel.Writer;
+        _responseReader = _responseChannel.Reader;
+    }
+    
+    public async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("启动高性能响应处理器，处理器线程数: {ProcessorCount}", _options.ProcessorThreadCount);
+        
+        // 启动多个响应处理器线程
+        _processingTasks = new Task[_options.ProcessorThreadCount];
+        
+        for (int i = 0; i < _options.ProcessorThreadCount; i++)
+        {
+            var processorId = i;
+            _processingTasks[i] = Task.Run(async () => await ProcessResponseTasksAsync(processorId, _shutdownCts.Token));
+        }
+        
+        _logger.LogInformation("响应处理器启动完成");
+    }
+    
+    public async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("停止响应处理器");
+        
+        // 标记写入完成
+        _responseWriter.Complete();
+        
+        // 取消所有处理任务
+        _shutdownCts.Cancel();
+        
+        // 等待所有处理任务完成
+        if (_processingTasks != null)
+        {
+            try
+            {
+                await Task.WhenAll(_processingTasks).WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            }
+            catch (TimeoutException)
+            {
+                _logger.LogWarning("响应处理器停止超时");
+            }
+        }
+        
+        _logger.LogInformation("响应处理器停止完成，总响应数: {TotalResponses}, 错误数: {TotalErrors}",
+            _totalResponsesSent, _totalResponseErrors);
+    }
+    
+    /// <summary>
+    /// 处理消息结果 - 高性能入口点
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public async ValueTask ProcessMessageResultAsync(MessageProcessedEventArgs eventArgs)
+    {
+        var callContext = eventArgs.CallContext;
+        
+        // 只有需要响应的消息才处理
+        if (callContext.MessageType == MessageType.OneWay)
+        {
+            return; // 单向消息不需要响应
+        }
+        
+        // 创建响应任务
+        var responseTask = new ResponseTask(
+            callContext.ConnectionId,
+            callContext.MessageId,
+            callContext.ServiceName,
+            callContext.MethodName,
+            eventArgs.Result,
+            eventArgs.Success,
+            eventArgs.Exception,
+            DateTime.UtcNow);
+        
+        // 异步写入响应通道
+        if (!await _responseWriter.WaitToWriteAsync(_shutdownCts.Token))
+        {
+            _logger.LogWarning("响应处理器通道已关闭");
+            return;
+        }
+        
+        if (!_responseWriter.TryWrite(responseTask))
+        {
+            _logger.LogWarning("无法写入响应任务到通道，连接: {ConnectionId}, 消息ID: {MessageId}",
+                callContext.ConnectionId, callContext.MessageId);
+            
+            Interlocked.Increment(ref _totalResponseErrors);
+        }
+    }
+    
+    /// <summary>
+    /// 处理响应任务的主循环
+    /// </summary>
+    private async Task ProcessResponseTasksAsync(int processorId, CancellationToken cancellationToken)
+    {
+        _logger.LogDebug("响应处理器 #{ProcessorId} 启动", processorId);
+        
+        try
+        {
+            await foreach (var responseTask in _responseReader.ReadAllAsync(cancellationToken))
+            {
+                await ProcessResponseTaskAsync(responseTask, processorId);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常关闭
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "响应处理器 #{ProcessorId} 发生异常", processorId);
+        }
+        
+        _logger.LogDebug("响应处理器 #{ProcessorId} 停止", processorId);
+    }
+    
+    /// <summary>
+    /// 处理单个响应任务
+    /// </summary>
+    private async Task ProcessResponseTaskAsync(ResponseTask responseTask, int processorId)
+    {
+        var startTime = DateTime.UtcNow;
+        
+        try
+        {
+            // 创建响应消息头
+            var responseHeader = new MessageHeader(MessageType.Response, string.Empty, string.Empty)
+            {
+                MessageId = responseTask.MessageId,
+                PayloadLength = 0, // 稍后设置
+                Flags = MessageFlags.None
+            };
+            
+            ReadOnlyMemory<byte> responsePayload;
+            
+            if (responseTask.Success && responseTask.Result != null)
+            {
+                // 序列化成功响应
+                responsePayload = await SerializeResponseAsync(responseTask.Result, responseTask.ServiceName, responseTask.MethodName);
+            }
+            else if (!responseTask.Success && responseTask.Exception != null)
+            {
+                // 序列化错误响应
+                responseHeader.Type = MessageType.Error;
+                responsePayload = await SerializeErrorResponseAsync(responseTask.Exception);
+            }
+            else
+            {
+                // 空响应 (void 方法)
+                responsePayload = ReadOnlyMemory<byte>.Empty;
+            }
+            
+            // 更新负载长度
+            responseHeader.PayloadLength = responsePayload.Length;
+            
+            // 创建响应消息包
+            var responsePacket = new MessagePacket(responseHeader, responsePayload.Span);
+            
+            // 序列化消息包到缓冲区
+            using var packetBuffer = MemoryPool<byte>.Shared.Rent(responsePacket.EstimateSize());
+            var bytesWritten = responsePacket.WriteTo(packetBuffer.Memory.Span);
+            
+            // 发送响应到客户端
+            var sent = await _transportManager.SendAsync(
+                responseTask.ConnectionId,
+                packetBuffer.Memory[..bytesWritten],
+                _shutdownCts.Token);
+            
+            if (sent)
+            {
+                Interlocked.Increment(ref _totalResponsesSent);
+                
+                var processingTime = DateTime.UtcNow - startTime;
+                var currentTotal = Interlocked.Read(ref _totalSerializationTime);
+                Interlocked.Exchange(ref _totalSerializationTime, currentTotal + (long)processingTime.TotalMilliseconds);
+                
+                _logger.LogTrace("响应发送成功: 连接={ConnectionId}, 消息ID={MessageId}, 处理器={ProcessorId}, 耗时={ProcessingTime}ms",
+                    responseTask.ConnectionId, responseTask.MessageId, processorId, processingTime.TotalMilliseconds);
+            }
+            else
+            {
+                Interlocked.Increment(ref _totalResponseErrors);
+                _logger.LogWarning("响应发送失败: 连接={ConnectionId}, 消息ID={MessageId}",
+                    responseTask.ConnectionId, responseTask.MessageId);
+            }
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Increment(ref _totalResponseErrors);
+            _logger.LogError(ex, "响应处理失败: 连接={ConnectionId}, 消息ID={MessageId}, 处理器={ProcessorId}",
+                responseTask.ConnectionId, responseTask.MessageId, processorId);
+        }
+    }
+    
+    /// <summary>
+    /// 序列化成功响应
+    /// </summary>
+    private async Task<ReadOnlyMemory<byte>> SerializeResponseAsync(object result, string serviceName, string methodName)
+    {
+        if (result == null)
+        {
+            return ReadOnlyMemory<byte>.Empty;
+        }
+        
+        // 获取缓存的序列化器
+        var cacheKey = $"{serviceName}.{methodName}";
+        var serializer = GetCachedSerializer(cacheKey);
+        
+        // 序列化响应数据
+        using var buffer = new ArrayBufferWriter<byte>();
+        
+        // 使用泛型方法序列化 (这里需要运行时类型信息)
+        var serializeMethod = serializer.GetType().GetMethod("Serialize")?.MakeGenericMethod(result.GetType());
+        serializeMethod?.Invoke(serializer, new object[] { buffer, result });
+        
+        return buffer.WrittenMemory;
+    }
+    
+    /// <summary>
+    /// 序列化错误响应
+    /// </summary>
+    private async Task<ReadOnlyMemory<byte>> SerializeErrorResponseAsync(Exception exception)
+    {
+        // 创建错误响应对象
+        var errorResponse = new ErrorResponse
+        {
+            ErrorCode = GetErrorCode(exception),
+            ErrorMessage = exception.Message,
+            ErrorType = exception.GetType().Name,
+            StackTrace = _options.IncludeStackTrace ? exception.StackTrace : null
+        };
+        
+        // 序列化错误响应
+        var serializer = GetCachedSerializer("__error__");
+        using var buffer = new ArrayBufferWriter<byte>();
+        serializer.Serialize(buffer, errorResponse);
+        
+        return buffer.WrittenMemory;
+    }
+    
+    /// <summary>
+    /// 获取缓存的序列化器
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ISerializer GetCachedSerializer(string cacheKey)
+    {
+        return _serializerCache.GetOrAdd(cacheKey, static (key, provider) =>
+        {
+            return provider.Create(MethodType.Unary, null);
+        }, _serializerProvider);
+    }
+    
+    /// <summary>
+    /// 获取错误代码
+    /// </summary>
+    private static string GetErrorCode(Exception exception)
+    {
+        return exception switch
+        {
+            ArgumentException => "INVALID_ARGUMENT",
+            ArgumentNullException => "NULL_ARGUMENT",
+            InvalidOperationException => "INVALID_OPERATION",
+            NotImplementedException => "NOT_IMPLEMENTED",
+            TimeoutException => "TIMEOUT",
+            UnauthorizedAccessException => "UNAUTHORIZED",
+            _ => "INTERNAL_ERROR"
+        };
+    }
+    
+    public void Dispose()
+    {
+        if (!_shutdownCts.IsCancellationRequested)
+        {
+            StopAsync().GetAwaiter().GetResult();
+        }
+        
+        _shutdownCts.Dispose();
+        _serializerCache.Clear();
+    }
+}
+
+/// <summary>
+/// 响应任务结构
+/// </summary>
+internal readonly struct ResponseTask
+{
+    public readonly string ConnectionId;
+    public readonly Guid MessageId;
+    public readonly string ServiceName;
+    public readonly string MethodName;
+    public readonly object? Result;
+    public readonly bool Success;
+    public readonly Exception? Exception;
+    public readonly DateTime ResponseTime;
+    
+    public ResponseTask(
+        string connectionId,
+        Guid messageId,
+        string serviceName,
+        string methodName,
+        object? result,
+        bool success,
+        Exception? exception,
+        DateTime responseTime)
+    {
+        ConnectionId = connectionId;
+        MessageId = messageId;
+        ServiceName = serviceName;
+        MethodName = methodName;
+        Result = result;
+        Success = success;
+        Exception = exception;
+        ResponseTime = responseTime;
+    }
+}
+
+/// <summary>
+/// 错误响应模型
+/// </summary>
+[MemoryPack.MemoryPackable]
+public partial class ErrorResponse
+{
+    [MemoryPack.MemoryPackOrder(0)]
+    public string ErrorCode { get; set; } = string.Empty;
+    
+    [MemoryPack.MemoryPackOrder(1)]
+    public string ErrorMessage { get; set; } = string.Empty;
+    
+    [MemoryPack.MemoryPackOrder(2)]
+    public string ErrorType { get; set; } = string.Empty;
+    
+    [MemoryPack.MemoryPackOrder(3)]
+    public string? StackTrace { get; set; }
+    
+    [MemoryPack.MemoryPackOrder(4)]
+    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// 响应处理器配置选项
+/// </summary>
+public sealed class ResponseProcessorOptions
+{
+    /// <summary>
+    /// 处理器线程数量
+    /// </summary>
+    public int ProcessorThreadCount { get; set; } = Math.Max(1, Environment.ProcessorCount / 2);
+    
+    /// <summary>
+    /// 响应通道容量
+    /// </summary>
+    public int ChannelCapacity { get; set; } = 10000;
+    
+    /// <summary>
+    /// 是否在错误响应中包含堆栈跟踪
+    /// </summary>
+    public bool IncludeStackTrace { get; set; } = false;
+    
+    /// <summary>
+    /// 序列化器缓存大小
+    /// </summary>
+    public int SerializerCacheSize { get; set; } = 1000;
+    
+    /// <summary>
+    /// 响应超时时间
+    /// </summary>
+    public TimeSpan ResponseTimeout { get; set; } = TimeSpan.FromSeconds(30);
+}

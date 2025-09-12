@@ -17,16 +17,47 @@ PulseRPC.Client is a high-performance, enterprise-grade network client library t
 
 ## Architecture Overview
 
+### Three-Layer Abstraction Architecture
+
+PulseRPC.Client采用三层抽象架构设计，实现了清晰的职责分离和最大化的代码复用：
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 应用层 (Application Layer)                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
+│  │   Service    │  │   Event      │  │    Routing      │   │
+│  │   Proxies    │  │  Listeners   │  │   & Discovery   │   │
+│  └──────────────┘  └──────────────┘  └─────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │              IConnection (Client-Specific)          │   │
+│  │  • GetServiceAsync<T>()                            │   │
+│  │  • RegisterEventListenerAsync<T>()                 │   │
+│  │  • CheckHealthAsync() / ReconnectAsync()           │   │
+│  └─────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────┤
+│                 会话层 (Session Layer)                      │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │         ISessionChannel (Shared Abstraction)       │   │
+│  │  • Authentication Context Management               │   │
+│  │  • Properties Dictionary                           │   │
+│  │  • SetAuthentication() / ClearAuthentication()     │   │
+│  └─────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────┤
+│                 传输层 (Transport Layer)                   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │       ITransportConnection (Shared Foundation)      │   │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │   │
+│  │  │TCP Conn │ │KCP Conn │ │WS Conn  │ │QUIC Conn│   │   │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘   │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ### Core Component Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    IPulseRPCClient                         │
-├─────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │   Service    │  │   Event      │  │    Routing      │   │
-│  │   Proxies    │  │  Listeners   │  │   & Discovery   │   │
-│  └──────────────┘  └──────────────┘  └─────────────────┘   │
 ├─────────────────────────────────────────────────────────────┤
 │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
 │  │ Connection   │  │ Connection   │  │  Load Balancer  │   │
@@ -51,13 +82,23 @@ PulseRPC.Client is a high-performance, enterprise-grade network client library t
 
 ### Key Interfaces
 
+#### 应用层接口 (Application Layer)
 - **`IPulseRPCClient`**: Unified client entry point with comprehensive management capabilities
+- **`IConnection`**: Client-specific connection with business-oriented APIs
 - **`IConnectionRegistry`**: Connection registration, querying, and lifecycle tracking
 - **`IConnectionLifecycleManager`**: Connection creation, destruction, and health management
 - **`IConnectionPool`**: High-performance connection pooling with lease-based resource control
 - **`IConnectionRouter`**: Intelligent routing with rule-based decision making
+
+#### 会话层接口 (Session Layer - Shared with Server)
+- **`ISessionChannel`**: Authentication and properties management (from PulseRPC.Abstractions)
 - **`IServiceDiscovery`**: Dynamic service discovery with real-time change monitoring
 - **`ILoadBalancer`**: Advanced load balancing with performance-based selection
+
+#### 传输层接口 (Transport Layer - Shared Foundation)
+- **`ITransportConnection`**: Core transport-level connection abstraction (from PulseRPC.Abstractions)
+- **`IClientTransport`**: Client-side transport implementation
+- **`ITransportManager`**: Transport protocol management and factory
 
 ## Quick Start
 
@@ -395,9 +436,9 @@ new ConnectionDescriptor
 PulseRPC.Client uses compile-time source generation for efficient service proxies:
 
 ```csharp
-// Define service interface
+// Define service interface (updated to use IPulseHub)
 [PulseService]
-public interface ICalculatorService : IPulseService
+public interface ICalculatorService : IPulseHub
 {
     Task<int> AddAsync(int a, int b);
     Task<double> DivideAsync(double a, double b);
@@ -550,7 +591,7 @@ public class GameNetworkManager : MonoBehaviour
 ## Dependencies
 
 ### Core Dependencies
-- **PulseRPC.Abstractions**: Core interfaces and types
+- **PulseRPC.Abstractions**: Core interfaces and types (includes shared connection abstractions)
 - **Microsoft.Extensions.Logging.Abstractions**: Logging infrastructure
 - **System.Text.Json**: High-performance JSON serialization
 
@@ -562,6 +603,13 @@ public class GameNetworkManager : MonoBehaviour
 - **Microsoft.Extensions.DependencyInjection**: IoC container integration
 - **Microsoft.Extensions.Options**: Configuration binding
 - **Microsoft.Extensions.Hosting**: Hosted service integration
+
+### Shared Infrastructure
+The client relies on shared abstractions from PulseRPC.Abstractions:
+- **`ITransportConnection`**: Foundation transport-level connection interface
+- **`ISessionChannel`**: Authentication and session management interface
+- **`IPulseHub`**: Service interface marker (updated from IPulseService)
+- **`IPulseEventHandler`**: Event handler interface marker
 
 ## Source Generator Integration
 

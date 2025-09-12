@@ -16,7 +16,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     private string? _host;
     private int _port;
 
-    public KcpClientTransport(TransportOptions? options = null, ILogger? logger = null)
+    public KcpClientTransport(KcpTransportOptions? options = null, ILogger? logger = null)
         : base(options, logger)
     {
     }
@@ -40,7 +40,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
 
             // 解析服务器地址
 #if NET5_0_OR_GREATER
-                var addresses = await Dns.GetHostAddressesAsync(host, linkedCts.Token);
+            var addresses = await Dns.GetHostAddressesAsync(host, linkedCts.Token);
 #else
             var addresses = await Dns.GetHostAddressesAsync(host);
 #endif
@@ -103,8 +103,8 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         try
         {
             // 设置接收缓冲区大小
-            _socket.ReceiveBufferSize = _options.ReadBufferSize;
-            _socket.SendBufferSize = _options.WriteBufferSize;
+            _socket.ReceiveBufferSize = _options.RecvBufferSize;
+            _socket.SendBufferSize = ((TransportOptions)_options).SendBufferSize;
 
             // 设置接收超时
             _socket.ReceiveTimeout = _options.UdpReceiveTimeout;
@@ -132,15 +132,14 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         var maxRetries = _options.HandshakeRetryCount;
         var baseDelay = 100; // 基础延迟100ms
 
-        for (int attempt = 0; attempt < maxRetries; attempt++)
+        for (var attempt = 0; attempt < maxRetries; attempt++)
         {
             try
             {
                 // 执行单次握手尝试
                 await PerformSingleHandshakeAsync(cancellationToken);
 
-                _logger.LogInformation("KCP握手成功: Conv={Conv}, Attempts={Attempts}",
-                    _options.Kcp.ConversationId, attempt + 1);
+                _logger.LogInformation("KCP握手成功: Conv={Conv}, Attempts={Attempts}", _options.ConversationId, attempt + 1);
                 return; // 握手成功，退出重试循环
             }
             catch (TimeoutException) when (attempt < maxRetries - 1)
@@ -173,7 +172,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         var exception = new HandshakeException(
             $"KCP握手失败，已尝试{attemptCount}次",
             HandshakeStage.WaitingConfirmation,
-            _options.Kcp.ConversationId,
+            _options.ConversationId,
             _remoteEndpoint?.ToString(),
             attemptCount);
 
@@ -239,15 +238,15 @@ public class KcpClientTransport : KcpTransport, IClientTransport
             if (!handshakeCompletion.Task.IsCompleted)
             {
                 handshakeCompletion.TrySetException(
-                    new TimeoutException($"KCP握手超时({timeoutMs}ms)，未收到服务器确认，Conv={_options.Kcp.ConversationId}"));
+                    new TimeoutException($"KCP握手超时({timeoutMs}ms)，未收到服务器确认，Conv={_options.ConversationId}"));
             }
         });
 
         try
         {
             // 发送握手包
-            byte[] handshakeData = BitConverter.GetBytes(_options.Kcp.ConversationId);
-            int sentBytes = _socket.SendTo(handshakeData, _remoteEndpoint!);
+            var handshakeData = BitConverter.GetBytes(_options.ConversationId);
+            var sentBytes = _socket.SendTo(handshakeData, _remoteEndpoint!);
 
             // 启动异步接收任务
             var receiveTask = ReceiveHandshakeConfirmationAsync(handshakeCompletion, timeoutCts.Token);
@@ -261,7 +260,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
                 $"发送握手包失败: {ex.Message}",
                 ex,
                 HandshakeStage.SendingHandshake,
-                _options.Kcp.ConversationId,
+                _options.ConversationId,
                 _remoteEndpoint?.ToString());
 
             handshakeEx.AddDiagnosticInfo("SocketErrorCode", ex.SocketErrorCode);
@@ -305,7 +304,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
                             {
                                 uint receivedConv = BitConverter.ToUInt32(receiveBuffer, 0);
 
-                                if (receivedConv == _options.Kcp.ConversationId && remoteEp.Equals(_remoteEndpoint))
+                                if (receivedConv == _options.ConversationId && remoteEp.Equals(_remoteEndpoint))
                                 {
                                     completion.TrySetResult(true);
                                     return;
@@ -381,7 +380,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
             // 发送断开连接包
             if (_remoteEndpoint != null)
             {
-                byte[] disconnectData = BitConverter.GetBytes(0xFFFFFFFF);
+                var disconnectData = BitConverter.GetBytes(0xFFFFFFFF);
                 _socket.SendTo(disconnectData, _remoteEndpoint);
             }
 
@@ -417,7 +416,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
                 $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
 
             _reconnectTimer?.Dispose();
-            _reconnectTimer = new Timer(async _ =>
+            _reconnectTimer = new Timer(async void (_) =>
             {
                 try
                 {
@@ -449,10 +448,9 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         {
             try
             {
-                byte[] newBuffer = new byte[4096];
+                var newBuffer = new byte[4096];
                 EndPoint newRemoteEp = new IPEndPoint(IPAddress.Any, 0);
-                _socket.BeginReceiveFrom(newBuffer, 0, newBuffer.Length, SocketFlags.None, ref newRemoteEp,
-                    OnUdpReceive, newBuffer);
+                _socket.BeginReceiveFrom(newBuffer, 0, newBuffer.Length, SocketFlags.None, ref newRemoteEp, OnUdpReceive, newBuffer);
             }
             catch (Exception ex)
             {

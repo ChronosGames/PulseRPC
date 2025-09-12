@@ -32,8 +32,7 @@ public static class ServiceCollectionExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configure">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServer(this IServiceCollection services,
-        Action<IPulseRPCServerBuilder> configure)
+    public static IServiceCollection AddPulseRpcServer(this IServiceCollection services, Action<IPulseRPCServerBuilder> configure)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
@@ -41,9 +40,13 @@ public static class ServiceCollectionExtensions
         var builder = services.AddPulseRpcServer();
         configure(builder);
 
+        // 默认启用性能优化
+        builder.UseHighPerformanceEngine()
+            .UseTieredMessageProcessor()
+            .UsePriorityScheduler();
+
         // 自动完成构建并注册服务器实例
-        var server = builder.Build();
-        services.AddSingleton(server);
+        builder.Build();
 
         return services;
     }
@@ -55,8 +58,7 @@ public static class ServiceCollectionExtensions
     /// <param name="configuration">配置对象</param>
     /// <param name="sectionName">配置节名称</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServer(this IServiceCollection services,
-        IConfiguration configuration, string sectionName = "PulseRPC:Server")
+    public static IServiceCollection AddPulseRpcServer(this IServiceCollection services, IConfiguration configuration, string sectionName = "PulseRPC:Server")
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
@@ -77,8 +79,7 @@ public static class ServiceCollectionExtensions
     /// <param name="port">监听端口</param>
     /// <param name="configure">额外配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcTcpServer(this IServiceCollection services,
-        int port, Action<IPulseRPCServerBuilder>? configure = null)
+    public static IServiceCollection AddPulseRpcTcpServer(this IServiceCollection services, int port, Action<IPulseRPCServerBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -105,8 +106,7 @@ public static class ServiceCollectionExtensions
     /// <param name="port">监听端口</param>
     /// <param name="configure">额外配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcKcpServer(this IServiceCollection services,
-        int port, Action<IPulseRPCServerBuilder>? configure = null)
+    public static IServiceCollection AddPulseRpcKcpServer(this IServiceCollection services, int port, Action<IPulseRPCServerBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -135,8 +135,7 @@ public static class ServiceCollectionExtensions
     /// <param name="port">监听端口</param>
     /// <param name="protocol">传输协议</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddHighThroughputPulseRpcServer(this IServiceCollection services,
-        int port, TransportProtocol protocol = TransportProtocol.Tcp)
+    public static IServiceCollection AddHighThroughputPulseRpcServer(this IServiceCollection services, int port, TransportProtocol protocol = TransportProtocol.Tcp)
     {
         ArgumentNullException.ThrowIfNull(services);
         ValidatePortRange(port, nameof(port));
@@ -148,8 +147,8 @@ public static class ServiceCollectionExtensions
             {
                 builder.AddTcp("Default", port, tcp =>
                 {
-                    tcp.ReadBufferSize = 16384;
-                    tcp.WriteBufferSize = 16384;
+                    tcp.RecvBufferSize = 16384;
+                    tcp.SendBufferSize = 16384;
                     tcp.NoDelay = true;
                 }, isDefault: true);
             }
@@ -157,14 +156,10 @@ public static class ServiceCollectionExtensions
             {
                 builder.AddKcp("Default", port, kcp =>
                 {
-                    kcp.Kcp = new KcpOptions
-                    {
-                        NoDelay = true,
-                        FastReliable = true,
-                        SendWindow = 256,
-                        ReceiveWindow = 256,
-                        Interval = 20
-                    };
+                    kcp.NoDelay = true;
+                    kcp.SendWindow = 256;
+                    kcp.RecvWindow = 256;
+                    kcp.Interval = 20;
                 }, isDefault: true);
             }
 
@@ -196,8 +191,7 @@ public static class ServiceCollectionExtensions
     /// <param name="port">监听端口</param>
     /// <param name="protocol">传输协议</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddLowLatencyPulseRpcServer(this IServiceCollection services,
-        int port, TransportProtocol protocol = TransportProtocol.Tcp)
+    public static IServiceCollection AddLowLatencyPulseRpcServer(this IServiceCollection services, int port, TransportProtocol protocol = TransportProtocol.Tcp)
     {
         ArgumentNullException.ThrowIfNull(services);
         ValidatePortRange(port, nameof(port));
@@ -210,22 +204,19 @@ public static class ServiceCollectionExtensions
                 builder.AddTcp("Default", port, tcp =>
                 {
                     tcp.NoDelay = true;
-                    tcp.ReadBufferSize = 4096; // 较小的缓冲区
-                    tcp.WriteBufferSize = 4096;
+                    tcp.RecvBufferSize = 4096; // 较小的缓冲区
+                    tcp.SendBufferSize = 4096;
                 }, isDefault: true);
             }
             else
             {
                 builder.AddKcp("Default", port, kcp =>
                 {
-                    kcp.Kcp = new KcpOptions
-                    {
-                        NoDelay = true,
-                        Interval = 10, // 更频繁的更新
-                        Resend = 0, // 快速重传
-                        SendWindow = 64,
-                        ReceiveWindow = 64
-                    };
+                    kcp.NoDelay = true;
+                    kcp.Interval = 10; // 更频繁的更新
+                    kcp.Resend = 0; // 快速重传
+                    kcp.SendWindow = 64;
+                    kcp.RecvWindow = 64;
                 }, isDefault: true);
             }
 
@@ -256,8 +247,7 @@ public static class ServiceCollectionExtensions
     /// <param name="hostBuilder">主机构建器</param>
     /// <param name="configure">配置回调</param>
     /// <returns>主机构建器</returns>
-    public static IHostBuilder UsePulseRpcServer(this IHostBuilder hostBuilder,
-        Action<IPulseRPCServerBuilder> configure)
+    public static IHostBuilder UsePulseRpcServer(this IHostBuilder hostBuilder, Action<IPulseRPCServerBuilder> configure)
     {
         ArgumentNullException.ThrowIfNull(hostBuilder);
         ArgumentNullException.ThrowIfNull(configure);
@@ -275,8 +265,7 @@ public static class ServiceCollectionExtensions
     /// <param name="hostBuilder">主机构建器</param>
     /// <param name="sectionName">配置节名称</param>
     /// <returns>主机构建器</returns>
-    public static IHostBuilder UsePulseRpcServer(this IHostBuilder hostBuilder,
-        string sectionName = "PulseRPC:Server")
+    public static IHostBuilder UsePulseRpcServer(this IHostBuilder hostBuilder, string sectionName = "PulseRPC:Server")
     {
         ArgumentNullException.ThrowIfNull(hostBuilder);
         ArgumentException.ThrowIfNullOrWhiteSpace(sectionName);
@@ -421,34 +410,30 @@ public static class ConfigurationExtensions
         {
             builder.AddTcp(config.Name, config.Port, tcp =>
             {
-                if (config.Options != null)
+                if (config.Options == null)
                 {
-                    tcp.ReadBufferSize = config.Options.GetValue("ReadBufferSize", tcp.ReadBufferSize);
-                    tcp.WriteBufferSize = config.Options.GetValue("WriteBufferSize", tcp.WriteBufferSize);
-                    tcp.NoDelay = config.Options.GetValue("NoDelay", tcp.NoDelay);
+                    return;
                 }
+
+                tcp.RecvBufferSize = config.Options.GetValue("RecvBufferSize", tcp.RecvBufferSize);
+                tcp.SendBufferSize = config.Options.GetValue("SendBufferSize", tcp.SendBufferSize);
+                tcp.NoDelay = config.Options.GetValue("NoDelay", tcp.NoDelay);
             }, config.IsDefault);
         }
         else if (config.Type.Equals("Kcp", StringComparison.OrdinalIgnoreCase))
         {
             builder.AddKcp(config.Name, config.Port, kcp =>
             {
-                if (config.Options != null)
+                if (config.Options == null)
                 {
-                    var kcpOptions = config.Options.GetSection("Kcp");
-                    if (kcpOptions.Exists())
-                    {
-                        kcp.Kcp = new KcpOptions
-                        {
-                            NoDelay = kcpOptions.GetValue("NoDelay", true),
-                            Interval = kcpOptions.GetValue("Interval", 40),
-                            Resend = kcpOptions.GetValue("Resend", 2),
-                            SendWindow = kcpOptions.GetValue("SendWindow", 128),
-                            ReceiveWindow = kcpOptions.GetValue("ReceiveWindow", 128),
-                            FastReliable = kcpOptions.GetValue("FastReliable", false)
-                        };
-                    }
+                    return;
                 }
+
+                kcp.NoDelay = config.Options.GetValue("NoDelay", true);
+                kcp.Interval = config.Options.GetValue("Interval", 40);
+                kcp.Resend = config.Options.GetValue("Resend", 2);
+                kcp.SendWindow = config.Options.GetValue("SendWindow", 128);
+                kcp.RecvWindow = config.Options.GetValue("RecvWindow", 128);
             }, config.IsDefault);
         }
     }

@@ -17,7 +17,7 @@ public class KcpTransport : ITransport
 {
     protected KcpCore _kcp;
     protected Socket _socket;
-    protected readonly TransportOptions _options;
+    protected readonly KcpTransportOptions _options;
     protected readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
     protected readonly CancellationTokenSource _cts = new CancellationTokenSource();
     protected readonly ILogger _logger;
@@ -43,21 +43,20 @@ public class KcpTransport : ITransport
     public event System.EventHandler<TransportStateEventArgs>? StateChanged;
     public event System.EventHandler<TransportDataEventArgs>? DataReceived;
 
-    public KcpTransport(TransportOptions? options = null, ILogger? logger = null)
+    public KcpTransport(KcpTransportOptions? options = null, ILogger? logger = null)
     {
-        _options = options ?? new TransportOptions();
+        _options = options ?? new KcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
 
-        _receiveBuffer = new byte[_options.ReadBufferSize];
+        _receiveBuffer = new byte[_options.RecvBufferSize];
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
         // 创建KCP对象
-        _kcp = new KcpCore(_options.Kcp.ConversationId, OnKcpOutput, _logger);
+        _kcp = new KcpCore(_options.ConversationId, OnKcpOutput, _logger);
 
         // 配置KCP
-        _kcp.NoDelay(_options.Kcp.NoDelay, _options.Kcp.Interval, _options.Kcp.Resend,
-            _options.Kcp.DisableFlowControl);
-        _kcp.SetWindowSize(_options.Kcp.SendWindow, _options.Kcp.ReceiveWindow);
+        _kcp.NoDelay(_options.NoDelay ? 1 : 0, _options.Interval, _options.Resend, _options.DisableFlowControl);
+        _kcp.SetWindowSize(_options.SendWindow, _options.RecvWindow);
         _kcp.SetMtu(1400); // UDP推荐MTU
     }
 

@@ -15,9 +15,11 @@ namespace PulseRPC.Server.SourceGenerator;
 [Generator]
 public class PulseRPCSourceGenerator : ISourceGenerator
 {
+    private const string PulseServerGenerationAttributeName = "PulseServerGenerationAttribute";
+
     public void Initialize(GeneratorInitializationContext context)
     {
-        // 注册语法接收器来收集候选接口
+        // 注册语法接收器来收集候选接口和类
         context.RegisterForSyntaxNotifications(() => new ServiceSyntaxReceiver());
     }
 
@@ -29,33 +31,72 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             if (context.SyntaxReceiver is not ServiceSyntaxReceiver syntaxReceiver)
                 return;
 
-            // 分析所有候选接口
+            // 分析PulseServerGeneration特性标记的类
             var serviceModels = new List<ServiceModel>();
-            
+            var serverGenerationClasses = new List<ClassDeclarationSyntax>();
+
+            // 收集带有PulseServerGeneration特性的类
+            foreach (var classDeclaration in syntaxReceiver.CandidateClasses)
+            {
+                var semanticModel = context.Compilation.GetSemanticModel(classDeclaration.SyntaxTree);
+                var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
+                
+                if (classSymbol != null && HasPulseServerGenerationAttribute(classSymbol))
+                {
+                    serverGenerationClasses.Add(classDeclaration);
+                    
+                    // 从PulseServerGeneration特性中获取要扫描的类型
+                    var typesToScan = GetMarkerTypesFromClass(classSymbol, semanticModel);
+                    
+                    foreach (var markerType in typesToScan)
+                    {
+                        // 扫描标记类型所在程序集中的所有服务接口
+                        var assemblyServiceModels = ScanAssemblyForServices(markerType, context.Compilation);
+                        serviceModels.AddRange(assemblyServiceModels);
+                    }
+                }
+            }
+
+            // 分析直接找到的候选接口（向后兼容）
             foreach (var interfaceDeclaration in syntaxReceiver.CandidateInterfaces)
             {
                 var semanticModel = context.Compilation.GetSemanticModel(interfaceDeclaration.SyntaxTree);
                 var serviceModel = ServiceAnalyzer.AnalyzeInterface(interfaceDeclaration, semanticModel);
-                
-                if (serviceModel != null)
+
+                if (serviceModel != null && !serviceModels.Any(s => s.InterfaceName == serviceModel.InterfaceName))
                 {
                     serviceModels.Add(serviceModel);
                 }
             }
 
-            // 如果没有找到服务接口，直接返回
-            if (!serviceModels.Any())
+            // 如果没有找到服务接口，检查是否有PulseServerGeneration配置
+            if (serviceModels.Count == 0)
             {
-                // 生成诊断信息
-                var descriptor = new DiagnosticDescriptor(
-                    "PULSE001",
-                    "No PulseService interfaces found",
-                    "No interfaces marked with [PulseService] attribute were found in the compilation",
-                    "PulseRPC.Server.SourceGenerator",
-                    DiagnosticSeverity.Info,
-                    true);
-                
-                context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+                if (serverGenerationClasses.Count > 0)
+                {
+                    var descriptor = new DiagnosticDescriptor(
+                        "PULSE002",
+                        "PulseServerGeneration configured but no services found",
+                        "PulseServerGeneration attribute is configured but no services implementing IPulseService were found in the referenced assemblies",
+                        "PulseRPC.Server.SourceGenerator",
+                        DiagnosticSeverity.Warning,
+                        true);
+
+                    context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+                }
+                else
+                {
+                    // 生成诊断信息
+                    var descriptor = new DiagnosticDescriptor(
+                        "PULSE001",
+                        "No PulseService interfaces found",
+                        "No interfaces marked with [PulseService] attribute were found in the compilation",
+                        "PulseRPC.Server.SourceGenerator",
+                        DiagnosticSeverity.Info,
+                        true);
+
+                    context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+                }
                 return;
             }
 
@@ -93,7 +134,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                 "PulseRPC.Server.SourceGenerator",
                 DiagnosticSeverity.Error,
                 true);
-            
+
             context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
         }
     }
@@ -105,7 +146,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     {
         var sourceText = ServiceProxyGenerator.GenerateSourceText(serviceModel);
         var fileName = $"{serviceModel.InterfaceName.TrimStart('I')}.Proxy.g.cs";
-        
+
         context.AddSource(fileName, sourceText);
     }
 
@@ -231,7 +272,7 @@ public sealed class PulseOptimizeAttribute : System.Attribute
     {
         var totalMethods = serviceModels.Sum(s => s.Methods.Count);
         var asyncMethods = serviceModels.SelectMany(s => s.Methods).Count(m => m.IsAsync);
-        
+
         var report = $@"// <auto-generated />
 // PulseRPC Source Generator Performance Report
 // Generated at: {System.DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC
@@ -248,7 +289,7 @@ public static class GenerationReport
     public const int TotalMethods = {totalMethods};
     public const int AsyncMethods = {asyncMethods};
     public const int SyncMethods = {totalMethods - asyncMethods};
-    
+
     /// <summary>
     /// Estimated performance improvements from source generation
     /// </summary>
@@ -260,7 +301,7 @@ public static class GenerationReport
         public const double RoutingPerformanceIncrease = 2.00; // 200% increase
         public const double OverallLatencyReduction = 0.60; // 60% reduction
     }}
-    
+
     /// <summary>
     /// Generated code statistics
     /// </summary>
@@ -282,7 +323,7 @@ public static class GenerationReport
     private static void ReportGenerationSuccess(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
     {
         var totalMethods = serviceModels.Sum(s => s.Methods.Count);
-        
+
         var descriptor = new DiagnosticDescriptor(
             "PULSE100",
             "PulseRPC source generation completed successfully",
@@ -291,17 +332,186 @@ public static class GenerationReport
             "PulseRPC.Server.SourceGenerator",
             DiagnosticSeverity.Info,
             true);
-        
+
         context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+    }
+
+    /// <summary>
+    /// 检查类是否有PulseServerGeneration特性
+    /// </summary>
+    private static bool HasPulseServerGenerationAttribute(INamedTypeSymbol classSymbol)
+    {
+        return classSymbol.GetAttributes().Any(attr => 
+            attr.AttributeClass?.Name == PulseServerGenerationAttributeName ||
+            attr.AttributeClass?.Name == "PulseServerGeneration");
+    }
+
+    /// <summary>
+    /// 从类的PulseServerGeneration特性中获取标记类型
+    /// </summary>
+    private static List<ITypeSymbol> GetMarkerTypesFromClass(INamedTypeSymbol classSymbol, SemanticModel semanticModel)
+    {
+        var markerTypes = new List<ITypeSymbol>();
+
+        foreach (var attribute in classSymbol.GetAttributes())
+        {
+            if (attribute.AttributeClass?.Name != PulseServerGenerationAttributeName &&
+                attribute.AttributeClass?.Name != "PulseServerGeneration")
+            {
+                continue;
+            }
+
+            // 获取特性的构造函数参数（markerType）
+            if (attribute.ConstructorArguments.Length > 0 && 
+                attribute.ConstructorArguments[0].Value is ITypeSymbol markerType)
+            {
+                markerTypes.Add(markerType);
+            }
+        }
+
+        return markerTypes;
+    }
+
+    /// <summary>
+    /// 扫描程序集中的所有服务接口
+    /// </summary>
+    private static List<ServiceModel> ScanAssemblyForServices(ITypeSymbol markerType, Compilation compilation)
+    {
+        var serviceModels = new List<ServiceModel>();
+        var assembly = markerType.ContainingAssembly;
+
+        // 遍历程序集中的所有类型
+        foreach (var type in GetAllTypesInAssembly(assembly))
+        {
+            if (type is INamedTypeSymbol namedType && namedType.TypeKind == TypeKind.Interface)
+            {
+                // 检查是否实现了IPulseService接口或有PulseService特性
+                if (IsServiceInterface(namedType))
+                {
+                    var serviceModel = CreateServiceModelFromSymbol(namedType);
+                    if (serviceModel != null)
+                    {
+                        serviceModels.Add(serviceModel);
+                    }
+                }
+            }
+        }
+
+        return serviceModels;
+    }
+
+    /// <summary>
+    /// 获取程序集中的所有类型
+    /// </summary>
+    private static IEnumerable<INamedTypeSymbol> GetAllTypesInAssembly(IAssemblySymbol assembly)
+    {
+        var stack = new Stack<INamespaceSymbol>();
+        stack.Push(assembly.GlobalNamespace);
+
+        while (stack.Count > 0)
+        {
+            var @namespace = stack.Pop();
+
+            foreach (var type in @namespace.GetTypeMembers())
+            {
+                yield return type;
+            }
+
+            foreach (var nestedNamespace in @namespace.GetNamespaceMembers())
+            {
+                stack.Push(nestedNamespace);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 检查接口是否为服务接口
+    /// </summary>
+    private static bool IsServiceInterface(INamedTypeSymbol typeSymbol)
+    {
+        // 检查是否有PulseService特性
+        if (typeSymbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == "PulseServiceAttribute" || 
+                                                   attr.AttributeClass?.Name == "PulseService"))
+        {
+            return true;
+        }
+
+        // 检查是否实现了IPulseService接口
+        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseService");
+    }
+
+    /// <summary>
+    /// 从符号创建服务模型
+    /// </summary>
+    private static ServiceModel? CreateServiceModelFromSymbol(INamedTypeSymbol typeSymbol)
+    {
+        try
+        {
+            var methods = new List<MethodModel>();
+
+            foreach (var member in typeSymbol.GetMembers())
+            {
+                if (member is IMethodSymbol methodSymbol && methodSymbol.DeclaredAccessibility == Accessibility.Public)
+                {
+                    var returnType = methodSymbol.ReturnType.ToDisplayString();
+                    var isAsync = IsAsyncMethod(methodSymbol);
+                    
+                    var method = new MethodModel
+                    {
+                        MethodName = methodSymbol.Name,
+                        IsAsync = isAsync,
+                        ReturnTypeName = returnType,
+                        ReturnTypeFullName = returnType,
+                        IsGenericTask = isAsync && (returnType.Contains("Task<") || returnType.Contains("ValueTask<")),
+                        Parameters = methodSymbol.Parameters.Select(p => new ParameterModel
+                        {
+                            Name = p.Name,
+                            TypeName = p.Type.Name,
+                            TypeFullName = p.Type.ToDisplayString(),
+                            IsMemoryPackable = false // TODO: 检查是否可序列化
+                        }).ToList()
+                    };
+
+                    methods.Add(method);
+                }
+            }
+
+            return new ServiceModel
+            {
+                InterfaceName = typeSymbol.Name,
+                InterfaceFullName = typeSymbol.ToDisplayString(),
+                Namespace = typeSymbol.ContainingNamespace.ToDisplayString(),
+                ChannelName = "default", // TODO: 从特性中获取
+                Methods = methods
+            };
+        }
+        catch
+        {
+            // 如果创建服务模型时出错，返回null
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 检查方法是否为异步方法
+    /// </summary>
+    private static bool IsAsyncMethod(IMethodSymbol methodSymbol)
+    {
+        var returnTypeName = methodSymbol.ReturnType.ToDisplayString();
+        return returnTypeName.StartsWith("System.Threading.Tasks.Task") ||
+               returnTypeName.StartsWith("Task") ||
+               returnTypeName.StartsWith("System.Threading.Tasks.ValueTask") ||
+               returnTypeName.StartsWith("ValueTask");
     }
 }
 
 /// <summary>
-/// 语法接收器 - 收集候选的PulseService接口
+/// 语法接收器 - 收集候选的PulseService接口和PulseServerGeneration类
 /// </summary>
 internal class ServiceSyntaxReceiver : ISyntaxReceiver
 {
     public List<InterfaceDeclarationSyntax> CandidateInterfaces { get; } = new();
+    public List<ClassDeclarationSyntax> CandidateClasses { get; } = new();
 
     public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
     {
@@ -314,22 +524,67 @@ internal class ServiceSyntaxReceiver : ISyntaxReceiver
                 CandidateInterfaces.Add(interfaceDeclaration);
             }
         }
+        // 寻找类声明（用于PulseServerGeneration特性）
+        else if (syntaxNode is ClassDeclarationSyntax classDeclaration)
+        {
+            // 检查是否有可能是PulseServerGeneration类的特征
+            if (HasPotentialPulseServerGenerationAttribute(classDeclaration))
+            {
+                CandidateClasses.Add(classDeclaration);
+            }
+        }
     }
 
     /// <summary>
-    /// 快速检查接口是否可能有PulseService特性
+    /// 快速检查接口是否可能有PulseService特性或继承IPulseService
     /// </summary>
     private static bool HasPotentialPulseServiceAttribute(InterfaceDeclarationSyntax interfaceDeclaration)
     {
-        return interfaceDeclaration.AttributeLists
+        // 检查特性
+        var hasAttribute = interfaceDeclaration.AttributeLists
             .SelectMany(al => al.Attributes)
             .Any(attr =>
             {
                 var name = attr.Name.ToString();
-                return name.Contains("PulseService") || 
+                return name.Contains("PulseService") ||
                        name.Contains("Service") ||
                        name == "PulseService" ||
                        name == "PulseServiceAttribute";
+            });
+
+        if (hasAttribute)
+            return true;
+
+        // 检查是否继承IPulseService接口
+        if (interfaceDeclaration.BaseList?.Types != null)
+        {
+            return interfaceDeclaration.BaseList.Types
+                .Any(baseType =>
+                {
+                    var typeName = baseType.Type.ToString();
+                    return typeName == "IPulseService" ||
+                           typeName.EndsWith(".IPulseService") ||
+                           typeName.Contains("IPulseService");
+                });
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 快速检查类是否可能有PulseServerGeneration特性
+    /// </summary>
+    private static bool HasPotentialPulseServerGenerationAttribute(ClassDeclarationSyntax classDeclaration)
+    {
+        // 检查特性
+        return classDeclaration.AttributeLists
+            .SelectMany(al => al.Attributes)
+            .Any(attr =>
+            {
+                var name = attr.Name.ToString();
+                return name.Contains("PulseServerGeneration") ||
+                       name == "PulseServerGeneration" ||
+                       name == "PulseServerGenerationAttribute";
             });
     }
 }

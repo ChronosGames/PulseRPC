@@ -184,24 +184,20 @@ public static class ServiceProxyGenerator
         if (method.IsSingleParameter)
         {
             var param = method.FirstParameter!;
-            sb.AppendLine($"        // Deserialize single parameter: {param.TypeName}");
-            
-            if (param.IsMemoryPackable)
-            {
-                sb.AppendLine($"        var {param.Name} = MemoryPackSerializer.Deserialize<{param.TypeFullName}>(data.Span);");
-            }
-            else
+            if (!param.IsMemoryPackable)
             {
                 sb.AppendLine($"        // Warning: Parameter type {param.TypeName} is not MemoryPackable");
-                sb.AppendLine($"        var {param.Name} = MemoryPackSerializer.Deserialize<{param.TypeFullName}>(data.Span);");
             }
+
+            sb.AppendLine($"        // Deserialize single parameter: {param.TypeName}");
+            sb.AppendLine($"        var {param.Name} = MemoryPackSerializer.Deserialize<{param.TypeFullName}>(data.Span)!;");
         }
         else
         {
             // 多参数处理（需要参数包装类）
             sb.AppendLine("        // Multi-parameter deserialization");
             sb.AppendLine("        var parameters = DeserializeMultipleParameters(data);");
-            
+
             for (int i = 0; i < method.Parameters.Count; i++)
             {
                 var param = method.Parameters[i];
@@ -217,8 +213,8 @@ public static class ServiceProxyGenerator
     /// </summary>
     private static void GenerateServiceMethodCall(StringBuilder sb, MethodModel method)
     {
-        var paramList = method.HasParameters ? 
-            string.Join(", ", method.Parameters.Select(p => p.Name)) : 
+        var paramList = method.HasParameters ?
+            string.Join(", ", method.Parameters.Select(p => p.Name)) :
             "";
 
         if (method.IsAsync)
@@ -298,7 +294,7 @@ public static class ServiceProxyGenerator
         sb.AppendLine($"        public const string ShortName = \"{serviceModel.InterfaceName}\";");
         sb.AppendLine($"        public const string Channel = \"{serviceModel.ChannelName}\";");
         sb.AppendLine($"        public const int MethodCount = {serviceModel.Methods.Count};");
-        
+
         sb.AppendLine("        public static readonly string[] Methods = new[]");
         sb.AppendLine("        {");
         foreach (var method in serviceModel.Methods)
@@ -306,7 +302,7 @@ public static class ServiceProxyGenerator
             sb.AppendLine($"            \"{method.MethodName}\",");
         }
         sb.AppendLine("        };");
-        
+
         sb.AppendLine("    }");
     }
 

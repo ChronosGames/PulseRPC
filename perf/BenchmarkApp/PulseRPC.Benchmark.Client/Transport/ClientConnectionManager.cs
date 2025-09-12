@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Benchmark.Shared;
 using PulseRPC.Client;
 using PulseRPC.Benchmark.Shared.Models;
+using PulseRPC.Client.Core;
 
 namespace PulseRPC.Benchmark.Client.Transport;
 
@@ -201,7 +202,7 @@ public class ClientConnection : IDisposable
     private volatile bool _disposed;
 
     private IPulseRPCClient? _pulseClient;
-    private IBenchmarkService? _service;
+    private IBenchmarkHub? _service;
 
     public string ConnectionId { get; }
     public string Host { get; }
@@ -234,12 +235,12 @@ public class ClientConnection : IDisposable
             _logger.LogDebug("连接到服务器: {Host}:{Port}", Host, Port);
 
             // 创建 PulseRPC 客户端（仅 TCP 通道）
-            var builder = new PulseRPCClientBuilder();
+            var builder = new PulseClientBuilder();
             builder.AddTcp("TcpChannel", Host, Port);
             _pulseClient = builder.Build();
 
             // 获取服务代理
-            _service = await _pulseClient.GetServiceAsync<IBenchmarkService>();
+            _service = await _pulseClient.GetServiceAsync<IBenchmarkHub>();
 
             _isConnected = true;
             ConnectedAt = DateTime.UtcNow;
@@ -347,9 +348,9 @@ public class ClientConnection : IDisposable
 /// <summary>
 /// 连接统计信息
 /// </summary>
-public class ConnectionStatistics
-{
-    public int TotalConnections { get; set; }
-    public int ActiveConnections { get; set; }
-    public int InactiveConnections { get; set; }
-}
+// public class ConnectionStatistics
+// {
+//     public int TotalConnections { get; set; }
+//     public int ActiveConnections { get; set; }
+//     public int InactiveConnections { get; set; }
+// }

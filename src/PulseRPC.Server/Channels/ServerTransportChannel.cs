@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using PulseRPC.Authentication;
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
+using System.Net;
 
 namespace PulseRPC.Server.Transport;
 
@@ -10,7 +11,8 @@ public interface IServerChannel : ITransportChannel
 }
 
 /// <summary>
-/// 服务器传输通道实现，包装 IServerConnection 并提供认证和会话管理
+/// 服务器传输通道实现，包装 IServerTransport 并提供认证和会话管理
+/// 现在继承三层抽象架构中的ITransportChannel接口
 /// </summary>
 public class ServerTransportChannel : IServerChannel
 {
@@ -47,6 +49,72 @@ public class ServerTransportChannel : IServerChannel
     /// <inheritdoc />
     public IServerTransport Transport => _transport;
 
+    #region ITransportConnection Implementation
+    /// <inheritdoc />
+    public ConnectionState State => _transport.State;
+
+    /// <inheritdoc />
+    public EndPoint RemoteEndPoint => _transport.RemoteEndPoint;
+
+    /// <inheritdoc />
+    public EndPoint LocalEndPoint => _transport.LocalEndPoint;
+
+    /// <inheritdoc />
+    public DateTime ConnectedAt => ConnectedTime;
+
+    /// <inheritdoc />
+    public DateTime LastActivityAt => _lastActiveTime;
+
+    /// <inheritdoc />
+    public TransportType TransportType => _transport.Type;
+
+    /// <inheritdoc />
+    public bool IsConnected => _transport.IsConnected;
+
+    /// <inheritdoc />
+    public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
+    #endregion
+
+    #region ISessionChannel Implementation
+    /// <inheritdoc />
+    public T? GetProperty<T>(string key)
+    {
+        if (_properties.TryGetValue(key, out var value) && value is T typedValue)
+        {
+            return typedValue;
+        }
+        return default;
+    }
+
+    /// <inheritdoc />
+    public void SetProperty<T>(string key, T value)
+    {
+        if (value != null)
+        {
+            _properties[key] = value;
+        }
+        else
+        {
+            _properties.TryRemove(key, out _);
+        }
+    }
+
+    /// <inheritdoc />
+    public bool RemoveProperty(string key)
+    {
+        return _properties.TryRemove(key, out _);
+    }
+
+    /// <inheritdoc />
+    public bool HasProperty(string key)
+    {
+        return _properties.ContainsKey(key);
+    }
+
+    /// <inheritdoc />
+    public event EventHandler<AuthenticationChangedEventArgs>? AuthenticationChanged;
+    #endregion
+
     /// <inheritdoc />
     public IAuthenticationContext? AuthenticationContext
     {
@@ -59,10 +127,16 @@ public class ServerTransportChannel : IServerChannel
         }
         set
         {
+            IAuthenticationContext? previous;
             lock (_authLock)
             {
+                previous = _authenticationContext;
                 _authenticationContext = value;
             }
+
+            // 在锁外触发事件，避免死锁
+            AuthenticationChanged?.Invoke(this, new AuthenticationChangedEventArgs(
+                ConnectionId, previous, value));
         }
     }
 
@@ -125,9 +199,6 @@ public class ServerTransportChannel : IServerChannel
     }
 
     /// <inheritdoc />
-    public event System.EventHandler<TransportStateEventArgs>? StateChanged;
-
-    /// <inheritdoc />
     public event System.EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
@@ -135,7 +206,13 @@ public class ServerTransportChannel : IServerChannel
     /// </summary>
     private void OnTransportStateChanged(object? sender, TransportStateEventArgs e)
     {
-        StateChanged?.Invoke(this, e);
+        // 触发新的ConnectionStateChangedEventArgs事件
+        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(
+            ConnectionId,
+            e.PreviousState,
+            e.CurrentState,
+            e.Reason,
+            e.Exception));
 
         // 连接断开时清理认证信息
         if (e.CurrentState == ConnectionState.Disconnected)

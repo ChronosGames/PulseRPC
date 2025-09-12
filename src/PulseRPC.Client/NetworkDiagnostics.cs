@@ -130,7 +130,7 @@ public class NetworkDiagnostics
             var targetEndpoint = new IPEndPoint(targetAddress, port);
 
             // 发送测试数据
-            var testData = System.Text.Encoding.UTF8.GetBytes("DIAGNOSTIC_TEST");
+            var testData = "DIAGNOSTIC_TEST"u8.ToArray();
             var stopwatch = Stopwatch.StartNew();
 
             await udpClient.SendAsync(testData, testData.Length, targetEndpoint);
@@ -227,7 +227,7 @@ public class NetworkDiagnostics
     /// <summary>
     /// 检查Windows防火墙状态
     /// </summary>
-    private bool IsWindowsFirewallEnabled()
+    private static bool IsWindowsFirewallEnabled()
     {
         try
         {

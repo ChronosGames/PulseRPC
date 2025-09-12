@@ -8,12 +8,12 @@ public class ServerOptions
     /// <summary>
     /// 服务名称
     /// </summary>
-    public string ServiceName { get; set; } = "PulseRPC-Service";
+    public string AppName { get; set; } = "PulseRPC-Server";
 
     /// <summary>
     /// 服务版本
     /// </summary>
-    public string ServiceVersion { get; set; } = "1.0.0";
+    public string AppVersion { get; set; } = "1.0.0";
 
     /// <summary>
     /// 服务标签
@@ -98,7 +98,7 @@ public class ServerOptions
     /// <summary>
     /// 是否使用加密
     /// </summary>
-    public bool UseEncryption { get; set; } = false;
+    public bool UseEncryption { get; set; }
 
     /// <summary>
     /// 空闲超时

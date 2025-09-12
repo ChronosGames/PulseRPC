@@ -59,9 +59,20 @@ public interface ITransport : IDisposable
 
 /// <summary>
 /// 客户端传输接口
+/// 继承ITransportConnection提供统一的连接抽象
 /// </summary>
-public interface IClientTransport : ITransport
+public interface IClientTransport : ITransportConnection
 {
+    /// <summary>
+    /// 传输名称 (从原ITransport继承的属性)
+    /// </summary>
+    string Name { get; }
+
+    /// <summary>
+    /// 传输类型 (从原ITransport继承的属性，映射到TransportType)
+    /// </summary>
+    TransportType Type { get; }
+
     /// <summary>
     /// 连接到远程主机
     /// </summary>
@@ -75,18 +86,19 @@ public interface IClientTransport : ITransport
 
 /// <summary>
 /// 服务端连接接口
+/// 继承ITransportConnection提供统一的连接抽象
 /// </summary>
-public interface IServerTransport : ITransport
+public interface IServerTransport : ITransportConnection
 {
     /// <summary>
-    /// 连接ID
+    /// 传输名称 (从原ITransport继承的属性)
     /// </summary>
-    string ConnectionId { get; }
+    string Name { get; }
 
     /// <summary>
-    /// 关闭连接
+    /// 传输类型 (从原ITransport继承的属性，映射到TransportType)
     /// </summary>
-    Task CloseAsync(CancellationToken cancellationToken = default);
+    TransportType Type { get; }
 }
 
 /// <summary>
@@ -144,16 +156,6 @@ public enum TransportType
     /// KCP传输
     /// </summary>
     Kcp,
-
-    /// <summary>
-    /// WebSocket传输
-    /// </summary>
-    WebSocket,
-
-    /// <summary>
-    /// UDP传输
-    /// </summary>
-    Udp
 }
 
 /// <summary>
@@ -262,14 +264,3 @@ public class ServerConnectionEventArgs : EventArgs
     }
 }
 
-public class NetworkMessage
-{
-    public Messaging.MessageHeader Header { get; set; }
-    public byte[] Body { get; set; }
-
-    public NetworkMessage(Messaging.MessageHeader header, byte[] body)
-    {
-        Header = header;
-        Body = body;
-    }
-}

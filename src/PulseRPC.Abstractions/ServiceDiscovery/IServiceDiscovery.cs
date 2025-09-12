@@ -115,4 +115,4 @@ public class ServiceEndpoint
     public string GetServiceAddress() => $"{ServiceType}@{Host}:{Port}";
 
     public override string ToString() => GetServiceAddress();
-} 
+}

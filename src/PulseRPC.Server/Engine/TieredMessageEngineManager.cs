@@ -61,6 +61,7 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
             var engine = new HighPerformanceMessageEngine(
                 connId,
                 messageDispatcher,
+                _serviceProvider,
                 config,
                 new NullLogger<HighPerformanceMessageEngine>());
 

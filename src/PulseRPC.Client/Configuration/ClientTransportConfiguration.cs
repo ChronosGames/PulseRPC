@@ -40,7 +40,7 @@ public class ClientTransportConfiguration
     /// <summary>
     /// 创建TCP传输配置
     /// </summary>
-    public static ClientTransportConfiguration Tcp(string name, string host, int port, TransportOptions? options = null, bool isDefault = false) =>
+    public static ClientTransportConfiguration Tcp(string name, string host, int port, TcpTransportOptions? options = null, bool isDefault = false) =>
         new()
         {
             Name = name,
@@ -54,7 +54,7 @@ public class ClientTransportConfiguration
     /// <summary>
     /// 创建KCP传输配置
     /// </summary>
-    public static ClientTransportConfiguration Kcp(string name, string host, int port, TransportOptions? options = null, bool isDefault = false) =>
+    public static ClientTransportConfiguration Kcp(string name, string host, int port, KcpTransportOptions? options = null, bool isDefault = false) =>
         new()
         {
             Name = name,
@@ -64,87 +64,4 @@ public class ClientTransportConfiguration
             Options = options,
             IsDefault = isDefault
         };
-
-    /// <summary>
-    /// 创建WebSocket传输配置
-    /// </summary>
-    public static ClientTransportConfiguration WebSocket(string name, string host, int port, TransportOptions? options = null, bool isDefault = false) =>
-        new()
-        {
-            Name = name,
-            Type = TransportType.WebSocket,
-            Host = host,
-            Port = port,
-            Options = options,
-            IsDefault = isDefault
-        };
-}
-
-/// <summary>
-/// 客户端配置构建器
-/// </summary>
-public class ClientConfigurationBuilder
-{
-    private readonly List<ClientTransportConfiguration> _transports = new();
-    private Action<ClientOptions>? _clientOptionsConfig;
-
-    /// <summary>
-    /// 配置客户端选项
-    /// </summary>
-    public ClientConfigurationBuilder ConfigureClient(Action<ClientOptions> configure)
-    {
-        _clientOptionsConfig = configure;
-        return this;
-    }
-
-    /// <summary>
-    /// 添加TCP传输
-    /// </summary>
-    public ClientConfigurationBuilder AddTcp(string name, string host, int port, Action<TransportOptions>? configureOptions = null, bool isDefault = false)
-    {
-        var options = new TransportOptions();
-        configureOptions?.Invoke(options);
-        
-        _transports.Add(ClientTransportConfiguration.Tcp(name, host, port, options, isDefault));
-        return this;
-    }
-
-    /// <summary>
-    /// 添加KCP传输
-    /// </summary>
-    public ClientConfigurationBuilder AddKcp(string name, string host, int port, Action<TransportOptions>? configureOptions = null, bool isDefault = false)
-    {
-        var options = new TransportOptions();
-        configureOptions?.Invoke(options);
-        
-        _transports.Add(ClientTransportConfiguration.Kcp(name, host, port, options, isDefault));
-        return this;
-    }
-
-    /// <summary>
-    /// 添加WebSocket传输
-    /// </summary>
-    public ClientConfigurationBuilder AddWebSocket(string name, string host, int port, Action<TransportOptions>? configureOptions = null, bool isDefault = false)
-    {
-        var options = new TransportOptions();
-        configureOptions?.Invoke(options);
-        
-        _transports.Add(ClientTransportConfiguration.WebSocket(name, host, port, options, isDefault));
-        return this;
-    }
-
-    /// <summary>
-    /// 添加传输通道
-    /// </summary>
-    public ClientConfigurationBuilder AddTransport(ClientTransportConfiguration transport)
-    {
-        _transports.Add(transport);
-        return this;
-    }
-
-    /// <summary>
-    /// 构建配置
-    /// </summary>
-    internal (List<ClientTransportConfiguration> Transports, Action<ClientOptions>? ClientConfig) Build() =>
-        (_transports, _clientOptionsConfig);
 }

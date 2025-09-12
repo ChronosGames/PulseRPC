@@ -15,7 +15,7 @@ namespace ChatApp.Console;
 public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
-    private IPulseRPCClient? _client;
+    private IPulseClient? _client;
     private IPlayerHub? _playerService;
     private ISubscriptionToken? _eventsSubscription;
     private CancellationTokenSource? _cts;
@@ -36,7 +36,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         _cts = new CancellationTokenSource();
 
         // 使用新的客户端构建器 API
-        var builder = new PulseRPCClientBuilder();
+        var builder = new PulseClientBuilder();
 
         // 添加TCP传输 - 使用接口期望的通道名称
         builder.AddTcp("TcpChannel", "localhost", 7000);
@@ -59,7 +59,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         try
         {
             // 使用源代码生成器生成的扩展方法获取服务代理
-            _playerService = _client.GetService<IPlayerHub>();
+            _playerService = _client.GetServiceAsync<IPlayerHub>();
 
             // 使用简洁的一行 API - 源代码生成器会处理多接口实现
             _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));

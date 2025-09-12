@@ -11,9 +11,9 @@ namespace PulseRPC.Benchmark.Server.Services;
 /// 基准测试服务实现类
 /// 提供所有基准测试所需的RPC方法实现
 /// </summary>
-public class BenchmarkServiceImpl : IBenchmarkService
+public class BenchmarkHubImpl : IBenchmarkHub
 {
-    private readonly ILogger<BenchmarkServiceImpl> _logger;
+    private readonly ILogger<BenchmarkHubImpl> _logger;
     private readonly ConcurrentDictionary<string, DateTime> _activeOperations = new();
 
     // 服务统计
@@ -22,7 +22,7 @@ public class BenchmarkServiceImpl : IBenchmarkService
     private long _failedRequests = 0;
     private DateTime _serviceStartTime = DateTime.UtcNow;
 
-    public BenchmarkServiceImpl(ILogger<BenchmarkServiceImpl> logger)
+    public BenchmarkHubImpl(ILogger<BenchmarkHubImpl> logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _logger.LogInformation("BenchmarkService 已初始化，启动时间: {StartTime}", _serviceStartTime);

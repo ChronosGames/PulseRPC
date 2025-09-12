@@ -12,7 +12,7 @@ public sealed class ReferenceCountedBuffer : IDisposable
     private readonly Action<byte[]> _returnToPool;
     private volatile int _refCount = 1;
     private volatile bool _disposed = false;
-    
+
     /// <summary>
     /// 构造函数
     /// </summary>
@@ -23,7 +23,7 @@ public sealed class ReferenceCountedBuffer : IDisposable
         _buffer = buffer ?? throw new ArgumentNullException(nameof(buffer));
         _returnToPool = returnToPool ?? throw new ArgumentNullException(nameof(returnToPool));
     }
-    
+
     /// <summary>
     /// 获取内存视图
     /// </summary>
@@ -35,17 +35,17 @@ public sealed class ReferenceCountedBuffer : IDisposable
             return _buffer.AsMemory();
         }
     }
-    
+
     /// <summary>
     /// 获取缓冲区大小
     /// </summary>
     public int Length => _buffer.Length;
-    
+
     /// <summary>
     /// 当前引用计数
     /// </summary>
     public int ReferenceCount => _refCount;
-    
+
     /// <summary>
     /// 获取底层缓冲区（用于归还内存池）
     /// </summary>
@@ -54,7 +54,7 @@ public sealed class ReferenceCountedBuffer : IDisposable
         ThrowIfDisposed();
         return _buffer;
     }
-    
+
     /// <summary>
     /// 增加引用计数（克隆）
     /// </summary>
@@ -69,7 +69,7 @@ public sealed class ReferenceCountedBuffer : IDisposable
         }
         return this;
     }
-    
+
     /// <summary>
     /// 减少引用计数
     /// </summary>
@@ -86,7 +86,7 @@ public sealed class ReferenceCountedBuffer : IDisposable
             throw new InvalidOperationException("引用计数不能小于0");
         }
     }
-    
+
     /// <summary>
     /// 检查是否已释放
     /// </summary>
@@ -97,7 +97,7 @@ public sealed class ReferenceCountedBuffer : IDisposable
             throw new ObjectDisposedException(nameof(ReferenceCountedBuffer));
         }
     }
-    
+
     /// <summary>
     /// 核心释放逻辑
     /// </summary>
@@ -109,7 +109,7 @@ public sealed class ReferenceCountedBuffer : IDisposable
             _returnToPool(_buffer);
         }
     }
-    
+
     /// <summary>
     /// 释放资源
     /// </summary>

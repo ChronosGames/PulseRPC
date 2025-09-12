@@ -13,32 +13,32 @@ public enum ServiceRoutingStrategy
     /// 轮询
     /// </summary>
     RoundRobin,
-    
+
     /// <summary>
     /// 一致性哈希
     /// </summary>
     ConsistentHashing,
-    
+
     /// <summary>
     /// 最少连接
     /// </summary>
     LeastConnections,
-    
+
     /// <summary>
     /// 地理位置最近
     /// </summary>
     Geolocation,
-    
+
     /// <summary>
     /// 加权随机
     /// </summary>
     WeightedRandom,
-    
+
     /// <summary>
     /// 亲和性优先
     /// </summary>
     AffinityFirst,
-    
+
     /// <summary>
     /// 自定义策略
     /// </summary>
@@ -48,7 +48,7 @@ public enum ServiceRoutingStrategy
 /// <summary>
 /// 服务路由配置
 /// </summary>
-public class ServiceRoutingConfiguration<T> where T : class, IPulseService
+public class ServiceRoutingConfiguration<T> where T : class, IPulseHub
 {
     /// <summary>
     /// 默认路由策略
@@ -174,4 +174,4 @@ public enum RetryDelayStrategy
     /// 随机抖动
     /// </summary>
     Jitter
-} 
+}

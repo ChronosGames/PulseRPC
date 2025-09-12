@@ -96,8 +96,7 @@ public sealed class ZeroCopySerializationPipeline : IAsyncDisposable
         _serializerOptions = serializerOptions ?? MemoryPackSerializerOptions.Default;
         _logger = logger ?? NullLogger.Instance;
 
-        _fastPathBuffers = new ThreadLocal<ArrayBufferWriter<byte>>(
-            () => new ArrayBufferWriter<byte>(_options.FastPathBufferSize));
+        _fastPathBuffers = new ThreadLocal<ArrayBufferWriter<byte>>(() => new ArrayBufferWriter<byte>(_options.FastPathBufferSize));
         _fastPathSerializers = new ConcurrentDictionary<Type, FastPathSerializer>();
 
         _logger.LogInformation("ZeroCopySerializationPipeline已初始化 - 选项: {Options}", _options);

@@ -237,7 +237,8 @@ namespace PulseRPC.Benchmark.Configuration
                 RequestIntervalMs = existingConfig.RequestIntervalMs,
                 EnableVerboseLogging = existingConfig.EnableVerboseLogging,
                 CollectResourceMetrics = existingConfig.CollectResourceMetrics,
-                TransportOptions = existingConfig.TransportOptions,
+                KcpOptions = existingConfig.KcpOptions,
+                TcpOptions = existingConfig.TcpOptions,
                 CustomConfiguration = new Dictionary<string, object>(existingConfig.CustomConfiguration)
             };
             return builder;

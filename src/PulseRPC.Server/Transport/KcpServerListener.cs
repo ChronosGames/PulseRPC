@@ -17,7 +17,7 @@ public class KcpServerTransport : IServerTransport
     private readonly Socket _sharedSocket;
     private readonly IPEndPoint _remoteEndpoint;
     private readonly KcpCore _kcp;
-    private readonly TransportOptions _options;
+    private readonly KcpTransportOptions _options;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
 
@@ -40,22 +40,20 @@ public class KcpServerTransport : IServerTransport
     /// <summary>
     /// 创建KCP服务端连接
     /// </summary>
-    public KcpServerTransport(string connectionId, Socket sharedSocket, IPEndPoint remoteEndpoint, uint conv,
-        TransportOptions? options = null, ILogger? logger = null)
+    public KcpServerTransport(string connectionId, Socket sharedSocket, IPEndPoint remoteEndpoint, uint conv, KcpTransportOptions? options = null, ILogger? logger = null)
     {
         _connectionId = connectionId;
         _sharedSocket = sharedSocket;
         _remoteEndpoint = remoteEndpoint;
-        _options = options ?? new TransportOptions();
+        _options = options ?? new KcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
 
         // 创建KCP实例
         _kcp = new KcpCore(conv, OnKcpOutput, _logger);
 
         // 配置KCP
-        _kcp.NoDelay(_options.Kcp.NoDelay, _options.Kcp.Interval, _options.Kcp.Resend,
-            _options.Kcp.DisableFlowControl);
-        _kcp.SetWindowSize(_options.Kcp.SendWindow, _options.Kcp.ReceiveWindow);
+        _kcp.NoDelay(_options.NoDelay ? 1 : 0, _options.Interval, _options.Resend, _options.DisableFlowControl);
+        _kcp.SetWindowSize(_options.SendWindow, _options.RecvWindow);
         _kcp.SetMtu(1400);
 
         _logger.LogInformation("创建KCP服务端连接: {ConnectionId} 从 {RemoteEndPoint}",
@@ -393,7 +391,7 @@ public class KcpServerTransport : IServerTransport
 public class KcpServerListener : IServerListener
 {
     private readonly Socket _socket;
-    private readonly TransportOptions _options;
+    private readonly KcpTransportOptions _options;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private Task? _listenTask;
@@ -408,10 +406,10 @@ public class KcpServerListener : IServerListener
 
     public event System.EventHandler<ServerConnectionEventArgs>? ConnectionAccepted;
 
-    public KcpServerListener(int port, TransportOptions? options = null, ILogger? logger = null)
+    public KcpServerListener(int port, KcpTransportOptions? options = null, ILogger? logger = null)
     {
         _port = port;
-        _options = options ?? new TransportOptions();
+        _options = options ?? new KcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
     }

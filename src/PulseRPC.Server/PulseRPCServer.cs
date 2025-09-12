@@ -14,17 +14,17 @@ namespace PulseRPC.Server;
 /// </summary>
 internal sealed class PulseRPCServer : IPulseRPCServer
 {
-    private readonly IServerChannelManager _channelManager;
+    private readonly ITransportManager _transportManager;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ServerOptions _serverOptions;
-    private readonly ITransportIntegrationManager _transportManager;
+    private readonly ITransportIntegrationManager _transportIntegrationManager;
     private readonly ILogger<PulseRPCServer> _logger;
 
     private readonly ConcurrentDictionary<string, IServerListener> _listeners = new();
     private readonly ConcurrentDictionary<string, TransportChannelConfiguration> _transports = new();
 
     private volatile ServerState _state = ServerState.Stopped;
-    private readonly object _stateLock = new();
+    private readonly Lock _stateLock = new();
     private readonly CancellationTokenSource _shutdownCts = new();
 
     // 性能统计
@@ -33,7 +33,7 @@ internal sealed class PulseRPCServer : IPulseRPCServer
 
     public ServerState State => _state;
     public bool IsRunning => _state == ServerState.Running;
-    public int ActiveConnectionCount => _channelManager.ConnectionCount;
+    public int ActiveConnectionCount => _transportManager.ConnectionCount;
 
     // 事件
     public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
@@ -41,23 +41,23 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
     public PulseRPCServer(
-        IServerChannelManager channelManager,
-        ILoggerFactory loggerFactory,
-        IOptions<ServerOptions> serverOptions,
-        ITransportIntegrationManager transportManager)
+        ITransportManager? transportManager = null,
+        ILoggerFactory? loggerFactory = null,
+        IOptions<ServerOptions>? serverOptions = null,
+        ITransportIntegrationManager? transportIntegrationManager = null)
     {
-        _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
-        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
-        _transportManager = transportManager ?? throw new ArgumentNullException(nameof(transportManager));
-        _serverOptions = serverOptions.Value ?? throw new ArgumentNullException(nameof(serverOptions));
-        _logger = loggerFactory.CreateLogger<PulseRPCServer>();
+        _transportManager = transportManager ?? new TransportManager(TransportManagerType.Server);
+        _loggerFactory = loggerFactory ?? new LoggerFactory();
+        _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));
+        _serverOptions = serverOptions?.Value ?? new ServerOptions();
+        _logger = _loggerFactory.CreateLogger<PulseRPCServer>();
 
-        // 订阅通道管理器事件
-        _channelManager.ChannelConnected += OnChannelConnected;
-        _channelManager.ChannelDisconnected += OnChannelDisconnected;
+        // 订阅传输管理器事件
+        _transportManager.TransportConnected += OnTransportConnected;
+        _transportManager.TransportDisconnected += OnTransportDisconnected;
 
-        _logger.LogInformation("增强服务器管理器已初始化，支持的传输类型: [{TransportTypes}]",
-            string.Join(", ", _transportManager.GetSupportedTransportTypes()));
+        _logger.LogInformation("增强服务器管理器已初始化，传输管理器类型：{ManagerType}",
+            _transportManager.ManagerType);
     }
 
     /// <summary>
@@ -78,15 +78,14 @@ internal sealed class PulseRPCServer : IPulseRPCServer
         }
 
         // 验证传输是否支持
-        if (!_transportManager.IsSupported(config.Type.ToString()))
+        if (!_transportIntegrationManager.IsSupported(config.Type.ToString()))
         {
             throw new NotSupportedException($"不支持的传输类型: {config.Type}");
         }
 
         if (_transports.TryAdd(config.Name, config))
         {
-            _logger.LogInformation("已添加传输配置: {Name} ({Type}:{Port})",
-                config.Name, config.Type, config.Port);
+            _logger.LogInformation("已添加传输配置: {Name} ({Type}:{Port})", config.Name, config.Type, config.Port);
         }
         else
         {
@@ -96,8 +95,7 @@ internal sealed class PulseRPCServer : IPulseRPCServer
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken, _shutdownCts.Token);
+        using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
 
         lock (_stateLock)
         {
@@ -150,7 +148,7 @@ internal sealed class PulseRPCServer : IPulseRPCServer
                 config.Name, config.Type, config.Port);
 
             // 创建监听器
-            var listener = _transportManager.CreateListener(config, _loggerFactory);
+            var listener = _transportIntegrationManager.CreateListener(config, _loggerFactory);
 
             // 注册连接接受事件
             listener.ConnectionAccepted += OnConnectionAccepted;
@@ -290,8 +288,8 @@ internal sealed class PulseRPCServer : IPulseRPCServer
             _logger.LogDebug("接受新连接: {ConnectionId} from {RemoteEndPoint} via {TransportType}",
                 e.Transport.ConnectionId, e.Transport.RemoteEndPoint, e.Transport.Type);
 
-            // 将连接添加到通道管理器
-            var channel = _channelManager.AddChannel(e.Transport);
+            // 将连接添加到传输管理器
+            var context = _transportManager.AddTransport(e.Transport);
 
             // 原子增加连接计数
             Interlocked.Increment(ref _totalConnectionsAccepted);
@@ -320,19 +318,28 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     }
 
     /// <summary>
-    /// 处理通道连接事件
+    /// 处理传输连接事件
     /// </summary>
-    private void OnChannelConnected(object? sender, ChannelEventArgs e)
+    private void OnTransportConnected(object? sender, TransportConnectedEventArgs e)
     {
-        ClientConnected?.Invoke(this, new ClientConnectedEventArgs(e.Channel));
+        _logger.LogDebug("传输已连接：{ConnectionId}", e.TransportContext.ConnectionId);
+
+        // 创建虚拟的IServerChannel实现（如果需要兼容现有事件）
+        // TODO: 根据实际情况决定是否需要这个事件
+        // ClientConnected?.Invoke(this, new ClientConnectedEventArgs(mockServerChannel));
     }
 
     /// <summary>
-    /// 处理通道断开事件
+    /// 处理传输断开事件
     /// </summary>
-    private void OnChannelDisconnected(object? sender, ChannelEventArgs e)
+    private void OnTransportDisconnected(object? sender, TransportDisconnectedEventArgs e)
     {
-        ClientDisconnected?.Invoke(this, new ClientDisconnectedEventArgs(e.Channel));
+        _logger.LogDebug("传输已断开：{ConnectionId}，原因：{Reason}",
+            e.TransportContext.ConnectionId, e.DisconnectReason);
+
+        // 创建虚拟的IServerChannel实现（如果需要兼容现有事件）
+        // TODO: 根据实际情况决定是否需要这个事件
+        // ClientDisconnected?.Invoke(this, new ClientDisconnectedEventArgs(mockServerChannel, e.DisconnectReason));
     }
 
     /// <summary>
@@ -384,16 +391,21 @@ internal sealed class PulseRPCServer : IPulseRPCServer
 
     public IReadOnlyList<ConnectionInfo> GetActiveConnections()
     {
-        return _channelManager.GetAllChannels()
-            .Select(channel => new ConnectionInfo
+        return _transportManager.GetAllTransportContexts()
+            .Select(context => new ConnectionInfo
             {
-                ConnectionId = channel.ConnectionId,
-                RemoteEndPoint = channel.Transport.RemoteEndPoint?.ToString() ?? "Unknown",
-                TransportType = channel.Transport.Type,
-                IsAuthenticated = channel.IsAuthenticated,
-                ConnectedTime = channel.ConnectedTime,
-                LastActiveTime = channel.LastActiveTime
+                ConnectionId = context.ConnectionId,
+                RemoteEndPoint = context.RemoteAddress,
+                TransportType = context.TransportType,
+                IsAuthenticated = context.IsAuthenticated,
+                ConnectedTime = context.ConnectedTime,
+                LastActiveTime = context.LastActiveTime
             }).ToList();
+    }
+
+    public Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<System.Net.TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
+    {
+        throw new NotImplementedException();
     }
 
     public IReadOnlyList<ServiceInfo> GetRegisteredServices()
@@ -404,14 +416,14 @@ internal sealed class PulseRPCServer : IPulseRPCServer
 
     public ServerPerformanceMetrics GetPerformanceMetrics()
     {
-        var channelStats = _channelManager.GetChannelManagerStats();
+        var transportStats = _transportManager.GetStatistics();
 
         return new ServerPerformanceMetrics
         {
             ActiveConnections = ActiveConnectionCount,
             TotalConnectionsAccepted = Interlocked.Read(ref _totalConnectionsAccepted),
-            TotalMessagesProcessed = channelStats.TotalMessagesProcessed,
-            TotalMessagesDropped = channelStats.TotalMessagesDropped,
+            TotalMessagesProcessed = transportStats.TotalMessagesProcessed,
+            TotalMessagesDropped = transportStats.TotalMessagesDropped,
             AverageLatencyMs = 0, // TODO: 实现延迟统计
             ThroughputMsgsPerSec = 0, // TODO: 实现吞吐量统计
             MemoryUsageMB = GC.GetTotalMemory(false) / 1024.0 / 1024.0,
@@ -423,8 +435,33 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     public void ResetPerformanceMetrics()
     {
         Interlocked.Exchange(ref _totalConnectionsAccepted, 0);
+        _transportManager.ResetStatistics();
         _lastResetTime = DateTime.UtcNow;
         _logger.LogInformation("性能统计已重置");
+    }
+
+    /// <summary>
+    /// 获取传输管理器
+    /// </summary>
+    public ITransportManager GetTransportManager()
+    {
+        return _transportManager;
+    }
+
+    /// <summary>
+    /// 广播消息到所有连接
+    /// </summary>
+    public async Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
+    {
+        return await _transportManager.BroadcastAsync(data, filter, cancellationToken);
+    }
+
+    /// <summary>
+    /// 向指定连接发送数据
+    /// </summary>
+    public async Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    {
+        return await _transportManager.SendAsync(connectionId, data, cancellationToken);
     }
 
     // === 资源释放 ===
@@ -444,9 +481,10 @@ internal sealed class PulseRPCServer : IPulseRPCServer
         }
 
         // 取消订阅事件
-        _channelManager.ChannelConnected -= OnChannelConnected;
-        _channelManager.ChannelDisconnected -= OnChannelDisconnected;
+        _transportManager.TransportConnected -= OnTransportConnected;
+        _transportManager.TransportDisconnected -= OnTransportDisconnected;
 
+        _transportManager?.Dispose();
         _shutdownCts.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -459,8 +497,13 @@ internal sealed class PulseRPCServer : IPulseRPCServer
         }
 
         // 取消订阅事件
-        _channelManager.ChannelConnected -= OnChannelConnected;
-        _channelManager.ChannelDisconnected -= OnChannelDisconnected;
+        _transportManager.TransportConnected -= OnTransportConnected;
+        _transportManager.TransportDisconnected -= OnTransportDisconnected;
+
+        if (_transportManager != null)
+        {
+            await _transportManager.DisposeAsync();
+        }
 
         _shutdownCts.Dispose();
         GC.SuppressFinalize(this);

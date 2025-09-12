@@ -11,6 +11,7 @@ namespace PulseRPC.Generator;
 public partial class ServiceProxyGenerator : IIncrementalGenerator
 {
     private const string PulseClientGenerationAttributeName = "PulseClientGenerationAttribute";
+    private const string PulseServiceAttributeName = "PulseServiceAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -34,7 +35,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 {
                     foreach (var serviceType in classDeclaration)
                     {
-                        // 检查是否实现了IPulseService接口（服务接口）
+                        // 检查是否实现了IPulseHub或IPulseService接口（服务接口）
                         if (serviceType.Type != null && IsNetworkService(serviceType.Type))
                         {
                             result.Add(serviceType);
@@ -188,8 +189,9 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
 
     private static bool IsNetworkService(INamedTypeSymbol typeSymbol)
     {
-        // 检查是否实现了 IPulseService 接口
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseService");
+        // 检查是否实现了 IPulseHub 或 IPulseService 接口
+        // IPulseHub 是新的标准接口，IPulseService 是向后兼容的接口
+        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub" || i.Name == "IPulseService");
     }
 
     private static bool IsEventReceiver(INamedTypeSymbol typeSymbol)
@@ -219,44 +221,46 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Transport;");
         sb.AppendLine("using PulseRPC.Messaging;");
-        sb.AppendLine("using PulseRPC.Routing;");
-        sb.AppendLine("using PulseRPC.SmartConnection;");
+        sb.AppendLine("using PulseRPC.Serialization;");
+        sb.AppendLine("using PulseRPC.Client.Channels;");
+        sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine();
 
         // 生成命名空间
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine("{");
 
-        // 生成代理类
+        // 生成高性能代理类
         sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// 自动生成的 {interfaceName} 服务代理");
+        sb.AppendLine($"    /// 高性能 {interfaceName} 服务代理 - 零分配设计");
+        sb.AppendLine($"    /// 使用编译时优化和类型缓存");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public class {interfaceName}Proxy : {interfaceName}");
+        sb.AppendLine($"    public sealed class {interfaceName}Proxy : {interfaceName}");
         sb.AppendLine("    {");
-        sb.AppendLine("        private readonly IChannelManager _channelManager;");
+        sb.AppendLine("        private readonly IClientChannel _channel;");
         sb.AppendLine();
         sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 初始化 {interfaceName} 服务代理");
+        sb.AppendLine($"        /// 初始化高性能 {interfaceName} 服务代理");
         sb.AppendLine($"        /// </summary>");
         sb.AppendLine($"        /// <param name=\"channelManager\">通道管理器</param>");
         sb.AppendLine($"        public {interfaceName}Proxy(IChannelManager channelManager)");
         sb.AppendLine("        {");
-        sb.AppendLine("            _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));");
+        sb.AppendLine($"            _channel = (channelManager ?? throw new ArgumentNullException(nameof(channelManager))).GetChannel(\"{defaultChannelName}\");");
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        // 生成方法实现
+        // 生成高性能方法实现
         foreach (var member in interfaceSymbol.GetMembers())
         {
             if (member is not IMethodSymbol methodSymbol)
                 continue;
 
-            // 自动处理所有公共方法，不再检查 Operation 特性
+            // 自动处理所有公共方法
             if (methodSymbol.DeclaredAccessibility != Accessibility.Public)
                 continue;
 
-            // 生成方法实现
-            GenerateMethodImplementation(sb, methodSymbol, defaultChannelName, namespaceName, interfaceName);
+            // 生成高性能方法实现
+            GenerateHighPerformanceMethodImplementation(sb, methodSymbol, defaultChannelName, namespaceName, interfaceName);
         }
 
         // 结束类和命名空间
@@ -266,7 +270,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         return sb.ToString();
     }
 
-    private static void GenerateMethodImplementation(
+    private static void GenerateHighPerformanceMethodImplementation(
         StringBuilder sb,
         IMethodSymbol methodSymbol,
         string defaultChannelName,
@@ -327,8 +331,8 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine(")");
         sb.AppendLine("        {");
 
-        // 获取通道
-        sb.AppendLine($"            var channel = _channelManager.GetChannel(\"{methodChannelName}\");");
+        // 添加性能优化注释
+        sb.AppendLine($"            // 高性能路径: 直接使用预缓存的通道");
 
         // 确定取消令牌
         var cancelTokenParam = parameters.FirstOrDefault(p =>
@@ -358,23 +362,22 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             responseType = ExtractGenericType(returnType);
         }
 
-        // 生成方法调用
+        // 生成高性能方法调用
         if (isVoid || isValueTaskVoid)
         {
-            sb.AppendLine($"            await channel.SendRequestAsync<{requestType}, {responseType}>(");
-            sb.AppendLine($"                \"{namespaceName}.{interfaceName}\", ");
-            sb.AppendLine($"                \"{methodName}\", ");
-            sb.AppendLine($"                {requestName}, ");
+            sb.AppendLine($"            await _channel.SendRequestAsync<{requestType}, {responseType}>(");
+            sb.AppendLine($"                \"{namespaceName}.{interfaceName}\",");
+            sb.AppendLine($"                \"{methodName}\",");
+            sb.AppendLine($"                {requestName},");
             sb.AppendLine($"                {tokenName});");
         }
         else
         {
-            sb.AppendLine($"            var response = await channel.SendRequestAsync<{requestType}, {responseType}>(");
-            sb.AppendLine($"                \"{namespaceName}.{interfaceName}\", ");
-            sb.AppendLine($"                \"{methodName}\", ");
-            sb.AppendLine($"                {requestName}, ");
+            sb.AppendLine($"            return await _channel.SendRequestAsync<{requestType}, {responseType}>(");
+            sb.AppendLine($"                \"{namespaceName}.{interfaceName}\",");
+            sb.AppendLine($"                \"{methodName}\",");
+            sb.AppendLine($"                {requestName},");
             sb.AppendLine($"                {tokenName});");
-            sb.AppendLine("            return response;");
         }
 
         sb.AppendLine("        }");
@@ -1011,6 +1014,17 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
             sb.AppendLine();
             sb.AppendLine("            return client.GetChannelManager().GetService<T>();");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // 生成 GetServiceInternal<T>() 方法供 PulseRPCClient 内部使用
+            sb.AppendLine("        /// <summary>");
+            sb.AppendLine("        /// 内部方法：获取服务代理 - 由 PulseRPCClient 调用");
+            sb.AppendLine("        /// </summary>");
+            sb.AppendLine("        internal static T GetServiceInternal<T>(this IPulseRPCClient client) where T : class, IPulseService");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var channelManager = client.GetChannelManager();");
+            sb.AppendLine("            return channelManager.GetService<T>();");
             sb.AppendLine("        }");
             sb.AppendLine();
         }

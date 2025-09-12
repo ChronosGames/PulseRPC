@@ -297,7 +297,7 @@ public class ServerChannelManager : IServerChannelManager
     /// </summary>
     private void OnChannelStateChanged(object? sender, TransportStateEventArgs e)
     {
-        if (sender is not ITransportChannel channel)
+        if (sender is not IChannel channel)
             return;
 
         _logger.LogDebug("通道状态变更: {ConnectionId} - {OldState} -> {NewState}",

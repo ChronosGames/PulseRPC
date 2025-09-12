@@ -1,4 +1,5 @@
 using System;
+using PulseRPC.Client.Core;
 
 namespace PulseRPC.Client;
 
@@ -12,17 +13,17 @@ public static class EventListenerRegistrar
     /// 委托：注册事件监听器的函数
     /// 这个委托将在源代码生成器中被实现
     /// </summary>
-    public static Func<IPulseRPCClient, object, EventListenerConfiguration, ISubscriptionToken>? RegisterWithConfigurationDelegate { get; set; }
+    public static Func<IPulseClient, object, EventListenerConfiguration, ISubscriptionToken>? RegisterWithConfigurationDelegate { get; set; }
 
     /// <summary>
     /// 使用配置注册事件监听器
     /// </summary>
     /// <typeparam name="T">事件监听器类型</typeparam>
-    /// <param name="rpcClient">PulseRPC客户端</param>
+    /// <param name="client">PulseRPC客户端</param>
     /// <param name="listener">事件监听器实例</param>
     /// <param name="configuration">配置对象</param>
     /// <returns>订阅令牌</returns>
-    public static ISubscriptionToken RegisterWithConfiguration<T>(IPulseRPCClient rpcClient, T listener, EventListenerConfiguration configuration) where T : class
+    public static ISubscriptionToken RegisterWithConfiguration<T>(IPulseClient client, T listener, EventListenerConfiguration configuration) where T : class
     {
         if (RegisterWithConfigurationDelegate == null)
         {
@@ -31,6 +32,6 @@ public static class EventListenerRegistrar
                 "并且特性参数包含了实现 IPulseReceiver 的事件接口。");
         }
 
-        return RegisterWithConfigurationDelegate(rpcClient, listener, configuration);
+        return RegisterWithConfigurationDelegate(client, listener, configuration);
     }
 }

@@ -1,17 +1,13 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Transport;
 using PulseRPC.Server;
 using GameServer.World;
 using System;
 using System.Threading.Tasks;
 using ChatApp;
-using Microsoft.Extensions.Options;
-// using PulseRPC.Monitoring;
 using PulseRPC.Server.Authentication;
-using PulseRPC.Server.Services;
-// using PulseRPC.Tracing;
+using PulseRPC.Server.Engine;
 
 namespace GameServer;
 
@@ -41,12 +37,6 @@ internal abstract class Program
         {
             // 启动服务器
             await server.StartAsync();
-
-            // 注册服务到ServiceRegistry（必须在服务器启动后）
-            var serviceRegistry = host.Services.GetRequiredService<ServiceRegistry>();
-            var playerService = host.Services.GetRequiredService<IPlayerHub>();
-            serviceRegistry.RegisterService<IPlayerHub, PlayerHub>((PlayerHub)playerService);
-            Console.WriteLine("服务已注册到ServiceRegistry");
 
             Console.WriteLine("\n高性能服务器已启动，按 ESC 键停止服务器...\n");
 
@@ -91,8 +81,8 @@ internal abstract class Program
             builder
                 .ConfigureServer(options =>
                 {
-                    options.ServiceName = "ChatGameServer";
-                    options.ServiceVersion = "2.0.0";
+                    options.AppName = "ChatGameServer";
+                    options.AppVersion = "2.0.0";
                     options.MaxConnections = 1000;
                     options.HeartbeatInterval = TimeSpan.FromSeconds(30);
                 })
@@ -102,14 +92,16 @@ internal abstract class Program
                 }, isDefault: true)
                 .AddKcp("KcpChannel", 7001, options =>
                 {
-                    options.Kcp = new KcpOptions
-                    {
-                        NoDelay = 1,
-                        Interval = 10,
-                        Resend = 2,
-                        DisableFlowControl = false
-                    };
+                    options.NoDelay = true;
+                    options.Interval = 10;
+                    options.Resend = 2;
+                    options.DisableFlowControl = false;
                 });
+
+            // 默认启用性能优化
+            builder.UseHighPerformanceEngine();
+            builder.UseTieredMessageProcessor();
+            builder.UsePriorityScheduler();
 
             // 使用新的API注册业务服务 - 使用Singleton生命周期
             builder.AddService<IPlayerHub, PlayerHub>();
@@ -147,5 +139,8 @@ internal abstract class Program
             options.ServicesStartConcurrently = false;
             options.ServicesStopConcurrently = false;
         });
+
+        // 使用编译时生成的消息调度器以获得最佳性能
+        services.AddSingleton<IMessageDispatcher, CompiledMessageDispatcher>();
     }
 }

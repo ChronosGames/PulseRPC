@@ -8,7 +8,7 @@ namespace PulseRPC.Routing;
 /// <summary>
 /// 多实例服务管理器
 /// </summary>
-public interface IMultiInstanceServiceManager<T> : IDisposable where T : class, IPulseService
+public interface IMultiInstanceServiceManager<T> : IDisposable where T : class, IPulseHub
 {
     /// <summary>
     /// 获取所有可用实例

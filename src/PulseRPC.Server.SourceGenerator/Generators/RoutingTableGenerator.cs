@@ -31,7 +31,7 @@ public static class RoutingTableGenerator
         sb.AppendLine();
 
         // Using statements
-        GenerateUsingStatements(sb);
+        GenerateUsingStatements(sb, services);
 
         // 生成全局路由表
         GenerateGlobalRoutingTable(sb, services);
@@ -42,7 +42,7 @@ public static class RoutingTableGenerator
     /// <summary>
     /// 生成using语句
     /// </summary>
-    private static void GenerateUsingStatements(StringBuilder sb)
+    private static void GenerateUsingStatements(StringBuilder sb, List<ServiceModel> services)
     {
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Collections.Generic;");
@@ -51,6 +51,15 @@ public static class RoutingTableGenerator
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Buffers;");
         sb.AppendLine("using PulseRPC.Abstractions;");
+        sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
+        
+        // 添加服务命名空间
+        var namespaces = services.Select(s => s.Namespace).Where(ns => !string.IsNullOrEmpty(ns)).Distinct().ToList();
+        foreach (var ns in namespaces)
+        {
+            sb.AppendLine($"using {ns};");
+        }
+        
         sb.AppendLine();
     }
 
@@ -242,14 +251,14 @@ public static class RoutingTableGenerator
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine($"    private static {service.Namespace}.Generated.{proxyClassName} GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy()");
         sb.AppendLine("    {");
-        sb.AppendLine($"        if ({fieldName} == null)");
+        sb.AppendLine($"        if ({fieldName} is null)");
         sb.AppendLine("        {");
         sb.AppendLine($"            lock (_{service.InterfaceName.TrimStart('I')}Lock)");
         sb.AppendLine("            {");
-        sb.AppendLine($"                if ({fieldName} == null)");
+        sb.AppendLine($"                if ({fieldName} is null)");
         sb.AppendLine("                {");
-        sb.AppendLine($"                    var implementation = ServiceProvider.GetService<{service.InterfaceFullName}>();");
-        sb.AppendLine("                    if (implementation == null)");
+        sb.AppendLine($"                    var implementation = ({service.InterfaceFullName}?)ServiceProvider?.GetService(typeof({service.InterfaceFullName}));");
+        sb.AppendLine("                    if (implementation is null)");
         sb.AppendLine($"                        throw new InvalidOperationException($\"Service implementation for {service.InterfaceName} not registered in DI container\");");
         sb.AppendLine($"                    {fieldName} = new {service.Namespace}.Generated.{proxyClassName}(implementation);");
         sb.AppendLine("                }");
