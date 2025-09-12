@@ -15,15 +15,15 @@ public static class ServiceCollectionExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configure">客户端配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseClient(this IServiceCollection services, Action<IPulseClientBuilder> configure)
+    public static IServiceCollection AddPulseRPCClient(this IServiceCollection services, Action<PulseRPCClientBuilder> configure)
     {
         // 注册客户端构建器
-        services.TryAddSingleton<IPulseClientBuilder, PulseClientBuilder>();
+        services.TryAddSingleton<PulseRPCClientBuilder>();
 
         // 使用配置构建客户端
-        services.AddSingleton<IPulseClient>(provider =>
+        services.AddSingleton<IPulseRPCClient>(provider =>
         {
-            var builder = provider.GetRequiredService<IPulseClientBuilder>();
+            var builder = provider.GetRequiredService<PulseRPCClientBuilder>();
             configure(builder);
             return builder.Build();
         });
@@ -39,13 +39,13 @@ public static class ServiceCollectionExtensions
     /// <param name="host">服务器主机</param>
     /// <param name="port">服务器端口</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseTcpClient(
+    public static IServiceCollection AddTcpClient(
         this IServiceCollection services,
         string name,
         string host,
         int port)
     {
-        return services.AddPulseClient(builder => builder.AddTcp(name, host, port));
+        return services.AddPulseRPCClient(builder => builder.AddTcp(name, host, port));
     }
 
     /// <summary>
@@ -56,13 +56,13 @@ public static class ServiceCollectionExtensions
     /// <param name="host">服务器主机</param>
     /// <param name="port">服务器端口</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseKcpClient(
+    public static IServiceCollection AddKcpClient(
         this IServiceCollection services,
         string name,
         string host,
         int port)
     {
-        return services.AddPulseClient(builder => builder.AddKcp(name, host, port));
+        return services.AddPulseRPCClient(builder => builder.AddKcp(name, host, port));
     }
 }
 

@@ -18,7 +18,7 @@ public abstract class BenchmarkClientBase : IDisposable
 {
     protected readonly ILogger Logger;
     protected readonly ILoggerFactory LoggerFactory;
-    protected IChannelManager? ChannelManager;
+    protected IPulseRPCClient? PulseRPCClient;
     protected IBenchmarkService? BenchmarkService;
     private CancellationTokenSource? _cts;
     private bool _disposed = false;
@@ -68,21 +68,13 @@ public abstract class BenchmarkClientBase : IDisposable
         _cts = new CancellationTokenSource();
 
         // 创建通道管理器
-        ChannelManager = new ChannelManager(LoggerFactory);
-
-        // 创建TCP通道
-        var tcpOptions = config.TcpOptions;
-        if (tcpOptions == null)
+        var builder = new PulseRPCClientBuilder();
+        builder.AddTransport("TcpChannel", TransportType.Tcp, "localhost", 12345, new TransportOptions
         {
-            tcpOptions = new TransportOptions
-            {
-                NoDelay = true,
-                KeepAlive = true,
-                AutoReconnect = false  // 基准测试中禁用自动重连
-            };
-        }
-
-        ChannelManager.RegisterChannel("TcpChannel", TransportType.Tcp, tcpOptions, true);
+            NoDelay = true,
+            KeepAlive = true,
+            ConnectionTimeout = 5000
+        });
 
         // 如果启用KCP，创建KCP通道
         if (config.EnableKcp)
@@ -100,89 +92,15 @@ public abstract class BenchmarkClientBase : IDisposable
                 }
             };
 
-            ChannelManager.RegisterChannel("KcpChannel", TransportType.Kcp, kcpOptions, false);
+            builder.AddTransport("KcpChannel", TransportType.Kcp, "localhost", 12345, kcpOptions);
         }
+
+        PulseRPCClient = builder.Build();
 
         // 获取服务代理
-        BenchmarkService = ChannelManager.GetService<IBenchmarkService>();
+        BenchmarkService = await this.PulseRPCClient.GetServiceAsync<IBenchmarkService>();
 
         Logger.LogInformation("基准测试客户端初始化完成");
-    }
-
-    /// <summary>
-    /// 连接到服务器
-    /// </summary>
-    /// <param name="host">服务器地址</param>
-    /// <param name="tcpPort">TCP端口</param>
-    /// <param name="kcpPort">KCP端口（可选）</param>
-    public virtual async Task ConnectAsync(string host, int tcpPort, int kcpPort = 0)
-    {
-        if (ChannelManager == null)
-            throw new InvalidOperationException("客户端尚未初始化");
-
-        Logger.LogInformation("正在连接到服务器 {Host}:{TcpPort}", host, tcpPort);
-
-        try
-        {
-            // 连接TCP通道
-            var tcpChannel = ChannelManager.GetChannel("TcpChannel");
-            await tcpChannel.ConnectAsync(host, tcpPort);
-
-            // 如果启用KCP且提供了端口，连接KCP通道
-            if (kcpPort > 0)
-            {
-                var kcpChannel = ChannelManager.GetChannel("KcpChannel");
-                if (kcpChannel != null)
-                {
-                    await kcpChannel.ConnectAsync(host, kcpPort);
-                    Logger.LogInformation("已连接到服务器 (TCP + KCP)");
-                }
-                else
-                {
-                    Logger.LogInformation("已连接到服务器 (TCP only)");
-                }
-            }
-            else
-            {
-                Logger.LogInformation("已连接到服务器 (TCP only)");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "连接服务器失败");
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// 断开与服务器的连接
-    /// </summary>
-    public virtual async Task DisconnectAsync()
-    {
-        if (ChannelManager == null) return;
-
-        Logger.LogInformation("正在断开服务器连接...");
-
-        try
-        {
-            // 断开所有通道连接
-            var channels = new[] { "TcpChannel", "KcpChannel" };
-
-            foreach (var channelName in channels)
-            {
-                var channel = ChannelManager.GetChannel(channelName);
-                if (channel != null)
-                {
-                    await channel.DisconnectAsync();
-                }
-            }
-
-            Logger.LogInformation("已断开服务器连接");
-        }
-        catch (Exception ex)
-        {
-            Logger.LogError(ex, "断开连接时发生错误");
-        }
     }
 
     /// <summary>
@@ -243,10 +161,7 @@ public abstract class BenchmarkClientBase : IDisposable
             _cts?.Cancel();
             _cts?.Dispose();
 
-            var disconnectTask = DisconnectAsync();
-            disconnectTask.Wait(TimeSpan.FromSeconds(5));
-
-            ChannelManager?.Dispose();
+            PulseRPCClient?.Dispose();
         }
         catch (Exception ex)
         {

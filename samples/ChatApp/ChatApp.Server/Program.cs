@@ -35,7 +35,7 @@ internal abstract class Program
             .Build();
 
         // 获取服务器实例
-        var server = host.Services.GetRequiredService<IPulseRpcServer>();
+        var server = host.Services.GetRequiredService<IPulseRPCServer>();
 
         try
         {
@@ -86,9 +86,9 @@ internal abstract class Program
         services.AddSingleton<IPlayerManager, PlayerManager>();
 
         // 添加PulseRPC服务器 - 使用新的简化配置
-        services.AddPulseRpcServer(server =>
+        services.AddPulseRpcServer(builder =>
         {
-            server
+            builder
                 .ConfigureServer(options =>
                 {
                     options.ServiceName = "ChatGameServer";
@@ -110,10 +110,10 @@ internal abstract class Program
                         DisableFlowControl = false
                     };
                 });
-        });
 
-        // 使用新的API注册业务服务 - 使用Singleton生命周期
-        services.AddPulseRpcService<IPlayerHub, PlayerHub>();
+            // 使用新的API注册业务服务 - 使用Singleton生命周期
+            builder.AddService<IPlayerHub, PlayerHub>();
+        });
 
         // 添加服务注册
         // services.AddPulseRpcServiceRegistration(context.Configuration);

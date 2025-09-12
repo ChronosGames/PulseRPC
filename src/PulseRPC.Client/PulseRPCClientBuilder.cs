@@ -9,25 +9,39 @@ namespace PulseRPC.Client;
 /// <summary>
 /// PulseClient 构建器实现
 /// </summary>
-internal class PulseClientBuilder : IPulseClientBuilder
+public class PulseRPCClientBuilder
 {
     private readonly List<ClientTransportConfiguration> _transports = new();
-    private readonly IServiceProvider _serviceProvider;
     private global::PulseRPC.ServiceDiscoveryOptions? _serviceDiscoveryOptions;
     private IAuthenticationProvider? _authenticationProvider;
     private TimeSpan _timeout = TimeSpan.FromSeconds(30);
     private RetryOptions _retryOptions = new();
     private global::PulseRPC.ConnectionPoolOptions _connectionPoolOptions = new();
 
-    public PulseClientBuilder(IServiceProvider serviceProvider)
+    public PulseRPCClientBuilder()
     {
-        _serviceProvider = serviceProvider;
+    }
+
+    public PulseRPCClientBuilder AddTransport(string name, TransportType type, string host, int port, TransportOptions options)
+    {
+        var config = new ClientTransportConfiguration
+        {
+            Name = name ?? $"transport-{_transports.Count + 1}",
+            Type = type,
+            Host = host,
+            Port = port,
+            IsDefault = _transports.Count == 0, // 第一个添加的传输设为默认
+            Options = options
+        };
+
+        _transports.Add(config);
+        return this;
     }
 
     /// <summary>
     /// 添加 TCP 传输
     /// </summary>
-    public IPulseClientBuilder AddTcp(string name, string host, int port)
+    public PulseRPCClientBuilder AddTcp(string name, string host, int port)
     {
         var config = new ClientTransportConfiguration
         {
@@ -50,7 +64,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 添加 KCP 传输
     /// </summary>
-    public IPulseClientBuilder AddKcp(string name, string host, int port)
+    public PulseRPCClientBuilder AddKcp(string name, string host, int port)
     {
         var config = new ClientTransportConfiguration
         {
@@ -80,7 +94,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 配置服务发现
     /// </summary>
-    public IPulseClientBuilder WithServiceDiscovery(Action<global::PulseRPC.ServiceDiscoveryOptions> configure)
+    public PulseRPCClientBuilder WithServiceDiscovery(Action<global::PulseRPC.ServiceDiscoveryOptions> configure)
     {
         _serviceDiscoveryOptions ??= new global::PulseRPC.ServiceDiscoveryOptions();
         configure(_serviceDiscoveryOptions);
@@ -90,7 +104,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 配置认证
     /// </summary>
-    public IPulseClientBuilder WithAuthentication(IAuthenticationProvider provider)
+    public PulseRPCClientBuilder WithAuthentication(IAuthenticationProvider provider)
     {
         _authenticationProvider = provider;
         return this;
@@ -99,7 +113,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 配置超时
     /// </summary>
-    public IPulseClientBuilder WithTimeout(TimeSpan timeout)
+    public PulseRPCClientBuilder WithTimeout(TimeSpan timeout)
     {
         _timeout = timeout;
         return this;
@@ -108,7 +122,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 配置重试策略
     /// </summary>
-    public IPulseClientBuilder WithRetry(Action<RetryOptions> configure)
+    public PulseRPCClientBuilder WithRetry(Action<RetryOptions> configure)
     {
         configure(_retryOptions);
         return this;
@@ -117,7 +131,7 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 配置连接池
     /// </summary>
-    public IPulseClientBuilder WithConnectionPool(Action<global::PulseRPC.ConnectionPoolOptions> configure)
+    public PulseRPCClientBuilder WithConnectionPool(Action<global::PulseRPC.ConnectionPoolOptions> configure)
     {
         configure(_connectionPoolOptions);
         return this;
@@ -126,17 +140,14 @@ internal class PulseClientBuilder : IPulseClientBuilder
     /// <summary>
     /// 构建客户端
     /// </summary>
-    public IPulseClient Build()
+    public IPulseRPCClient Build()
     {
         if (_transports.Count == 0)
         {
             throw new InvalidOperationException("至少需要配置一个传输方式");
         }
 
-        var loggerFactory = _serviceProvider.GetRequiredService<ILoggerFactory>();
-        var channelManager = _serviceProvider.GetRequiredService<IChannelManager>();
-
-        var client = new PulseRpcClientManager(channelManager, loggerFactory);
+        var client = new PulseRPCClient();
 
         // 添加所有配置的传输
         client.AddTransports(_transports);

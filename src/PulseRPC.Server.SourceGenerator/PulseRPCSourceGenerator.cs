@@ -3,11 +3,11 @@ using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using PulseRPC.SourceGenerator.Analyzers;
-using PulseRPC.SourceGenerator.Generators;
-using PulseRPC.SourceGenerator.Models;
+using PulseRPC.Server.SourceGenerator.Analyzers;
+using PulseRPC.Server.SourceGenerator.Generators;
+using PulseRPC.Server.SourceGenerator.Models;
 
-namespace PulseRPC.SourceGenerator;
+namespace PulseRPC.Server.SourceGenerator;
 
 /// <summary>
 /// PulseRPC 主Source Generator - 编译时性能优化核心
@@ -51,7 +51,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                     "PULSE001",
                     "No PulseService interfaces found",
                     "No interfaces marked with [PulseService] attribute were found in the compilation",
-                    "PulseRPC.SourceGenerator",
+                    "PulseRPC.Server.SourceGenerator",
                     DiagnosticSeverity.Info,
                     true);
                 
@@ -90,7 +90,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                 "PULSE999",
                 "Source generation failed",
                 $"PulseRPC source generation failed with error: {ex.Message}",
-                "PulseRPC.SourceGenerator",
+                "PulseRPC.Server.SourceGenerator",
                 DiagnosticSeverity.Error,
                 true);
             
@@ -288,7 +288,7 @@ public static class GenerationReport
             "PulseRPC source generation completed successfully",
             $"Generated optimized code for {serviceModels.Count} services with {totalMethods} methods. " +
             $"Expected performance improvements: 80% latency reduction, 150% serialization throughput increase.",
-            "PulseRPC.SourceGenerator",
+            "PulseRPC.Server.SourceGenerator",
             DiagnosticSeverity.Info,
             true);
         

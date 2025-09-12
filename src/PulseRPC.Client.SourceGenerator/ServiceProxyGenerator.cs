@@ -98,7 +98,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             if (namedTypes.Length > 0)
             {
                 var extensionsCode = GenerateChannelManagerExtensions(namedTypes, ImmutableArray<INamedTypeSymbol>.Empty);
-                var fileName = "ServiceChannelManagerExtensions.g.cs";
+                var fileName = "PulseRPC.Services.g.cs";
                 spc.AddSource(fileName, SourceText.From(extensionsCode, Encoding.UTF8));
             }
         });
@@ -141,14 +141,8 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             if (namedTypes.Length > 0)
             {
                 var partialImplementationCode = GenerateEventListenerExtensionsPartial(namedTypes);
-                var fileName = "EventListenerExtensions.Partial.g.cs";
+                var fileName = "PulseRPC.Events.g.cs";
                 spc.AddSource(fileName, SourceText.From(partialImplementationCode, Encoding.UTF8));
-
-                var eventExtensionsCode = GenerateChannelManagerExtensions(
-                    ImmutableArray<INamedTypeSymbol>.Empty,
-                    namedTypes);
-                var extensionsFileName = "EventChannelManagerExtensions.g.cs";
-                spc.AddSource(extensionsFileName, SourceText.From(eventExtensionsCode, Encoding.UTF8));
             }
         });
     }
@@ -606,7 +600,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 源代码生成器生成的智能事件监听器注册分发器");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        private static ISubscriptionToken RegisterEventListenerGenerated<T>(IPulseClient client, T listener) where T : class");
+        sb.AppendLine("        private static ISubscriptionToken RegisterEventListenerGenerated<T>(IPulseRPCClient client, T listener) where T : class");
         sb.AppendLine("        {");
         sb.AppendLine("            var tokens = new List<ISubscriptionToken>();");
         sb.AppendLine("            var channelManager = client.GetChannelManager();");
@@ -661,7 +655,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 源代码生成器生成的配置版事件监听器注册分发器");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        private static ISubscriptionToken RegisterEventListenerWithConfigurationGenerated<T>(IPulseClient client, T listener, EventListenerConfiguration configuration) where T : class");
+        sb.AppendLine("        private static ISubscriptionToken RegisterEventListenerWithConfigurationGenerated<T>(IPulseRPCClient client, T listener, EventListenerConfiguration configuration) where T : class");
         sb.AppendLine("        {");
         sb.AppendLine("            var tokens = new List<ISubscriptionToken>();");
         sb.AppendLine("            var channelManager = client.GetChannelManager();");
@@ -805,7 +799,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <param name=\"client\">PulseRPC客户端</param>");
         sb.AppendLine("        /// <param name=\"listener\">事件监听器实例</param>");
         sb.AppendLine("        /// <returns>订阅令牌</returns>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterEventListener<T>(this IPulseClient client, T listener) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static ISubscriptionToken RegisterEventListener<T>(this IPulseRPCClient client, T listener) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
@@ -821,7 +815,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <param name=\"client\">PulseRPC客户端</param>");
         sb.AppendLine("        /// <param name=\"listener\">事件监听器实例</param>");
         sb.AppendLine("        /// <returns>事件监听器构建器</returns>");
-        sb.AppendLine("        public static EventListenerBuilder<T> ConfigureEventListener<T>(this IPulseClient client, T listener) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static EventListenerBuilder<T> ConfigureEventListener<T>(this IPulseRPCClient client, T listener) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
@@ -838,7 +832,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <param name=\"listener\">事件监听器实例</param>");
         sb.AppendLine("        /// <param name=\"configuration\">配置对象</param>");
         sb.AppendLine("        /// <returns>订阅令牌</returns>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterEventListener<T>(this IPulseClient client, T listener, EventListenerConfiguration configuration) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static ISubscriptionToken RegisterEventListener<T>(this IPulseRPCClient client, T listener, EventListenerConfiguration configuration) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
@@ -851,7 +845,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 内部方法：使用配置注册事件监听器（由EventListenerBuilder调用）");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        internal static ISubscriptionToken RegisterEventListenerWithConfiguration<T>(IPulseClient client, T listener, EventListenerConfiguration configuration) where T : class");
+        sb.AppendLine("        internal static ISubscriptionToken RegisterEventListenerWithConfiguration<T>(IPulseRPCClient client, T listener, EventListenerConfiguration configuration) where T : class");
         sb.AppendLine("        {");
         sb.AppendLine("            return RegisterEventListenerWithConfigurationGenerated(client, listener, configuration);");
         sb.AppendLine("        }");
@@ -870,7 +864,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 快捷方法：注册事件监听器并指定通道");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerOnChannel<T>(this IPulseClient client, T listener, string channelName) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerOnChannel<T>(this IPulseRPCClient client, T listener, string channelName) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            return client.ConfigureEventListener(listener).WithChannel(channelName).Register();");
         sb.AppendLine("        }");
@@ -880,7 +874,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 快捷方法：注册事件监听器并设置错误处理");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerWithErrorHandler<T>(this IPulseClient client, T listener, Action<Exception, string> errorHandler) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerWithErrorHandler<T>(this IPulseRPCClient client, T listener, Action<Exception, string> errorHandler) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            return client.ConfigureEventListener(listener).WithErrorHandler(errorHandler).Register();");
         sb.AppendLine("        }");
@@ -890,7 +884,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 快捷方法：注册具有重试能力的事件监听器");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerWithRetry<T>(this IPulseClient client, T listener, int maxRetries = 3) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerWithRetry<T>(this IPulseRPCClient client, T listener, int maxRetries = 3) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            return client.ConfigureEventListener(listener).WithRetry(maxRetries).Register();");
         sb.AppendLine("        }");
@@ -903,7 +897,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 游戏场景预设：低延迟，快速重试，容错处理");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterGameEventListener<T>(this IPulseClient client, T listener) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static ISubscriptionToken RegisterGameEventListener<T>(this IPulseRPCClient client, T listener) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            return client.ConfigureEventListener(listener).WithGameSettings().Register();");
         sb.AppendLine("        }");
@@ -913,7 +907,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 关键业务场景预设：高可靠性，持久重试，严格错误处理");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterCriticalEventListener<T>(this IPulseClient client, T listener) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static ISubscriptionToken RegisterCriticalEventListener<T>(this IPulseRPCClient client, T listener) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            return client.ConfigureEventListener(listener).WithCriticalSettings().Register();");
         sb.AppendLine("        }");
@@ -923,7 +917,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 开发调试场景预设：详细日志，性能监控，错误详情");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterDebugEventListener<T>(this IPulseClient client, T listener) where T : class, IPulseEventHandler");
+        sb.AppendLine("        public static ISubscriptionToken RegisterDebugEventListener<T>(this IPulseRPCClient client, T listener) where T : class, IPulseEventHandler");
         sb.AppendLine("        {");
         sb.AppendLine("            return client.ConfigureEventListener(listener)");
         sb.AppendLine("                .WithPerformanceMonitoring()");
@@ -957,22 +951,11 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("namespace PulseRPC.Client");
         sb.AppendLine("{");
 
-        // 为每种类型生成不同的扩展类，避免冲突
-        var extensionClassName = "ChannelManagerExtensions";
-        if (serviceTypes.Length > 0 && eventTypes.Length == 0)
-        {
-            extensionClassName = "ServiceChannelManagerExtensions";
-        }
-        else if (serviceTypes.Length == 0 && eventTypes.Length > 0)
-        {
-            extensionClassName = "EventChannelManagerExtensions";
-        }
-
         // 生成扩展类
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// 通道管理器扩展方法");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine($"    public static class {extensionClassName}");
+        sb.AppendLine($"    public static class ServiceManagerExtensions");
         sb.AppendLine("    {");
 
         // 生成通用的 GetService<T>() 方法
@@ -985,7 +968,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
             sb.AppendLine("        /// <param name=\"channelManager\">通道管理器</param>");
             sb.AppendLine("        /// <returns>服务实例</returns>");
-            sb.AppendLine("        public static T GetService<T>(this IChannelManager channelManager) where T : IPulseService");
+            sb.AppendLine("        private static T GetService<T>(this IChannelManager channelManager) where T : IPulseService");
             sb.AppendLine("        {");
             sb.AppendLine("            if (channelManager == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(channelManager));");
@@ -1015,14 +998,14 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        }");
             sb.AppendLine();
 
-            // 为 IPulseClient 生成 GetService<T>() 方法
+            // 为 IPulseRPCClient 生成 GetService<T>() 方法
             sb.AppendLine("        /// <summary>");
             sb.AppendLine("        /// 获取指定类型的服务");
             sb.AppendLine("        /// </summary>");
             sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
             sb.AppendLine("        /// <param name=\"client\">PulseRPC 客户端</param>");
             sb.AppendLine("        /// <returns>服务实例</returns>");
-            sb.AppendLine("        public static T GetService<T>(this IPulseClient client) where T : IPulseService");
+            sb.AppendLine("        public static T GetService<T>(this IPulseRPCClient client) where T : IPulseService");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1032,7 +1015,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine();
         }
 
-        // 为 IPulseClient 生成 GetServiceAsync<T>() 方法
+        // 为 IPulseRPCClient 生成 GetServiceAsync<T>() 方法
         if (serviceTypes.Length > 0)
         {
             sb.AppendLine("        /// <summary>");
@@ -1043,7 +1026,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
             sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
             sb.AppendLine("        /// <returns>服务代理</returns>");
-            sb.AppendLine("        public static Task<T> GetServiceAsync<T>(this IPulseClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseService");
+            sb.AppendLine("        public static Task<T> GetServiceAsync<T>(this IPulseRPCClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseService");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1086,7 +1069,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
             sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
             sb.AppendLine("        /// <returns>多实例服务管理器</returns>");
-            sb.AppendLine("        public static Task<IMultiInstanceServiceManager<T>> GetMultiInstanceServiceAsync<T>(this IPulseClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseService");
+            sb.AppendLine("        public static Task<IMultiInstanceServiceManager<T>> GetMultiInstanceServiceAsync<T>(this IPulseRPCClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseService");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1123,7 +1106,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         // 生成新的 RegisterEventListener<T>() 方法 - 统一命名
         if (eventTypes.Length > 0)
         {
-            // 为 IPulseClient 生成 RegisterEventListener<T>() 方法
+            // 为 IPulseRPCClient 生成 RegisterEventListener<T>() 方法
             sb.AppendLine("        /// <summary>");
             sb.AppendLine("        /// 注册事件监听器 - 使用默认配置");
             sb.AppendLine("        /// </summary>");
@@ -1131,7 +1114,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"client\">PulseRPC 客户端</param>");
             sb.AppendLine("        /// <param name=\"listener\">事件监听器实例</param>");
             sb.AppendLine("        /// <returns>订阅令牌</returns>");
-            sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerInternal<T>(this IPulseClient client, T listener) where T : class");
+            sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerInternal<T>(this IPulseRPCClient client, T listener) where T : class");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1175,7 +1158,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"listener\">事件监听器实例</param>");
             sb.AppendLine("        /// <param name=\"configuration\">配置对象</param>");
             sb.AppendLine("        /// <returns>订阅令牌</returns>");
-            sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerWithConfiguration<T>(this IPulseClient client, T listener, PulseRPC.EventListenerConfiguration configuration) where T : class");
+            sb.AppendLine("        public static ISubscriptionToken RegisterEventListenerWithConfiguration<T>(this IPulseRPCClient client, T listener, PulseRPC.EventListenerConfiguration configuration) where T : class");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1516,7 +1499,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine();
         }
 
-        // 为 IPulseClient 生成 RegisterEventListenerAsync<T>() 方法
+        // 为 IPulseRPCClient 生成 RegisterEventListenerAsync<T>() 方法
         if (eventTypes.Length > 0)
         {
             sb.AppendLine("        /// <summary>");
@@ -1528,7 +1511,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
             sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
             sb.AppendLine("        /// <returns>订阅令牌</returns>");
-            sb.AppendLine("        public static async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(this IPulseClient client, T listener, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseEventHandler");
+            sb.AppendLine("        public static async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(this IPulseRPCClient client, T listener, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseEventHandler");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1575,7 +1558,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"routingContext\">路由上下文</param>");
             sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
             sb.AppendLine("        /// <returns>订阅令牌</returns>");
-            sb.AppendLine("        public static async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(this IPulseClient client, T listener, string serviceName, IRoutingContext routingContext, SmartConnectionOptions? options = null) where T : class, IPulseEventHandler");
+            sb.AppendLine("        public static async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(this IPulseRPCClient client, T listener, string serviceName, IRoutingContext routingContext, SmartConnectionOptions? options = null) where T : class, IPulseEventHandler");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");

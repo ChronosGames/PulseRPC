@@ -11,7 +11,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <PackageId>PulseRPC.SourceGenerator</PackageId>
+    <PackageId>PulseRPC.Server.SourceGenerator</PackageId>
     <PackageVersion>1.0.0</PackageVersion>
     <PackageDescription>Source generator for PulseRPC framework providing compile-time optimization</PackageDescription>
     <Authors>PulseRPC Team</Authors>

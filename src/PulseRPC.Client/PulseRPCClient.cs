@@ -1,27 +1,85 @@
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
 using System;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace PulseRPC.Client;
 
-// 客户端项目中的具体实现，继承抽象接口
-// IPulseRpcClient接口已在PulseRPC.Abstractions中定义
+/// <summary>
+/// PulseRPC 统一客户端接口 - 整合所有客户端功能
+/// </summary>
+public interface IPulseRPCClient : IDisposable
+{
+    /// <summary>
+    /// 连接到服务器
+    /// </summary>
+    Task ConnectAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 断开连接
+    /// </summary>
+    Task DisconnectAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 是否已连接
+    /// </summary>
+    bool IsConnected { get; }
+
+    /// <summary>
+    /// 获取服务代理 - 自动处理服务发现和连接管理
+    /// </summary>
+    /// <typeparam name="T">服务接口类型</typeparam>
+    /// <param name="serviceName">服务名称，为空则使用接口名</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>服务代理</returns>
+    Task<T> GetServiceAsync2<T>(string? serviceName = null, CancellationToken cancellationToken = default)
+        where T : class, IPulseService;
+
+    /// <summary>
+    /// 注册事件监听器
+    /// </summary>
+    /// <typeparam name="T">监听器接口类型</typeparam>
+    /// <param name="listener">监听器实例</param>
+    /// <param name="serviceName">服务名称，为空则使用接口名</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>订阅令牌</returns>
+    Task<ISubscriptionToken> RegisterEventListenerAsync2<T>(T listener, string? serviceName = null,
+        CancellationToken cancellationToken = default) where T : class, IPulseEventHandler;
+
+    /// <summary>
+    /// 获取连接统计信息
+    /// </summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>连接统计</returns>
+    Task<ConnectionStatistics> GetConnectionStatisticsAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 连接状态变化事件
+    /// </summary>
+    event EventHandler<ConnectionStateChangedEventArgs> ConnectionStateChanged;
+
+    /// <summary>
+    /// 获取通道管理器 - 用于底层通道操作
+    /// </summary>
+    /// <returns>通道管理器实例</returns>
+    IChannelManager GetChannelManager();
+}
 
 /// <summary>
 /// PulseRPC 客户端实现
 /// </summary>
-internal class PulseRpcClientManager : IPulseClient
+internal class PulseRPCClient : IPulseRPCClient
 {
     private readonly IChannelManager _channelManager;
-    private readonly ILogger<PulseRpcClientManager> _logger;
+    private readonly ILogger<PulseRPCClient> _logger;
     private readonly Dictionary<string, ClientTransportInfo> _transports = new();
     private bool _isConnected;
     private bool _disposed;
 
-    public PulseRpcClientManager(IChannelManager channelManager, ILoggerFactory loggerFactory)
+    public PulseRPCClient(IChannelManager? channelManager = null, ILogger<PulseRPCClient>? logger = null)
     {
-        _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
-        _logger = loggerFactory.CreateLogger<PulseRpcClientManager>();
+        _channelManager = channelManager ?? new ChannelManager();
+        _logger = logger ?? new NullLogger<PulseRPCClient>();
     }
 
     /// <summary>

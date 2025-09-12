@@ -11,13 +11,13 @@ namespace PulseRPC.Client;
 /// <typeparam name="T">事件监听器类型</typeparam>
 public class EventListenerBuilder<T> where T : class
 {
-    private readonly IPulseClient _client;
+    private readonly IPulseRPCClient _rpcClient;
     private readonly T _listener;
     private readonly EventListenerConfiguration _configuration;
 
-    public EventListenerBuilder(IPulseClient client, T listener)
+    public EventListenerBuilder(IPulseRPCClient rpcClient, T listener)
     {
-        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _rpcClient = rpcClient ?? throw new ArgumentNullException(nameof(rpcClient));
         _listener = listener ?? throw new ArgumentNullException(nameof(listener));
         _configuration = new EventListenerConfiguration();
     }
@@ -190,7 +190,7 @@ public class EventListenerBuilder<T> where T : class
     {
         // 使用辅助类来避免直接依赖源代码生成的方法
         // 辅助类的委托将由源代码生成器设置
-        return EventListenerRegistrar.RegisterWithConfiguration(_client, _listener, _configuration);
+        return EventListenerRegistrar.RegisterWithConfiguration(_rpcClient, _listener, _configuration);
     }
 }
 
