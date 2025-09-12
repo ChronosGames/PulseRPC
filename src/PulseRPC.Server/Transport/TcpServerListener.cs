@@ -19,7 +19,7 @@ public class TcpServerTransport : TcpTransport, IServerTransport
     /// <summary>
     /// 使用已连接的Socket创建服务端连接
     /// </summary>
-    public TcpServerTransport(string connectionId, Socket socket, TransportOptions? options = null,
+    public TcpServerTransport(string connectionId, Socket socket, TcpTransportOptions? options = null,
         ILogger? logger = null)
         : base(options, logger)
     {
@@ -80,7 +80,7 @@ public class TcpServerTransport : TcpTransport, IServerTransport
 public class TcpServerListener : IServerListener
 {
     private readonly TcpListener _listener;
-    private readonly TransportOptions _options;
+    private readonly TcpTransportOptions _options;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private Task? _acceptTask;
@@ -94,10 +94,10 @@ public class TcpServerListener : IServerListener
 
     public event System.EventHandler<ServerConnectionEventArgs>? ConnectionAccepted;
 
-    public TcpServerListener(int port, TransportOptions? options = null, ILogger? logger = null)
+    public TcpServerListener(int port, TcpTransportOptions? options = null, ILogger? logger = null)
     {
         _port = port;
-        _options = options ?? new TransportOptions();
+        _options = options ?? new TcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
         _listener = new TcpListener(IPAddress.Any, port);
     }
@@ -143,7 +143,7 @@ public class TcpServerListener : IServerListener
         _isListening = false;
 
         // 取消接受连接任务
-        _cts.Cancel();
+        await _cts.CancelAsync();
 
         // 停止监听
         _listener.Stop();
@@ -176,11 +176,11 @@ public class TcpServerListener : IServerListener
 
                 // 设置TCP选项
                 tcpClient.NoDelay = _options.NoDelay;
-                tcpClient.ReceiveBufferSize = _options.ReadBufferSize;
-                tcpClient.SendBufferSize = _options.WriteBufferSize;
+                tcpClient.ReceiveBufferSize = _options.RecvBufferSize;
+                tcpClient.SendBufferSize = _options.SendBufferSize;
 
                 // 生成连接ID
-                string connectionId = Guid.NewGuid().ToString("N");
+                var connectionId = Guid.NewGuid().ToString("N");
 
                 // 创建服务端连接
                 var connection = new TcpServerTransport(connectionId, tcpClient.Client, _options, _logger);

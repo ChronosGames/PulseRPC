@@ -826,6 +826,7 @@ PulseRPC.Transport.ITransportChannel.SendAsync(System.ReadOnlyMemory<byte> data,
 PulseRPC.Transport.ITransportChannel.SetAuthentication(PulseRPC.Authentication.IAuthenticationContext! authContext) -> void
 PulseRPC.Transport.ITransportChannel.StateChanged -> System.EventHandler<PulseRPC.Transport.TransportStateEventArgs!>?
 PulseRPC.Transport.ITransportChannel.Transport.get -> PulseRPC.Transport.IServerTransport!
+PulseRPC.Transport.ITransportManager
 PulseRPC.Transport.Kcp.KcpCommand
 PulseRPC.Transport.Kcp.KcpCommand.Ack = 82 -> PulseRPC.Transport.Kcp.KcpCommand
 PulseRPC.Transport.Kcp.KcpCommand.Push = 81 -> PulseRPC.Transport.Kcp.KcpCommand
@@ -884,22 +885,6 @@ PulseRPC.Transport.Kcp.KcpTransport._remoteEndpoint -> System.Net.IPEndPoint?
 PulseRPC.Transport.Kcp.KcpTransport._socket -> System.Net.Sockets.Socket!
 PulseRPC.Transport.Kcp.KcpTransport._state -> PulseRPC.Transport.ConnectionState
 PulseRPC.Transport.Kcp.KcpTransport._updateTask -> System.Threading.Tasks.Task?
-PulseRPC.Transport.KcpOptions
-PulseRPC.Transport.KcpOptions.ConversationId.get -> uint
-PulseRPC.Transport.KcpOptions.ConversationId.set -> void
-PulseRPC.Transport.KcpOptions.DisableFlowControl.get -> bool
-PulseRPC.Transport.KcpOptions.DisableFlowControl.set -> void
-PulseRPC.Transport.KcpOptions.Interval.get -> int
-PulseRPC.Transport.KcpOptions.Interval.set -> void
-PulseRPC.Transport.KcpOptions.KcpOptions() -> void
-PulseRPC.Transport.KcpOptions.NoDelay.get -> int
-PulseRPC.Transport.KcpOptions.NoDelay.set -> void
-PulseRPC.Transport.KcpOptions.ReceiveWindow.get -> int
-PulseRPC.Transport.KcpOptions.ReceiveWindow.set -> void
-PulseRPC.Transport.KcpOptions.Resend.get -> int
-PulseRPC.Transport.KcpOptions.Resend.set -> void
-PulseRPC.Transport.KcpOptions.SendWindow.get -> int
-PulseRPC.Transport.KcpOptions.SendWindow.set -> void
 PulseRPC.Transport.LargePacketHandler
 PulseRPC.Transport.LargePacketHandler.CleanupExpiredPackets(System.TimeSpan maxAge) -> void
 PulseRPC.Transport.LargePacketHandler.Dispose() -> void

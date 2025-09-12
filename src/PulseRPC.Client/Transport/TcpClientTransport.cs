@@ -13,7 +13,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     private int _reconnectAttempts;
     private Timer? _reconnectTimer;
 
-    public TcpClientTransport(TransportOptions? options = null, ILogger? logger = null)
+    public TcpClientTransport(TcpTransportOptions? options = null, ILogger? logger = null)
         : base(options, logger)
     { }
 

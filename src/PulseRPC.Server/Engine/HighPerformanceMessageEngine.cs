@@ -69,6 +69,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     #region 核心组件和字段
 
     private readonly string _engineId;
+    private readonly IMessageDispatcher _messageDispatcher;
+    private readonly IServiceProvider _serviceProvider;
     private readonly MessageEngineConfiguration _options;
     private readonly ILogger<HighPerformanceMessageEngine> _logger;
 
@@ -111,10 +113,13 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     public HighPerformanceMessageEngine(
         string engineId,
         IMessageDispatcher messageDispatcher,
+        IServiceProvider serviceProvider,
         MessageEngineConfiguration configuration,
         ILogger<HighPerformanceMessageEngine>? logger = null)
     {
         _engineId = engineId ?? throw new ArgumentNullException(nameof(engineId));
+        _messageDispatcher = messageDispatcher ?? throw new ArgumentNullException(nameof(messageDispatcher));
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _options = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _logger = logger ?? NullLogger<HighPerformanceMessageEngine>.Instance;
 
@@ -438,10 +443,38 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         {
             envelope.Status = MessageStatus.Processing;
 
-            // 使用编译时消息分发器处理消息
-            // TODO: 这里需要将Memory<byte>转换为ServerMessage
-            // 临时实现，直接返回成功
-            var result = new { Success = true, ProcessedBy = "HighPerformanceMessageEngine" };
+            // 使用消息分发器处理消息
+            object? result = null;
+
+            try
+            {
+                // 尝试反序列化消息数据
+                // 这里需要根据实际的消息格式进行反序列化
+                // 目前使用简化的方式：假设消息数据可以直接作为对象传递
+                var messageData = envelope.Data.GetBuffer();
+
+                // 使用消息分发器处理消息
+                result = await _messageDispatcher.DispatchAsync(
+                    messageData,
+                    _serviceProvider,
+                    CancellationToken.None);
+            }
+            catch (Exception dispatchEx)
+            {
+                _logger.LogError(dispatchEx, "消息分发失败: EngineId={EngineId}, MessageId={MessageId}",
+                    _engineId, envelope.MessageId);
+
+                // 如果分发失败，返回错误响应
+                envelope.Status = MessageStatus.Failed;
+                return new MessageResponse
+                {
+                    MessageId = envelope.MessageId,
+                    ConnectionId = envelope.ConnectionId,
+                    Success = false,
+                    ErrorMessage = $"消息分发失败: {dispatchEx.Message}",
+                    ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)
+                };
+            }
 
             envelope.Status = MessageStatus.Completed;
 

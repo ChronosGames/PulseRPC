@@ -6,15 +6,15 @@ namespace PulseRPC.Server.Transport;
 /// <summary>
 /// 通道事件参数
 /// </summary>
-public class ChannelEventArgs(ITransportChannel channel) : EventArgs
+public class ChannelEventArgs(IChannel channel) : EventArgs
 {
-    public ITransportChannel Channel { get; } = channel ?? throw new ArgumentNullException(nameof(channel));
+    public IChannel Channel { get; } = channel ?? throw new ArgumentNullException(nameof(channel));
 }
 
 /// <summary>
 /// 通道认证事件参数
 /// </summary>
-public class ChannelAuthenticatedEventArgs(ITransportChannel channel, IAuthenticationContext authContext)
+public class ChannelAuthenticatedEventArgs(IChannel channel, IAuthenticationContext authContext)
     : ChannelEventArgs(channel)
 {
     public IAuthenticationContext AuthenticationContext { get; } = authContext ?? throw new ArgumentNullException(nameof(authContext));
@@ -117,4 +117,10 @@ public interface IServerChannelManager : IDisposable
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功发送的通道数量</returns>
     Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取通道管理器统计信息
+    /// </summary>
+    /// <returns></returns>
+    ChannelManagerStats GetChannelManagerStats();
 }

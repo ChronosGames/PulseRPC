@@ -26,8 +26,7 @@ internal sealed class KcpTransportProvider : ITransportProvider
         var kcpOptions = CreateKcpOptions(config.Options);
 
         // 创建现有的 KcpServerListener 实例
-        return new KcpServerListener(config.Port, kcpOptions,
-            loggerFactory.CreateLogger<KcpServerListener>());
+        return new KcpServerListener(config.Port, kcpOptions, loggerFactory.CreateLogger<KcpServerListener>());
     }
 
     public TransportValidationResult ValidateConfiguration(TransportChannelConfiguration config)
@@ -42,9 +41,8 @@ internal sealed class KcpTransportProvider : ITransportProvider
         }
 
         // KCP特定配置验证
-        if (config.Options?.Kcp != null)
+        if (config.Options != null && config.Options is KcpTransportOptions kcpOptions)
         {
-            var kcpOptions = config.Options.Kcp;
 
             // KCP更新间隔验证
             if (kcpOptions.Interval <= 0 || kcpOptions.Interval > 1000)
@@ -62,9 +60,9 @@ internal sealed class KcpTransportProvider : ITransportProvider
                 warnings.Add($"KCP发送窗口大小可能不合理: {kcpOptions.SendWindow}, 建议在32-512之间");
             }
 
-            if (kcpOptions.ReceiveWindow <= 0 || kcpOptions.ReceiveWindow > 2048)
+            if (kcpOptions.RecvWindow <= 0 || kcpOptions.RecvWindow > 2048)
             {
-                warnings.Add($"KCP接收窗口大小可能不合理: {kcpOptions.ReceiveWindow}, 建议在32-512之间");
+                warnings.Add($"KCP接收窗口大小可能不合理: {kcpOptions.RecvWindow}, 建议在32-512之间");
             }
 
             // 重传设置验证
@@ -90,36 +88,34 @@ internal sealed class KcpTransportProvider : ITransportProvider
     /// <summary>
     /// 创建KCP特定的传输选项
     /// </summary>
-    private static TransportOptions CreateKcpOptions(TransportOptions? source)
+    private static KcpTransportOptions CreateKcpOptions(TransportOptions? source)
     {
         var kcpOptions = new KcpTransportOptions();
 
-        // 复制基础配置
-        if (source != null)
+        if (source == null)
         {
-            kcpOptions.ReadBufferSize = source.ReadBufferSize;
-            kcpOptions.WriteBufferSize = source.WriteBufferSize;
-            kcpOptions.SendTimeout = source.SendTimeout;
-            kcpOptions.ReceiveTimeout = source.ReceiveTimeout;
-            kcpOptions.MaxPacketSize = source.MaxPacketSize;
+            return kcpOptions;
         }
 
+        kcpOptions.NoDelay = source.NoDelay;
+        kcpOptions.RecvBufferSize = source.RecvBufferSize;
+        kcpOptions.SendBufferSize = source.SendBufferSize;
+        // kcpOptions.SendTimeout = source.SendTimeout;
+        // kcpOptions.RecvTimeout = source.RecvTimeout;
+        // kcpOptions.MaxPacketSize = source.MaxPacketSize;
+
         // 设置默认值
-        kcpOptions.ReadBufferSize = kcpOptions.ReadBufferSize == 0 ? 4096 : kcpOptions.ReadBufferSize;
-        kcpOptions.WriteBufferSize = kcpOptions.WriteBufferSize == 0 ? 4096 : kcpOptions.WriteBufferSize;
-        kcpOptions.MaxPacketSize = kcpOptions.MaxPacketSize == 0 ? 32 * 1024 : kcpOptions.MaxPacketSize;
+        // MaxPacketSize = kcpOptions.MaxPacketSize == 0 ? 32 * 1024 : kcpOptions.MaxPacketSize;
 
         // 设置KCP特定配置
-        kcpOptions.Kcp = new KcpOptions
+        if (source is KcpTransportOptions kcpOpts)
         {
-            NoDelay = source?.Kcp?.NoDelay ?? true,
-            Interval = source?.Kcp?.Interval ?? 40,
-            Resend = source?.Kcp?.Resend ?? 2,
-            DisableFlowControl = source?.Kcp?.DisableFlowControl ?? false,
-            SendWindow = source?.Kcp?.SendWindow ?? 128,
-            ReceiveWindow = source?.Kcp?.ReceiveWindow ?? 128,
-            FastReliable = source?.Kcp?.FastReliable ?? false
-        };
+            kcpOptions.Interval = kcpOpts?.Interval ?? 40;
+            kcpOptions.Resend = kcpOpts?.Resend ?? 2;
+            kcpOptions.DisableFlowControl = kcpOpts?.DisableFlowControl ?? false;
+            kcpOptions.SendWindow = kcpOpts?.SendWindow ?? 128;
+            kcpOptions.RecvWindow = kcpOpts?.RecvWindow ?? 128;
+        }
 
         return kcpOptions;
     }

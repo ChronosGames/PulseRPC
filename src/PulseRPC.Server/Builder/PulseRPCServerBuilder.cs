@@ -8,7 +8,6 @@ using PulseRPC.Server.Engine;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Integration;
 using PulseRPC.Server.Processing;
-using PulseRPC.Server.Services;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 
@@ -136,7 +135,6 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
 
         // 注册高性能消息引擎相关服务
         Services.TryAddSingleton<IHighThroughputProcessorManager, HighThroughputProcessorManager>();
-        Services.TryAddSingleton<IMessageDispatcher, CompiledMessageDispatcher>();
 
         return this;
     }
@@ -209,28 +207,25 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServer Build()
+    public void Build()
     {
         // 验证配置
         ValidateConfiguration();
 
-        // 确保已注册传输层集成服务
-        Services.AddTransportIntegration();
-
         // 注册服务器实例
         Services.TryAddSingleton<IPulseRPCServer>(serviceProvider =>
         {
+            var transportManager = serviceProvider.GetRequiredService<ITransportManager>();
             var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
-            var serverChannelManager = serviceProvider.GetRequiredService<IServerChannelManager>();
             var serverOptions = serviceProvider.GetRequiredService<IOptions<ServerOptions>>();
-            var transportManager = serviceProvider.GetRequiredService<ITransportIntegrationManager>();
+            var transportIntegrationManager = serviceProvider.GetRequiredService<ITransportIntegrationManager>();
 
             // 创建增强的服务器管理器
             var serverManager = new PulseRPCServer(
-                serverChannelManager,
+                transportManager,
                 loggerFactory,
                 serverOptions,
-                transportManager);
+                transportIntegrationManager);
 
             // 添加配置的传输通道
             foreach (var transport in _transports)
@@ -240,10 +235,6 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
 
             return serverManager;
         });
-
-        // 构建服务提供程序并返回服务器实例
-        var serviceProvider = Services.BuildServiceProvider();
-        return serviceProvider.GetRequiredService<IPulseRPCServer>();
     }
 
     /// <summary>
@@ -255,16 +246,19 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         Services.TryAddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
 
         // 注册通道管理器
-        Services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
+        Services.TryAddSingleton<ITransportManager, TransportManager>();
 
         // 注册事件发布器
         Services.TryAddSingleton<IEventPublisher, EventPublisher>();
 
-        // 注册ServiceRegistry
-        Services.TryAddSingleton<ServiceRegistry>();
-
         // 注册服务工厂
         Services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
+
+        // 注册消息处理器
+        Services.TryAddSingleton<IMessageDispatcher, CompiledMessageDispatcher>();
+
+        // 确保已注册传输层集成服务
+        Services.AddTransportIntegration();
     }
 
     /// <summary>
@@ -321,9 +315,9 @@ internal static class TransportIntegrationExtensions
         // 注册传输集成管理器
         services.TryAddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
 
-        // 注册内置传输提供程序
-        services.TryAddSingleton<ITransportProvider, TcpTransportProvider>();
-        services.TryAddSingleton<ITransportProvider, KcpTransportProvider>();
+        // 注册内置传输提供程序 - 使用 AddSingleton 确保所有提供程序都被注册
+        services.AddSingleton<ITransportProvider, TcpTransportProvider>();
+        services.AddSingleton<ITransportProvider, KcpTransportProvider>();
 
         return services;
     }

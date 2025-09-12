@@ -1,5 +1,10 @@
+using System.Buffers;
+using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Transport;
+using PulseRPC.Serialization;
+using MemoryPack;
 
 namespace PulseRPC.Server.Engine;
 
@@ -123,51 +128,353 @@ public abstract class ServerMessage : ClientMessage
 }
 
 /// <summary>
-/// 消息分发器接口 - 替代 IMessageHandlerRegistry
-/// 根据优化计划书 5.1.3 调度器重命名策略
+/// 消息分发器接口
 /// </summary>
 public interface IMessageDispatcher
 {
-    /// <summary>
-    /// 处理消息
-    /// </summary>
-    /// <param name="message">要处理的消息</param>
-    /// <returns>处理结果</returns>
-    Task<object?> HandleAsync(ServerMessage message);
+    ValueTask<object?> DispatchAsync(
+        object message,
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
-/// 编译时消息分发器 - 替代 DefaultMessageHandlerRegistry
-/// 根据优化计划书 5.1.3 调度器重命名策略
+/// 高性能消息处理委托
 /// </summary>
-public class CompiledMessageDispatcher : IMessageDispatcher
-{
-    private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<CompiledMessageDispatcher> _logger;
+public delegate ValueTask<object?> MessageHandlerDelegate(
+    object message,
+    IServiceProvider serviceProvider,
+    CancellationToken cancellationToken);
 
-    public CompiledMessageDispatcher(
+/// <summary>
+/// 静态泛型消息分发器注册接口
+/// </summary>
+public interface IStaticMessageDispatcher
+{
+    /// <summary>
+    /// 注册消息处理器
+    /// </summary>
+    void RegisterHandler<T>(MessageHandlerDelegate handler);
+
+    /// <summary>
+    /// 注册消息处理器（通过类型）
+    /// </summary>
+    void RegisterHandler(Type messageType, MessageHandlerDelegate handler);
+
+    /// <summary>
+    /// 尝试分发消息
+    /// </summary>
+    ValueTask<object?> TryDispatchAsync(
+        object message,
         IServiceProvider serviceProvider,
-        ILogger<CompiledMessageDispatcher> logger)
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 检查是否可以处理指定类型的消息
+    /// </summary>
+    bool CanHandle(Type messageType);
+
+    /// <summary>
+    /// 检查是否可以处理指定类型的消息
+    /// </summary>
+    bool CanHandle<T>() where T : class;
+}
+
+/// <summary>
+/// 消息序列化器接口 - 用于消息的序列化和反序列化
+/// </summary>
+public interface IMessageSerializer
+{
+    ValueTask<object> DeserializeAsync(byte[] messageBytes);
+    ValueTask<byte[]> SerializeAsync(object message);
+}
+
+/// <summary>
+/// 默认消息序列化器 - 基于MemoryPack
+/// </summary>
+public class DefaultMessageSerializer : IMessageSerializer
+{
+    private readonly ISerializerProvider _serializerProvider;
+    private readonly ISerializer _serializer;
+
+    public DefaultMessageSerializer()
     {
-        _serviceProvider = serviceProvider;
-        _logger = logger;
+        _serializerProvider = PulseRPCSerializerProvider.Instance;
+        _serializer = _serializerProvider.Create(MethodType.Unary, null);
     }
 
-    public async Task<object?> HandleAsync(ServerMessage message)
+    public ValueTask<object> DeserializeAsync(byte[] messageBytes)
     {
         try
         {
-            // TODO: 这里将通过Source Generator生成编译时分发逻辑
-            // 目前使用临时实现保持兼容性
-            _logger.LogDebug("处理消息: {MessageType}", message.GetType().Name);
+            // 这里需要知道目标类型，但我们现在只能做通用处理
+            // 先尝试作为动态类型反序列化，如果失败则直接返回字节数组
+            var readOnlySequence = new ReadOnlySequence<byte>(messageBytes);
 
-            // 返回默认响应
-            return new { Success = true, Message = "Processed by CompiledMessageDispatcher" };
+            // TODO: 这里应该根据消息头或其他信息确定具体的消息类型
+            // 目前返回字节数组，让生成的分发器处理类型转换
+            return ValueTask.FromResult<object>(messageBytes);
+        }
+        catch (Exception)
+        {
+            // 如果反序列化失败，返回原始字节数组
+            return ValueTask.FromResult<object>(messageBytes);
+        }
+    }
+
+    public ValueTask<byte[]> SerializeAsync(object message)
+    {
+        try
+        {
+            var writer = new ArrayBufferWriter<byte>();
+            _serializer.Serialize(writer, message);
+            return ValueTask.FromResult(writer.WrittenMemory.ToArray());
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "消息处理失败: {MessageType}", message.GetType().Name);
+            throw new InvalidOperationException($"无法序列化消息类型 {message?.GetType().Name}", ex);
+        }
+    }
+}
+
+/// <summary>
+/// 编译时消息分发器
+/// </summary>
+public class CompiledMessageDispatcher : IMessageDispatcher
+{
+    private readonly ILogger<CompiledMessageDispatcher> _logger;
+    private readonly IMessageSerializer _messageSerializer;
+    private readonly StaticGenericMessageDispatcher _staticDispatcher;
+    private readonly bool _isInitialized;
+
+    public CompiledMessageDispatcher(
+        IServiceProvider serviceProvider,
+        ILogger<CompiledMessageDispatcher> logger,
+        IMessageSerializer? messageSerializer = null)
+    {
+        _logger = logger;
+        _messageSerializer = messageSerializer ?? new DefaultMessageSerializer();
+
+        // 创建静态泛型分发器
+        var staticLogger = (ILogger<StaticGenericMessageDispatcher>?)serviceProvider.GetService(typeof(ILogger<StaticGenericMessageDispatcher>)) ??
+                          Microsoft.Extensions.Logging.Abstractions.NullLogger<StaticGenericMessageDispatcher>.Instance;
+        _staticDispatcher = new StaticGenericMessageDispatcher(staticLogger);
+
+        // 尝试注册生成的处理器
+        _isInitialized = TryRegisterGeneratedHandlers();
+
+        if (_isInitialized)
+        {
+            _logger.LogInformation("成功注册 {HandlerCount} 个生成的消息处理器", _staticDispatcher.HandlerCount);
+        }
+        else
+        {
+            _logger.LogWarning("未找到生成的处理器，将使用回退实现");
+        }
+    }
+
+    public async ValueTask<object?> DispatchAsync(
+        object message,
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // 处理消息反序列化
+            var deserializedMessage = await DeserializeMessageIfNeeded(message);
+
+            if (_isInitialized)
+            {
+                // 使用高性能静态泛型分发器（零反射）
+                var result = await _staticDispatcher.TryDispatchAsync(deserializedMessage, serviceProvider, cancellationToken);
+                if (result != null)
+                {
+                    return result;
+                }
+
+                // 如果静态分发器无法处理，回退到传统实现
+                _logger.LogDebug("静态分发器无法处理消息类型 {MessageType}，回退到传统实现", deserializedMessage?.GetType().Name);
+            }
+
+            // 回退到运行时实现
+            return new { Success = false, Error = "未找到处理器" };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "消息分发失败: {MessageType}", message?.GetType().Name);
             return new { Success = false, Error = ex.Message };
         }
     }
+
+    /// <summary>
+    /// 如果需要，反序列化消息
+    /// </summary>
+    private async ValueTask<object> DeserializeMessageIfNeeded(object message)
+    {
+        // 如果是字节数组，尝试反序列化
+        if (message is byte[] messageBytes)
+        {
+            return await _messageSerializer.DeserializeAsync(messageBytes);
+        }
+
+        // 如果是内存块，转换为字节数组后反序列化
+        if (message is Memory<byte> messageMemory)
+        {
+            return await _messageSerializer.DeserializeAsync(messageMemory.ToArray());
+        }
+
+        // 如果已经是对象，直接返回
+        return message;
+    }
+
+    /// <summary>
+    /// 尝试注册生成的处理器到静态分发器
+    /// </summary>
+    private bool TryRegisterGeneratedHandlers()
+    {
+        try
+        {
+            // 尝试通过反射调用生成的注册方法
+            var generatedType = Type.GetType("PulseRPC.Generated.CompiledMessageDispatcher");
+            if (generatedType != null)
+            {
+                var registerMethod = generatedType.GetMethod("RegisterHandlers",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+                    null,
+                    new[] { typeof(IStaticMessageDispatcher) },
+                    null);
+
+                if (registerMethod != null)
+                {
+                    registerMethod.Invoke(null, new object[] { _staticDispatcher });
+                    _logger.LogTrace("成功调用生成的注册方法");
+                    return true;
+                }
+            }
+
+            _logger.LogDebug("未找到生成的处理器注册方法");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "注册生成的处理器时发生错误: {Error}", ex.Message);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 获取已注册的消息类型（用于调试）
+    /// </summary>
+    public IEnumerable<Type> GetRegisteredMessageTypes()
+    {
+        return _staticDispatcher.RegisteredTypes;
+    }
+
+    /// <summary>
+    /// 获取处理器统计信息（用于监控）
+    /// </summary>
+    public int GetHandlerCount()
+    {
+        return _staticDispatcher.HandlerCount;
+    }
+
+    /// <summary>
+    /// 检查是否可以处理指定类型的消息
+    /// </summary>
+    public bool CanHandle<T>() where T : class
+    {
+        return _staticDispatcher.CanHandle<T>();
+    }
+
+    /// <summary>
+    /// 检查是否可以处理指定类型的消息
+    /// </summary>
+    public bool CanHandle(Type messageType)
+    {
+        return _staticDispatcher.CanHandle(messageType);
+    }
+}
+
+/// <summary>
+/// 高性能静态泛型消息分发器实现
+/// 使用ConcurrentDictionary和委托实现零反射分发
+/// </summary>
+public class StaticGenericMessageDispatcher : IStaticMessageDispatcher
+{
+    private readonly ConcurrentDictionary<Type, MessageHandlerDelegate> _handlers;
+    private readonly ILogger<StaticGenericMessageDispatcher> _logger;
+
+    public StaticGenericMessageDispatcher(ILogger<StaticGenericMessageDispatcher> logger)
+    {
+        _handlers = new ConcurrentDictionary<Type, MessageHandlerDelegate>();
+        _logger = logger;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void RegisterHandler<T>(MessageHandlerDelegate handler)
+    {
+        RegisterHandler(typeof(T), handler);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void RegisterHandler(Type messageType, MessageHandlerDelegate handler)
+    {
+        if (_handlers.TryAdd(messageType, handler))
+        {
+            _logger.LogDebug("注册消息处理器: {MessageType}", messageType.Name);
+        }
+        else
+        {
+            _logger.LogWarning("消息处理器已存在: {MessageType}", messageType.Name);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public async ValueTask<object?> TryDispatchAsync(
+        object message,
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default)
+    {
+        var messageType = message.GetType();
+
+        // 快速路径：直接类型匹配
+        if (_handlers.TryGetValue(messageType, out var handler))
+        {
+            return await handler(message, serviceProvider, cancellationToken);
+        }
+
+        // 慢速路径：继承类型匹配
+        foreach (var kvp in _handlers)
+        {
+            if (kvp.Key.IsAssignableFrom(messageType))
+            {
+                return await kvp.Value(message, serviceProvider, cancellationToken);
+            }
+        }
+
+        return null; // 未找到处理器
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool CanHandle<T>() where T : class
+    {
+        return CanHandle(typeof(T));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool CanHandle(Type messageType)
+    {
+        return _handlers.ContainsKey(messageType) ||
+               _handlers.Keys.Any(t => t.IsAssignableFrom(messageType));
+    }
+
+    /// <summary>
+    /// 获取处理器统计信息
+    /// </summary>
+    public int HandlerCount => _handlers.Count;
+
+    /// <summary>
+    /// 获取已注册的消息类型
+    /// </summary>
+    public IEnumerable<Type> RegisteredTypes => _handlers.Keys;
 }

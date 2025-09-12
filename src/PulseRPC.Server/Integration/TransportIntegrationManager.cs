@@ -17,21 +17,21 @@ internal sealed class TransportIntegrationManager : ITransportIntegrationManager
         ILogger<TransportIntegrationManager> logger)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        
+
         // 自动注册所有传输提供程序
         foreach (var provider in providers ?? Enumerable.Empty<ITransportProvider>())
         {
             RegisterProvider(provider);
         }
 
-        _logger.LogInformation("传输层集成管理器已初始化，支持的传输类型: [{TransportTypes}]", 
+        _logger.LogInformation("传输层集成管理器已初始化，支持的传输类型: [{TransportTypes}]",
             string.Join(", ", _providers.Keys));
     }
 
     public void RegisterProvider(ITransportProvider provider)
     {
         ArgumentNullException.ThrowIfNull(provider);
-        
+
         if (string.IsNullOrWhiteSpace(provider.TransportType))
         {
             throw new ArgumentException("传输类型不能为空", nameof(provider));
@@ -40,13 +40,12 @@ internal sealed class TransportIntegrationManager : ITransportIntegrationManager
         var added = _providers.TryAdd(provider.TransportType, provider);
         if (added)
         {
-            _logger.LogInformation("已注册传输提供程序: {TransportType} - {Name}", 
+            _logger.LogInformation("已注册传输提供程序: {TransportType} - {Name}",
                 provider.TransportType, provider.Name);
         }
         else
         {
-            _logger.LogWarning("传输提供程序已存在，跳过注册: {TransportType} - {Name}", 
-                provider.TransportType, provider.Name);
+            _logger.LogWarning("传输提供程序已存在，跳过注册: {TransportType} - {Name}", provider.TransportType, provider.Name);
         }
     }
 
@@ -56,7 +55,7 @@ internal sealed class TransportIntegrationManager : ITransportIntegrationManager
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         var transportType = config.Type.ToString();
-        
+
         if (!_providers.TryGetValue(transportType, out var provider))
         {
             throw new NotSupportedException($"不支持的传输类型: {transportType}. " +
@@ -65,19 +64,19 @@ internal sealed class TransportIntegrationManager : ITransportIntegrationManager
 
         try
         {
-            _logger.LogDebug("正在创建传输监听器: {TransportType}, 端口: {Port}, 名称: {Name}", 
+            _logger.LogDebug("正在创建传输监听器: {TransportType}, 端口: {Port}, 名称: {Name}",
                 transportType, config.Port, config.Name);
 
             var listener = provider.CreateServerListener(config, loggerFactory);
-            
-            _logger.LogInformation("已创建传输监听器: {TransportType}, 端口: {Port}, 名称: {Name}", 
+
+            _logger.LogInformation("已创建传输监听器: {TransportType}, 端口: {Port}, 名称: {Name}",
                 transportType, config.Port, config.Name);
 
             return listener;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "创建传输监听器失败: {TransportType}, 端口: {Port}", 
+            _logger.LogError(ex, "创建传输监听器失败: {TransportType}, 端口: {Port}",
                 transportType, config.Port);
             throw;
         }
@@ -90,7 +89,6 @@ internal sealed class TransportIntegrationManager : ITransportIntegrationManager
 
     public bool IsSupported(string transportType)
     {
-        return !string.IsNullOrWhiteSpace(transportType) && 
-               _providers.ContainsKey(transportType);
+        return !string.IsNullOrWhiteSpace(transportType) && _providers.ContainsKey(transportType);
     }
 }

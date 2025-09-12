@@ -1,5 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using PulseRPC.Server.SourceGenerator.Models;
@@ -14,14 +12,14 @@ public static class ServiceAnalyzer
     /// <summary>
     /// 分析接口声明，提取服务元数据
     /// </summary>
-    public static ServiceModel? AnalyzeInterface(InterfaceDeclarationSyntax interfaceDeclaration, 
+    public static ServiceModel? AnalyzeInterface(InterfaceDeclarationSyntax interfaceDeclaration,
         SemanticModel semanticModel)
     {
         var interfaceSymbol = semanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
         if (interfaceSymbol == null) return null;
 
-        // 检查是否标记为PulseService
-        if (!HasPulseServiceAttribute(interfaceSymbol))
+        // 检查是否标记为PulseService或继承IPulseService
+        if (!HasPulseServiceAttribute(interfaceSymbol) && !InheritsFromIPulseService(interfaceSymbol))
             return null;
 
         var interfaceName = interfaceSymbol.Name;
@@ -30,7 +28,7 @@ public static class ServiceAnalyzer
         var channelName = GetChannelName(interfaceSymbol) ?? "DefaultChannel";
 
         var methods = new List<MethodModel>();
-        
+
         // 分析接口方法
         foreach (var member in interfaceSymbol.GetMembers())
         {
@@ -58,8 +56,17 @@ public static class ServiceAnalyzer
     private static bool HasPulseServiceAttribute(INamedTypeSymbol interfaceSymbol)
     {
         return interfaceSymbol.GetAttributes()
-            .Any(attr => attr.AttributeClass?.Name == "PulseServiceAttribute" || 
-                        attr.AttributeClass?.Name == "PulseService");
+            .Any(attr => attr.AttributeClass?.Name is "PulseServiceAttribute" or "PulseService");
+    }
+
+    /// <summary>
+    /// 检查接口是否继承IPulseService
+    /// </summary>
+    private static bool InheritsFromIPulseService(INamedTypeSymbol interfaceSymbol)
+    {
+        return interfaceSymbol.AllInterfaces
+            .Any(i => i.Name == "IPulseService" ||
+                     i.ToDisplayString().EndsWith(".IPulseService"));
     }
 
     /// <summary>
@@ -68,8 +75,7 @@ public static class ServiceAnalyzer
     private static string? GetChannelName(INamedTypeSymbol interfaceSymbol)
     {
         var channelAttr = interfaceSymbol.GetAttributes()
-            .FirstOrDefault(attr => attr.AttributeClass?.Name == "ChannelAttribute" || 
-                                   attr.AttributeClass?.Name == "Channel");
+            .FirstOrDefault(attr => attr.AttributeClass?.Name is "ChannelAttribute" or "Channel");
 
         if (channelAttr?.ConstructorArguments.Length > 0)
         {
@@ -88,12 +94,12 @@ public static class ServiceAnalyzer
         var returnType = methodSymbol.ReturnType;
         var returnTypeName = GetReturnTypeName(returnType);
         var returnTypeFullName = returnType.ToDisplayString();
-        
+
         var isAsync = IsAsyncMethod(returnType);
         var isGenericTask = IsGenericTaskType(returnType);
-        
+
         var parameters = new List<ParameterModel>();
-        
+
         foreach (var param in methodSymbol.Parameters)
         {
             var paramModel = new ParameterModel
@@ -126,8 +132,7 @@ public static class ServiceAnalyzer
     private static string? GetMethodChannelName(IMethodSymbol methodSymbol)
     {
         var channelAttr = methodSymbol.GetAttributes()
-            .FirstOrDefault(attr => attr.AttributeClass?.Name == "ChannelAttribute" || 
-                                   attr.AttributeClass?.Name == "Channel");
+            .FirstOrDefault(attr => attr.AttributeClass?.Name is "ChannelAttribute" or "Channel");
 
         if (channelAttr?.ConstructorArguments.Length > 0)
         {
@@ -145,8 +150,7 @@ public static class ServiceAnalyzer
         if (returnType is INamedTypeSymbol namedType)
         {
             // 处理 Task<T> 和 ValueTask<T>
-            if (namedType.IsGenericType && 
-                (namedType.ConstructedFrom.Name == "Task" || namedType.ConstructedFrom.Name == "ValueTask"))
+            if (namedType.IsGenericType && namedType.ConstructedFrom.Name is "Task" or "ValueTask")
             {
                 if (namedType.TypeArguments.Length > 0)
                 {
@@ -167,7 +171,7 @@ public static class ServiceAnalyzer
         if (returnType is INamedTypeSymbol namedType)
         {
             var typeName = namedType.ConstructedFrom?.Name ?? namedType.Name;
-            return typeName == "Task" || typeName == "ValueTask";
+            return typeName is "Task" or "ValueTask";
         }
         return false;
     }
@@ -180,7 +184,7 @@ public static class ServiceAnalyzer
         if (returnType is INamedTypeSymbol namedType && namedType.IsGenericType)
         {
             var typeName = namedType.ConstructedFrom.Name;
-            return (typeName == "Task" || typeName == "ValueTask") && namedType.TypeArguments.Length > 0;
+            return typeName is "Task" or "ValueTask" && namedType.TypeArguments.Length > 0;
         }
         return false;
     }
@@ -191,8 +195,7 @@ public static class ServiceAnalyzer
     private static bool IsMemoryPackable(ITypeSymbol typeSymbol)
     {
         return typeSymbol.GetAttributes()
-            .Any(attr => attr.AttributeClass?.Name == "MemoryPackableAttribute" || 
-                        attr.AttributeClass?.Name == "MemoryPackable");
+            .Any(attr => attr.AttributeClass?.Name is "MemoryPackableAttribute" or "MemoryPackable");
     }
 
     /// <summary>
@@ -207,19 +210,38 @@ public static class ServiceAnalyzer
     }
 
     /// <summary>
-    /// 检查接口语法是否包含PulseService特性
+    /// 检查接口语法是否包含PulseService特性或继承IPulseService
     /// </summary>
     private static bool HasPulseServiceAttributeSyntax(InterfaceDeclarationSyntax interfaceDeclaration)
     {
-        return interfaceDeclaration.AttributeLists
+        // 检查特性
+        var hasAttribute = interfaceDeclaration.AttributeLists
             .SelectMany(al => al.Attributes)
-            .Any(attr => 
+            .Any(attr =>
             {
                 var name = attr.Name.ToString();
-                return name == "PulseService" || 
+                return name == "PulseService" ||
                        name == "PulseServiceAttribute" ||
                        name.EndsWith("PulseService") ||
                        name.EndsWith("PulseServiceAttribute");
             });
+
+        if (hasAttribute)
+            return true;
+
+        // 检查是否继承IPulseService接口
+        if (interfaceDeclaration.BaseList?.Types != null)
+        {
+            return interfaceDeclaration.BaseList.Types
+                .Any(baseType =>
+                {
+                    var typeName = baseType.Type.ToString();
+                    return typeName == "IPulseService" ||
+                           typeName.EndsWith(".IPulseService") ||
+                           typeName.Contains("IPulseService");
+                });
+        }
+
+        return false;
     }
 }

@@ -2,9 +2,43 @@
 
 ## 🎯 项目概述
 
-本项目实现了基于设计文档的 PulseRPC.Server 依赖注入对外接口，提供了简洁、高性能、企业级的服务器配置API。
+本项目实现了基于设计文档的 PulseRPC.Server 依赖注入对外接口，提供了简洁、高性能、企业级的服务器配置API。项目采用三层抽象架构设计，与PulseRPC.Client共享底层传输抽象，实现最大化代码复用。
 
-## 🏗️ 核心架构
+## 🏗️ 三层抽象架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                 应用层 (Application Layer)                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
+│  │   Service    │  │   Event      │  │    Client       │   │
+│  │  Registry    │  │  Dispatch    │  │  Management     │   │
+│  └──────────────┘  └──────────────┘  └─────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │            IClientSession (Server-Specific)         │   │
+│  │  • PushEventAsync<T>()                             │   │
+│  │  • DisconnectAsync()                               │   │
+│  │  • ClientId / ClientAddress                        │   │
+│  └─────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────┤
+│                 会话层 (Session Layer)                      │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │         ISessionChannel (Shared Abstraction)       │   │
+│  │  • Authentication Context Management               │   │
+│  │  • Properties Dictionary                           │   │
+│  │  • SetAuthentication() / ClearAuthentication()     │   │
+│  └─────────────────────────────────────────────────────┘   │
+├─────────────────────────────────────────────────────────────┤
+│                 传输层 (Transport Layer)                   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │       ITransportConnection (Shared Foundation)      │   │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │   │
+│  │  │TCP Conn │ │KCP Conn │ │WS Conn  │ │QUIC Conn│   │   │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘   │   │
+│  └──────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 🏗️ 服务器特定架构
 
 ```
 PulseRPC.Server DI Interface
@@ -31,26 +65,29 @@ PulseRPC.Server DI Interface
 services.AddPulseRpcTcpServer(5000)
     .AddService<IUserService, UserService>();
 
-// 企业级配置
+// 企业级配置 - 支持新的IPulseHub接口
 services.AddPulseRpcServer(builder =>
 {
     builder.AddTcp("Main", 5000, isDefault: true)
            .AddKcp("Game", 5001)
            .UseHighPerformanceEngine()
-           .AddService<IUserService, UserService>();
+           .AddService<IUserService, UserService>()  // IPulseHub implementation
+           .AddService<IGameHub, GameHub>();          // Event-driven services
 });
 ```
 
-### 2. 高性能传输层集成
+### 2. 三层抽象架构集成
+- **共享传输层**: 基于 `ITransportConnection` 实现与客户端的底层复用
+- **统一会话管理**: 通过 `ISessionChannel` 提供一致的认证和属性管理
+- **服务端特化**: `IClientSession` 接口专门为服务端客户端管理设计
 - **完美兼容**: 100%集成现有的 TcpServerListener 和 KcpServerListener
 - **工厂模式**: 通过 ITransportProvider 抽象不同传输协议
-- **配置验证**: 编译时和运行时双重配置验证
-- **并行启动**: 多传输协议并行启动，提升启动效率
 
 ### 3. 企业级功能
-- **多传输支持**: TCP、KCP同时支持，可扩展QUIC等
+- **多传输支持**: TCP、KCP同时支持，可扩展QUIC、WebSocket等
 - **性能优化**: 默认启用高性能消息引擎
 - **安全认证**: JWT认证和基于角色的授权
+- **客户端会话管理**: 完整的客户端生命周期管理和事件推送
 - **监控指标**: 完整的性能统计和健康检查
 - **配置管理**: 支持配置文件、环境变量等多种配置方式
 
@@ -59,6 +96,7 @@ services.AddPulseRpcServer(builder =>
 - **类型安全**: 强类型配置，编译时错误检查
 - **智能默认**: 合理的默认配置，开箱即用
 - **详细日志**: 完整的日志记录，便于调试和运维
+- **统一接口**: 服务接口统一使用 `IPulseHub` 标记
 
 ## 📝 使用示例
 
@@ -179,8 +217,11 @@ await Task.WhenAll(startTasks);
 
 ## 📊 与现有架构的集成
 
-### 完美兼容现有代码
-- ✅ 100% 兼容现有的 ServiceRegistry 
+### 三层抽象架构集成
+- ✅ **传输层共享**: 基于 `ITransportConnection` 与客户端共享底层传输抽象
+- ✅ **会话层统一**: 通过 `ISessionChannel` 实现客户端与服务端的会话管理统一
+- ✅ **应用层特化**: `IClientSession` 为服务端客户端管理提供专门功能
+- ✅ 100% 兼容现有的 ServiceRegistry
 - ✅ 100% 兼容现有的 ServerChannelManager
 - ✅ 100% 兼容现有的 TcpTransport/KcpTransport
 - ✅ 渐进式升级路径，无需重写现有代码
@@ -190,6 +231,12 @@ await Task.WhenAll(startTasks);
 - 🚀 集成TieredMessageProcessor分层处理
 - 🚀 内置PriorityAwareScheduler优先级调度
 - 🚀 零拷贝内存管理
+- 🚀 统一的连接池化和会话管理
+
+### 接口统一升级
+- **IPulseHub**: 替代原有的 IPulseService，提供统一的服务标记
+- **IClientSession**: 新增的服务端客户端会话管理接口
+- **向后兼容**: 现有代码可以逐步迁移到新接口
 
 ## 📈 业务价值
 

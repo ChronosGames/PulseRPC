@@ -12,7 +12,7 @@ namespace ChatApp
     /// 指定默认使用TCP通道
     /// </summary>
     [Channel("TcpChannel")]
-    public interface IPlayerHub : IPulseService
+    public interface IPlayerHub : IPulseHub
     {
         /// <summary>
         /// 玩家登录

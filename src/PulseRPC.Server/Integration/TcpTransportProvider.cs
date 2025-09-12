@@ -50,24 +50,24 @@ internal sealed class TcpTransportProvider : ITransportProvider
         // TCP特定配置验证
         if (config.Options != null)
         {
-            if (config.Options.ReadBufferSize <= 0)
+            if (config.Options.RecvBufferSize <= 0)
             {
                 errors.Add("读缓冲区大小必须大于0");
             }
 
-            if (config.Options.WriteBufferSize <= 0)
+            if (config.Options.SendBufferSize <= 0)
             {
                 errors.Add("写缓冲区大小必须大于0");
             }
 
-            if (config.Options.ReadBufferSize > 1024 * 1024) // 1MB
+            if (config.Options.RecvBufferSize > 1024 * 1024) // 1MB
             {
-                warnings.Add($"读缓冲区过大: {config.Options.ReadBufferSize} bytes, 建议小于1MB");
+                warnings.Add($"读缓冲区过大: {config.Options.RecvBufferSize} bytes, 建议小于1MB");
             }
 
-            if (config.Options.WriteBufferSize > 1024 * 1024) // 1MB
+            if (config.Options.SendBufferSize > 1024 * 1024) // 1MB
             {
-                warnings.Add($"写缓冲区过大: {config.Options.WriteBufferSize} bytes, 建议小于1MB");
+                warnings.Add($"写缓冲区过大: {config.Options.SendBufferSize} bytes, 建议小于1MB");
             }
         }
 
@@ -87,23 +87,29 @@ internal sealed class TcpTransportProvider : ITransportProvider
     /// <summary>
     /// 创建TCP特定的传输选项
     /// </summary>
-    private static TransportOptions CreateTcpOptions(TransportOptions? source)
+    private static TcpTransportOptions CreateTcpOptions(TransportOptions? source)
     {
-        return new TcpTransportOptions
+        var opts = new TcpTransportOptions
         {
             // 基础网络选项
-            ReadBufferSize = source?.ReadBufferSize ?? 8192,
-            WriteBufferSize = source?.WriteBufferSize ?? 8192,
+            RecvBufferSize = source?.RecvBufferSize ?? 8192,
+            SendBufferSize = source?.SendBufferSize ?? 8192,
             NoDelay = source?.NoDelay ?? true,
             KeepAlive = source?.KeepAlive ?? true,
-            LingerTime = source?.LingerTime ?? 0,
-            SendTimeout = source?.SendTimeout ?? 5000,
-            ReceiveTimeout = source?.ReceiveTimeout ?? 0,
+        };
+
+        if (source != null && source is TcpTransportOptions o)
+        {
+            opts.LingerTime = o.LingerTime;
+            // opts.SendTimeout = o.SendTimeout ?? 5000;
+            // opts.RecvTimeout = source?.RecvTimeout ?? 0;
 
             // 继承其他选项
-            MaxPacketSize = source?.MaxPacketSize ?? 64 * 1024,
-            CompressionEnabled = source?.CompressionEnabled ?? false,
-            CompressionThreshold = source?.CompressionThreshold ?? 1024
-        };
+            // opts.MaxPacketSize = source?.MaxPacketSize ?? 64 * 1024;
+            // opts.CompressionEnabled = source?.CompressionEnabled ?? false;
+            // opts.CompressionThreshold = source?.CompressionThreshold ?? 1024;
+        }
+
+        return opts;
     }
 }

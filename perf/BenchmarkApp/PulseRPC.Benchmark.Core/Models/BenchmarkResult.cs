@@ -391,11 +391,6 @@ public class BenchmarkConfiguration
     public TransportOptions? KcpOptions { get; set; }
 
     /// <summary>
-    /// 传输层选项（保留向后兼容）
-    /// </summary>
-    public TransportOptions TransportOptions { get; set; } = new();
-
-    /// <summary>
     /// 自定义配置
     /// </summary>
     public Dictionary<string, object> CustomConfiguration { get; set; } = new();

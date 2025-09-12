@@ -110,23 +110,7 @@ public interface IPulseRPCServerBuilder
     /// 构建服务器实例
     /// </summary>
     /// <returns>配置完成的服务器实例</returns>
-    IPulseRPCServer Build();
-}
-
-/// <summary>
-/// TCP传输选项
-/// </summary>
-public class TcpTransportOptions : TransportOptions
-{
-    // TCP特定选项可以在这里扩展
-}
-
-/// <summary>
-/// KCP传输选项
-/// </summary>
-public class KcpTransportOptions : TransportOptions
-{
-    // KCP特定选项可以在这里扩展
+    void Build();
 }
 
 /// <summary>

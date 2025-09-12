@@ -13,6 +13,7 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
 {
     private readonly ConcurrentDictionary<string, HighPerformanceMessageEngine> _processors;
     private readonly IMessageDispatcher _messageDispatcher;
+    private readonly IServiceProvider _serviceProvider;
     private readonly IOptions<MessageEngineConfiguration> _options;
     private readonly ILogger<HighThroughputProcessorManager> _logger;
     private readonly ILoggerFactory _loggerFactory;
@@ -25,12 +26,14 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
 
     public HighThroughputProcessorManager(
         IMessageDispatcher messageDispatcher,
+        IServiceProvider serviceProvider,
         IOptions<MessageEngineConfiguration> options,
         ILogger<HighThroughputProcessorManager> logger,
         ILoggerFactory loggerFactory)
     {
         _processors = new ConcurrentDictionary<string, HighPerformanceMessageEngine>();
         _messageDispatcher = messageDispatcher;
+        _serviceProvider = serviceProvider;
         _options = options;
         _logger = logger;
         _loggerFactory = loggerFactory;
@@ -66,6 +69,7 @@ public class HighThroughputProcessorManager : IHighThroughputProcessorManager
             var processor = new HighPerformanceMessageEngine(
                 connectionId,
                 _messageDispatcher,
+                _serviceProvider,
                 _options.Value,
                 processorLogger);
 

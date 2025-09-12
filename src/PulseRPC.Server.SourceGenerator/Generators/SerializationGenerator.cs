@@ -161,20 +161,14 @@ public static class SerializationGenerator
             {
                 var condition = first ? "if" : "else if";
                 sb.AppendLine($"        {condition} (typeof(T) == typeof({messageType}))");
-                sb.AppendLine($"            return (T)(object)MemoryPackSerializer.Deserialize<{messageType}>(data.Span);");
+                sb.AppendLine($"            return (T)(object)MemoryPackSerializer.Deserialize<{messageType}>(data.Span)!;");
                 first = false;
             }
 
             sb.AppendLine();
-            sb.AppendLine("        // Fallback to reflection-based deserialization for unknown types");
-            sb.AppendLine("        return MemoryPackSerializer.Deserialize<T>(data.Span);");
-        }
-        else
-        {
-            sb.AppendLine("        // No message types found, fallback to standard serialization");
-            sb.AppendLine("        return MemoryPackSerializer.Deserialize<T>(data.Span);");
         }
 
+        sb.AppendLine("        return MemoryPackSerializer.Deserialize<T>(data.Span)!;");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -185,11 +179,11 @@ public static class SerializationGenerator
             sb.AppendLine($"    /// <summary>");
             sb.AppendLine($"    /// Optimized deserialization for {messageType}");
             sb.AppendLine($"    /// </summary>");
-            sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+            sb.AppendLine(@"    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
             sb.AppendLine($"    public static {messageType} Deserialize{methodName}(ReadOnlyMemory<byte> data)");
-            sb.AppendLine("    {");
-            sb.AppendLine($"        return MemoryPackSerializer.Deserialize<{messageType}>(data.Span);");
-            sb.AppendLine("    }");
+            sb.AppendLine(@"    {");
+            sb.AppendLine($"        return MemoryPackSerializer.Deserialize<{messageType}>(data.Span)!;");
+            sb.AppendLine(@"    }");
             sb.AppendLine();
         }
 
@@ -216,28 +210,21 @@ public static class SerializationGenerator
         if (messageTypes.Any())
         {
             // 使用编译时类型检查生成特化分支
-            bool first = true;
+            var first = true;
             foreach (var messageType in messageTypes.OrderBy(t => t))
             {
                 var condition = first ? "if" : "else if";
                 sb.AppendLine($"        {condition} (typeof(T) == typeof({messageType}))");
-                sb.AppendLine("        {");
+                sb.AppendLine(@"        {");
                 sb.AppendLine($"            MemoryPackSerializer.Serialize(writer, ({messageType})(object)message!);");
-                sb.AppendLine("            return;");
-                sb.AppendLine("        }");
+                sb.AppendLine(@"            return;");
+                sb.AppendLine(@"        }");
                 first = false;
             }
-
             sb.AppendLine();
-            sb.AppendLine("        // Fallback to reflection-based serialization for unknown types");
-            sb.AppendLine("        MemoryPackSerializer.Serialize(writer, message);");
-        }
-        else
-        {
-            sb.AppendLine("        // No message types found, fallback to standard serialization");
-            sb.AppendLine("        MemoryPackSerializer.Serialize(writer, message);");
         }
 
+        sb.AppendLine("        MemoryPackSerializer.Serialize(writer, message);");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -248,11 +235,11 @@ public static class SerializationGenerator
             sb.AppendLine($"    /// <summary>");
             sb.AppendLine($"    /// Optimized serialization for {messageType}");
             sb.AppendLine($"    /// </summary>");
-            sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+            sb.AppendLine(@"    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
             sb.AppendLine($"    public static void Serialize{methodName}(IBufferWriter<byte> writer, in {messageType} message)");
-            sb.AppendLine("    {");
-            sb.AppendLine("        MemoryPackSerializer.Serialize(writer, message);");
-            sb.AppendLine("    }");
+            sb.AppendLine(@"    {");
+            sb.AppendLine(@"        MemoryPackSerializer.Serialize(writer, message);");
+            sb.AppendLine(@"    }");
             sb.AppendLine();
         }
 
@@ -279,12 +266,12 @@ public static class SerializationGenerator
         {
             sb.AppendLine("        return typeof(T) switch");
             sb.AppendLine("        {");
-            
+
             foreach (var messageType in messageTypes.OrderBy(t => t))
             {
                 sb.AppendLine($"            Type t when t == typeof({messageType}) => true,");
             }
-            
+
             sb.AppendLine("            _ => false");
             sb.AppendLine("        };");
         }
@@ -307,12 +294,12 @@ public static class SerializationGenerator
         {
             sb.AppendLine("        return type.FullName switch");
             sb.AppendLine("        {");
-            
+
             foreach (var messageType in messageTypes.OrderBy(t => t))
             {
                 sb.AppendLine($"            \"{messageType}\" => true,");
             }
-            
+
             sb.AppendLine("            _ => false");
             sb.AppendLine("        };");
         }
@@ -342,7 +329,7 @@ public static class SerializationGenerator
         sb.AppendLine("    public static class Statistics");
         sb.AppendLine("    {");
         sb.AppendLine($"        public const int OptimizedTypes = {messageTypes.Count};");
-        
+
         sb.AppendLine("        public static readonly string[] SupportedTypes = new[]");
         sb.AppendLine("        {");
         foreach (var messageType in messageTypes.OrderBy(t => t))

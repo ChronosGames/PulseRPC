@@ -11,29 +11,29 @@ using System.Security.Claims;
 using PulseRPC.Transport;
 using System.Linq;
 using ChatApp;
+using PulseRPC;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Transport;
 using PulseRPC.Serialization;
+using IAuthenticationProvider = PulseRPC.Server.Authentication.IAuthenticationProvider;
 
 namespace GameServer;
 
 /// <summary>
 /// 玩家服务实现
 /// </summary>
+[PulseServerGeneration(typeof(IPlayerHub))]
 public class PlayerHub(
     IGameWorld gameWorld,
     IPlayerManager playerManager,
     IEventPublisher eventPublisher,
     PlayerMovementBatcher movementBatcher,
-    IServerChannelManager channelManager,
+    IChannelManager channelManager,
     IAuthenticationProvider authProvider,
     ILogger<PlayerHub> logger,
     ISerializerProvider serializerProvider)
     : IPlayerHub
 {
-    private readonly IGameWorld _gameWorld = gameWorld;
-    private readonly IEventPublisher _eventPublisher = eventPublisher;
-
     /// <summary>
     /// 处理玩家登录
     /// </summary>
@@ -335,7 +335,7 @@ public class PlayerMovementBatcher : BackgroundService
     private readonly IEventPublisher _eventPublisher;
     private readonly ILogger<PlayerMovementBatcher> _logger;
     private readonly List<PlayerMovedEvent> _pendingUpdates = new List<PlayerMovedEvent>();
-    private readonly object _syncLock = new object();
+    private readonly Lock _syncLock = new Lock();
 
     public PlayerMovementBatcher(
         IEventPublisher eventPublisher,

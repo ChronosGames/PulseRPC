@@ -1,5 +1,7 @@
 using System.Net;
 using PulseRPC.Server.Transport;
+using PulseRPC.Transport;
+using TransportContext = System.Net.TransportContext;
 
 namespace PulseRPC.Server;
 
@@ -31,7 +33,12 @@ public interface IPulseRPCServer : IAsyncDisposable, IDisposable
     /// </summary>
     bool IsRunning => State == ServerState.Running;
 
-    // === 传输信息 ===
+    // === 传输管理 ===
+    /// <summary>
+    /// 获取传输管理器
+    /// </summary>
+    ITransportManager GetTransportManager();
+
     /// <summary>
     /// 获取已配置的传输信息
     /// </summary>
@@ -52,6 +59,24 @@ public interface IPulseRPCServer : IAsyncDisposable, IDisposable
     /// 获取所有活动连接信息
     /// </summary>
     IReadOnlyList<ConnectionInfo> GetActiveConnections();
+
+    /// <summary>
+    /// 广播消息到所有连接
+    /// </summary>
+    /// <param name="data">要发送的数据</param>
+    /// <param name="filter">过滤条件，null表示发送给所有连接</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>成功发送的连接数量</returns>
+    Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 向指定连接发送数据
+    /// </summary>
+    /// <param name="connectionId">连接ID</param>
+    /// <param name="data">要发送的数据</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>是否发送成功</returns>
+    Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
 
     // === 服务管理 ===
     /// <summary>

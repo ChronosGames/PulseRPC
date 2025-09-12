@@ -94,7 +94,7 @@ public class ServerConfigurationBuilder
     /// </summary>
     public ServerConfigurationBuilder AddTcp(string name, int port, Action<TransportOptions>? configureOptions = null, bool isDefault = false)
     {
-        var options = new TransportOptions();
+        var options = new TcpTransportOptions();
         configureOptions?.Invoke(options);
 
         _transports.Add(TransportChannelConfiguration.Tcp(name, port, options, isDefault));
@@ -106,22 +106,10 @@ public class ServerConfigurationBuilder
     /// </summary>
     public ServerConfigurationBuilder AddKcp(string name, int port, Action<TransportOptions>? configureOptions = null, bool isDefault = false)
     {
-        var options = new TransportOptions();
+        var options = new KcpTransportOptions();
         configureOptions?.Invoke(options);
 
         _transports.Add(TransportChannelConfiguration.Kcp(name, port, options, isDefault));
-        return this;
-    }
-
-    /// <summary>
-    /// 添加WebSocket传输
-    /// </summary>
-    public ServerConfigurationBuilder AddWebSocket(string name, int port, Action<TransportOptions>? configureOptions = null, bool isDefault = false)
-    {
-        var options = new TransportOptions();
-        configureOptions?.Invoke(options);
-
-        _transports.Add(TransportChannelConfiguration.WebSocket(name, port, options, isDefault));
         return this;
     }
 

@@ -1,139 +1,101 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Client.Channels;
+using PulseRPC.Client.Core;
 using PulseRPC.Transport;
-using System.Collections.Generic;
 
-namespace PulseRPC.Client;
+namespace PulseRPC.Client.Redesign;
 
 /// <summary>
-/// PulseClient 构建器实现
+/// 重新设计的客户端构建器
 /// </summary>
 public class PulseRPCClientBuilder
 {
-    private readonly List<ClientTransportConfiguration> _transports = new();
-    private global::PulseRPC.ServiceDiscoveryOptions? _serviceDiscoveryOptions;
-    private IAuthenticationProvider? _authenticationProvider;
-    private TimeSpan _timeout = TimeSpan.FromSeconds(30);
-    private RetryOptions _retryOptions = new();
-    private global::PulseRPC.ConnectionPoolOptions _connectionPoolOptions = new();
+    private readonly List<ConnectionConfig> _initialConnections = new();
+    private IServiceDiscovery? _serviceDiscovery;
+    private ILoggerFactory? _loggerFactory;
+    private readonly Dictionary<string, object> _settings = new();
 
-    public PulseRPCClientBuilder()
+    /// <summary>
+    /// 添加初始连接配置
+    /// </summary>
+    public PulseRPCClientBuilder AddConnection(ConnectionConfig config)
     {
-    }
-
-    public PulseRPCClientBuilder AddTransport(string name, TransportType type, string host, int port, TransportOptions options)
-    {
-        var config = new ClientTransportConfiguration
-        {
-            Name = name ?? $"transport-{_transports.Count + 1}",
-            Type = type,
-            Host = host,
-            Port = port,
-            IsDefault = _transports.Count == 0, // 第一个添加的传输设为默认
-            Options = options
-        };
-
-        _transports.Add(config);
+        _initialConnections.Add(config);
         return this;
     }
 
     /// <summary>
-    /// 添加 TCP 传输
+    /// 添加核心服务连接
     /// </summary>
-    public PulseRPCClientBuilder AddTcp(string name, string host, int port)
+    public PulseRPCClientBuilder AddCoreService(
+        string serviceName,
+        TransportType transport = TransportType.Tcp,
+        TransportOptions? options = null)
     {
-        var config = new ClientTransportConfiguration
+        var config = new ConnectionConfig
         {
-            Name = name,
-            Type = TransportType.Tcp,
-            Host = host,
-            Port = port,
-            IsDefault = _transports.Count == 0, // 第一个添加的传输设为默认
-            Options = new TransportOptions
-            {
-                ConnectionTimeout = (int)_timeout.TotalMilliseconds,
-                KeepAlive = true
-            }
+            Name = $"core-{serviceName}",
+            ServiceName = serviceName,
+            Transport = transport,
+            Options = options,
+            Lifetime = ConnectionLifetime.Persistent,
+            AutoReconnect = true,
+            Tags = { ["type"] = "core", ["service"] = serviceName }
         };
 
-        _transports.Add(config);
-        return this;
+        return AddConnection(config);
     }
 
     /// <summary>
-    /// 添加 KCP 传输
+    /// 添加直连服务器
     /// </summary>
-    public PulseRPCClientBuilder AddKcp(string name, string host, int port)
+    public PulseRPCClientBuilder AddDirectConnection(
+        string name,
+        string host,
+        int port,
+        TransportType transport = TransportType.Tcp,
+        ConnectionLifetime lifetime = ConnectionLifetime.Persistent,
+        TransportOptions? options = null)
     {
-        var config = new ClientTransportConfiguration
+        var config = new ConnectionConfig
         {
             Name = name,
-            Type = TransportType.Kcp,
             Host = host,
             Port = port,
-            IsDefault = _transports.Count == 0, // 第一个添加的传输设为默认
-            Options = new TransportOptions
-            {
-                ConnectionTimeout = (int)_timeout.TotalMilliseconds,
-                KeepAlive = true,
-                Kcp = new KcpOptions
-                {
-                    NoDelay = 1,
-                    Interval = 10,
-                    Resend = 2,
-                    DisableFlowControl = false
-                },
-            }
+            Transport = transport,
+            Options = options,
+            Lifetime = lifetime,
+            AutoReconnect = lifetime != ConnectionLifetime.Transient,
+            Tags = { ["type"] = "direct" }
         };
 
-        _transports.Add(config);
-        return this;
+        return AddConnection(config);
     }
 
     /// <summary>
     /// 配置服务发现
     /// </summary>
-    public PulseRPCClientBuilder WithServiceDiscovery(Action<global::PulseRPC.ServiceDiscoveryOptions> configure)
+    public PulseRPCClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery)
     {
-        _serviceDiscoveryOptions ??= new global::PulseRPC.ServiceDiscoveryOptions();
-        configure(_serviceDiscoveryOptions);
+        _serviceDiscovery = serviceDiscovery;
         return this;
     }
 
     /// <summary>
-    /// 配置认证
+    /// 配置日志工厂
     /// </summary>
-    public PulseRPCClientBuilder WithAuthentication(IAuthenticationProvider provider)
+    public PulseRPCClientBuilder WithLogging(ILoggerFactory loggerFactory)
     {
-        _authenticationProvider = provider;
+        _loggerFactory = loggerFactory;
         return this;
     }
 
     /// <summary>
-    /// 配置超时
+    /// 配置设置
     /// </summary>
-    public PulseRPCClientBuilder WithTimeout(TimeSpan timeout)
+    public PulseRPCClientBuilder WithSetting<T>(string key, T value)
     {
-        _timeout = timeout;
-        return this;
-    }
-
-    /// <summary>
-    /// 配置重试策略
-    /// </summary>
-    public PulseRPCClientBuilder WithRetry(Action<RetryOptions> configure)
-    {
-        configure(_retryOptions);
-        return this;
-    }
-
-    /// <summary>
-    /// 配置连接池
-    /// </summary>
-    public PulseRPCClientBuilder WithConnectionPool(Action<global::PulseRPC.ConnectionPoolOptions> configure)
-    {
-        configure(_connectionPoolOptions);
+        _settings[key] = value ?? throw new ArgumentNullException(nameof(value));
         return this;
     }
 
@@ -142,16 +104,64 @@ public class PulseRPCClientBuilder
     /// </summary>
     public IPulseRPCClient Build()
     {
-        if (_transports.Count == 0)
-        {
-            throw new InvalidOperationException("至少需要配置一个传输方式");
-        }
+        return new PulseRPCClient(_initialConnections, _serviceDiscovery, _loggerFactory, _settings);
+    }
+}
 
-        var client = new PulseRPCClient();
+/// <summary>
+/// 游戏客户端构建器扩展
+/// </summary>
+public static class GameClientBuilderExtensions
+{
+    /// <summary>
+    /// 添加典型的游戏服务器连接配置
+    /// </summary>
+    public static PulseRPCClientBuilder AddGameServerSet(
+        this PulseRPCClientBuilder builder,
+        string environment = "production")
+    {
+        return builder
+            .AddCoreService("login-service")
+            .AddCoreService("game-world-service")
+            .AddCoreService("chat-service")
+            .WithSetting("environment", environment);
+    }
 
-        // 添加所有配置的传输
-        client.AddTransports(_transports);
+    /// <summary>
+    /// 添加开发环境的直连配置
+    /// </summary>
+    public static PulseRPCClientBuilder AddDevelopmentServers(
+        this PulseRPCClientBuilder builder,
+        string baseHost = "localhost",
+        int basePort = 8000)
+    {
+        return builder
+            .AddDirectConnection("login", baseHost, basePort)
+            .AddDirectConnection("game-world", baseHost, basePort + 1)
+            .AddDirectConnection("chat", baseHost, basePort + 2);
+    }
 
-        return client;
+    /// <summary>
+    /// 配置战斗服优化设置
+    /// </summary>
+    public static PulseRPCClientBuilder WithBattleOptimizations(this PulseRPCClientBuilder builder)
+    {
+        return builder
+            .WithSetting("battle.preferKcp", true)
+            .WithSetting("battle.autoCleanupMinutes", 1)
+            .WithSetting("battle.maxConcurrentBattles", 5);
+    }
+
+    /// <summary>
+    /// 配置连接池设置
+    /// </summary>
+    public static PulseRPCClientBuilder WithConnectionPooling(
+        this PulseRPCClientBuilder builder,
+        int maxConnections = 100,
+        TimeSpan? idleTimeout = null)
+    {
+        return builder
+            .WithSetting("connectionPool.maxConnections", maxConnections)
+            .WithSetting("connectionPool.idleTimeout", idleTimeout ?? TimeSpan.FromMinutes(10));
     }
 }

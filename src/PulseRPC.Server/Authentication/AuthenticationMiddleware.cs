@@ -203,7 +203,7 @@ public class AuthenticationMiddleware
     /// </summary>
     /// <param name="channel">传输通道</param>
     /// <returns>用户身份，如果未认证则返回null</returns>
-    private ClaimsPrincipal? ExtractUserFromChannel(ITransportChannel channel)
+    private ClaimsPrincipal? ExtractUserFromChannel(IChannel channel)
     {
         // 检查通道是否已认证
         if (channel.AuthenticationContext != null && channel.AuthenticationContext.IsAuthenticated)

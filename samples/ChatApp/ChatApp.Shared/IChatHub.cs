@@ -8,7 +8,7 @@ namespace ChatApp
     /// 聊天Hub服务接口 - 客户端调用服务端的API（流式）
     /// </summary>
     [Channel("TcpChannel")]
-    public interface IChatHub : IPulseService
+    public interface IChatHub : IPulseHub
     {
         /// <summary>
         /// 加入聊天室

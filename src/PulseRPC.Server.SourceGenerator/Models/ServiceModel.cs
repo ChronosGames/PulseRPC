@@ -8,11 +8,11 @@ namespace PulseRPC.Server.SourceGenerator.Models;
 /// </summary>
 public sealed class ServiceModel
 {
-    public required string InterfaceName { get; init; }
-    public required string InterfaceFullName { get; init; }
-    public required string Namespace { get; init; }
-    public required string ChannelName { get; init; }
-    public required List<MethodModel> Methods { get; init; }
+    public string InterfaceName { get; set; } = null!;
+    public string InterfaceFullName { get; set; } = null!;
+    public string Namespace { get; set; } = null!;
+    public string ChannelName { get; set; } = null!;
+    public List<MethodModel> Methods { get; set; } = null!;
     public bool HasAsyncMethods => Methods.Any(m => m.IsAsync);
 }
 
@@ -21,14 +21,14 @@ public sealed class ServiceModel
 /// </summary>
 public sealed class MethodModel
 {
-    public required string MethodName { get; init; }
-    public required string ReturnTypeName { get; init; }
-    public required string ReturnTypeFullName { get; init; }
-    public required List<ParameterModel> Parameters { get; init; }
-    public required bool IsAsync { get; init; }
-    public required bool IsGenericTask { get; init; }
-    public required string? ChannelName { get; init; }
-    
+    public string MethodName { get; set; } = null!;
+    public string ReturnTypeName { get; set; } = null!;
+    public string ReturnTypeFullName { get; set; } = null!;
+    public List<ParameterModel> Parameters { get; set; } = null!;
+    public bool IsAsync { get; set; }
+    public bool IsGenericTask { get; set; }
+    public string? ChannelName { get; set; }
+
     public bool HasParameters => Parameters.Count > 0;
     public bool IsSingleParameter => Parameters.Count == 1;
     public ParameterModel? FirstParameter => Parameters.FirstOrDefault();
@@ -39,10 +39,10 @@ public sealed class MethodModel
 /// </summary>
 public sealed class ParameterModel
 {
-    public required string Name { get; init; }
-    public required string TypeName { get; init; }
-    public required string TypeFullName { get; init; }
-    public required bool IsMemoryPackable { get; init; }
+    public string Name { get; set; } = "";
+    public string TypeName { get; set; } = "";
+    public string TypeFullName { get; set; } = "";
+    public bool IsMemoryPackable { get; set; }
 }
 
 /// <summary>
@@ -50,11 +50,11 @@ public sealed class ParameterModel
 /// </summary>
 public sealed class MessageModel
 {
-    public required string TypeName { get; init; }
-    public required string TypeFullName { get; init; }
-    public required string Namespace { get; init; }
-    public required bool IsMemoryPackable { get; init; }
-    public required List<PropertyModel> Properties { get; init; }
+    public string TypeName { get; set; } = null!;
+    public string TypeFullName { get; set; } = null!;
+    public string Namespace { get; set; } = null!;
+    public bool IsMemoryPackable { get; set; }
+    public List<PropertyModel> Properties { get; set; } = null!;
 }
 
 /// <summary>
@@ -62,9 +62,9 @@ public sealed class MessageModel
 /// </summary>
 public sealed class PropertyModel
 {
-    public required string Name { get; init; }
-    public required string TypeName { get; init; }
-    public required string TypeFullName { get; init; }
-    public required bool HasGetter { get; init; }
-    public required bool HasSetter { get; init; }
+    public string Name { get; set; } = "";
+    public string TypeName { get; set; } = "";
+    public string TypeFullName { get; set; } = "";
+    public bool HasGetter { get; set; }
+    public bool HasSetter { get; set; }
 }

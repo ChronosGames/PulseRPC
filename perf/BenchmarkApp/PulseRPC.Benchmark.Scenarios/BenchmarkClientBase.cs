@@ -13,13 +13,13 @@ namespace PulseRPC.Benchmark.Scenarios;
 /// 基准测试客户端基类
 /// 封装 PulseRPC 客户端初始化逻辑和通用功能
 /// </summary>
-[PulseClientGeneration(typeof(IBenchmarkService))]
+[PulseClientGeneration(typeof(IBenchmarkHub))]
 public abstract class BenchmarkClientBase : IDisposable
 {
     protected readonly ILogger Logger;
     protected readonly ILoggerFactory LoggerFactory;
-    protected IPulseRPCClient? PulseRPCClient;
-    protected IBenchmarkService? BenchmarkService;
+    protected IPulseClient? PulseRPCClient;
+    protected IBenchmarkHub? BenchmarkService;
     private CancellationTokenSource? _cts;
     private bool _disposed = false;
 
@@ -68,8 +68,8 @@ public abstract class BenchmarkClientBase : IDisposable
         _cts = new CancellationTokenSource();
 
         // 创建通道管理器
-        var builder = new PulseRPCClientBuilder();
-        builder.AddTransport("TcpChannel", TransportType.Tcp, "localhost", 12345, new TransportOptions
+        var builder = new PulseClientBuilder();
+        builder.AddTransport("TcpChannel", TransportType.Tcp, "localhost", 12345, new TcpTransportOptions
         {
             NoDelay = true,
             KeepAlive = true,
@@ -79,17 +79,14 @@ public abstract class BenchmarkClientBase : IDisposable
         // 如果启用KCP，创建KCP通道
         if (config.EnableKcp)
         {
-            var kcpOptions = config.KcpOptions ?? new TransportOptions
+            var kcpOptions = config.KcpOptions ?? new KcpTransportOptions
             {
-                Kcp = new KcpOptions
-                {
-                    NoDelay = 1,
+                    NoDelay = true,
                     Interval = 10,
                     Resend = 2,
                     DisableFlowControl = false,
                     SendWindow = 32,
-                    ReceiveWindow = 128
-                }
+                    RecvWindow = 128
             };
 
             builder.AddTransport("KcpChannel", TransportType.Kcp, "localhost", 12345, kcpOptions);
@@ -98,7 +95,7 @@ public abstract class BenchmarkClientBase : IDisposable
         PulseRPCClient = builder.Build();
 
         // 获取服务代理
-        BenchmarkService = await this.PulseRPCClient.GetServiceAsync<IBenchmarkService>();
+        BenchmarkService = await this.PulseRPCClient.GetServiceAsync<IBenchmarkHub>();
 
         Logger.LogInformation("基准测试客户端初始化完成");
     }

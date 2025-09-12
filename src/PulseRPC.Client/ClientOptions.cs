@@ -3,7 +3,7 @@
 /// <summary>
 /// 客户端选项
 /// </summary>
-public class ClientOptions
+public class OldClientOptions
 {
     /// <summary>
     /// 连接超时时间

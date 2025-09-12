@@ -54,10 +54,10 @@ public interface IClientChannel : IDisposable
 }
 
 /// <summary>
-/// 消息头部 - 使用简化的MemoryPack序列化
+/// 高性能消息头部 - 紧凑布局，零分配设计
 /// </summary>
 [MemoryPackable]
-public partial class MessageHeader
+public partial struct MessageHeader
 {
     [MemoryPackOrder(0)]
     public MessageType Type { get; set; }
@@ -66,18 +66,62 @@ public partial class MessageHeader
     public Guid MessageId { get; set; }
 
     [MemoryPackOrder(2)]
-    public string ServiceName { get; set; } = string.Empty;
+    public string ServiceName { get; set; }
 
     [MemoryPackOrder(3)]
-    public string MethodName { get; set; } = string.Empty;
+    public string MethodName { get; set; }
+
+    [MemoryPackOrder(4)]
+    public int PayloadLength { get; set; }
+
+    [MemoryPackOrder(5)]
+    public MessageFlags Flags { get; set; }
+
+    [MemoryPackOrder(6)]
+    public long Timestamp { get; set; }
+
+    [MemoryPackOrder(7)]
+    public ushort SequenceNumber { get; set; }
+
+    public MessageHeader(MessageType type, string serviceName, string methodName)
+    {
+        Type = type;
+        MessageId = Guid.NewGuid();
+        ServiceName = serviceName ?? string.Empty;
+        MethodName = methodName ?? string.Empty;
+        PayloadLength = 0;
+        Flags = MessageFlags.None;
+        Timestamp = DateTimeOffset.UtcNow.Ticks;
+        SequenceNumber = 0;
+    }
 }
 
-// 消息类型枚举
+/// <summary>
+/// 消息类型枚举
+/// </summary>
 public enum MessageType : byte
 {
-    Request = 1, // 上行请求(需响应)
-    Response = 2, // 响应
-    Ping = 5, // Ping
-    Pong = 6, // Pong
-    Event = 7, // 事件
+    Request = 1,        // 上行请求(需响应)
+    Response = 2,       // 响应
+    OneWay = 3,        // 单向消息(无需响应)
+    Ping = 5,          // Ping
+    Pong = 6,          // Pong
+    Event = 7,         // 事件
+    Error = 8,         // 错误响应
+    Cancel = 9,        // 取消请求
+}
+
+/// <summary>
+/// 消息标志位
+/// </summary>
+[Flags]
+public enum MessageFlags : byte
+{
+    None = 0,
+    Compressed = 1,         // 压缩
+    Encrypted = 2,          // 加密
+    RequireResponse = 4,    // 需要响应
+    HighPriority = 8,       // 高优先级
+    Reliable = 16,          // 可靠传输
+    Ordered = 32,           // 有序传输
 }

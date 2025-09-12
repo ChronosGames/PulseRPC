@@ -73,7 +73,7 @@ public readonly struct ChunkHeader
 /// </summary>
 public abstract class TcpTransport : ITransport
 {
-    protected readonly TransportOptions _options;
+    protected readonly TcpTransportOptions _options;
     protected readonly ILogger _logger;
     protected readonly byte[] _receiveBuffer;
     protected readonly LargePacketHandler _packetHandler;
@@ -105,11 +105,11 @@ public abstract class TcpTransport : ITransport
     public event System.EventHandler<TransportStateEventArgs>? StateChanged;
     public event System.EventHandler<TransportDataEventArgs>? DataReceived;
 
-    protected TcpTransport(TransportOptions? options = null, ILogger? logger = null)
+    protected TcpTransport(TcpTransportOptions? options = null, ILogger? logger = null)
     {
-        _options = options ?? new TransportOptions();
+        _options = options ?? new TcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
-        _receiveBuffer = new byte[_options.ReadBufferSize];
+        _receiveBuffer = new byte[_options.RecvBufferSize];
         _headerBuffer = new byte[MessageHeader.Size + ChunkHeader.Size]; // 预分配可重用缓冲区
         _packetHandler = new LargePacketHandler();
         _nextChunkId = 1;
@@ -249,7 +249,7 @@ public abstract class TcpTransport : ITransport
                 var header = AsyncSpanHelper.ReadMessageHeaderSync(headerBuffer.AsSpan());
 
                 // 验证长度
-                if (header.Length <= 0 || header.Length > _options.ReadBufferSize * 2)
+                if (header.Length <= 0 || header.Length > _options.RecvBufferSize * 2)
                 {
                     _logger.LogWarning("收到无效的消息长度: {Length}", header.Length);
                     continue;
@@ -299,14 +299,14 @@ public abstract class TcpTransport : ITransport
     /// <summary>
     /// 处理分片消息 - 使用优化的处理器
     /// </summary>
-    private async Task ProcessChunkedMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
+    private Task ProcessChunkedMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
     {
         try
         {
             if (data.Length < ChunkHeader.Size)
             {
                 _logger.LogWarning("分片数据太小，无法包含块头");
-                return;
+                return Task.CompletedTask;
             }
 
             // 读取块头
@@ -318,7 +318,7 @@ public abstract class TcpTransport : ITransport
             {
                 _logger.LogWarning("分块大小不匹配: 期望 {Expected}, 实际 {Actual}",
                     chunkHeader.ChunkSize, chunkData.Length);
-                return;
+                return Task.CompletedTask;
             }
 
             // 使用优化的分片处理器
@@ -332,6 +332,8 @@ public abstract class TcpTransport : ITransport
         {
             _logger.LogError(ex, "处理分片消息异常");
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
