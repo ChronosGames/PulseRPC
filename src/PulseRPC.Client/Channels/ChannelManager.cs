@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Client.Channels;
 using PulseRPC.Client.Transport;
 using PulseRPC.Messaging;
@@ -9,16 +10,16 @@ namespace PulseRPC.Transport;
 /// <summary>
 /// 通道管理器实现
 /// </summary>
-public class ChannelManager : IChannelManager
+internal class ChannelManager : IChannelManager
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly Dictionary<string, IClientChannel> _channels = new();
     private string? _defaultChannelName;
     private readonly object _syncLock = new object();
 
-    public ChannelManager(ILoggerFactory loggerFactory)
+    public ChannelManager(ILoggerFactory? loggerFactory = null)
     {
-        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+        _loggerFactory = loggerFactory ?? new NullLoggerFactory();
     }
 
     public IClientChannel GetChannel(string channelName)

@@ -200,7 +200,7 @@ public class ClientConnection : IDisposable
     private volatile bool _isConnected;
     private volatile bool _disposed;
 
-    private IPulseClient? _pulseClient;
+    private IPulseRPCClient? _pulseClient;
     private IBenchmarkService? _service;
 
     public string ConnectionId { get; }
@@ -234,15 +234,12 @@ public class ClientConnection : IDisposable
             _logger.LogDebug("连接到服务器: {Host}:{Port}", Host, Port);
 
             // 创建 PulseRPC 客户端（仅 TCP 通道）
-            _pulseClient = PulseRpcClientFactory.CreateClient(builder =>
-            {
-                builder.AddTcp("TcpChannel", Host, Port);
-            });
-
-            await _pulseClient.ConnectAsync(cancellationToken);
+            var builder = new PulseRPCClientBuilder();
+            builder.AddTcp("TcpChannel", Host, Port);
+            _pulseClient = builder.Build();
 
             // 获取服务代理
-            _service = _pulseClient.GetService<IBenchmarkService>();
+            _service = await _pulseClient.GetServiceAsync<IBenchmarkService>();
 
             _isConnected = true;
             ConnectedAt = DateTime.UtcNow;

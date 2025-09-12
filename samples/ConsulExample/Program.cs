@@ -90,7 +90,7 @@ public class Program
         });
 
         // 5. 配置PulseRPC客户端
-        services.AddPulseClient(options =>
+        services.AddPulseRPCClient(options =>
         {
             // options.ServiceDiscoveryOptions = new()
             // {
@@ -107,9 +107,13 @@ public class Program
         });
 
         // 6. 配置PulseRPC服务器
-        services.AddPulseRpcServer(options =>
+        services.AddPulseRpcServer(builder =>
         {
-            options.IPAddress = new System.Net.IPEndPoint(System.Net.IPAddress.Any, 8080).ToString();
+            builder.AddTcp("TcpDefault", 8080, null, true);
+
+            // 7. 注册示例服务
+            builder.AddService<IWeatherService, WeatherService>();
+            builder.AddService<INotificationService, NotificationService>();
         });
         // services.AddPulseRpcServer(options =>
         // {
@@ -136,10 +140,6 @@ public class Program
         //         }
         //     };
         // });
-
-        // 7. 注册示例服务
-        services.AddPulseRpcService<IWeatherService, WeatherService>();
-        services.AddPulseRpcService<INotificationService, NotificationService>();
 
         Console.WriteLine("✅ PulseRPC Consul服务配置完成");
         Console.WriteLine();

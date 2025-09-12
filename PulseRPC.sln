@@ -81,7 +81,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsulExample", "samples\Co
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Benchmarks", "tests\PulseRPC.Benchmarks\PulseRPC.Benchmarks.csproj", "{2D5342BD-4C29-4894-A805-CA67472EC161}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.SourceGenerator", "src\PulseRPC.SourceGenerator\PulseRPC.SourceGenerator.csproj", "{4ACDB204-1188-4960-95DE-899BF8DCF74C}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Server.SourceGenerator", "src\PulseRPC.Server.SourceGenerator\PulseRPC.Server.SourceGenerator.csproj", "{4ACDB204-1188-4960-95DE-899BF8DCF74C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.SourceGenerator.Tests", "tests\PulseRPC.SourceGenerator.Tests\PulseRPC.SourceGenerator.Tests.csproj", "{F12C2E14-21E3-4272-AB76-7D0D972EE1EB}"
 EndProject

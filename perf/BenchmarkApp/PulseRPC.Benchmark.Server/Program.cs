@@ -170,6 +170,9 @@ internal class Program
                 {
                     // 基准服务使用 TCP 通道监听指定端口
                     b.AddTcp("TcpChannel", port, isDefault: true);
+
+                    // 5. 业务服务注册到 PulseRPC（同时提供实现以便内部解析）
+                    b.AddService<IBenchmarkService, BenchmarkServiceImpl>();
                 });
 
                 // 使用高吞吐量处理器（依赖配置）
@@ -188,17 +191,11 @@ internal class Program
                     options.EnableDetailedLogging = false;  // 生产环境禁用详细日志
                 });
 
-                // 使用增强的通道管理器
-                services.AddSingleton<IServerChannelManager, ServerChannelManager>();
-
                 // 4. 指标收集器（依赖配置）
                 MetricsConfigurationBuilderExtensions.CreateProductionConfiguration();
 
                 //
                 services.AddSingleton<IMetricsCollector, RealTimeMetricsCollector>();
-
-                // 5. 业务服务注册到 PulseRPC（同时提供实现以便内部解析）
-                services.AddPulseRpcService<IBenchmarkService, BenchmarkServiceImpl>();
 
                 // 6. 健康检查
                 // services.AddSingleton<HealthCheckService>();

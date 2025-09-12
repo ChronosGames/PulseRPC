@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace PulseRPC.SourceGenerator.Models;
+namespace PulseRPC.Server.SourceGenerator.Models;
 
 /// <summary>
 /// 服务元数据模型

@@ -5,9 +5,9 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using PulseRPC.SourceGenerator.Models;
+using PulseRPC.Server.SourceGenerator.Models;
 
-namespace PulseRPC.SourceGenerator.Generators;
+namespace PulseRPC.Server.SourceGenerator.Generators;
 
 /// <summary>
 /// 编译时消息分发器生成器 - 消除运行时反射开销

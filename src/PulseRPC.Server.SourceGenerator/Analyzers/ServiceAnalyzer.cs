@@ -2,9 +2,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using PulseRPC.SourceGenerator.Models;
+using PulseRPC.Server.SourceGenerator.Models;
 
-namespace PulseRPC.SourceGenerator.Analyzers;
+namespace PulseRPC.Server.SourceGenerator.Analyzers;
 
 /// <summary>
 /// 服务接口语法分析器

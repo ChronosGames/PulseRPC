@@ -15,8 +15,7 @@ namespace ChatApp.Console;
 public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
-    private IPulseClient? _client;
-    private IChannelManager? _channelManager;
+    private IPulseRPCClient? _client;
     private IPlayerHub? _playerService;
     private ISubscriptionToken? _eventsSubscription;
     private CancellationTokenSource? _cts;
@@ -37,31 +36,30 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         _cts = new CancellationTokenSource();
 
         // 使用新的客户端构建器 API
-        _client = PulseRpcClientFactory.CreateClient(builder =>
-        {
-            // 添加TCP传输 - 使用接口期望的通道名称
-            builder.AddTcp("TcpChannel", "localhost", 7000);
+        var builder = new PulseRPCClientBuilder();
 
-            // 添加KCP传输 - 使用接口期望的通道名称
-            builder.AddKcp("KcpChannel", "localhost", 7001);
+        // 添加TCP传输 - 使用接口期望的通道名称
+        builder.AddTcp("TcpChannel", "localhost", 7000);
 
-            // 配置超时和重试
-            builder.WithTimeout(TimeSpan.FromSeconds(30))
-                   .WithRetry(retry =>
-                   {
-                       retry.MaxRetries = 3;
-                       retry.BaseDelay = TimeSpan.FromSeconds(1);
-                       retry.UseExponentialBackoff = true;
-                   });
-        });
+        // 添加KCP传输 - 使用接口期望的通道名称
+        builder.AddKcp("KcpChannel", "localhost", 7001);
 
-        // 获取通道管理器
-        _channelManager = _client.GetChannelManager();
+        // 配置超时和重试
+        builder.WithTimeout(TimeSpan.FromSeconds(30))
+            .WithRetry(retry =>
+            {
+                retry.MaxRetries = 3;
+                retry.BaseDelay = TimeSpan.FromSeconds(1);
+                retry.UseExponentialBackoff = true;
+            });
+
+        // 构建客户端
+        _client = builder.Build();
 
         try
         {
             // 使用源代码生成器生成的扩展方法获取服务代理
-            _playerService = _channelManager.GetService<IPlayerHub>();
+            _playerService = _client.GetService<IPlayerHub>();
 
             // 使用简洁的一行 API - 源代码生成器会处理多接口实现
             _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));

@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
+    <ProjectReference Include="..\PulseRPC.Server.SourceGenerator\PulseRPC.Server.SourceGenerator.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,4 +27,9 @@
     <PackageReference Include="System.Threading.Channels" />
   </ItemGroup>
 
+
+  <!-- 包含 Source Generator -->
+  <ItemGroup>
+    <None Include="..\PulseRPC.Server.SourceGenerator\bin\$(Configuration)\net9.0\PulseRPC.Server.SourceGenerator.dll" PackagePath="analyzers\dotnet\cs" Pack="true" Visible="false" />
+  </ItemGroup>
 </Project>
