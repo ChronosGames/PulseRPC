@@ -6,6 +6,54 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace PulseRPC.Client;
 
 /// <summary>
+/// 动态连接令牌接口
+/// </summary>
+public interface IDynamicConnectionToken : IDisposable
+{
+    /// <summary>
+    /// 连接名称
+    /// </summary>
+    string Name { get; }
+
+    /// <summary>
+    /// 传输类型
+    /// </summary>
+    TransportType Type { get; }
+
+    /// <summary>
+    /// 主机地址
+    /// </summary>
+    string Host { get; }
+
+    /// <summary>
+    /// 端口号
+    /// </summary>
+    int Port { get; }
+
+    /// <summary>
+    /// 是否已连接
+    /// </summary>
+    bool IsConnected { get; }
+
+    /// <summary>
+    /// 创建时间
+    /// </summary>
+    DateTime CreatedAt { get; }
+
+    /// <summary>
+    /// 获取该连接上的服务代理
+    /// </summary>
+    Task<T> GetServiceAsync<T>(string? serviceName = null, CancellationToken cancellationToken = default)
+        where T : class, IPulseService;
+
+    /// <summary>
+    /// 在该连接上注册事件监听器
+    /// </summary>
+    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, string? serviceName = null,
+        CancellationToken cancellationToken = default) where T : class, IPulseEventHandler;
+}
+
+/// <summary>
 /// PulseRPC 统一客户端接口 - 整合所有客户端功能
 /// </summary>
 public interface IPulseRPCClient : IDisposable
@@ -63,6 +111,57 @@ public interface IPulseRPCClient : IDisposable
     /// </summary>
     /// <returns>通道管理器实例</returns>
     IChannelManager GetChannelManager();
+
+    // 动态连接管理接口
+    
+    /// <summary>
+    /// 动态添加并连接新的传输通道
+    /// </summary>
+    /// <param name="name">通道名称</param>
+    /// <param name="type">传输类型</param>
+    /// <param name="host">主机地址</param>
+    /// <param name="port">端口号</param>
+    /// <param name="options">传输选项</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>动态连接令牌</returns>
+    Task<IDynamicConnectionToken> AddDynamicConnectionAsync(
+        string name, 
+        TransportType type, 
+        string host, 
+        int port, 
+        TransportOptions? options = null, 
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 移除动态连接
+    /// </summary>
+    /// <param name="connectionToken">连接令牌</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    Task RemoveDynamicConnectionAsync(IDynamicConnectionToken connectionToken, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取指定通道的服务代理
+    /// </summary>
+    /// <typeparam name="T">服务接口类型</typeparam>
+    /// <param name="channelName">通道名称</param>
+    /// <param name="serviceName">服务名称，为空则使用接口名</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>服务代理</returns>
+    Task<T> GetServiceAsync2<T>(string channelName, string? serviceName = null, CancellationToken cancellationToken = default)
+        where T : class, IPulseService;
+
+    /// <summary>
+    /// 在指定通道注册事件监听器
+    /// </summary>
+    /// <typeparam name="T">监听器接口类型</typeparam>
+    /// <param name="channelName">通道名称</param>
+    /// <param name="listener">监听器实例</param>
+    /// <param name="serviceName">服务名称，为空则使用接口名</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>订阅令牌</returns>
+    Task<ISubscriptionToken> RegisterEventListenerAsync2<T>(string channelName, T listener, string? serviceName = null,
+        CancellationToken cancellationToken = default) where T : class, IPulseEventHandler;
 }
 
 /// <summary>
@@ -73,6 +172,8 @@ internal class PulseRPCClient : IPulseRPCClient
     private readonly IChannelManager _channelManager;
     private readonly ILogger<PulseRPCClient> _logger;
     private readonly Dictionary<string, ClientTransportInfo> _transports = new();
+    private readonly Dictionary<string, DynamicConnectionToken> _dynamicConnections = new();
+    private readonly object _dynamicLock = new();
     private bool _isConnected;
     private bool _disposed;
 
@@ -94,12 +195,21 @@ internal class PulseRPCClient : IPulseRPCClient
     {
         if (_isConnected)
         {
-            throw new InvalidOperationException("客户端已连接，无法添加传输");
+            throw new InvalidOperationException("客户端已连接，无法添加静态传输。请使用 AddDynamicConnectionAsync 添加动态连接");
         }
 
         if (_transports.ContainsKey(config.Name))
         {
             throw new ArgumentException($"传输通道已存在: {config.Name}");
+        }
+
+        // 检查动态连接中是否已存在同名连接
+        lock (_dynamicLock)
+        {
+            if (_dynamicConnections.ContainsKey(config.Name))
+            {
+                throw new ArgumentException($"动态连接已存在: {config.Name}");
+            }
         }
 
         var transportInfo = new ClientTransportInfo
@@ -262,6 +372,129 @@ internal class PulseRPCClient : IPulseRPCClient
     }
 
     /// <summary>
+    /// 动态添加并连接新的传输通道
+    /// </summary>
+    public async Task<IDynamicConnectionToken> AddDynamicConnectionAsync(
+        string name, 
+        TransportType type, 
+        string host, 
+        int port, 
+        TransportOptions? options = null, 
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new ArgumentException("连接名称不能为空", nameof(name));
+
+        lock (_dynamicLock)
+        {
+            if (_dynamicConnections.ContainsKey(name))
+                throw new ArgumentException($"动态连接已存在: {name}");
+
+            if (_transports.ContainsKey(name))
+                throw new ArgumentException($"静态传输通道已存在: {name}");
+        }
+
+        _logger.LogInformation("正在创建动态连接: {Name} ({Type}) to {Host}:{Port}", name, type, host, port);
+
+        try
+        {
+            // 创建并注册通道
+            _channelManager.RegisterChannel(name, type, options ?? new TransportOptions(), isDefault: false);
+
+            // 连接通道
+            var channel = _channelManager.GetChannel(name);
+            await channel.ConnectAsync(host, port, cancellationToken);
+
+            // 创建动态连接令牌
+            var token = new DynamicConnectionToken(name, type, host, port, this, _logger);
+
+            lock (_dynamicLock)
+            {
+                _dynamicConnections[name] = token;
+            }
+
+            _logger.LogInformation("动态连接创建成功: {Name}", name);
+            return token;
+        }
+        catch (Exception ex)
+        {
+            // 清理失败的连接
+            if (_channelManager.HasChannel(name))
+            {
+                _channelManager.UnregisterChannel(name);
+            }
+
+            _logger.LogError(ex, "创建动态连接失败: {Name}", name);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 移除动态连接
+    /// </summary>
+    public async Task RemoveDynamicConnectionAsync(IDynamicConnectionToken connectionToken, CancellationToken cancellationToken = default)
+    {
+        if (connectionToken is not DynamicConnectionToken token)
+            throw new ArgumentException("无效的连接令牌", nameof(connectionToken));
+
+        _logger.LogInformation("正在移除动态连接: {Name}", token.Name);
+
+        try
+        {
+            // 断开连接
+            if (_channelManager.HasChannel(token.Name))
+            {
+                var channel = _channelManager.GetChannel(token.Name);
+                if (channel.IsConnected)
+                {
+                    await channel.DisconnectAsync(cancellationToken);
+                }
+                _channelManager.UnregisterChannel(token.Name);
+            }
+
+            // 从动态连接列表中移除
+            lock (_dynamicLock)
+            {
+                _dynamicConnections.Remove(token.Name);
+            }
+
+            // 释放令牌资源
+            token.Dispose();
+
+            _logger.LogInformation("动态连接移除成功: {Name}", token.Name);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "移除动态连接失败: {Name}", token.Name);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 获取指定通道的服务代理
+    /// </summary>
+    public async Task<T> GetServiceAsync2<T>(string channelName, string? serviceName = null, CancellationToken cancellationToken = default) where T : class, IPulseService
+    {
+        if (!_channelManager.HasChannel(channelName))
+            throw new ArgumentException($"通道不存在: {channelName}");
+
+        // TODO: 实现特定通道的服务代理获取逻辑
+        throw new NotImplementedException($"指定通道 {channelName} 的服务代理功能待实现");
+    }
+
+    /// <summary>
+    /// 在指定通道注册事件监听器
+    /// </summary>
+    public async Task<ISubscriptionToken> RegisterEventListenerAsync2<T>(string channelName, T listener, string? serviceName = null, CancellationToken cancellationToken = default) where T : class, IPulseEventHandler
+    {
+        if (!_channelManager.HasChannel(channelName))
+            throw new ArgumentException($"通道不存在: {channelName}");
+
+        // TODO: 实现特定通道的事件监听器注册逻辑
+        throw new NotImplementedException($"指定通道 {channelName} 的事件监听器功能待实现");
+    }
+
+    /// <summary>
     /// 释放资源
     /// </summary>
     public void Dispose()
@@ -274,6 +507,23 @@ internal class PulseRPCClient : IPulseRPCClient
             if (_isConnected)
             {
                 DisconnectAsync().Wait(TimeSpan.FromSeconds(5));
+            }
+
+            // 清理动态连接
+            lock (_dynamicLock)
+            {
+                foreach (var dynamicConnection in _dynamicConnections.Values)
+                {
+                    try
+                    {
+                        dynamicConnection.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "释放动态连接失败: {Name}", dynamicConnection.Name);
+                    }
+                }
+                _dynamicConnections.Clear();
             }
         }
         catch (Exception ex)
@@ -298,5 +548,87 @@ internal class PulseRPCClient : IPulseRPCClient
         public int Port { get; set; }
         public TransportOptions Options { get; set; } = new();
         public bool IsDefault { get; set; }
+    }
+}
+
+/// <summary>
+/// 动态连接令牌实现
+/// </summary>
+internal class DynamicConnectionToken : IDynamicConnectionToken
+{
+    private readonly PulseRPCClient _client;
+    private readonly ILogger _logger;
+    private bool _disposed;
+
+    public string Name { get; }
+    public TransportType Type { get; }
+    public string Host { get; }
+    public int Port { get; }
+    public DateTime CreatedAt { get; }
+
+    public bool IsConnected 
+    { 
+        get
+        {
+            var channelManager = _client.GetChannelManager();
+            if (!channelManager.HasChannel(Name))
+                return false;
+            
+            var channel = channelManager.GetChannel(Name);
+            return channel.IsConnected;
+        }
+    }
+
+    public DynamicConnectionToken(
+        string name,
+        TransportType type,
+        string host,
+        int port,
+        PulseRPCClient client,
+        ILogger logger)
+    {
+        Name = name;
+        Type = type;
+        Host = host;
+        Port = port;
+        CreatedAt = DateTime.UtcNow;
+        _client = client;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// 获取该连接上的服务代理
+    /// </summary>
+    public async Task<T> GetServiceAsync<T>(string? serviceName = null, CancellationToken cancellationToken = default) 
+        where T : class, IPulseService
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(DynamicConnectionToken));
+
+        return await _client.GetServiceAsync2<T>(Name, serviceName, cancellationToken);
+    }
+
+    /// <summary>
+    /// 在该连接上注册事件监听器
+    /// </summary>
+    public async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, string? serviceName = null, CancellationToken cancellationToken = default) 
+        where T : class, IPulseEventHandler
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(DynamicConnectionToken));
+
+        return await _client.RegisterEventListenerAsync2(Name, listener, serviceName, cancellationToken);
+    }
+
+    /// <summary>
+    /// 释放连接令牌资源
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+        _logger.LogDebug("动态连接令牌已释放: {Name}", Name);
     }
 }
