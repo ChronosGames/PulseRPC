@@ -108,7 +108,7 @@ public sealed class ConnectionPoolHealthChecker : HealthCheckerBase<IConnectionP
         data["ConnectionsCreatedTotal"] = statistics.ConnectionsCreatedTotal;
         data["ConnectionsDestroyedTotal"] = statistics.ConnectionsDestroyedTotal;
         data["CreatedAt"] = statistics.CreatedAt;
-        data["LastMaintenanceAt"] = statistics.LastMaintenanceAt;
+        data["LastMaintenanceAt"] = statistics.LastMaintenanceAt ?? DateTime.Now;
 
         if (statistics.AverageAcquisitionTime.HasValue)
         {
@@ -274,7 +274,7 @@ public sealed class ConnectionPoolHealthChecker : HealthCheckerBase<IConnectionP
             {
                 try
                 {
-                    await lease.DisposeAsync();
+                    lease.Dispose();
                 }
                 catch (Exception ex)
                 {

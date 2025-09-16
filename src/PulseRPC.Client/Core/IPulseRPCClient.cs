@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
 using PulseRPC.Client.Core;
+using PulseRPC.Client.Core.ConnectionPool;
+using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client.Core;
@@ -154,52 +156,6 @@ public interface IConnectionManager : IDisposable
     /// 连接数量
     /// </summary>
     int Count { get; }
-}
-
-/// <summary>
-/// 连接上下文接口 - 表示一个活跃的连接
-/// </summary>
-public interface IConnectionContext : IDisposable
-{
-    /// <summary>
-    /// 连接ID
-    /// </summary>
-    string Id { get; }
-
-    /// <summary>
-    /// 连接配置
-    /// </summary>
-    ConnectionConfig Config { get; }
-
-    /// <summary>
-    /// 连接描述符
-    /// </summary>
-    ConnectionDescriptor Descriptor { get; }
-
-    /// <summary>
-    /// 连接状态
-    /// </summary>
-    ExtendedConnectionState State { get; }
-
-    /// <summary>
-    /// 连接统计信息
-    /// </summary>
-    ConnectionStatistics Statistics { get; }
-
-    /// <summary>
-    /// 获取服务代理
-    /// </summary>
-    Task<T> GetServiceAsync<T>() where T : class, IPulseHub;
-
-    /// <summary>
-    /// 注册事件监听器
-    /// </summary>
-    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener) where T : class, IPulseEventHandler;
-
-    /// <summary>
-    /// 连接状态变化事件
-    /// </summary>
-    event EventHandler<ConnectionStateChangedEventArgs> StateChanged;
 }
 
 /// <summary>
@@ -449,7 +405,7 @@ public sealed class ServiceEndpoint
     /// <summary>
     /// 端点地址
     /// </summary>
-    public EndpointAddress Address { get; set; } = new();
+    public EndpointAddress? Address { get; set; }
 
     /// <summary>
     /// 传输类型
@@ -522,62 +478,6 @@ public sealed class ConnectionUnregisteredEventArgs : EventArgs
 }
 
 /// <summary>
-/// 连接统计信息
-/// </summary>
-public sealed class ConnectionStatistics
-{
-    /// <summary>
-    /// 连接ID
-    /// </summary>
-    public string ConnectionId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 创建时间
-    /// </summary>
-    public DateTime CreatedAt { get; set; }
-
-    /// <summary>
-    /// 连接时间
-    /// </summary>
-    public DateTime? ConnectedAt { get; set; }
-
-    /// <summary>
-    /// 最后活跃时间
-    /// </summary>
-    public DateTime LastActiveAt { get; set; }
-
-    /// <summary>
-    /// 总请求数
-    /// </summary>
-    public long TotalRequests { get; set; }
-
-    /// <summary>
-    /// 成功请求数
-    /// </summary>
-    public long SuccessfulRequests { get; set; }
-
-    /// <summary>
-    /// 失败请求数
-    /// </summary>
-    public long FailedRequests { get; set; }
-
-    /// <summary>
-    /// 发送字节数
-    /// </summary>
-    public long BytesSent { get; set; }
-
-    /// <summary>
-    /// 接收字节数
-    /// </summary>
-    public long BytesReceived { get; set; }
-
-    /// <summary>
-    /// 平均响应时间（毫秒）
-    /// </summary>
-    public double AverageResponseTimeMs { get; set; }
-}
-
-/// <summary>
 /// 健康检查结果
 /// </summary>
 public sealed class HealthCheckResult
@@ -611,17 +511,6 @@ public sealed class HealthCheckResult
     /// 异常信息
     /// </summary>
     public Exception? Exception { get; set; }
-}
-
-/// <summary>
-/// 连接健康状态
-/// </summary>
-public enum ConnectionHealth
-{
-    Unknown,
-    Healthy,
-    Degraded,
-    Unhealthy
 }
 
 /// <summary>
@@ -662,7 +551,7 @@ public interface IPulseRPCClientBuilder
     /// <summary>
     /// 配置序列化器
     /// </summary>
-    IPulseRPCClientBuilder WithSerializer(IPulseSerializer serializer);
+    IPulseRPCClientBuilder WithSerializer(ISerializerProvider serializerProvider);
 
     /// <summary>
     /// 配置认证提供者

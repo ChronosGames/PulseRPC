@@ -291,7 +291,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
             MinSize = 2,
             MaxSize = 10,
             IdleTimeout = TimeSpan.FromMinutes(10),
-            AcquisitionTimeout = TimeSpan.FromSeconds(30),
+            AcquireTimeout = TimeSpan.FromSeconds(30),
             ValidateOnAcquire = true,
             WarmUp = true,
             MaxConnectionAge = _options.MaxConnectionLifetime ?? TimeSpan.FromHours(4)

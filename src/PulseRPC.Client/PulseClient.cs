@@ -47,8 +47,8 @@ namespace PulseRPC.Client;
 /// 高性能 PulseRPC 客户端实现
 /// 使用零分配设计和缓存优化
 /// </summary>
-internal class PulseClient : IPulseRPCClient
-{
+// internal class PulseClient : IPulseRPCClient
+// {
 //     private readonly IChannelManager _channelManager;
 //     private readonly ISerializerManager _serializerManager;
 //     private readonly ILogger<PulseClient> _logger;
@@ -382,4 +382,4 @@ internal class PulseClient : IPulseRPCClient
 //         public TransportOptions? Options { get; set; }
 //         public bool IsDefault { get; set; }
 //     }
-}
+// }

@@ -15,10 +15,32 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     private Timer? _reconnectTimer;
     private string? _host;
     private int _port;
+    private string _connectionId;
+    private DateTime _connectedAt;
+    private DateTime _lastActivityAt;
 
     public KcpClientTransport(KcpTransportOptions? options = null, ILogger? logger = null)
         : base(options, logger)
     {
+        _connectionId = Guid.NewGuid().ToString();
+        _connectedAt = DateTime.UtcNow;
+        _lastActivityAt = DateTime.UtcNow;
+    }
+
+    // ITransportConnection properties
+    public string ConnectionId => _connectionId;
+    public DateTime ConnectedAt => _connectedAt;
+    public DateTime LastActivityAt => _lastActivityAt;
+    public TransportType TransportType => Type;
+
+    // ITransportConnection events with proper signatures
+    public new event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
+    public new event EventHandler<TransportDataEventArgs>? DataReceived;
+
+    // ITransportConnection method
+    public Task CloseAsync(CancellationToken cancellationToken = default)
+    {
+        return DisconnectAsync(cancellationToken);
     }
 
     /// <summary>
@@ -32,7 +54,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         _host = host;
         _port = port;
 
-        ChangeState(ConnectionState.Connecting);
+        ChangeStateWithConnectionEvents(ConnectionState.Connecting);
 
         try
         {
@@ -66,7 +88,8 @@ public class KcpClientTransport : KcpTransport, IClientTransport
             _updateTask = KcpUpdateLoopAsync();
 
             // 更新状态
-            ChangeState(ConnectionState.Connected);
+            _connectedAt = DateTime.UtcNow;
+            ChangeStateWithConnectionEvents(ConnectionState.Connected);
 
             // 重置重连次数
             _reconnectAttempts = 0;
@@ -76,14 +99,14 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         catch (HandshakeException)
         {
             // 握手异常已经包含详细信息，直接重新抛出
-            ChangeState(ConnectionState.Failed, "握手失败", null);
+            ChangeStateWithConnectionEvents(ConnectionState.Failed, "握手失败", null);
             throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "连接到KCP服务器失败: {Host}:{Port}", host, port);
 
-            ChangeState(ConnectionState.Failed, $"连接失败: {ex.Message}", ex);
+            ChangeStateWithConnectionEvents(ConnectionState.Failed, $"连接失败: {ex.Message}", ex);
 
             // 如果启用了自动重连，则开始重连
             if (_options.AutoReconnect && _reconnectAttempts < _options.MaxReconnectAttempts)
@@ -369,7 +392,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
             return;
 
-        ChangeState(ConnectionState.Disconnecting);
+        ChangeStateWithConnectionEvents(ConnectionState.Disconnecting);
 
         try
         {
@@ -388,7 +411,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
             await Task.Delay(100, cancellationToken);
 
             // 更新状态
-            ChangeState(ConnectionState.Disconnected);
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnected);
 
             _logger.LogInformation("已断开KCP连接");
         }
@@ -397,7 +420,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
             _logger.LogError(ex, "断开KCP连接异常");
 
             // 即使出现异常，也更新状态
-            ChangeState(ConnectionState.Disconnected, $"断开异常: {ex.Message}", ex);
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnected, $"断开异常: {ex.Message}", ex);
 
             throw;
         }
@@ -412,7 +435,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         {
             _reconnectAttempts++;
 
-            ChangeState(ConnectionState.Reconnecting,
+            ChangeStateWithConnectionEvents(ConnectionState.Reconnecting,
                 $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
 
             _reconnectTimer?.Dispose();
@@ -428,6 +451,25 @@ public class KcpClientTransport : KcpTransport, IClientTransport
                 }
             }, null, _options.ReconnectInterval, Timeout.Infinite);
         }
+    }
+
+    /// <summary>
+    /// 重写状态变更方法以触发正确的事件类型
+    /// </summary>
+    protected void ChangeStateWithConnectionEvents(ConnectionState newState, string? reason = null, Exception? exception = null)
+    {
+        var oldState = _state;
+        if (oldState == newState) return;
+
+        // 更新最后活动时间
+        _lastActivityAt = DateTime.UtcNow;
+
+        // 调用基类的状态变更方法
+        base.ChangeState(newState, reason, exception);
+
+        // 触发 ITransportConnection 接口的事件
+        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(
+            _connectionId, oldState, newState, reason, exception));
     }
 
     /// <summary>
@@ -488,12 +530,12 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         catch (SocketException ex) when (IsExpectedSocketError(ex))
         {
             // 预期的Socket异常（如连接重置等）
-            ChangeState(ConnectionState.Disconnected, $"Socket异常: {ex.Message}");
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnected, $"Socket异常: {ex.Message}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "KCP客户端UDP接收异常");
-            ChangeState(ConnectionState.Disconnected, $"接收异常: {ex.Message}");
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnected, $"接收异常: {ex.Message}");
         }
     }
 }

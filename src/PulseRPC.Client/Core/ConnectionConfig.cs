@@ -152,11 +152,7 @@ public sealed class ConnectionConfig
         // 如果指定了主机和端口，创建端点
         if (!string.IsNullOrEmpty(Host) && Port.HasValue)
         {
-            descriptor.Endpoint = new EndpointAddress
-            {
-                Host = Host,
-                Port = Port.Value
-            };
+            descriptor.Endpoint = new EndpointAddress(Host, Port.Value);
         }
 
         return descriptor;
@@ -248,6 +244,8 @@ public sealed class ConnectionPoolOptions
     /// 连接预热（创建时是否立即建立连接）
     /// </summary>
     public bool WarmUp { get; set; } = false;
+
+    public TimeSpan MaxConnectionAge { get; set; } = TimeSpan.Zero;
 
     /// <summary>
     /// 创建固定大小连接池配置

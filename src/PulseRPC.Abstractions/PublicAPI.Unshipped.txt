@@ -826,6 +826,7 @@ PulseRPC.Transport.ITransportChannel.SendAsync(System.ReadOnlyMemory<byte> data,
 PulseRPC.Transport.ITransportChannel.SetAuthentication(PulseRPC.Authentication.IAuthenticationContext! authContext) -> void
 PulseRPC.Transport.ITransportChannel.StateChanged -> System.EventHandler<PulseRPC.Transport.TransportStateEventArgs!>?
 PulseRPC.Transport.ITransportChannel.Transport.get -> PulseRPC.Transport.IServerTransport!
+PulseRPC.Transport.ITransportConnection.StateChanged -> PulseRPC.EventHandler<PulseRPC.Transport.ConnectionStateChangedEventArgs!>!
 PulseRPC.Transport.ITransportManager
 PulseRPC.Transport.Kcp.KcpCommand
 PulseRPC.Transport.Kcp.KcpCommand.Ack = 82 -> PulseRPC.Transport.Kcp.KcpCommand

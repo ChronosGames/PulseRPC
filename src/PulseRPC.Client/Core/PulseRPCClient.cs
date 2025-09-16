@@ -1,8 +1,10 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Authentication;
+using PulseRPC.Serialization;
 using PulseRPC.Transport;
 using System.Collections.Concurrent;
+using PulseRPC.Client.Core.ConnectionPool;
 
 namespace PulseRPC.Client.Core;
 
@@ -80,7 +82,7 @@ public sealed class PulseRPCClient : IPulseRPCClient
         IReadOnlyList<ConnectionDescriptor> connections,
         IServiceDiscovery? serviceDiscovery = null,
         ILoggerFactory? loggerFactory = null,
-        IPulseSerializer? serializer = null,
+        ISerializerProvider? serializerProvider = null,
         IAuthenticationProvider? authenticationProvider = null,
         LoadBalancingStrategy loadBalancingStrategy = LoadBalancingStrategy.RoundRobin,
         IReadOnlyDictionary<string, object>? loadBalancingOptions = null,
@@ -101,11 +103,11 @@ public sealed class PulseRPCClient : IPulseRPCClient
         _statistics.StartTime = _startTime;
 
         // 创建核心组件（暂时使用基础实现）
-        _connectionManager = new ConnectionManager(_serviceDiscovery, loggerFactory);
+        _connectionManager = new ConnectionManager(_serviceDiscovery, logger);
         _connectionRouter = new SimpleConnectionRouter(logger.CreateLogger<SimpleConnectionRouter>());
         _connectionRegistry = new SimpleConnectionRegistry();
         _connectionLifecycleManager = new SimpleConnectionLifecycleManager(_connectionManager, logger.CreateLogger<SimpleConnectionLifecycleManager>());
-        _loadBalancer = CreateLoadBalancer(loadBalancingStrategy, loadBalancingOptions, loggerFactory);
+        _loadBalancer = CreateLoadBalancer(loadBalancingStrategy, loadBalancingOptions, logger);
 
         _logger.LogInformation("PulseRPC 客户端已创建，初始连接数: {Count}", _initialConnections.Count);
     }

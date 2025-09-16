@@ -196,7 +196,7 @@ public sealed class ConnectionPoolFactory : IConnectionPoolFactory, IDisposable
                 MinSize = 5,
                 MaxSize = 5,
                 IdleTimeout = TimeSpan.FromMinutes(10),
-                AcquisitionTimeout = TimeSpan.FromSeconds(30),
+                AcquireTimeout = TimeSpan.FromSeconds(30),
                 ValidateOnAcquire = false,
                 WarmUp = true,
                 MaxConnectionAge = TimeSpan.FromHours(1)
@@ -208,7 +208,7 @@ public sealed class ConnectionPoolFactory : IConnectionPoolFactory, IDisposable
                 MinSize = 2,
                 MaxSize = 20,
                 IdleTimeout = TimeSpan.FromMinutes(5),
-                AcquisitionTimeout = TimeSpan.FromSeconds(30),
+                AcquireTimeout = TimeSpan.FromSeconds(30),
                 ValidateOnAcquire = true,
                 WarmUp = true,
                 MaxConnectionAge = TimeSpan.FromMinutes(30)
@@ -304,7 +304,7 @@ public sealed class ConnectionPoolFactory : IConnectionPoolFactory, IDisposable
         if (options.IdleTimeout <= TimeSpan.Zero)
             throw new ArgumentException("空闲超时时间必须大于0", nameof(options));
 
-        if (options.AcquisitionTimeout <= TimeSpan.Zero)
+        if (options.AcquireTimeout <= TimeSpan.Zero)
             throw new ArgumentException("获取超时时间必须大于0", nameof(options));
 
         if (options.MaxConnectionAge <= TimeSpan.Zero)

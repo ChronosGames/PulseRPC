@@ -1,3 +1,4 @@
+using PulseRPC.Client.Core.ConnectionPool;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client.Core;
@@ -165,6 +166,11 @@ public sealed class ClientOptions
     /// 自动清理间隔
     /// </summary>
     public TimeSpan AutoCleanupInterval { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// 自定义设置字典
+    /// </summary>
+    public Dictionary<string, string> Settings { get; set; } = new();
 }
 
 /// <summary>
