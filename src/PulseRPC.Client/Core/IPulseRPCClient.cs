@@ -3,27 +3,17 @@ using PulseRPC.Authentication;
 using PulseRPC.Client.Core;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client;
-
-public interface IPulseClient : IPulseRPCClient
-{
-
-}
+namespace PulseRPC.Client.Core;
 
 /// <summary>
-/// PulseRPC 客户端核心接口
+/// PulseRPC 客户端核心接口 - 基于 UsageExamples.cs 设计
 /// </summary>
 public interface IPulseRPCClient : IDisposable
 {
     /// <summary>
-    /// 连接注册表
+    /// 连接管理器
     /// </summary>
-    IConnectionRegistry Registry { get; }
-
-    /// <summary>
-    /// 连接生命周期管理器
-    /// </summary>
-    IConnectionLifecycleManager Lifecycle { get; }
+    IConnectionManager Connections { get; }
 
     /// <summary>
     /// 连接路由器
@@ -34,6 +24,16 @@ public interface IPulseRPCClient : IDisposable
     /// 服务发现
     /// </summary>
     IServiceDiscovery ServiceDiscovery { get; }
+
+    /// <summary>
+    /// 连接注册表
+    /// </summary>
+    IConnectionRegistry Registry { get; }
+
+    /// <summary>
+    /// 连接生命周期管理器
+    /// </summary>
+    IConnectionLifecycleManager Lifecycle { get; }
 
     /// <summary>
     /// 负载均衡器
@@ -48,109 +48,65 @@ public interface IPulseRPCClient : IDisposable
     /// <summary>
     /// 初始化客户端
     /// </summary>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>初始化任务</returns>
     Task InitializeAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 停止客户端
     /// </summary>
-    /// <param name="graceful">是否优雅停止</param>
-    /// <param name="timeout">停止超时时间</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>停止任务</returns>
     Task StopAsync(bool graceful = true, TimeSpan? timeout = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 连接到服务
     /// </summary>
-    /// <param name="descriptor">连接描述符</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>连接实例</returns>
     Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 通过服务发现连接到服务
     /// </summary>
-    /// <param name="serviceName">服务名称</param>
-    /// <param name="options">连接选项</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>连接实例</returns>
     Task<IConnection> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取服务代理（自动路由到最佳连接）
     /// </summary>
-    /// <typeparam name="T">服务接口类型</typeparam>
-    /// <param name="options">服务代理选项</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>服务代理实例</returns>
     Task<T> GetServiceAsync<T>(ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)
         where T : class, IPulseHub;
 
     /// <summary>
     /// 获取指定连接的服务代理
     /// </summary>
-    /// <typeparam name="T">服务接口类型</typeparam>
-    /// <param name="connectionId">连接ID</param>
-    /// <param name="options">服务代理选项</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>服务代理实例</returns>
     Task<T> GetServiceAsync<T>(string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)
         where T : class, IPulseHub;
 
     /// <summary>
     /// 注册事件监听器（自动路由到最佳连接）
     /// </summary>
-    /// <typeparam name="T">监听器接口类型</typeparam>
-    /// <param name="listener">监听器实例</param>
-    /// <param name="options">监听器选项</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>订阅令牌</returns>
     Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, EventListenerOptions? options = null, CancellationToken cancellationToken = default)
         where T : class, IPulseEventHandler;
 
     /// <summary>
     /// 在指定连接上注册事件监听器
     /// </summary>
-    /// <typeparam name="T">监听器接口类型</typeparam>
-    /// <param name="connectionId">连接ID</param>
-    /// <param name="listener">监听器实例</param>
-    /// <param name="options">监听器选项</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>订阅令牌</returns>
     Task<ISubscriptionToken> RegisterEventListenerAsync<T>(string connectionId, T listener, EventListenerOptions? options = null, CancellationToken cancellationToken = default)
         where T : class, IPulseEventHandler;
 
     /// <summary>
     /// 断开连接
     /// </summary>
-    /// <param name="connectionId">连接ID</param>
-    /// <param name="graceful">是否优雅断开</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>断开任务</returns>
     Task DisconnectAsync(string connectionId, bool graceful = true, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 批量断开连接
     /// </summary>
-    /// <param name="predicate">断开条件</param>
-    /// <param name="graceful">是否优雅断开</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>断开的连接数量</returns>
     Task<int> DisconnectAsync(Func<IConnection, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取客户端统计信息
     /// </summary>
-    /// <returns>统计信息</returns>
     ClientStatistics GetStatistics();
 
     /// <summary>
     /// 执行健康检查
     /// </summary>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>健康检查结果</returns>
     Task<ClientHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -160,103 +116,314 @@ public interface IPulseRPCClient : IDisposable
 }
 
 /// <summary>
-/// 客户端构建器接口
+/// 连接管理器接口 - 管理所有连接
 /// </summary>
-public interface IPulseRPCClientBuilder
+public interface IConnectionManager : IDisposable
 {
     /// <summary>
-    /// 添加连接配置
+    /// 连接到服务
     /// </summary>
-    /// <param name="descriptor">连接描述符</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder AddConnection(ConnectionDescriptor descriptor);
+    Task<IConnectionContext> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 配置服务发现
+    /// 通过描述符连接
     /// </summary>
-    /// <param name="serviceDiscovery">服务发现实例</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery);
+    Task<IConnectionContext> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 配置负载均衡策略
+    /// 断开连接
     /// </summary>
-    /// <param name="strategy">负载均衡策略</param>
-    /// <param name="options">策略选项</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder WithLoadBalancing(LoadBalancingStrategy strategy, IReadOnlyDictionary<string, object>? options = null);
+    Task DisconnectAsync(string connectionId, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 配置连接池
+    /// 批量断开连接
     /// </summary>
-    /// <param name="poolOptions">连接池选项</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder WithConnectionPooling(ConnectionPoolOptions poolOptions);
+    Task DisconnectAsync(Func<IConnectionContext, bool> predicate, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 配置重试策略
+    /// 获取连接
     /// </summary>
-    /// <param name="retryPolicy">重试策略</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder WithRetryPolicy(RetryPolicy retryPolicy);
+    IConnectionContext? GetConnection(string connectionId);
 
     /// <summary>
-    /// 配置日志
+    /// 获取所有连接
     /// </summary>
-    /// <param name="loggerFactory">日志工厂</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder WithLogging(ILoggerFactory loggerFactory);
+    IReadOnlyList<IConnectionContext> GetAllConnections();
 
     /// <summary>
-    /// 配置序列化器
+    /// 连接数量
     /// </summary>
-    /// <param name="serializer">序列化器</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder WithSerializer(IPulseSerializer serializer);
-
-    /// <summary>
-    /// 配置认证提供者
-    /// </summary>
-    /// <param name="authenticationProvider">认证提供者</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder WithAuthentication(IAuthenticationProvider authenticationProvider);
-
-    /// <summary>
-    /// 配置传输选项
-    /// </summary>
-    /// <param name="transportType">传输类型</param>
-    /// <param name="options">传输选项</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder WithTransportOptions(TransportType transportType, TransportOptions options);
-
-    /// <summary>
-    /// 配置客户端选项
-    /// </summary>
-    /// <param name="configure">配置委托</param>
-    /// <returns>构建器实例</returns>
-    IPulseRPCClientBuilder Configure(Action<ClientOptions> configure);
-
-    /// <summary>
-    /// 构建客户端
-    /// </summary>
-    /// <returns>客户端实例</returns>
-    IPulseRPCClient Build();
+    int Count { get; }
 }
 
 /// <summary>
-/// 服务连接选项
+/// 连接上下文接口 - 表示一个活跃的连接
 /// </summary>
-public sealed class ServiceConnectionOptions
+public interface IConnectionContext : IDisposable
 {
     /// <summary>
-    /// 连接策略
+    /// 连接ID
     /// </summary>
-    public ConnectionStrategy Strategy { get; set; } = ConnectionStrategy.Session;
+    string Id { get; }
 
     /// <summary>
-    /// 传输类型偏好
+    /// 连接配置
     /// </summary>
-    public TransportType? PreferredTransport { get; set; }
+    ConnectionConfig Config { get; }
+
+    /// <summary>
+    /// 连接描述符
+    /// </summary>
+    ConnectionDescriptor Descriptor { get; }
+
+    /// <summary>
+    /// 连接状态
+    /// </summary>
+    ExtendedConnectionState State { get; }
+
+    /// <summary>
+    /// 连接统计信息
+    /// </summary>
+    ConnectionStatistics Statistics { get; }
+
+    /// <summary>
+    /// 获取服务代理
+    /// </summary>
+    Task<T> GetServiceAsync<T>() where T : class, IPulseHub;
+
+    /// <summary>
+    /// 注册事件监听器
+    /// </summary>
+    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener) where T : class, IPulseEventHandler;
+
+    /// <summary>
+    /// 连接状态变化事件
+    /// </summary>
+    event EventHandler<ConnectionStateChangedEventArgs> StateChanged;
+}
+
+/// <summary>
+/// 连接接口 - 更轻量级的连接表示
+/// </summary>
+public interface IConnection : IDisposable
+{
+    /// <summary>
+    /// 连接ID
+    /// </summary>
+    string Id { get; }
+
+    /// <summary>
+    /// 连接描述符
+    /// </summary>
+    ConnectionDescriptor Descriptor { get; }
+
+    /// <summary>
+    /// 连接状态
+    /// </summary>
+    ExtendedConnectionState State { get; }
+
+    /// <summary>
+    /// 获取服务代理
+    /// </summary>
+    Task<T> GetServiceAsync<T>() where T : class, IPulseHub;
+}
+
+/// <summary>
+/// 连接路由器接口 - 智能路由功能
+/// </summary>
+public interface IConnectionRouter
+{
+    /// <summary>
+    /// 注册路由规则
+    /// </summary>
+    void RegisterRule(RoutingRule rule);
+
+    /// <summary>
+    /// 移除路由规则
+    /// </summary>
+    bool RemoveRule(string ruleId);
+
+    /// <summary>
+    /// 路由到最佳连接
+    /// </summary>
+    Task<IConnection> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取所有匹配的连接
+    /// </summary>
+    IReadOnlyList<IConnection> GetMatchingConnections(string routingKey, RoutingContext? context = null);
+}
+
+/// <summary>
+/// 服务发现接口
+/// </summary>
+public interface IServiceDiscovery : IDisposable
+{
+    /// <summary>
+    /// 发现服务实例
+    /// </summary>
+    Task<IReadOnlyList<ServiceEndpoint>> DiscoverAsync(string serviceName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 监听服务变化
+    /// </summary>
+    Task<IServiceWatcher> WatchAsync(string serviceName, Action<ServiceChangeEvent> callback, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取所有服务
+    /// </summary>
+    Task<IReadOnlyList<string>> GetServicesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 检查服务是否存在
+    /// </summary>
+    Task<bool> ExistsAsync(string serviceName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 刷新服务缓存
+    /// </summary>
+    Task RefreshAsync(string? serviceName = null, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// 服务监听器接口
+/// </summary>
+public interface IServiceWatcher : IDisposable
+{
+    /// <summary>
+    /// 停止监听
+    /// </summary>
+    Task StopAsync();
+}
+
+/// <summary>
+/// 连接注册表接口
+/// </summary>
+public interface IConnectionRegistry
+{
+    /// <summary>
+    /// 注册连接
+    /// </summary>
+    void RegisterConnection(IConnection connection);
+
+    /// <summary>
+    /// 注销连接
+    /// </summary>
+    void UnregisterConnection(string connectionId, string reason = "手动注销");
+
+    /// <summary>
+    /// 根据标签获取连接
+    /// </summary>
+    IReadOnlyList<IConnection> GetConnectionsByTags(Dictionary<string, string> tags);
+
+    /// <summary>
+    /// 获取连接
+    /// </summary>
+    IConnection? GetConnection(string connectionId);
+
+    /// <summary>
+    /// 获取所有连接
+    /// </summary>
+    IReadOnlyList<IConnection> GetAllConnections();
+
+    /// <summary>
+    /// 连接注册事件
+    /// </summary>
+    event EventHandler<ConnectionRegisteredEventArgs> ConnectionRegistered;
+
+    /// <summary>
+    /// 连接注销事件
+    /// </summary>
+    event EventHandler<ConnectionUnregisteredEventArgs> ConnectionUnregistered;
+}
+
+/// <summary>
+/// 连接生命周期管理器接口
+/// </summary>
+public interface IConnectionLifecycleManager
+{
+    /// <summary>
+    /// 执行健康检查
+    /// </summary>
+    Task<IReadOnlyList<HealthCheckResult>> PerformHealthChecksAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 清理空闲连接
+    /// </summary>
+    Task<int> CleanupIdleConnectionsAsync(TimeSpan idleTimeout, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// 负载均衡器接口
+/// </summary>
+public interface ILoadBalancer
+{
+    /// <summary>
+    /// 选择最佳连接
+    /// </summary>
+    IConnection? SelectConnection(IReadOnlyList<IConnection> connections, LoadBalancingHint hint = LoadBalancingHint.None);
+
+    /// <summary>
+    /// 负载均衡策略
+    /// </summary>
+    LoadBalancingStrategy Strategy { get; }
+}
+
+/// <summary>
+/// 路由规则
+/// </summary>
+public sealed class RoutingRule
+{
+    /// <summary>
+    /// 规则ID
+    /// </summary>
+    public string Id { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 规则名称
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 匹配条件
+    /// </summary>
+    public Func<string, RoutingContext?, bool> Matcher { get; set; } = (_, _) => false;
+
+    /// <summary>
+    /// 连接选择器
+    /// </summary>
+    public Func<IReadOnlyList<IConnection>, RoutingContext?, IConnection?> Selector { get; set; } = (connections, _) => connections.FirstOrDefault();
+
+    /// <summary>
+    /// 规则优先级（数值越大优先级越高）
+    /// </summary>
+    public int Priority { get; set; } = 0;
+
+    /// <summary>
+    /// 是否启用
+    /// </summary>
+    public bool Enabled { get; set; } = true;
+}
+
+/// <summary>
+/// 路由上下文
+/// </summary>
+public sealed class RoutingContext
+{
+    /// <summary>
+    /// 用户ID
+    /// </summary>
+    public string? UserId { get; set; }
+
+    /// <summary>
+    /// 上下文标签
+    /// </summary>
+    public Dictionary<string, string> Tags { get; set; } = new();
+
+    /// <summary>
+    /// 偏好区域
+    /// </summary>
+    public string? PreferredRegion { get; set; }
 
     /// <summary>
     /// 负载均衡提示
@@ -264,152 +431,120 @@ public sealed class ServiceConnectionOptions
     public LoadBalancingHint LoadBalancingHint { get; set; } = LoadBalancingHint.None;
 
     /// <summary>
-    /// 连接超时时间
+    /// 额外属性
     /// </summary>
-    public TimeSpan? ConnectTimeout { get; set; }
-
-    /// <summary>
-    /// 是否启用自动重连
-    /// </summary>
-    public bool? AutoReconnect { get; set; }
-
-    /// <summary>
-    /// 连接标签
-    /// </summary>
-    public IReadOnlyDictionary<string, string> Tags { get; set; } = new Dictionary<string, string>();
-
-    /// <summary>
-    /// 扩展属性
-    /// </summary>
-    public IReadOnlyDictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
+    public Dictionary<string, object> Properties { get; set; } = new();
 }
 
 /// <summary>
-/// 客户端选项
+/// 服务端点
 /// </summary>
-public sealed class ClientOptions
+public sealed class ServiceEndpoint
 {
     /// <summary>
-    /// 客户端名称
+    /// 服务名称
     /// </summary>
-    public string? Name { get; set; }
+    public string ServiceName { get; set; } = string.Empty;
 
     /// <summary>
-    /// 默认超时时间
+    /// 端点地址
     /// </summary>
-    public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    public EndpointAddress Address { get; set; } = new();
 
     /// <summary>
-    /// 最大并发连接数
+    /// 传输类型
     /// </summary>
-    public int MaxConcurrentConnections { get; set; } = 100;
+    public TransportType Transport { get; set; } = TransportType.Tcp;
 
     /// <summary>
-    /// 连接清理间隔
+    /// 权重
     /// </summary>
-    public TimeSpan CleanupInterval { get; set; } = TimeSpan.FromMinutes(5);
+    public int Weight { get; set; } = 1;
 
     /// <summary>
-    /// 健康检查间隔
+    /// 标签
     /// </summary>
-    public TimeSpan HealthCheckInterval { get; set; } = TimeSpan.FromMinutes(1);
+    public Dictionary<string, string> Tags { get; set; } = new();
 
     /// <summary>
-    /// 是否启用统计信息收集
+    /// 健康状态
     /// </summary>
-    public bool EnableStatistics { get; set; } = true;
-
-    /// <summary>
-    /// 是否启用性能监控
-    /// </summary>
-    public bool EnablePerformanceMonitoring { get; set; } = false;
-
-    /// <summary>
-    /// 默认重试策略
-    /// </summary>
-    public RetryPolicy? DefaultRetryPolicy { get; set; }
-
-    /// <summary>
-    /// 扩展属性
-    /// </summary>
-    public IReadOnlyDictionary<string, object> Properties { get; set; } = new Dictionary<string, object>();
+    public bool IsHealthy { get; set; } = true;
 }
 
 /// <summary>
-/// 客户端状态
+/// 服务变化事件
 /// </summary>
-public enum ClientState
+public sealed class ServiceChangeEvent
 {
     /// <summary>
-    /// 未初始化
+    /// 服务名称
     /// </summary>
-    Uninitialized,
+    public string ServiceName { get; set; } = string.Empty;
 
     /// <summary>
-    /// 初始化中
+    /// 变化类型
     /// </summary>
-    Initializing,
+    public ServiceChangeType ChangeType { get; set; }
 
     /// <summary>
-    /// 运行中
+    /// 变化的端点
     /// </summary>
-    Running,
-
-    /// <summary>
-    /// 正在停止
-    /// </summary>
-    Stopping,
-
-    /// <summary>
-    /// 已停止
-    /// </summary>
-    Stopped,
-
-    /// <summary>
-    /// 错误状态
-    /// </summary>
-    Error
+    public ServiceEndpoint? Endpoint { get; set; }
 }
 
 /// <summary>
-/// 客户端统计信息
+/// 服务变化类型
 /// </summary>
-public sealed class ClientStatistics
+public enum ServiceChangeType
+{
+    EndpointAdded,
+    EndpointRemoved,
+    EndpointUpdated,
+    ServiceRemoved
+}
+
+/// <summary>
+/// 连接注册事件参数
+/// </summary>
+public sealed class ConnectionRegisteredEventArgs : EventArgs
+{
+    public IConnection Connection { get; set; } = null!;
+}
+
+/// <summary>
+/// 连接注销事件参数
+/// </summary>
+public sealed class ConnectionUnregisteredEventArgs : EventArgs
+{
+    public string ConnectionId { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// 连接统计信息
+/// </summary>
+public sealed class ConnectionStatistics
 {
     /// <summary>
-    /// 客户端名称
+    /// 连接ID
     /// </summary>
-    public string? ClientName { get; set; }
+    public string ConnectionId { get; set; } = string.Empty;
 
     /// <summary>
-    /// 启动时间
+    /// 创建时间
     /// </summary>
-    public DateTime StartTime { get; set; }
+    public DateTime CreatedAt { get; set; }
 
     /// <summary>
-    /// 运行时间
+    /// 连接时间
     /// </summary>
-    public TimeSpan Uptime { get; set; }
+    public DateTime? ConnectedAt { get; set; }
 
     /// <summary>
-    /// 总连接数
+    /// 最后活跃时间
     /// </summary>
-    public int TotalConnections { get; set; }
-
-    /// <summary>
-    /// 活跃连接数
-    /// </summary>
-    public int ActiveConnections { get; set; }
-
-    /// <summary>
-    /// 空闲连接数
-    /// </summary>
-    public int IdleConnections { get; set; }
-
-    /// <summary>
-    /// 失败连接数
-    /// </summary>
-    public int FailedConnections { get; set; }
+    public DateTime LastActiveAt { get; set; }
 
     /// <summary>
     /// 总请求数
@@ -427,45 +562,35 @@ public sealed class ClientStatistics
     public long FailedRequests { get; set; }
 
     /// <summary>
-    /// 平均响应时间（毫秒）
-    /// </summary>
-    public double AverageResponseTimeMs { get; set; }
-
-    /// <summary>
-    /// 发送的字节数
+    /// 发送字节数
     /// </summary>
     public long BytesSent { get; set; }
 
     /// <summary>
-    /// 接收的字节数
+    /// 接收字节数
     /// </summary>
     public long BytesReceived { get; set; }
 
     /// <summary>
-    /// 统计时间
+    /// 平均响应时间（毫秒）
     /// </summary>
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
+    public double AverageResponseTimeMs { get; set; }
 }
 
 /// <summary>
-/// 客户端健康检查结果
+/// 健康检查结果
 /// </summary>
-public sealed class ClientHealthCheckResult
+public sealed class HealthCheckResult
 {
     /// <summary>
-    /// 整体健康状态
+    /// 连接ID
     /// </summary>
-    public ConnectionHealth OverallHealth { get; set; }
+    public string ConnectionId { get; set; } = string.Empty;
 
     /// <summary>
-    /// 连接健康检查结果
+    /// 健康状态
     /// </summary>
-    public IReadOnlyList<HealthCheckResult> ConnectionResults { get; set; } = Array.Empty<HealthCheckResult>();
-
-    /// <summary>
-    /// 服务发现健康状态
-    /// </summary>
-    public ConnectionHealth ServiceDiscoveryHealth { get; set; } = ConnectionHealth.Unknown;
+    public ConnectionHealth Health { get; set; } = ConnectionHealth.Unknown;
 
     /// <summary>
     /// 检查时间
@@ -473,85 +598,89 @@ public sealed class ClientHealthCheckResult
     public DateTime CheckedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// 总检查时间
+    /// 响应时间
     /// </summary>
-    public TimeSpan TotalCheckTime { get; set; }
+    public TimeSpan ResponseTime { get; set; }
 
     /// <summary>
-    /// 详细信息
+    /// 消息
     /// </summary>
-    public string? Details { get; set; }
-}
+    public string? Message { get; set; }
 
-/// <summary>
-/// 客户端状态变化事件参数
-/// </summary>
-public sealed class ClientStateChangedEventArgs : EventArgs
-{
-    public ClientState PreviousState { get; set; }
-    public ClientState CurrentState { get; set; }
+    /// <summary>
+    /// 异常信息
+    /// </summary>
     public Exception? Exception { get; set; }
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>
-/// 重试策略
+/// 连接健康状态
 /// </summary>
-public sealed record RetryPolicy
+public enum ConnectionHealth
 {
-    /// <summary>
-    /// 最大重试次数
-    /// </summary>
-    public int MaxRetries { get; set; } = 3;
-
-    /// <summary>
-    /// 基础延迟时间
-    /// </summary>
-    public TimeSpan BaseDelay { get; set; } = TimeSpan.FromMilliseconds(100);
-
-    /// <summary>
-    /// 最大延迟时间
-    /// </summary>
-    public TimeSpan MaxDelay { get; set; } = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// 退避算法
-    /// </summary>
-    public BackoffStrategy BackoffStrategy { get; set; } = BackoffStrategy.Exponential;
-
-    /// <summary>
-    /// 抖动因子（0-1，用于避免惊群效应）
-    /// </summary>
-    public double JitterFactor { get; set; } = 0.1;
-
-    /// <summary>
-    /// 可重试的异常类型
-    /// </summary>
-    public ISet<Type> RetriableExceptions { get; set; } = new HashSet<Type>();
-
-    /// <summary>
-    /// 重试条件判断
-    /// </summary>
-    public Func<Exception, bool>? ShouldRetry { get; set; }
+    Unknown,
+    Healthy,
+    Degraded,
+    Unhealthy
 }
 
 /// <summary>
-/// 退避策略
+/// PulseRPC 客户端构建器接口
 /// </summary>
-public enum BackoffStrategy
+public interface IPulseRPCClientBuilder
 {
     /// <summary>
-    /// 固定延迟
+    /// 添加连接配置
     /// </summary>
-    Fixed,
+    IPulseRPCClientBuilder AddConnection(ConnectionDescriptor descriptor);
 
     /// <summary>
-    /// 线性增长
+    /// 配置服务发现
     /// </summary>
-    Linear,
+    IPulseRPCClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery);
 
     /// <summary>
-    /// 指数增长
+    /// 配置负载均衡策略
     /// </summary>
-    Exponential
+    IPulseRPCClientBuilder WithLoadBalancing(LoadBalancingStrategy strategy, IReadOnlyDictionary<string, object>? options = null);
+
+    /// <summary>
+    /// 配置连接池
+    /// </summary>
+    IPulseRPCClientBuilder WithConnectionPooling(ConnectionPoolOptions poolOptions);
+
+    /// <summary>
+    /// 配置重试策略
+    /// </summary>
+    IPulseRPCClientBuilder WithRetryPolicy(RetryPolicy retryPolicy);
+
+    /// <summary>
+    /// 配置日志
+    /// </summary>
+    IPulseRPCClientBuilder WithLogging(ILoggerFactory loggerFactory);
+
+    /// <summary>
+    /// 配置序列化器
+    /// </summary>
+    IPulseRPCClientBuilder WithSerializer(IPulseSerializer serializer);
+
+    /// <summary>
+    /// 配置认证提供者
+    /// </summary>
+    IPulseRPCClientBuilder WithAuthentication(IAuthenticationProvider authenticationProvider);
+
+    /// <summary>
+    /// 配置传输选项
+    /// </summary>
+    IPulseRPCClientBuilder WithTransportOptions(TransportType transportType, TransportOptions options);
+
+    /// <summary>
+    /// 配置客户端选项
+    /// </summary>
+    IPulseRPCClientBuilder Configure(Action<ClientOptions> configure);
+
+    /// <summary>
+    /// 构建客户端
+    /// </summary>
+    IPulseRPCClient Build();
 }

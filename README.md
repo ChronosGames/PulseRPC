@@ -5,30 +5,42 @@
 [![.NET](https://img.shields.io/badge/.NET-9.0-512BD4.svg)](https://dotnet.microsoft.com/download/dotnet/9.0)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/pulseRPC/PulseRPC)
 
-基于现代 .NET 平台的高性能 RPC 框架，支持 TCP 和 KCP 传输协议，专为 Unity 和服务端应用设计。
+基于现代 .NET 平台的企业级高性能 RPC 框架，支持 TCP 和 KCP 传输协议，专为 Unity 游戏和微服务架构设计。
 
-## 🚀 特性
-
-### 核心功能
-- **高性能传输**：支持 TCP 和 KCP 协议
-- **跨平台支持**：兼容 .NET 9+ 和 Unity 2022.3+  
-- **现代序列化**：基于 MemoryPack 的高效序列化
-- **完整的基准测试**：内置性能测试和监控框架
-- **易于集成**：简洁的 API 设计和依赖注入支持
-- **生产就绪**：完整的错误处理、重连机制和监控
+## 🚀 核心特性
 
 ### 🧠 智能连接管理
-- **按需连接**：根据需要自动创建和管理连接
-- **智能路由**：支持轮询、一致性哈希、最少连接等多种负载均衡策略
-- **多实例管理**：同一服务的多个实例连接和管理
-- **广播与聚合**：跨多个服务实例的批量操作
-- **自动回收**：空闲连接的智能清理和资源管理
+- **企业级架构**：支持复杂的微服务和游戏服务器场景
+- **自动连接管理**：智能的连接生命周期管理，支持持久、会话和临时连接策略
+- **动态服务发现**：支持 Consul、Etcd、Kubernetes 等主流服务发现方案
+- **智能负载均衡**：轮询、最少连接、一致性哈希、加权轮询等多种策略
+- **故障转移**：自动故障检测、健康检查和实例切换
+- **连接池管理**：动态连接池，支持预热、扩容、缩容和空闲回收
 
-### 🔧 基础设施
-- **服务发现**：支持静态配置、Consul、Etcd、Kubernetes等多种服务发现方式
-- **故障转移**：自动故障检测和实例切换
-- **认证集成**：内置的认证令牌管理
-- **代码生成**：基于 Source Generator 的客户端代码自动生成
+### 🔧 高级连接功能
+- **多传输协议**：TCP（可靠）+ KCP（低延迟），根据场景自动选择
+- **路由规则引擎**：基于标签、区域、用户类型的智能请求分发
+- **实时监控**：连接状态、性能指标、健康状况的实时监控和报告
+- **批量操作**：支持连接的批量管理、广播消息和聚合查询
+- **事件驱动**：完整的连接生命周期事件和服务发现变化通知
+
+### 🎮 游戏场景优化
+- **战斗服连接**：KCP 低延迟连接，支持自动清理和战斗结束断开
+- **地图服切换**：无缝的地图服务器切换，先连后断避免数据丢失
+- **副本服管理**：临时副本连接管理，支持副本结束自动清理
+- **核心服务**：登录、聊天等核心服务的持久连接管理
+
+### 🏢 企业级可靠性
+- **重试策略**：指数退避、抖动、自定义重试条件
+- **熔断机制**：服务降级和快速失败保护
+- **统计监控**：详细的性能统计、错误分析和趋势报告
+- **优雅关闭**：支持优雅的服务停止和连接清理
+
+### 🛠️ 开发者友好
+- **声明式配置**：流畅的 Builder 模式配置 API
+- **代码生成**：基于 Source Generator 的零反射客户端代理
+- **类型安全**：完整的泛型和强类型支持
+- **现代 C#**：async/await、nullable、records 等现代语言特性
 
 ## 📦 项目结构
 
@@ -163,81 +175,244 @@ dotnet build
 dotnet test
 ```
 
-### 智能连接管理示例
+## 🚀 快速开始
+
+### 1. 企业级应用示例
 
 ```csharp
-// 创建智能客户端
-var smartClient = PulseRpcClientFactory.CreateSmartClient();
-
-// 获取服务代理（自动连接管理）
-var chatService = await smartClient.GetServiceAsync<IChatHub>();
-await chatService.SendMessageAsync("Hello, PulseRPC!");
-
-// 多实例管理和广播
-var chatManager = await smartClient.GetMultiInstanceServiceAsync<IChatHub>("ChatService");
-
-// 广播到所有实例
-var broadcastResult = await chatManager.BroadcastAsync(async chat =>
-    await chat.SendGlobalAnnouncementAsync("全服公告"));
-
-// 聚合查询
-var totalUsers = await chatManager.AggregateAsync(
-    async chat => await chat.GetOnlineUserCountAsync(),
-    results => results.Sum());
-```
-
-### 服务发现配置
-
-```csharp
-var smartClient = PulseRpcClientFactory.CreateSmartBuilder()
-    .WithServiceDiscovery(config =>
+// 构建企业级客户端 - 声明式配置
+var client = new PulseRPCClientBuilder()
+    // 核心服务连接（持久连接）
+    .AddConnection(new ConnectionDescriptor
     {
-        config.Type = ServiceDiscoveryType.Static;
-        config.StaticEndpoints["ChatService"] = new ConnectionEndpoint
-        {
-            Host = "localhost",
-            Port = 8000,
-            Transport = TransportType.Tcp
-        };
+        Id = "auth-service-primary",
+        Name = "auth-service",
+        ServiceName = "authentication-service",
+        Transport = TransportType.Tcp,
+        Strategy = ConnectionStrategy.Persistent,
+        AutoReconnect = true,
+        Tags = new Dictionary<string, string> { ["type"] = "core", ["service"] = "auth" }
     })
-    .WithServiceRouting<IChatHub>(config =>
+    .AddConnection(new ConnectionDescriptor
     {
-        config.DefaultStrategy = ServiceRoutingStrategy.RoundRobin;
-        config.Failover.EnableFailover = true;
-        config.HealthCheck.Enabled = true;
+        Id = "user-service-primary",
+        Name = "user-service",
+        ServiceName = "user-management-service",
+        Transport = TransportType.Tcp,
+        Strategy = ConnectionStrategy.Persistent,
+        AutoReconnect = true,
+        Tags = new Dictionary<string, string> { ["type"] = "core", ["service"] = "user" }
+    })
+    // 配置服务发现
+    .WithServiceDiscovery(new ConsulServiceDiscovery("http://consul.company.com:8500"))
+    .WithLoadBalancing(LoadBalancingStrategy.WeightedRoundRobin)
+    .WithConnectionPooling(new ConnectionPoolOptions
+    {
+        Strategy = PoolingStrategy.Dynamic,
+        MinSize = 2,
+        MaxSize = 20,
+        IdleTimeout = TimeSpan.FromMinutes(10)
+    })
+    .WithRetryPolicy(new RetryPolicy
+    {
+        MaxRetries = 3,
+        BaseDelay = TimeSpan.FromMilliseconds(100),
+        BackoffStrategy = BackoffStrategy.Exponential
+    })
+    .Configure(options =>
+    {
+        options.DefaultTimeout = TimeSpan.FromSeconds(30);
+        options.MaxConcurrentConnections = 100;
+        options.EnableStatistics = true;
     })
     .Build();
+
+// 初始化客户端
+await client.InitializeAsync();
+
+// 获取认证服务（自动路由到最佳连接）
+var authService = await client.GetServiceAsync<IAuthenticationService>();
+var loginResult = await authService.LoginAsync("user@company.com", "password");
+
+// 获取用户服务
+var userService = await client.GetServiceAsync<IUserService>();
+var userProfile = await userService.GetUserProfileAsync(loginResult.UserId);
+
+// 停止客户端
+await client.StopAsync();
+```
+
+### 2. 微服务架构示例
+
+```csharp
+var client = new PulseRPCClientBuilder()
+    .WithServiceDiscovery(new KubernetesServiceDiscovery())
+    .WithLoadBalancing(LoadBalancingStrategy.LeastConnections)
+    .Build();
+
+await client.InitializeAsync();
+
+// 动态连接到订单服务
+var orderConnection = await client.ConnectToServiceAsync("order-service", new ServiceConnectionOptions
+{
+    Strategy = ConnectionStrategy.Session,
+    PreferredTransport = TransportType.Tcp,
+    LoadBalancingHint = LoadBalancingHint.LeastConnections,
+    Tags = new Dictionary<string, string> { ["region"] = "us-west-2" }
+});
+
+var orderService = await orderConnection.GetServiceAsync<IOrderService>();
+var orders = await orderService.GetOrdersAsync(customerId: "123");
+
+// 断开特定服务连接
+await client.DisconnectAsync(orderConnection.Id);
+```
+
+### 3. 游戏客户端示例
+
+```csharp
+var gameClient = new PulseRPCClientBuilder()
+    .AddGameServerSet("production")
+    .AddDevelopmentServers("localhost", 8000)
+    .WithBattleOptimizations()
+    .WithConnectionPooling(maxConnections: 50)
+    .Build();
+
+await gameClient.InitializeAsync();
+
+// 连接到核心游戏服务
+var loginConnection = await gameClient.ConnectToCoreServerAsync("login-service");
+var loginService = await loginConnection.GetServiceAsync<ILoginService>();
+
+// 连接到战斗服（低延迟 KCP）
+var battleConnection = await gameClient.ConnectToBattleServerAsync("battle-123", "battle1.game.com", 9001);
+var battleService = await battleConnection.GetServiceAsync<IBattleService>();
+
+// 地图切换
+var newMapConnection = await gameClient.SwitchMapAsync("map-001", "map-002");
+
+// 使用临时连接执行任务
+await gameClient.WithTemporaryConnectionAsync(
+    new ConnectionConfig { Name = "temp-task", Host = "task.server.com", Port = 8080 },
+    async connection =>
+    {
+        var taskService = await connection.GetServiceAsync<ITaskService>();
+        await taskService.CompleteTaskAsync("daily-login");
+    });
+
+// 离开战斗
+await gameClient.LeaveBattleAsync("battle-123");
+```
+
+### 4. 高并发连接池示例
+
+```csharp
+var poolFactory = new ConnectionPoolFactory();
+
+// 创建数据库连接池
+var dbPool = poolFactory.CreatePool(
+    "database-pool",
+    new ConnectionDescriptor
+    {
+        Id = "db-connection-template",
+        Name = "database",
+        ServiceName = "database-service",
+        Transport = TransportType.Tcp,
+        Strategy = ConnectionStrategy.Pooled
+    },
+    new ConnectionPoolOptions
+    {
+        Strategy = PoolingStrategy.FixedSize,
+        MinSize = 10,
+        MaxSize = 50,
+        ValidateOnAcquire = true,
+        ValidateWhileIdle = true
+    });
+
+await dbPool.InitializeAsync();
+
+// 使用连接池
+using (var lease = await dbPool.AcquireAsync(timeout: TimeSpan.FromSeconds(5)))
+{
+    var dbService = await lease.Connection.GetServiceAsync<IDatabaseService>();
+    var result = await dbService.ExecuteQueryAsync("SELECT * FROM users");
+    // 连接自动归还到池中
+}
+
+// 监控连接池状态
+var stats = dbPool.GetStatistics();
+Console.WriteLine($"Pool: {stats.ActiveConnections}/{stats.CurrentSize} connections");
+```
+
+### 5. 智能路由和负载均衡
+
+```csharp
+var client = new PulseRPCClientBuilder()
+    .WithLoadBalancing(LoadBalancingStrategy.ConsistentHash)
+    .Build();
+
+await client.InitializeAsync();
+
+// 注册路由规则
+client.Router.RegisterRule(new RoutingRule
+{
+    Id = "admin-rule",
+    Name = "Route admin requests to dedicated servers",
+    Matcher = (routingKey, context) => context?.Tags.GetValueOrDefault("user_type") == "admin",
+    Selector = (connections, context) =>
+        connections.FirstOrDefault(c => c.Descriptor.Tags.GetValueOrDefault("tier") == "premium"),
+    Priority = 100
+});
+
+client.Router.RegisterRule(new RoutingRule
+{
+    Id = "region-rule",
+    Name = "Route by user region",
+    Matcher = (routingKey, context) => !string.IsNullOrEmpty(context?.PreferredRegion),
+    Selector = (connections, context) =>
+        connections.FirstOrDefault(c => c.Descriptor.Tags.GetValueOrDefault("region") == context?.PreferredRegion),
+    Priority = 50
+});
+
+// 使用路由上下文
+var routingContext = new RoutingContext
+{
+    UserId = "user123",
+    Tags = new Dictionary<string, string> { ["user_type"] = "admin" },
+    PreferredRegion = "us-east-1",
+    LoadBalancingHint = LoadBalancingHint.ConsistentHash
+};
+
+var connection = await client.Router.RouteAsync("api-service", routingContext);
+var apiService = await connection.GetServiceAsync<IApiService>();
 ```
 
 ## 📖 详细文档
 
 ### 核心文档
-- [配置参考](Configuration.md) - 完整的配置选项和示例
-- [最佳实践](BestPractices.md) - 生产环境使用指南
 - [开发指南](guide/getting-started.md) - 快速入门和基础概念
 - [变更日志](CHANGELOG.md) - 版本更新历史
 
 ### 高级功能
 - [Unity 集成指南](Unity-SourceGenerator-Integration.md) - Unity 客户端集成详解
 - [传输架构](transport-architecture.md) - 传输层设计和协议支持
-- [序列化优化](serialization-fix.md) - MemoryPack 序列化优化
+- [Source Generator 集成](docs/PulseRPC-Server-DI-Interface-Design.md) - 代码生成器使用指南
 
 ### 参考文档
-- [架构设计](transport-refactor-proposal.md) - 系统架构和设计理念
-- [性能优化](minimal-design-improvements.md) - 性能调优建议
+- [性能优化总结](docs/热路径优化总结.md) - 性能调优建议
 - [路线图](ROADMAP.md) - 功能规划和发展方向
 
 ## 🧪 示例项目
 
 项目包含了丰富的示例代码：
 
-- **[ChatApp](../samples/ChatApp/)** - 完整的实时聊天应用示例，展示智能连接管理
-- **[JwtAuthentication](../samples/JwtAuthentication/)** - JWT 身份验证集成示例
-- **[JsonTranscoding](../samples/JsonTranscoding/)** - JSON 协议转码示例
+- **[ChatApp](samples/ChatApp/)** - 完整的实时聊天应用示例
+- **[JwtAuthentication](samples/JwtAuthentication/)** - JWT 身份验证集成示例
+- **[JsonTranscoding](samples/JsonTranscoding/)** - JSON 协议转码示例
 
 ### Unity 示例
-- **[ChatApp.Unity](../samples/ChatApp/ChatApp.Unity/)** - Unity 聊天客户端
-- **[PulseRPC.Client.Unity](../src/PulseRPC.Client.Unity/)** - Unity 集成包
+- **[ChatApp.Unity](samples/ChatApp/ChatApp.Unity/)** - Unity 聊天客户端
+- **[PulseRPC.Client.Unity](src/PulseRPC.Client.Unity/)** - Unity 集成包
 
 ## 📊 性能特性
 
@@ -293,6 +468,7 @@ dotnet build -c Release
 - 使用 PublicAPI.Shipped.txt 和 PublicAPI.Unshipped.txt 进行 API 兼容性管理
 - 遵循异步编程模式，使用 CancellationToken
 - 客户端实现避免使用反射，通过 Source Generator 进行代码生成
+- 传输层支持自动重连和连接状态监控
 
 ## 🤝 贡献指南
 

@@ -1,101 +1,136 @@
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Authentication;
 using PulseRPC.Client.Core;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Redesign;
+namespace PulseRPC.Client.Core;
 
 /// <summary>
-/// 重新设计的客户端构建器
+/// PulseRPC 客户端构建器 - 基于 UsageExamples.cs 设计
 /// </summary>
-public class PulseRPCClientBuilder
+public sealed class PulseRPCClientBuilder : IPulseRPCClientBuilder
 {
-    private readonly List<ConnectionConfig> _initialConnections = new();
+    private readonly List<ConnectionDescriptor> _connections = new();
     private IServiceDiscovery? _serviceDiscovery;
     private ILoggerFactory? _loggerFactory;
-    private readonly Dictionary<string, object> _settings = new();
+    private IPulseSerializer? _serializer;
+    private IAuthenticationProvider? _authenticationProvider;
+    private LoadBalancingStrategy _loadBalancingStrategy = LoadBalancingStrategy.RoundRobin;
+    private readonly Dictionary<string, object> _loadBalancingOptions = new();
+    private ConnectionPoolOptions? _connectionPoolOptions;
+    private RetryPolicy? _retryPolicy;
+    private readonly Dictionary<TransportType, TransportOptions> _transportOptions = new();
+    private readonly ClientOptions _clientOptions = new();
 
     /// <summary>
-    /// 添加初始连接配置
+    /// 添加连接配置
     /// </summary>
-    public PulseRPCClientBuilder AddConnection(ConnectionConfig config)
+    public IPulseRPCClientBuilder AddConnection(ConnectionDescriptor descriptor)
     {
-        _initialConnections.Add(config);
+        if (descriptor == null)
+            throw new ArgumentNullException(nameof(descriptor));
+
+        var validation = descriptor.Validate();
+        if (!validation.IsValid)
+            throw new ArgumentException($"连接描述符无效: {validation.GetErrorString()}", nameof(descriptor));
+
+        _connections.Add(descriptor);
         return this;
-    }
-
-    /// <summary>
-    /// 添加核心服务连接
-    /// </summary>
-    public PulseRPCClientBuilder AddCoreService(
-        string serviceName,
-        TransportType transport = TransportType.Tcp,
-        TransportOptions? options = null)
-    {
-        var config = new ConnectionConfig
-        {
-            Name = $"core-{serviceName}",
-            ServiceName = serviceName,
-            Transport = transport,
-            Options = options,
-            Lifetime = ConnectionLifetime.Persistent,
-            AutoReconnect = true,
-            Tags = { ["type"] = "core", ["service"] = serviceName }
-        };
-
-        return AddConnection(config);
-    }
-
-    /// <summary>
-    /// 添加直连服务器
-    /// </summary>
-    public PulseRPCClientBuilder AddDirectConnection(
-        string name,
-        string host,
-        int port,
-        TransportType transport = TransportType.Tcp,
-        ConnectionLifetime lifetime = ConnectionLifetime.Persistent,
-        TransportOptions? options = null)
-    {
-        var config = new ConnectionConfig
-        {
-            Name = name,
-            Host = host,
-            Port = port,
-            Transport = transport,
-            Options = options,
-            Lifetime = lifetime,
-            AutoReconnect = lifetime != ConnectionLifetime.Transient,
-            Tags = { ["type"] = "direct" }
-        };
-
-        return AddConnection(config);
     }
 
     /// <summary>
     /// 配置服务发现
     /// </summary>
-    public PulseRPCClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery)
+    public IPulseRPCClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery)
     {
-        _serviceDiscovery = serviceDiscovery;
+        _serviceDiscovery = serviceDiscovery ?? throw new ArgumentNullException(nameof(serviceDiscovery));
         return this;
     }
 
     /// <summary>
-    /// 配置日志工厂
+    /// 配置负载均衡策略
     /// </summary>
-    public PulseRPCClientBuilder WithLogging(ILoggerFactory loggerFactory)
+    public IPulseRPCClientBuilder WithLoadBalancing(LoadBalancingStrategy strategy, IReadOnlyDictionary<string, object>? options = null)
     {
-        _loggerFactory = loggerFactory;
+        _loadBalancingStrategy = strategy;
+
+        if (options != null)
+        {
+            foreach (var kvp in options)
+            {
+                _loadBalancingOptions[kvp.Key] = kvp.Value;
+            }
+        }
+
         return this;
     }
 
     /// <summary>
-    /// 配置设置
+    /// 配置连接池
     /// </summary>
-    public PulseRPCClientBuilder WithSetting<T>(string key, T value)
+    public IPulseRPCClientBuilder WithConnectionPooling(ConnectionPoolOptions poolOptions)
     {
-        _settings[key] = value ?? throw new ArgumentNullException(nameof(value));
+        _connectionPoolOptions = poolOptions ?? throw new ArgumentNullException(nameof(poolOptions));
+        return this;
+    }
+
+    /// <summary>
+    /// 配置重试策略
+    /// </summary>
+    public IPulseRPCClientBuilder WithRetryPolicy(RetryPolicy retryPolicy)
+    {
+        _retryPolicy = retryPolicy ?? throw new ArgumentNullException(nameof(retryPolicy));
+        return this;
+    }
+
+    /// <summary>
+    /// 配置日志
+    /// </summary>
+    public IPulseRPCClientBuilder WithLogging(ILoggerFactory loggerFactory)
+    {
+        _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+        return this;
+    }
+
+    /// <summary>
+    /// 配置序列化器
+    /// </summary>
+    public IPulseRPCClientBuilder WithSerializer(IPulseSerializer serializer)
+    {
+        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        return this;
+    }
+
+    /// <summary>
+    /// 配置认证提供者
+    /// </summary>
+    public IPulseRPCClientBuilder WithAuthentication(IAuthenticationProvider authenticationProvider)
+    {
+        _authenticationProvider = authenticationProvider ?? throw new ArgumentNullException(nameof(authenticationProvider));
+        return this;
+    }
+
+    /// <summary>
+    /// 配置传输选项
+    /// </summary>
+    public IPulseRPCClientBuilder WithTransportOptions(TransportType transportType, TransportOptions options)
+    {
+        if (options == null)
+            throw new ArgumentNullException(nameof(options));
+
+        _transportOptions[transportType] = options;
+        return this;
+    }
+
+    /// <summary>
+    /// 配置客户端选项
+    /// </summary>
+    public IPulseRPCClientBuilder Configure(Action<ClientOptions> configure)
+    {
+        if (configure == null)
+            throw new ArgumentNullException(nameof(configure));
+
+        configure(_clientOptions);
         return this;
     }
 
@@ -104,8 +139,122 @@ public class PulseRPCClientBuilder
     /// </summary>
     public IPulseRPCClient Build()
     {
-        return new PulseRPCClient(_initialConnections, _serviceDiscovery, _loggerFactory, _settings);
+        // 验证配置
+        ValidateConfiguration();
+
+        // 应用传输选项到连接描述符
+        ApplyTransportOptionsToConnections();
+
+        return new PulseRPCClient(
+            connections: _connections,
+            serviceDiscovery: _serviceDiscovery,
+            loggerFactory: _loggerFactory,
+            serializer: _serializer,
+            authenticationProvider: _authenticationProvider,
+            loadBalancingStrategy: _loadBalancingStrategy,
+            loadBalancingOptions: _loadBalancingOptions,
+            connectionPoolOptions: _connectionPoolOptions,
+            retryPolicy: _retryPolicy,
+            clientOptions: _clientOptions);
     }
+
+    /// <summary>
+    /// 验证构建器配置
+    /// </summary>
+    private void ValidateConfiguration()
+    {
+        if (_connections.Count == 0 && _serviceDiscovery == null)
+        {
+            throw new InvalidOperationException("必须至少添加一个连接或配置服务发现");
+        }
+
+        // 验证所有连接描述符
+        foreach (var connection in _connections)
+        {
+            var validation = connection.Validate();
+            if (!validation.IsValid)
+            {
+                throw new InvalidOperationException($"连接 {connection.Id} 配置无效: {validation.GetErrorString()}");
+            }
+        }
+
+        // 验证客户端选项
+        if (_clientOptions.DefaultTimeout <= TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("默认超时时间必须大于 0");
+        }
+
+        if (_clientOptions.MaxConcurrentConnections <= 0)
+        {
+            throw new InvalidOperationException("最大并发连接数必须大于 0");
+        }
+    }
+
+    /// <summary>
+    /// 将传输选项应用到连接描述符
+    /// </summary>
+    private void ApplyTransportOptionsToConnections()
+    {
+        foreach (var connection in _connections)
+        {
+            if (connection.TransportOptions == null && _transportOptions.TryGetValue(connection.Transport, out var options))
+            {
+                connection.TransportOptions = options;
+            }
+        }
+    }
+
+    #region 便捷方法
+
+    /// <summary>
+    /// 添加 TCP 连接
+    /// </summary>
+    public PulseRPCClientBuilder AddTcpConnection(
+        string id,
+        string name,
+        string host,
+        int port,
+        ConnectionStrategy strategy = ConnectionStrategy.Session,
+        Dictionary<string, string>? tags = null)
+    {
+        var descriptor = ConnectionDescriptor.CreateTcp(id, name, host, port, strategy, tags);
+        AddConnection(descriptor);
+        return this;
+    }
+
+    /// <summary>
+    /// 添加 KCP 连接
+    /// </summary>
+    public PulseRPCClientBuilder AddKcpConnection(
+        string id,
+        string name,
+        string host,
+        int port,
+        ConnectionStrategy strategy = ConnectionStrategy.Session,
+        Dictionary<string, string>? tags = null)
+    {
+        var descriptor = ConnectionDescriptor.CreateKcp(id, name, host, port, strategy, tags);
+        AddConnection(descriptor);
+        return this;
+    }
+
+    /// <summary>
+    /// 添加服务发现连接
+    /// </summary>
+    public PulseRPCClientBuilder AddServiceConnection(
+        string id,
+        string name,
+        string serviceName,
+        TransportType transport = TransportType.Tcp,
+        ConnectionStrategy strategy = ConnectionStrategy.Session,
+        Dictionary<string, string>? tags = null)
+    {
+        var descriptor = ConnectionDescriptor.CreateService(id, name, serviceName, transport, strategy, tags);
+        AddConnection(descriptor);
+        return this;
+    }
+
+    #endregion
 }
 
 /// <summary>
