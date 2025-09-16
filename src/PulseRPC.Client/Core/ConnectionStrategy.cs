@@ -108,7 +108,27 @@ public enum LoadBalancingHint
     /// <summary>
     /// 偏好高性能实例
     /// </summary>
-    HighPerformance
+    HighPerformance,
+
+    /// <summary>
+    /// 偏好本地连接
+    /// </summary>
+    PreferLocal,
+
+    /// <summary>
+    /// 偏好快速响应
+    /// </summary>
+    PreferFast,
+
+    /// <summary>
+    /// 粘性连接（会话亲和性）
+    /// </summary>
+    Sticky,
+
+    /// <summary>
+    /// 均匀分布
+    /// </summary>
+    Distribute
 }
 
 /// <summary>

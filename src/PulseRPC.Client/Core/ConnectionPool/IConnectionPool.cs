@@ -213,7 +213,38 @@ public enum ConnectionPoolState
     /// <summary>
     /// 错误状态
     /// </summary>
-    Error
+    Error,
+
+    /// <summary>
+    /// 已释放
+    /// </summary>
+    Disposed
+}
+
+/// <summary>
+/// 连接健康状态
+/// </summary>
+public enum ConnectionHealth
+{
+    /// <summary>
+    /// 健康
+    /// </summary>
+    Healthy,
+
+    /// <summary>
+    /// 降级
+    /// </summary>
+    Degraded,
+
+    /// <summary>
+    /// 不健康
+    /// </summary>
+    Unhealthy,
+
+    /// <summary>
+    /// 未知
+    /// </summary>
+    Unknown
 }
 
 /// <summary>
@@ -234,7 +265,7 @@ public sealed class ConnectionPoolHealthResult
     /// <summary>
     /// 连接健康检查结果
     /// </summary>
-    public IReadOnlyList<HealthCheckResult> ConnectionResults { get; set; } = Array.Empty<HealthCheckResult>();
+    public IReadOnlyList<Health.HealthCheckResult> ConnectionResults { get; set; } = Array.Empty<Health.HealthCheckResult>();
 
     /// <summary>
     /// 检查时间
@@ -263,6 +294,11 @@ public sealed class ConnectionPoolStatistics
     public string PoolName { get; set; } = string.Empty;
 
     /// <summary>
+    /// 连接池状态
+    /// </summary>
+    public ConnectionPoolState State { get; set; }
+
+    /// <summary>
     /// 创建时间
     /// </summary>
     public DateTime CreatedAt { get; set; }
@@ -288,6 +324,21 @@ public sealed class ConnectionPoolStatistics
     public int IdleConnections { get; set; }
 
     /// <summary>
+    /// 已租借连接数
+    /// </summary>
+    public int LeasedConnections { get; set; }
+
+    /// <summary>
+    /// 最小连接池大小
+    /// </summary>
+    public int MinPoolSize { get; set; }
+
+    /// <summary>
+    /// 最大连接池大小
+    /// </summary>
+    public int MaxPoolSize { get; set; }
+
+    /// <summary>
     /// 总获取次数
     /// </summary>
     public long TotalAcquisitions { get; set; }
@@ -305,7 +356,7 @@ public sealed class ConnectionPoolStatistics
     /// <summary>
     /// 平均获取时间
     /// </summary>
-    public TimeSpan AverageAcquisitionTime { get; set; }
+    public TimeSpan? AverageAcquisitionTime { get; set; }
 
     /// <summary>
     /// 最大获取时间
@@ -328,9 +379,44 @@ public sealed class ConnectionPoolStatistics
     public long ConnectionsDestroyed { get; set; }
 
     /// <summary>
+    /// 总连接创建次数
+    /// </summary>
+    public long TotalCreations { get; set; }
+
+    /// <summary>
+    /// 成功连接创建次数
+    /// </summary>
+    public long SuccessfulCreations { get; set; }
+
+    /// <summary>
+    /// 失败连接创建次数
+    /// </summary>
+    public long FailedCreations { get; set; }
+
+    /// <summary>
+    /// 总共创建的连接数（历史总数）
+    /// </summary>
+    public long ConnectionsCreatedTotal { get; set; }
+
+    /// <summary>
+    /// 总共销毁的连接数（历史总数）
+    /// </summary>
+    public long ConnectionsDestroyedTotal { get; set; }
+
+    /// <summary>
     /// 统计时间戳
     /// </summary>
     public DateTime Timestamp { get; set; }
+
+    /// <summary>
+    /// 最后维护时间
+    /// </summary>
+    public DateTime? LastMaintenanceAt { get; set; }
+
+    /// <summary>
+    /// 平均连接生命周期
+    /// </summary>
+    public TimeSpan? AverageConnectionLifetime { get; set; }
 }
 
 /// <summary>

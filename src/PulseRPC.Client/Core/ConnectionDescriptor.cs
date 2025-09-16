@@ -159,7 +159,7 @@ public sealed class ConnectionDescriptor
         {
             Id = id,
             Name = name,
-            Endpoint = new EndpointAddress { Host = host, Port = port },
+            Endpoint = new EndpointAddress(host, port),
             Transport = TransportType.Tcp,
             Strategy = strategy,
             Tags = tags ?? new Dictionary<string, string>()
@@ -181,7 +181,7 @@ public sealed class ConnectionDescriptor
         {
             Id = id,
             Name = name,
-            Endpoint = new EndpointAddress { Host = host, Port = port },
+            Endpoint = new EndpointAddress(host, port),
             Transport = TransportType.Kcp,
             Strategy = strategy,
             Tags = tags ?? new Dictionary<string, string>()
@@ -242,71 +242,6 @@ public sealed class ConnectionDescriptor
     {
         var endpoint = Endpoint?.ToString() ?? ServiceName ?? "Unknown";
         return $"{Name} ({Id}) -> {endpoint} [{Transport}:{Strategy}]";
-    }
-}
-
-/// <summary>
-/// 连接端点地址
-/// </summary>
-public sealed class EndpointAddress
-{
-    /// <summary>
-    /// 主机地址
-    /// </summary>
-    public string Host { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 端口号
-    /// </summary>
-    public int Port { get; set; }
-
-    /// <summary>
-    /// 验证端点地址的有效性
-    /// </summary>
-    public ValidationResult Validate()
-    {
-        var errors = new List<string>();
-
-        if (string.IsNullOrWhiteSpace(Host))
-            errors.Add("主机地址不能为空");
-
-        if (Port <= 0 || Port > 65535)
-            errors.Add("端口号必须在 1-65535 范围内");
-
-        return new ValidationResult
-        {
-            IsValid = errors.Count == 0,
-            Errors = errors
-        };
-    }
-
-    /// <summary>
-    /// 克隆端点地址
-    /// </summary>
-    public EndpointAddress Clone()
-    {
-        return new EndpointAddress
-        {
-            Host = Host,
-            Port = Port
-        };
-    }
-
-    public override string ToString()
-    {
-        return $"{Host}:{Port}";
-    }
-
-    public override bool Equals(object? obj)
-    {
-        return obj is EndpointAddress other &&
-               Host == other.Host &&
-               Port == other.Port;
-    }
-
-    public override int GetHashCode()
-    {
-        return HashCode.Combine(Host, Port);
     }
 }
 

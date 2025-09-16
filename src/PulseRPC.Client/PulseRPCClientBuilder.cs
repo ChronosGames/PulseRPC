@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
 using PulseRPC.Client.Core;
+using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client.Core;
@@ -13,7 +14,7 @@ public sealed class PulseRPCClientBuilder : IPulseRPCClientBuilder
     private readonly List<ConnectionDescriptor> _connections = new();
     private IServiceDiscovery? _serviceDiscovery;
     private ILoggerFactory? _loggerFactory;
-    private IPulseSerializer? _serializer;
+    private ISerializerProvider? _serializerProvider;
     private IAuthenticationProvider? _authenticationProvider;
     private LoadBalancingStrategy _loadBalancingStrategy = LoadBalancingStrategy.RoundRobin;
     private readonly Dictionary<string, object> _loadBalancingOptions = new();
@@ -95,9 +96,9 @@ public sealed class PulseRPCClientBuilder : IPulseRPCClientBuilder
     /// <summary>
     /// 配置序列化器
     /// </summary>
-    public IPulseRPCClientBuilder WithSerializer(IPulseSerializer serializer)
+    public IPulseRPCClientBuilder WithSerializer(ISerializerProvider serializerProvider)
     {
-        _serializer = serializer ?? throw new ArgumentNullException(nameof(serializer));
+        _serializerProvider = serializerProvider ?? throw new ArgumentNullException(nameof(serializerProvider));
         return this;
     }
 
@@ -149,7 +150,7 @@ public sealed class PulseRPCClientBuilder : IPulseRPCClientBuilder
             connections: _connections,
             serviceDiscovery: _serviceDiscovery,
             loggerFactory: _loggerFactory,
-            serializer: _serializer,
+            serializerProvider: _serializerProvider,
             authenticationProvider: _authenticationProvider,
             loadBalancingStrategy: _loadBalancingStrategy,
             loadBalancingOptions: _loadBalancingOptions,
@@ -262,6 +263,49 @@ public sealed class PulseRPCClientBuilder : IPulseRPCClientBuilder
 /// </summary>
 public static class GameClientBuilderExtensions
 {
+    /// <summary>
+    /// 添加核心服务连接
+    /// </summary>
+    public static PulseRPCClientBuilder AddCoreService(this PulseRPCClientBuilder builder, string serviceName)
+    {
+        return builder.AddServiceConnection(
+            id: Guid.NewGuid().ToString("N"),
+            name: $"core-{serviceName}",
+            serviceName: serviceName,
+            transport: TransportType.Tcp,
+            strategy: ConnectionStrategy.Persistent,
+            tags: new Dictionary<string, string>
+            {
+                ["type"] = "core",
+                ["service"] = serviceName
+            });
+    }
+
+    /// <summary>
+    /// 添加直连配置
+    /// </summary>
+    public static PulseRPCClientBuilder AddDirectConnection(this PulseRPCClientBuilder builder,
+        string name, string host, int port, TransportType transport = TransportType.Tcp)
+    {
+        return builder.AddTcpConnection(
+            id: Guid.NewGuid().ToString("N"),
+            name: name,
+            host: host,
+            port: port,
+            strategy: ConnectionStrategy.Session);
+    }
+
+    /// <summary>
+    /// 添加配置设置
+    /// </summary>
+    public static PulseRPCClientBuilder WithSetting<T>(this PulseRPCClientBuilder builder, string key, T value)
+    {
+        // 暂时通过 Configure 方法实现
+        return (PulseRPCClientBuilder)builder.Configure(options =>
+        {
+            options.Settings[key] = value?.ToString() ?? string.Empty;
+        });
+    }
     /// <summary>
     /// 添加典型的游戏服务器连接配置
     /// </summary>

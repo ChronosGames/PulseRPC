@@ -433,7 +433,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 处理连接状态变化
     /// </summary>
-    private async void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
+    protected async void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
         if (_disposed)
             return;
@@ -564,7 +564,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
 /// <summary>
 /// 连接生命周期信息
 /// </summary>
-internal sealed class ConnectionLifecycleInfo
+public sealed class ConnectionLifecycleInfo
 {
     public IConnectionContext Connection { get; }
     public DateTime CreatedAt { get; }

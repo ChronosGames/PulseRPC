@@ -50,6 +50,26 @@ public sealed class ConnectionContext : IConnectionContext
     public ConnectionStatistics Statistics => _statistics;
 
     /// <summary>
+    /// 远程端点地址
+    /// </summary>
+    public System.Net.EndPoint? RemoteEndPoint => _transport.RemoteEndPoint;
+
+    /// <summary>
+    /// 本地端点地址
+    /// </summary>
+    public System.Net.EndPoint? LocalEndPoint => _transport.LocalEndPoint;
+
+    /// <summary>
+    /// 连接创建时间
+    /// </summary>
+    public DateTime CreatedAt => _transport.ConnectedAt;
+
+    /// <summary>
+    /// 最后活动时间
+    /// </summary>
+    public DateTime LastActivityAt => _transport.LastActivityAt;
+
+    /// <summary>
     /// 连接状态变化事件
     /// </summary>
     public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
@@ -245,19 +265,20 @@ public sealed class ConnectionContext : IConnectionContext
     /// <summary>
     /// 处理传输层状态变化
     /// </summary>
-    private void OnTransportStateChanged(object? sender, Transport.ConnectionStateChangedEventArgs e)
+    private void OnTransportStateChanged(object? sender, PulseRPC.Transport.ConnectionStateChangedEventArgs e)
     {
-        // 将传输层状态变化映射到扩展状态
-        var newState = e.NewState switch
+        ExtendedConnectionState newState;
+        switch (e.CurrentState)
         {
-            Transport.ConnectionState.Connecting => ExtendedConnectionState.Connecting,
-            Transport.ConnectionState.Connected => ExtendedConnectionState.Connected,
-            Transport.ConnectionState.Reconnecting => ExtendedConnectionState.Reconnecting,
-            Transport.ConnectionState.Disconnecting => ExtendedConnectionState.Disconnecting,
-            Transport.ConnectionState.Disconnected => ExtendedConnectionState.Disconnected,
-            Transport.ConnectionState.Failed => ExtendedConnectionState.Failed,
-            _ => ExtendedConnectionState.Disconnected
-        };
+            case ConnectionState.Connecting:
+                newState = ExtendedConnectionState.Connecting;
+                break;
+            case ConnectionState.Connected:
+                newState = ExtendedConnectionState.Connected;
+                break;
+            default:
+                throw new NotSupportedException();
+        }
 
         var reason = e.Reason ?? "传输层状态变化";
         _stateMachine.TryTransition(newState, reason, e.Exception);

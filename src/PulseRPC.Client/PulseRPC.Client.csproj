@@ -31,6 +31,7 @@
 
     <PackageReference Include="System.Runtime.CompilerServices.Unsafe" Condition="$(TargetFramework) == 'netstandard2.1'" />
     <PackageReference Include="System.Collections.Immutable" Condition="$(TargetFramework) == 'netstandard2.1'" />
+    <PackageReference Include="System.Text.Json" Condition="$(TargetFramework) == 'netstandard2.1'" />
 
     <!-- 条件依赖 - 仅 .NET 环境 -->
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Condition="$(TargetFramework) != 'netstandard2.1'" />

@@ -12,8 +12,8 @@ public abstract class ConnectionPool : IConnectionPool
 {
     protected readonly ILogger _logger;
     protected readonly IConnectionManager _connectionManager;
-    protected readonly ConcurrentQueue<PooledConnection> _availableConnections = new();
-    protected readonly ConcurrentDictionary<string, ConnectionLease> _activeLeases = new();
+    internal readonly ConcurrentQueue<PooledConnection> _availableConnections = new();
+    internal readonly ConcurrentDictionary<string, ConnectionLease> _activeLeases = new();
     protected readonly SemaphoreSlim _connectionSemaphore;
     protected readonly object _stateLock = new();
 
@@ -147,7 +147,7 @@ public abstract class ConnectionPool : IConnectionPool
     /// </summary>
     public virtual async Task<IConnectionLease> AcquireAsync(CancellationToken cancellationToken = default)
     {
-        return await AcquireAsync(Options.AcquisitionTimeout, cancellationToken);
+        return await AcquireAsync(Options.AcquireTimeout, cancellationToken);
     }
 
     /// <summary>
@@ -774,7 +774,7 @@ public abstract class ConnectionPool : IConnectionPool
 /// <summary>
 /// 连接池中的连接包装
 /// </summary>
-internal sealed class PooledConnection
+public sealed class PooledConnection
 {
     public IConnectionContext Context { get; }
     public DateTime CreatedAt { get; }

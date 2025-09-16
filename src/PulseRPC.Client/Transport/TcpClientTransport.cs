@@ -1,7 +1,9 @@
 ﻿using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Client.Core;
 using PulseRPC.Transport;
 using PulseRPC.Transport.Tcp;
+using ConnectionStateChangedEventArgs = PulseRPC.Transport.ConnectionStateChangedEventArgs;
 
 namespace PulseRPC.Client.Transport;
 
@@ -12,10 +14,33 @@ public class TcpClientTransport : TcpTransport, IClientTransport
 {
     private int _reconnectAttempts;
     private Timer? _reconnectTimer;
+    private string _connectionId;
+    private DateTime _connectedAt;
+    private DateTime _lastActivityAt;
 
     public TcpClientTransport(TcpTransportOptions? options = null, ILogger? logger = null)
         : base(options, logger)
-    { }
+    {
+        _connectionId = Guid.NewGuid().ToString();
+        _connectedAt = DateTime.UtcNow;
+        _lastActivityAt = DateTime.UtcNow;
+    }
+
+    // ITransportConnection properties
+    public string ConnectionId => _connectionId;
+    public DateTime ConnectedAt => _connectedAt;
+    public DateTime LastActivityAt => _lastActivityAt;
+    public TransportType TransportType => Type;
+
+    // ITransportConnection events with proper signatures
+    public new event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
+    public new event EventHandler<TransportDataEventArgs>? DataReceived;
+
+    // ITransportConnection method
+    public Task CloseAsync(CancellationToken cancellationToken = default)
+    {
+        return DisconnectAsync(cancellationToken);
+    }
 
     /// <summary>
     /// 连接到服务器
@@ -27,7 +52,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
             return;
         }
 
-        ChangeState(ConnectionState.Connecting);
+        ChangeStateWithConnectionEvents(ConnectionState.Connecting);
 
         try
         {
@@ -49,7 +74,8 @@ public class TcpClientTransport : TcpTransport, IClientTransport
             _stream = new NetworkStream(_socket, true);
 
             // 更新状态
-            ChangeState(ConnectionState.Connected);
+            _connectedAt = DateTime.UtcNow;
+            ChangeStateWithConnectionEvents(ConnectionState.Connected);
 
             // 重置重连次数
             _reconnectAttempts = 0;
@@ -63,7 +89,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
         {
             _logger.LogError(ex, "连接到服务器失败: {Host}:{Port}", host, port);
 
-            ChangeState(ConnectionState.Failed, $"连接失败: {ex.Message}", ex);
+            ChangeStateWithConnectionEvents(ConnectionState.Failed, $"连接失败: {ex.Message}", ex);
 
             // 如果启用了自动重连，则开始重连
             if (_options.AutoReconnect && _reconnectAttempts < _options.MaxReconnectAttempts)
@@ -85,7 +111,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
             return Task.CompletedTask;
         }
 
-        ChangeState(ConnectionState.Disconnecting);
+        ChangeStateWithConnectionEvents(ConnectionState.Disconnecting);
 
         try
         {
@@ -101,7 +127,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
             }
 
             // 更新状态
-            ChangeState(ConnectionState.Disconnected);
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnected);
 
             _logger.LogInformation("已断开连接");
         }
@@ -110,7 +136,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
             _logger.LogError(ex, "断开连接异常");
 
             // 即使出现异常，也更新状态
-            ChangeState(ConnectionState.Disconnected, $"断开异常: {ex.Message}", ex);
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnected, $"断开异常: {ex.Message}", ex);
 
             throw;
         }
@@ -130,7 +156,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
 
         _reconnectAttempts++;
 
-        ChangeState(ConnectionState.Reconnecting, $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
+        ChangeStateWithConnectionEvents(ConnectionState.Reconnecting, $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
 
         _reconnectTimer?.Dispose();
         _reconnectTimer = new Timer(async void (_) =>
@@ -144,6 +170,42 @@ public class TcpClientTransport : TcpTransport, IClientTransport
                 // 重连失败，下次继续尝试
             }
         }, null, _options.ReconnectInterval, Timeout.Infinite);
+    }
+
+    /// <summary>
+    /// 重写状态变更方法以触发正确的事件类型
+    /// </summary>
+    protected void ChangeStateWithConnectionEvents(ConnectionState newState, string? reason = null, Exception? exception = null)
+    {
+        var oldState = _state;
+        if (oldState == newState) return;
+
+        // 更新最后活动时间
+        _lastActivityAt = DateTime.UtcNow;
+
+        // 调用基类的状态变更方法
+        base.ChangeState(newState, reason, exception);
+
+        // 触发 ITransportConnection 接口的事件
+        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(
+            _connectionId, ConvertToExtendedState(oldState), ConvertToExtendedState(newState), reason, exception));
+    }
+
+    /// <summary>
+    /// 转换到扩展连接状态
+    /// </summary>
+    private static ExtendedConnectionState ConvertToExtendedState(ConnectionState state)
+    {
+        return state switch
+        {
+            ConnectionState.Disconnected => Core.ExtendedConnectionState.Disconnected,
+            ConnectionState.Connecting => Core.ExtendedConnectionState.Connecting,
+            ConnectionState.Connected => Core.ExtendedConnectionState.Connected,
+            ConnectionState.Disconnecting => Core.ExtendedConnectionState.Disconnecting,
+            ConnectionState.Failed => Core.ExtendedConnectionState.Failed,
+            ConnectionState.Reconnecting => Core.ExtendedConnectionState.Reconnecting,
+            _ => Core.ExtendedConnectionState.Uninitialized
+        };
     }
 
     /// <summary>

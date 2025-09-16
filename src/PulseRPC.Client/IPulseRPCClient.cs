@@ -1,7 +1,7 @@
 using PulseRPC.Client.Core;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Redesign;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 游戏客户端扩展方法

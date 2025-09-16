@@ -1,3 +1,4 @@
+using PulseRPC.Client.Core;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client.Redesign;
@@ -84,53 +85,6 @@ public class ConnectionConfig
     public Dictionary<string, string> Tags { get; set; } = new();
 }
 
-/// <summary>
-/// 连接上下文 - 提供对特定连接的访问
-/// </summary>
-public interface IConnectionContext : IDisposable
-{
-    /// <summary>
-    /// 连接名称
-    /// </summary>
-    string Name { get; }
-
-    /// <summary>
-    /// 连接配置
-    /// </summary>
-    ConnectionConfig Config { get; }
-
-    /// <summary>
-    /// 是否已连接
-    /// </summary>
-    bool IsConnected { get; }
-
-    /// <summary>
-    /// 连接状态
-    /// </summary>
-    ConnectionState State { get; }
-
-    /// <summary>
-    /// 最后使用时间
-    /// </summary>
-    DateTime LastUsedAt { get; }
-
-    /// <summary>
-    /// 获取服务代理
-    /// </summary>
-    Task<T> GetServiceAsync<T>(CancellationToken cancellationToken = default)
-        where T : class, IPulseService;
-
-    /// <summary>
-    /// 注册事件监听器
-    /// </summary>
-    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, CancellationToken cancellationToken = default)
-        where T : class, IPulseEventHandler;
-
-    /// <summary>
-    /// 连接状态变化事件
-    /// </summary>
-    event EventHandler<ConnectionStateChangedEventArgs> StateChanged;
-}
 
 /// <summary>
 /// 统一连接管理器接口
