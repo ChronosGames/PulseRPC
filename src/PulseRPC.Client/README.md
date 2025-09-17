@@ -608,7 +608,7 @@ public class GameNetworkManager : MonoBehaviour
 The client relies on shared abstractions from PulseRPC.Abstractions:
 - **`ITransportConnection`**: Foundation transport-level connection interface
 - **`ISessionChannel`**: Authentication and session management interface
-- **`IPulseHub`**: Service interface marker (updated from IPulseService)
+- **`IPulseHub`**: Service interface marker for all remote services
 - **`IPulseEventHandler`**: Event handler interface marker
 
 ## Source Generator Integration

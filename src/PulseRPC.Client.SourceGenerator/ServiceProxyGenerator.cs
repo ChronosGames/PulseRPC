@@ -35,7 +35,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 {
                     foreach (var serviceType in classDeclaration)
                     {
-                        // 检查是否实现了IPulseHub或IPulseService接口（服务接口）
+                        // 检查是否实现了IPulseHub接口（服务接口）
                         if (serviceType.Type != null && IsNetworkService(serviceType.Type))
                         {
                             result.Add(serviceType);
@@ -189,9 +189,8 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
 
     private static bool IsNetworkService(INamedTypeSymbol typeSymbol)
     {
-        // 检查是否实现了 IPulseHub 或 IPulseService 接口
-        // IPulseHub 是新的标准接口，IPulseService 是向后兼容的接口
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub" || i.Name == "IPulseService");
+        // 检查是否实现了 IPulseHub 接口
+        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
     }
 
     private static bool IsEventReceiver(INamedTypeSymbol typeSymbol)
@@ -971,7 +970,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
             sb.AppendLine("        /// <param name=\"channelManager\">通道管理器</param>");
             sb.AppendLine("        /// <returns>服务实例</returns>");
-            sb.AppendLine("        private static T GetService<T>(this IChannelManager channelManager) where T : IPulseService");
+            sb.AppendLine("        private static T GetService<T>(this IChannelManager channelManager) where T : IPulseHub");
             sb.AppendLine("        {");
             sb.AppendLine("            if (channelManager == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(channelManager));");
@@ -1008,7 +1007,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <typeparam name=\"T\">服务接口类型</typeparam>");
             sb.AppendLine("        /// <param name=\"client\">PulseRPC 客户端</param>");
             sb.AppendLine("        /// <returns>服务实例</returns>");
-            sb.AppendLine("        public static T GetService<T>(this IPulseRPCClient client) where T : IPulseService");
+            sb.AppendLine("        public static T GetService<T>(this IPulseRPCClient client) where T : IPulseHub");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1021,7 +1020,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <summary>");
             sb.AppendLine("        /// 内部方法：获取服务代理 - 由 PulseRPCClient 调用");
             sb.AppendLine("        /// </summary>");
-            sb.AppendLine("        internal static T GetServiceInternal<T>(this IPulseRPCClient client) where T : class, IPulseService");
+            sb.AppendLine("        internal static T GetServiceInternal<T>(this IPulseRPCClient client) where T : class, IPulseHub");
             sb.AppendLine("        {");
             sb.AppendLine("            var channelManager = client.GetChannelManager();");
             sb.AppendLine("            return channelManager.GetService<T>();");
@@ -1040,7 +1039,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
             sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
             sb.AppendLine("        /// <returns>服务代理</returns>");
-            sb.AppendLine("        public static Task<T> GetServiceAsync<T>(this IPulseRPCClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseService");
+            sb.AppendLine("        public static Task<T> GetServiceAsync<T>(this IPulseRPCClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseHub");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
@@ -1083,7 +1082,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine("        /// <param name=\"serviceName\">服务名称</param>");
             sb.AppendLine("        /// <param name=\"options\">连接选项</param>");
             sb.AppendLine("        /// <returns>多实例服务管理器</returns>");
-            sb.AppendLine("        public static Task<IMultiInstanceServiceManager<T>> GetMultiInstanceServiceAsync<T>(this IPulseRPCClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseService");
+            sb.AppendLine("        public static Task<IMultiInstanceServiceManager<T>> GetMultiInstanceServiceAsync<T>(this IPulseRPCClient client, string serviceName = \"\", SmartConnectionOptions? options = null) where T : class, IPulseHub");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null)");
             sb.AppendLine("                throw new ArgumentNullException(nameof(client));");

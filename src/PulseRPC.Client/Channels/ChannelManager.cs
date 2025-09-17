@@ -114,23 +114,4 @@
 //
 //         RegisterChannel(name, channel, isDefault);
 //     }
-//
-//     /// <summary>
-//     /// 获取服务代理
-//     /// </summary>
-//     public T GetService2<T>() where T : class, IPulseService
-//     {
-//         // 简化实现 - 通过反射创建代理
-//         // 注意：这里应该使用Source Generator生成的代理类
-//         throw new NotImplementedException("GetService<T> 应该通过Source Generator扩展方法调用");
-//     }
-//
-//     /// <summary>
-//     /// 注册事件监听器 - 通过源代码生成器实现，零反射
-//     /// </summary>
-//     public ISubscriptionToken RegisterEventListener2<T>(T listener) where T : class, IPulseEventHandler
-//     {
-//         // 直接抛出异常，提示应该使用源代码生成器生成的扩展方法
-//         throw new NotImplementedException("RegisterEventListener<T> 应该通过 PulseRPC.Client.SourceGenerator 生成的扩展方法调用。请确保项目正确引用了源代码生成器。");
-//     }
 // }

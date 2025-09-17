@@ -338,7 +338,7 @@ PulseRPC.IPulseClientBuilder.WithRetry(System.Action<PulseRPC.RetryOptions!>! co
 PulseRPC.IPulseClientBuilder.WithServiceDiscovery(System.Action<PulseRPC.ServiceDiscoveryOptions!>! configure) -> PulseRPC.IPulseClientBuilder!
 PulseRPC.IPulseClientBuilder.WithTimeout(System.TimeSpan timeout) -> PulseRPC.IPulseClientBuilder!
 PulseRPC.IPulseEventHandler
-PulseRPC.IPulseService
+PulseRPC.IPulseHub
 PulseRPC.ISubscriptionToken
 PulseRPC.ISubscriptionToken.Id.get -> System.Guid
 PulseRPC.ISubscriptionToken.IsActive.get -> bool

@@ -18,7 +18,7 @@ public static class ServiceAnalyzer
         var interfaceSymbol = semanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
         if (interfaceSymbol == null) return null;
 
-        // 检查是否标记为PulseService或继承IPulseService
+        // 检查是否标记为PulseHub或继承IPulseHub
         if (!HasPulseServiceAttribute(interfaceSymbol) && !InheritsFromIPulseService(interfaceSymbol))
             return null;
 
@@ -60,13 +60,13 @@ public static class ServiceAnalyzer
     }
 
     /// <summary>
-    /// 检查接口是否继承IPulseService
+    /// 检查接口是否继承IPulseHub
     /// </summary>
     private static bool InheritsFromIPulseService(INamedTypeSymbol interfaceSymbol)
     {
         return interfaceSymbol.AllInterfaces
-            .Any(i => i.Name == "IPulseService" ||
-                     i.ToDisplayString().EndsWith(".IPulseService"));
+            .Any(i => i.Name == "IPulseHub" ||
+                     i.ToDisplayString().EndsWith(".IPulseHub"));
     }
 
     /// <summary>
@@ -210,7 +210,7 @@ public static class ServiceAnalyzer
     }
 
     /// <summary>
-    /// 检查接口语法是否包含PulseService特性或继承IPulseService
+    /// 检查接口语法是否包含PulseService特性或继承IPulseHub
     /// </summary>
     private static bool HasPulseServiceAttributeSyntax(InterfaceDeclarationSyntax interfaceDeclaration)
     {
@@ -236,9 +236,9 @@ public static class ServiceAnalyzer
                 .Any(baseType =>
                 {
                     var typeName = baseType.Type.ToString();
-                    return typeName == "IPulseService" ||
-                           typeName.EndsWith(".IPulseService") ||
-                           typeName.Contains("IPulseService");
+                    return typeName == "IPulseHub" ||
+                           typeName.EndsWith(".IPulseHub") ||
+                           typeName.Contains("IPulseHub");
                 });
         }
 
