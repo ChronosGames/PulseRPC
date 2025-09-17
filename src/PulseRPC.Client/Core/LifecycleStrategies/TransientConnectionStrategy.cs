@@ -8,7 +8,7 @@ namespace PulseRPC.Client.Core.LifecycleStrategies;
 public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBase
 {
     private readonly Dictionary<string, TransientInfo> _transientInfos = new();
-    private readonly object _transientLock = new();
+    private readonly SemaphoreSlim _transientLock = new(1, 1);
 
     /// <summary>
     /// 策略名称
@@ -109,7 +109,8 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
         }
 
         // 检查连接是否超过最大存活时间
-        lock (_transientLock)
+        await _transientLock.WaitAsync();
+        try
         {
             if (_transientInfos.TryGetValue(connection.Id, out var transientInfo))
             {
@@ -122,6 +123,10 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
                     return;
                 }
             }
+        }
+        finally
+        {
+            _transientLock.Release();
         }
 
         await base.OnManageConnectionAsync(connection, cancellationToken);

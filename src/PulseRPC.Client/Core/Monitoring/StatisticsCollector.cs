@@ -67,7 +67,7 @@ public sealed class StatisticsCollector : IStatisticsCollector, IDisposable
     /// </summary>
     public void RecordMetric(StatisticsMetric metric)
     {
-        ArgumentNullException.ThrowIfNull(metric);
+        if (metric == null) throw new ArgumentNullException(nameof(metric));
 
         if (_disposed)
         {
@@ -248,8 +248,8 @@ public sealed class StatisticsCollector : IStatisticsCollector, IDisposable
             summary["TotalMetrics"] = relevantMetrics.Count;
             summary["UniqueMetricNames"] = relevantMetrics.Select(m => m.Name).Distinct().Count();
             summary["TimeRange"] = timeRange?.ToString() ?? "All Time";
-            summary["EarliestTimestamp"] = relevantMetrics.Any() ? relevantMetrics.Min(m => m.Timestamp) : (DateTime?)null;
-            summary["LatestTimestamp"] = relevantMetrics.Any() ? relevantMetrics.Max(m => m.Timestamp) : (DateTime?)null;
+            summary["EarliestTimestamp"] = relevantMetrics.Any() ? relevantMetrics.Min(m => m.Timestamp) : DateTime.MinValue;
+            summary["LatestTimestamp"] = relevantMetrics.Any() ? relevantMetrics.Max(m => m.Timestamp) : DateTime.MinValue;
 
             // 按类型分组统计
             var typeGroups = relevantMetrics.GroupBy(m => m.Type).ToDictionary(g => g.Key.ToString(), g => g.Count());

@@ -39,12 +39,8 @@ public sealed class HealthCheckManager : IHealthCheckManager, IDisposable
     /// </summary>
     public void RegisterChecker(IHealthChecker checker)
     {
-        ArgumentNullException.ThrowIfNull(checker);
-
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(HealthCheckManager));
-        }
+        if (checker == null) throw new ArgumentNullException(nameof(checker));
+        if (_disposed) throw new ObjectDisposedException(nameof(HealthCheckManager));
 
         if (_checkers.TryAdd(checker.Name, checker))
         {
@@ -63,7 +59,7 @@ public sealed class HealthCheckManager : IHealthCheckManager, IDisposable
     /// </summary>
     public bool UnregisterChecker(string checkerName)
     {
-        ArgumentException.ThrowIfNullOrEmpty(checkerName);
+        if (string.IsNullOrEmpty(checkerName)) throw new ArgumentException(nameof(checkerName));
 
         if (_disposed)
         {
@@ -98,7 +94,7 @@ public sealed class HealthCheckManager : IHealthCheckManager, IDisposable
     /// </summary>
     public IHealthChecker? GetChecker(string checkerName)
     {
-        ArgumentException.ThrowIfNullOrEmpty(checkerName);
+        if (string.IsNullOrEmpty(checkerName)) throw new ArgumentException(nameof(checkerName));
 
         return _checkers.TryGetValue(checkerName, out var checker) ? checker : null;
     }
@@ -116,13 +112,9 @@ public sealed class HealthCheckManager : IHealthCheckManager, IDisposable
     /// </summary>
     public async Task<HealthCheckResult> CheckAsync(string checkerName, object target, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrEmpty(checkerName);
-        ArgumentNullException.ThrowIfNull(target);
-
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(HealthCheckManager));
-        }
+        if (string.IsNullOrEmpty(checkerName)) throw new ArgumentException(nameof(checkerName));
+        if (target == null) throw new ArgumentNullException(nameof(target));
+        if (_disposed) throw new ObjectDisposedException(nameof(HealthCheckManager));
 
         if (!_checkers.TryGetValue(checkerName, out var checker))
         {
@@ -170,7 +162,7 @@ public sealed class HealthCheckManager : IHealthCheckManager, IDisposable
     /// </summary>
     public async Task<IReadOnlyDictionary<string, HealthCheckResult>> CheckAllAsync(object target, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(target);
+        if (target == null) throw new ArgumentNullException(nameof(target));
 
         if (_disposed)
         {

@@ -173,7 +173,7 @@ public sealed class InMemoryServiceDiscovery : ServiceDiscoveryBase
     /// </summary>
     public async Task RegisterInstancesAsync(IEnumerable<ServiceInstance> instances, CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(instances);
+        if (instances == null) throw new ArgumentNullException(nameof(instances));
 
         foreach (var instance in instances)
         {

@@ -511,20 +511,17 @@ public abstract class ConnectionPool : IConnectionPool
     /// </summary>
     protected virtual async Task CreateAndAddConnectionAsync(CancellationToken cancellationToken = default)
     {
-        if (await _connectionSemaphore.WaitAsync(cancellationToken))
+        await _connectionSemaphore.WaitAsync(cancellationToken);
+        try
         {
-            try
-            {
-                var connection = await CreateConnectionAsync(cancellationToken);
-                var pooledConnection = new PooledConnection(connection, DateTime.UtcNow);
-                _availableConnections.Enqueue(pooledConnection);
-                _statistics.ConnectionsCreated++;
-            }
-            catch
-            {
-                _connectionSemaphore.Release();
-                throw;
-            }
+            var connection = await CreateConnectionAsync(cancellationToken);
+            var pooledConnection = new PooledConnection(connection, DateTime.UtcNow);
+            _availableConnections.Enqueue(pooledConnection);
+            _statistics.ConnectionsCreated++;
+        }
+        finally
+        {
+            _connectionSemaphore.Release();
         }
     }
 
@@ -646,8 +643,7 @@ public abstract class ConnectionPool : IConnectionPool
         }
 
         // 简单的移动平均
-        var totalTime = _statistics.AverageAcquisitionTime.TotalMilliseconds * (_statistics.SuccessfulAcquisitions - 1) +
-                       acquisitionTime.TotalMilliseconds;
+        var totalTime = (_statistics.AverageAcquisitionTime?.TotalMilliseconds ?? 0.0f) * (_statistics.SuccessfulAcquisitions - 1) + acquisitionTime.TotalMilliseconds;
         _statistics.AverageAcquisitionTime = TimeSpan.FromMilliseconds(totalTime / _statistics.SuccessfulAcquisitions);
     }
 
