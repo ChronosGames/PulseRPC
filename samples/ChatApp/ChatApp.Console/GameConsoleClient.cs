@@ -3,6 +3,8 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Transport;
 using PulseRPC.Client;
+using PulseRPC.Client.Core;
+using ISubscriptionToken = PulseRPC.ISubscriptionToken;
 
 namespace ChatApp.Console;
 
@@ -15,7 +17,7 @@ namespace ChatApp.Console;
 public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
-    private IPulseClient? _client;
+    private IPulseRPCClient? _client;
     private IPlayerHub? _playerService;
     private ISubscriptionToken? _eventsSubscription;
     private CancellationTokenSource? _cts;
@@ -35,33 +37,28 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
         _cts = new CancellationTokenSource();
 
-        // 使用新的客户端构建器 API
-        var builder = new PulseClientBuilder();
-
-        // 添加TCP传输 - 使用接口期望的通道名称
-        builder.AddTcp("TcpChannel", "localhost", 7000);
-
-        // 添加KCP传输 - 使用接口期望的通道名称
-        builder.AddKcp("KcpChannel", "localhost", 7001);
-
-        // 配置超时和重试
-        builder.WithTimeout(TimeSpan.FromSeconds(30))
-            .WithRetry(retry =>
+        // 使用 PulseRPC 客户端构建器 API
+        _client = new PulseRPCClientBuilder()
+            .ConfigureConnection("localhost", 7000)
+            .ConfigureTransport(TransportType.Tcp)
+            .ConfigureTransportOptions(options =>
             {
-                retry.MaxRetries = 3;
-                retry.BaseDelay = TimeSpan.FromSeconds(1);
-                retry.UseExponentialBackoff = true;
-            });
-
-        // 构建客户端
-        _client = builder.Build();
+                options.ConnectTimeoutMs = 30000;
+                options.EnableTcpNoDelay = true;
+                options.ReadBufferSize = 8192;
+                options.WriteBufferSize = 8192;
+            })
+            .Build();
 
         try
         {
-            // 使用源代码生成器生成的扩展方法获取服务代理
-            _playerService = _client.GetServiceAsync<IPlayerHub>();
+            // 初始化客户端
+            await _client.InitializeAsync(_cts.Token);
 
-            // 使用简洁的一行 API - 源代码生成器会处理多接口实现
+            // 获取服务代理
+            _playerService = await _client.GetServiceAsync<IPlayerHub>();
+
+            // 注册事件监听器
             _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");

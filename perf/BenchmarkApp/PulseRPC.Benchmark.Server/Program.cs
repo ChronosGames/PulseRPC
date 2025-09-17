@@ -165,15 +165,19 @@ internal class Program
                     };
                 });
 
-                // 3. 核心服务与传输通道
-                services.AddPulseRpcServer(b =>
+                // 3. 配置 PulseRPC 服务端 - 基于指南文档的最佳实践
+                services.AddPulseRPCServer(options =>
                 {
-                    // 基准服务使用 TCP 通道监听指定端口
-                    b.AddTcp("TcpChannel", port, isDefault: true);
+                    // TCP 监听器配置
+                    options.ListenOn("127.0.0.1", port, TransportType.Tcp);
 
-                    // 5. 业务服务注册到 PulseRPC（同时提供实现以便内部解析）
-                    b.AddService<IBenchmarkHub, BenchmarkHubImpl>();
+                    // 基本配置
+                    options.MaxConcurrentConnections = config.MaxConnections;
+                    options.ConnectionTimeout = TimeSpan.FromSeconds(30);
                 });
+
+                // 注册 Hub 服务
+                services.AddScoped<IBenchmarkHub, BenchmarkHubImpl>();
 
                 // 使用高吞吐量处理器（依赖配置）
                 // services.AddHighThroughputProcessor(options =>

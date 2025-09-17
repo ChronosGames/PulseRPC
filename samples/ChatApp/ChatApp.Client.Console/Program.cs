@@ -44,45 +44,37 @@ internal class Program
             })
             .ConfigureServices(services =>
             {
-                // 使用新的客户端API - 配置双通道
-                services.AddPulseRpcClient(client =>
+                // 基于指南文档的客户端配置
+                services.AddSingleton<IPulseRPCClient>(provider =>
                 {
-                    client.ConfigureClient(options =>
-                    {
-                        // 使用现有的ClientOptions属性
-                        options.ConnectionTimeout = TimeSpan.FromSeconds(10);
-                        options.AutoReconnect = true;
-                    })
-                    // TCP通道用于可靠通信
-                    .AddTcp("reliable", "localhost", 7000, options =>
-                    {
-                        options.NoDelay = true;
-                    }, isDefault: true)
-                    // KCP通道用于低延迟通信
-                    .AddKcp("gaming", "localhost", 7001, options =>
-                    {
-                        options.Kcp = new KcpOptions
+                    return new PulseRPCClientBuilder()
+                        .ConfigureConnection("127.0.0.1", 7000)
+                        .ConfigureTransport(TransportType.Tcp)
+                        .ConfigureTransportOptions(options =>
                         {
-                            NoDelay = 1,
-                            Interval = 10,
-                            Resend = 2,
-                            DisableFlowControl = true
-                        };
-                    });
+                            options.ConnectTimeoutMs = 10000;
+                            options.EnableTcpNoDelay = true;
+                        })
+                        .ConfigureLogging(logging =>
+                        {
+                            logging.AddConsole();
+                            logging.SetMinimumLevel(LogLevel.Information);
+                        })
+                        .Build();
                 });
             })
             .Build();
 
-        var client = host.Services.GetRequiredService<IPulseClient>();
+        var client = host.Services.GetRequiredService<IPulseRPCClient>();
 
         try
         {
-            // 连接服务器
-            await client.ConnectAsync();
+            // 初始化并连接服务器
+            await client.InitializeAsync();
             System.Console.WriteLine("✓ 已连接到服务器");
 
             // 获取服务代理
-            var playerHub = client.GetService<IPlayerHub>();
+            var playerHub = await client.GetServiceAsync<IPlayerHub>();
 
             // 发送测试Ping
             var pingRequest = new PingRequest
@@ -110,8 +102,8 @@ internal class Program
                 System.Console.WriteLine($"✗ 登录失败: {loginResponse.ErrorMessage}");
             }
 
-            // 断开连接
-            await client.DisconnectAsync();
+            // 停止客户端
+            await client.StopAsync();
             System.Console.WriteLine("✓ 已断开连接");
         }
         catch (Exception ex)
@@ -127,56 +119,55 @@ internal class Program
     {
         System.Console.WriteLine("\n=== 使用非DI版本客户端（Unity兼容）===");
 
-        // 使用工厂方法创建客户端 - 方式1: 简单创建
-        using var simpleClient = PulseRpcClientFactory.CreateTcpClient("TcpChannel", "localhost", 7000);
+        // 方式1: 基本客户端配置
+        using var simpleClient = new PulseRPCClientBuilder()
+            .ConfigureConnection("127.0.0.1", 7000)
+            .ConfigureTransport(TransportType.Tcp)
+            .Build();
 
         try
         {
-            await simpleClient.ConnectAsync();
-            System.Console.WriteLine("✓ 简单TCP客户端连接成功");
-            await simpleClient.DisconnectAsync();
+            await simpleClient.InitializeAsync();
+            System.Console.WriteLine("✓ 基本客户端连接成功");
+            await simpleClient.StopAsync();
         }
         catch (Exception ex)
         {
-            System.Console.WriteLine($"❌ 简单客户端测试失败: {ex.Message}");
+            System.Console.WriteLine($"❌ 基本客户端测试失败: {ex.Message}");
         }
 
-        // 方式2: 使用构建器创建复杂配置
-        using var complexClient = PulseRpcClientFactory.CreateBuilder()
-            .WithLogger(LoggerFactory.Create(builder =>
+        // 方式2: 高级客户端配置
+        using var complexClient = new PulseRPCClientBuilder()
+            .ConfigureConnection("127.0.0.1", 7001)
+            .ConfigureTransport(TransportType.Kcp)
+            .ConfigureKcp(kcp =>
             {
-                builder.AddConsole().SetMinimumLevel(LogLevel.Information);
-            }))
-            .WithOptions(options =>
-            {
-                // 使用现有的ClientOptions属性
-                options.ConnectionTimeout = TimeSpan.FromSeconds(10);
-                options.AutoReconnect = true;
+                kcp.NoDelay = true;
+                kcp.Interval = 10;
+                kcp.Resend = 2;
+                kcp.DisableFlowControl = false;
             })
-            .AddTcp("reliable", "localhost", 7000, options =>
+            .ConfigureTransportOptions(options =>
             {
-                options.NoDelay = true;
-            }, isDefault: true)
-            .AddKcp("gaming", "localhost", 7001, options =>
+                options.ConnectTimeoutMs = 10000;
+                options.ReadBufferSize = 16384;
+                options.WriteBufferSize = 16384;
+            })
+            .ConfigureLogging(logging =>
             {
-                options.Kcp = new KcpOptions
-                {
-                    NoDelay = 1,
-                    Interval = 10,
-                    Resend = 2,
-                    DisableFlowControl = true
-                };
+                logging.AddConsole();
+                logging.SetMinimumLevel(LogLevel.Information);
             })
             .Build();
 
         try
         {
-            // 连接服务器
-            await complexClient.ConnectAsync();
-            System.Console.WriteLine("✓ 复杂配置客户端连接成功");
+            // 初始化并连接服务器
+            await complexClient.InitializeAsync();
+            System.Console.WriteLine("✓ 高级配置客户端连接成功");
 
             // 获取服务代理
-            var playerHub = complexClient.GetService<IPlayerHub>();
+            var playerHub = await complexClient.GetServiceAsync<IPlayerHub>();
 
             // 发送测试Ping
             var pingRequest = new PingRequest
@@ -204,21 +195,16 @@ internal class Program
                 System.Console.WriteLine($"✗ 登录失败: {loginResponse.ErrorMessage}");
             }
 
-            // 显示传输信息
-            var transports = complexClient.GetTransports();
-            System.Console.WriteLine("✓ 配置的传输通道:");
-            foreach (var (name, info) in transports)
-            {
-                System.Console.WriteLine($"  - {name}: {info.Type} @ {info.Host}:{info.Port} (默认: {info.IsDefault})");
-            }
+            // 显示连接信息
+            System.Console.WriteLine("✓ 使用 KCP 传输协议连接成功");
 
-            // 断开连接
-            await complexClient.DisconnectAsync();
-            System.Console.WriteLine("✓ 复杂配置客户端已断开连接");
+            // 停止客户端
+            await complexClient.StopAsync();
+            System.Console.WriteLine("✓ 高级配置客户端已断开连接");
         }
         catch (Exception ex)
         {
-            System.Console.WriteLine($"❌ 复杂配置客户端测试失败: {ex.Message}");
+            System.Console.WriteLine($"❌ 高级配置客户端测试失败: {ex.Message}");
         }
     }
 }
