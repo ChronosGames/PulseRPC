@@ -4,9 +4,10 @@ using PulseRPC.Authentication;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 using System.Collections.Concurrent;
+using PulseRPC.Client.Core;
 using PulseRPC.Client.Core.ConnectionPool;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// PulseRPC 客户端实现 - 基于 UsageExamples.cs 设计
@@ -104,8 +105,8 @@ public sealed class PulseRPCClient : IPulseRPCClient
 
         // 创建核心组件（暂时使用基础实现）
         _connectionManager = new ConnectionManager(_serviceDiscovery, logger);
-        _connectionRouter = new SimpleConnectionRouter(logger.CreateLogger<SimpleConnectionRouter>());
         _connectionRegistry = new SimpleConnectionRegistry();
+        _connectionRouter = new SimpleConnectionRouter(_connectionRegistry, logger.CreateLogger<SimpleConnectionRouter>());
         _connectionLifecycleManager = new SimpleConnectionLifecycleManager(_connectionManager, logger.CreateLogger<SimpleConnectionLifecycleManager>());
         _loadBalancer = CreateLoadBalancer(loadBalancingStrategy, loadBalancingOptions, logger);
 
@@ -134,6 +135,12 @@ public sealed class PulseRPCClient : IPulseRPCClient
         try
         {
             _logger.LogInformation("开始初始化 PulseRPC 客户端");
+
+            // 初始化路由器默认规则
+            if (_connectionRouter is SimpleConnectionRouter simpleRouter)
+            {
+                simpleRouter.AddDefaultRules();
+            }
 
             // 连接到所有初始连接
             var connectionTasks = _initialConnections.Select(async descriptor =>

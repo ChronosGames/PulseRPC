@@ -234,7 +234,7 @@ await Task.WhenAll(startTasks);
 - 🚀 统一的连接池化和会话管理
 
 ### 接口统一升级
-- **IPulseHub**: 替代原有的 IPulseService，提供统一的服务标记
+- **IPulseHub**: 提供统一的服务标记
 - **IClientSession**: 新增的服务端客户端会话管理接口
 - **向后兼容**: 现有代码可以逐步迁移到新接口
 

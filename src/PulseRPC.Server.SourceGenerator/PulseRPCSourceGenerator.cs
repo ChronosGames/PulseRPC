@@ -77,7 +77,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                     var descriptor = new DiagnosticDescriptor(
                         "PULSE002",
                         "PulseServerGeneration configured but no services found",
-                        "PulseServerGeneration attribute is configured but no services implementing IPulseService were found in the referenced assemblies",
+                        "PulseServerGeneration attribute is configured but no services implementing IPulseHub were found in the referenced assemblies",
                         "PulseRPC.Server.SourceGenerator",
                         DiagnosticSeverity.Warning,
                         true);
@@ -536,7 +536,7 @@ internal class ServiceSyntaxReceiver : ISyntaxReceiver
     }
 
     /// <summary>
-    /// 快速检查接口是否可能有PulseService特性或继承IPulseService
+    /// 快速检查接口是否可能有PulseService特性或继承IPulseHub
     /// </summary>
     private static bool HasPotentialPulseServiceAttribute(InterfaceDeclarationSyntax interfaceDeclaration)
     {
@@ -555,7 +555,7 @@ internal class ServiceSyntaxReceiver : ISyntaxReceiver
         if (hasAttribute)
             return true;
 
-        // 检查是否继承IPulseService接口
+        // 检查是否继承IPulseHub接口
         if (interfaceDeclaration.BaseList?.Types != null)
         {
             return interfaceDeclaration.BaseList.Types

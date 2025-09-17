@@ -120,7 +120,7 @@ dotnet run
 ## 自定义扩展
 
 ### 添加新服务
-1. 定义服务接口继承 `IPulseService`
+1. 定义服务接口继承 `IPulseHub`
 2. 实现服务类
 3. 在 `RegisterExampleServices()` 中注册
 4. 配置依赖注入

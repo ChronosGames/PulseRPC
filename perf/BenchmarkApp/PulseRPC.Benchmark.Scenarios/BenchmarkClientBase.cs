@@ -6,6 +6,7 @@ using PulseRPC.Serialization;
 using PulseRPC.Transport;
 using PulseRPC.Benchmark.Core.Models;
 using PulseRPC.Benchmark.Shared;
+using PulseRPC.Client.Core;
 
 namespace PulseRPC.Benchmark.Scenarios;
 
@@ -18,7 +19,7 @@ public abstract class BenchmarkClientBase : IDisposable
 {
     protected readonly ILogger Logger;
     protected readonly ILoggerFactory LoggerFactory;
-    protected IPulseClient? PulseRPCClient;
+    protected IPulseRPCClient? PulseRPCClient;
     protected IBenchmarkHub? BenchmarkService;
     private CancellationTokenSource? _cts;
     private bool _disposed = false;
@@ -68,7 +69,7 @@ public abstract class BenchmarkClientBase : IDisposable
         _cts = new CancellationTokenSource();
 
         // 创建通道管理器
-        var builder = new PulseClientBuilder();
+        var builder = new PulseRPCClientBuilder();
         builder.AddTransport("TcpChannel", TransportType.Tcp, "localhost", 12345, new TcpTransportOptions
         {
             NoDelay = true,

@@ -1,13 +1,12 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
-using PulseRPC.Client.Core;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client.Core;
 
 /// <summary>
-/// PulseRPC 客户端构建器 - 基于 UsageExamples.cs 设计
+/// PulseRPC 客户端构建器
 /// </summary>
 public sealed class PulseRPCClientBuilder : IPulseRPCClientBuilder
 {

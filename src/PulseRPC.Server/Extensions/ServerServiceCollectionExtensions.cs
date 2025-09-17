@@ -23,11 +23,7 @@ public static class ServerServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         // 注册传统的通道管理器
-        services.TryAddSingleton<ServerChannelManager>();
-        services.TryAddSingleton<IServerChannelManager>(provider => provider.GetRequiredService<ServerChannelManager>());
-
-        // 注册其他核心服务
-        RegisterCoreServerServices(services);
+        services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
 
         return services;
     }
@@ -49,28 +45,12 @@ public static class ServerServiceCollectionExtensions
         }
 
         // 注册传统的通道管理器
-        services.TryAddSingleton<ServerChannelManager>();
+        services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
 
         // 注册新的会话管理器
         services.TryAddSingleton<ServerSessionManager>();
         services.TryAddSingleton<IServerSessionManager>(provider => provider.GetRequiredService<ServerSessionManager>());
         services.TryAddSingleton<IClientSessionManager>(provider => provider.GetRequiredService<ServerSessionManager>());
-
-        // 注册增强的通道管理器（桥接新旧架构）
-        // services.TryAddSingleton<EnhancedServerChannelManager>(provider =>
-        // {
-        //     var channelManager = provider.GetRequiredService<ServerChannelManager>();
-        //     var sessionManager = provider.GetRequiredService<ServerSessionManager>();
-        //     var logger = provider.GetRequiredService<ILogger<EnhancedServerChannelManager>>();
-        //     return new EnhancedServerChannelManager(channelManager, sessionManager, logger);
-        // });
-
-        // 替换IServerChannelManager的注册，使用增强版本
-        // services.AddSingleton<IServerChannelManager>(provider => provider.GetRequiredService<EnhancedServerChannelManager>());
-        // services.AddSingleton<IEnhancedServerChannelManager>(provider => provider.GetRequiredService<EnhancedServerChannelManager>());
-
-        // 注册其他核心服务
-        RegisterCoreServerServices(services);
 
         return services;
     }

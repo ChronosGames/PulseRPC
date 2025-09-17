@@ -336,45 +336,45 @@ public sealed class ConnectionContext : IConnectionContext
 /// <summary>
 /// 简单的订阅令牌实现
 /// </summary>
-public sealed class SubscriptionToken : ISubscriptionToken
-{
-    private readonly Action _unsubscribeAction;
-    private volatile bool _isDisposed;
-
-    public SubscriptionToken(Action unsubscribeAction)
-    {
-        _unsubscribeAction = unsubscribeAction ?? throw new ArgumentNullException(nameof(unsubscribeAction));
-    }
-
-    /// <summary>
-    /// 取消订阅
-    /// </summary>
-    public async Task UnsubscribeAsync()
-    {
-        if (_isDisposed)
-            return;
-
-        _isDisposed = true;
-        _unsubscribeAction?.Invoke();
-        await Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// 释放资源
-    /// </summary>
-    public void Dispose()
-    {
-        UnsubscribeAsync().Wait(TimeSpan.FromSeconds(5));
-    }
-}
+// public sealed class SubscriptionToken : ISubscriptionToken
+// {
+//     private readonly Action _unsubscribeAction;
+//     private volatile bool _isDisposed;
+//
+//     public SubscriptionToken(Action unsubscribeAction)
+//     {
+//         _unsubscribeAction = unsubscribeAction ?? throw new ArgumentNullException(nameof(unsubscribeAction));
+//     }
+//
+//     /// <summary>
+//     /// 取消订阅
+//     /// </summary>
+//     public async Task UnsubscribeAsync()
+//     {
+//         if (_isDisposed)
+//             return;
+//
+//         _isDisposed = true;
+//         _unsubscribeAction?.Invoke();
+//         await Task.CompletedTask;
+//     }
+//
+//     /// <summary>
+//     /// 释放资源
+//     /// </summary>
+//     public void Dispose()
+//     {
+//         UnsubscribeAsync().Wait(TimeSpan.FromSeconds(5));
+//     }
+// }
 
 /// <summary>
 /// 订阅令牌接口
 /// </summary>
-public interface ISubscriptionToken : IDisposable
-{
-    /// <summary>
-    /// 取消订阅
-    /// </summary>
-    Task UnsubscribeAsync();
-}
+// public interface ISubscriptionToken : IDisposable
+// {
+//     /// <summary>
+//     /// 取消订阅
+//     /// </summary>
+//     Task UnsubscribeAsync();
+// }

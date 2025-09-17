@@ -187,23 +187,3 @@ public interface IServerSessionManager : IDisposable
     /// <returns>统计信息</returns>
     SessionManagerStats GetSessionManagerStats();
 }
-
-/// <summary>
-/// 服务端会话管理器和通道管理器的桥接接口
-/// 保持与现有IServerChannelManager的兼容性
-/// </summary>
-public interface IEnhancedServerChannelManager : IServerChannelManager
-{
-    /// <summary>
-    /// 会话管理器
-    /// </summary>
-    IServerSessionManager SessionManager { get; }
-
-    /// <summary>
-    /// 从通道创建客户端会话（业务层）
-    /// </summary>
-    /// <param name="serverChannel">服务端通道</param>
-    /// <param name="descriptor">会话描述符</param>
-    /// <returns>客户端会话</returns>
-    IClientSession CreateClientSession(IServerChannel serverChannel, ClientSessionDescriptor descriptor);
-}

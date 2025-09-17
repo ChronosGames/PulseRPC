@@ -19,7 +19,7 @@ public static class ServiceAnalyzer
         if (interfaceSymbol == null) return null;
 
         // 检查是否标记为PulseHub或继承IPulseHub
-        if (!HasPulseServiceAttribute(interfaceSymbol) && !InheritsFromIPulseService(interfaceSymbol))
+        if (!HasPulseServiceAttribute(interfaceSymbol) && !InheritsFromIPulseHub(interfaceSymbol))
             return null;
 
         var interfaceName = interfaceSymbol.Name;
@@ -62,7 +62,7 @@ public static class ServiceAnalyzer
     /// <summary>
     /// 检查接口是否继承IPulseHub
     /// </summary>
-    private static bool InheritsFromIPulseService(INamedTypeSymbol interfaceSymbol)
+    private static bool InheritsFromIPulseHub(INamedTypeSymbol interfaceSymbol)
     {
         return interfaceSymbol.AllInterfaces
             .Any(i => i.Name == "IPulseHub" ||
@@ -229,7 +229,7 @@ public static class ServiceAnalyzer
         if (hasAttribute)
             return true;
 
-        // 检查是否继承IPulseService接口
+        // 检查是否继承IPulseHub接口
         if (interfaceDeclaration.BaseList?.Types != null)
         {
             return interfaceDeclaration.BaseList.Types
