@@ -57,19 +57,6 @@ public class TransportChannelConfiguration
             Options = options,
             IsDefault = isDefault
         };
-
-    /// <summary>
-    /// 创建WebSocket传输配置
-    /// </summary>
-    public static TransportChannelConfiguration WebSocket(string name, int port, TransportOptions? options = null, bool isDefault = false) =>
-        new()
-        {
-            Name = name,
-            Type = TransportType.WebSocket,
-            Port = port,
-            Options = options,
-            IsDefault = isDefault
-        };
 }
 
 /// <summary>

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PulseRPC.Channels;
 using PulseRPC.Server.Engine;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
@@ -100,7 +101,7 @@ public class ServerChannelManager : IServerChannelManager
             // 如果启用了高吞吐量处理器，为此通道创建处理器
             _ = Task.Run(async () => await TryCreateHighThroughputProcessorAsync(channel));
 
-            ChannelConnected?.Invoke(this, new ChannelEventArgs(channel));
+            ChannelConnected?.Invoke(this, new ChannelEventArgs((IChannel)channel));
             return channel;
         }
         else
@@ -170,7 +171,7 @@ public class ServerChannelManager : IServerChannelManager
         channel.StateChanged -= OnChannelStateChanged;
 
         // 触发断开事件
-        ChannelDisconnected?.Invoke(this, new ChannelEventArgs(channel));
+        ChannelDisconnected?.Invoke(this, new ChannelEventArgs((IChannel)channel));
 
         // 释放通道资源
         channel.Dispose();
@@ -295,7 +296,7 @@ public class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 处理通道状态变更事件
     /// </summary>
-    private void OnChannelStateChanged(object? sender, TransportStateEventArgs e)
+    private void OnChannelStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
         if (sender is not IChannel channel)
             return;

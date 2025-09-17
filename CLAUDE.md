@@ -4,54 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目架构
 
-PulseRPC 是一个基于 .NET 的高性能 RPC 框架，支持 TCP 和 KCP 传输协议，专为 Unity 和服务端应用设计。
-
-### 核心项目结构
-- **src/PulseRPC.Abstractions** - 核心抽象接口和基础类型
-- **src/PulseRPC.Client** - 客户端实现
-- **src/PulseRPC.Server** - 服务端实现  
-- **src/PulseRPC.Client.Unity** - Unity 客户端支持
-- **src/PulseRPC.Cluster** - 集群功能，包含服务发现、负载均衡、健康检查
-- **src/PulseRPC.Shared** - 共享组件（压缩、网络缓冲池等）
-
-### 关键依赖
-- **MemoryPack** - 主要序列化库（版本 1.21.4）
-- **System.IO.Pipelines** - 网络 I/O 管道
-- **Microsoft.Extensions.*** - 依赖注入、配置、日志等
-- **.NET 9+** 目标框架，Unity 使用 netstandard2.1
+- 详见 [README](README.md)
 
 ## 常用命令
 
-### 构建和测试
-```bash
-# 恢复依赖（使用集中化包管理）
-dotnet restore
-
-# 构建整个解决方案
-dotnet build
-
-# 运行所有测试
-dotnet test
-
-# 构建发布版本
-dotnet build -c Release
-```
-
-### 性能基准测试（BenchmarkApp）
-```bash
-# 启动基准测试服务端
-cd perf/BenchmarkApp
-dotnet run --project PulseRPC.Benchmark.Server
-
-# 运行性能测试客户端
-dotnet run --project PulseRPC.Benchmark.Client -- run --server localhost:8080 --scenario ping-pong --duration 30 --connections 10
-
-# 生成 HTML 报告
-dotnet run --project PulseRPC.Benchmark.Client -- generate-report --input results/test-results.json --format html --output reports/report.html
-```
-
-### Unity 开发
-Unity 项目位于 `src/PulseRPC.Client.Unity` 和 `samples/ChatApp/ChatApp.Unity`，使用 Unity 2022.3+ LTS。
+- 详见 [README](README.md)
 
 ## 开发指导
 

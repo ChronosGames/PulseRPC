@@ -12,6 +12,11 @@ namespace PulseRPC.Transport;
 public interface ISessionChannel : ITransportConnection
 {
     /// <summary>
+    /// 会话ID，映射到传输连接ID
+    /// </summary>
+    string SessionId => ConnectionId;
+
+    /// <summary>
     /// 认证上下文，包含用户或服务的认证信息
     /// </summary>
     IAuthenticationContext? AuthenticationContext { get; set; }

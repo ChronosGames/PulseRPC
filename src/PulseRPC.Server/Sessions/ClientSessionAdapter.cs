@@ -400,7 +400,7 @@ internal class ClientSessionAdapter : IClientSession
     private void OnSessionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
         // 更新健康状态
-        Health = e.NewState switch
+        Health = e.CurrentState switch
         {
             ConnectionState.Connected => SessionHealth.Healthy,
             ConnectionState.Connecting => SessionHealth.Degraded,
@@ -413,7 +413,7 @@ internal class ClientSessionAdapter : IClientSession
         StateChanged?.Invoke(this, e);
 
         _logger?.LogDebug("会话状态已变更: SessionId={SessionId}, ConnectionId={ConnectionId}, State={OldState}->{NewState}, Health={Health}",
-            _descriptor.Id, e.ConnectionId, e.OldState, e.NewState, Health);
+            _descriptor.Id, e.ConnectionId, e.PreviousState, e.CurrentState, Health);
     }
 
     /// <summary>

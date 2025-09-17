@@ -199,20 +199,15 @@ public class ServerTransportChannel : IServerChannel
     }
 
     /// <inheritdoc />
-    public event System.EventHandler<TransportDataEventArgs>? DataReceived;
+    public event PulseRPC.EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
     /// 处理传输层状态变更事件
     /// </summary>
-    private void OnTransportStateChanged(object? sender, TransportStateEventArgs e)
+    private void OnTransportStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
-        // 触发新的ConnectionStateChangedEventArgs事件
-        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(
-            ConnectionId,
-            e.PreviousState,
-            e.CurrentState,
-            e.Reason,
-            e.Exception));
+        // 直接转发ConnectionStateChangedEventArgs事件
+        StateChanged?.Invoke(this, e);
 
         // 连接断开时清理认证信息
         if (e.CurrentState == ConnectionState.Disconnected)

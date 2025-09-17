@@ -11,6 +11,36 @@ using PulseRPC.Server.Serialization;
 
 namespace PulseRPC.Server.Dispatch;
 
+/// <summary>
+/// 高性能消息调度器接口
+/// </summary>
+public interface IMessageDispatcher : IDisposable
+{
+    /// <summary>
+    /// 启动消息调度器
+    /// </summary>
+    Task StartAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 停止消息调度器
+    /// </summary>
+    Task StopAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 分发反序列化的消息
+    /// </summary>
+    ValueTask DispatchMessageAsync(MessageDeserializedEventArgs eventArgs);
+
+    /// <summary>
+    /// 注册服务处理器
+    /// </summary>
+    void RegisterServiceHandler(string serviceName, IServiceHandler handler);
+
+    /// <summary>
+    /// 消息处理完成事件
+    /// </summary>
+    event EventHandler<MessageProcessedEventArgs> MessageProcessed;
+}
 
 /// <summary>
 /// 高性能消息调度器实现
@@ -63,7 +93,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
                 SingleReader = false,
                 SingleWriter = false,
                 AllowSynchronousContinuations = false,
-                BoundedChannelFullMode = BoundedChannelFullMode.Wait
+                FullMode = BoundedChannelFullMode.Wait
             };
 
             _priorityChannels[i] = Channel.CreateBounded<ServiceInvocationTask>(channelOptions);

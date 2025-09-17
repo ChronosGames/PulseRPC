@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Channels;
 using PulseRPC.Transport;
 using PulseRPC.Server.Transport;
 
@@ -203,7 +204,7 @@ public class AuthenticationMiddleware
     /// </summary>
     /// <param name="channel">传输通道</param>
     /// <returns>用户身份，如果未认证则返回null</returns>
-    private ClaimsPrincipal? ExtractUserFromChannel(IChannel channel)
+    private ClaimsPrincipal? ExtractUserFromChannel(IServerChannel channel)
     {
         // 检查通道是否已认证
         if (channel.AuthenticationContext != null && channel.AuthenticationContext.IsAuthenticated)

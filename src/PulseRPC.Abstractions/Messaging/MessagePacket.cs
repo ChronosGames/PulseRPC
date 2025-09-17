@@ -8,6 +8,18 @@ using PulseRPC.Transport;
 
 namespace PulseRPC.Messaging;
 
+public class MessagePacketHolder
+{
+    public readonly MessageHeader Header;
+    public readonly byte[] Payload;
+
+    public MessagePacketHolder(MessagePacket packet)
+    {
+        this.Header = packet.Header;
+        this.Payload = packet.Payload.ToArray();
+    }
+}
+
 /// <summary>
 /// 高性能消息包装器 - 零分配设计
 /// 使用 Span<T> 和 Memory<T> 优化内存操作

@@ -1,6 +1,7 @@
 using System.Net;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
+using PulseRPC.Sessions;
 using TransportContext = System.Net.TransportContext;
 
 namespace PulseRPC.Server;
@@ -33,11 +34,11 @@ public interface IPulseRPCServer : IAsyncDisposable, IDisposable
     /// </summary>
     bool IsRunning => State == ServerState.Running;
 
-    // === 传输管理 ===
+    // === 会话管理 ===
     /// <summary>
-    /// 获取传输管理器
+    /// 获取客户端会话管理器
     /// </summary>
-    ITransportManager GetTransportManager();
+    IClientSessionManager GetSessionManager();
 
     /// <summary>
     /// 获取已配置的传输信息

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Transport;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Sessions;
 
@@ -79,8 +80,7 @@ public class ServerSessionManager : IServerSessionManager, IClientSessionManager
         ObjectDisposedException.ThrowIf(_disposed, nameof(ServerSessionManager));
 
         // 创建会话适配器
-        var sessionLogger = _logger; // 可以创建专用logger，这里简化处理
-        var session = new ClientSessionAdapter(serverChannel, descriptor, this, sessionLogger);
+        var session = new ClientSessionAdapter(serverChannel, descriptor, this);
 
         // 注册事件处理
         session.AuthenticationChanged += OnSessionAuthenticated;

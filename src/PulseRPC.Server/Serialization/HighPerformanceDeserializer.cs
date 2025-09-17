@@ -77,7 +77,7 @@ internal sealed class HighPerformanceDeserializer : IMessageDeserializer
             SingleReader = false, // 多个反序列化器线程
             SingleWriter = false, // 多个网络处理器线程写入
             AllowSynchronousContinuations = false,
-            BoundedChannelFullMode = BoundedChannelFullMode.Wait // 背压控制
+            FullMode = BoundedChannelFullMode.Wait // 背压控制
         };
 
         _deserializationChannel = Channel.CreateBounded<MessageDeserializationTask>(channelOptions);
@@ -247,10 +247,10 @@ internal sealed class HighPerformanceDeserializer : IMessageDeserializer
     /// <summary>
     /// 反序列化请求数据
     /// </summary>
-    private async Task<object?> DeserializeRequestAsync(ISerializer serializer, ReadOnlySpan<byte> payload)
+    private Task<object?> DeserializeRequestAsync(ISerializer serializer, ReadOnlySpan<byte> payload)
     {
         if (payload.IsEmpty)
-            return null;
+            return Task.FromResult<object?>(null);
 
         // 使用内存池避免大对象分配
         using var owner = MemoryPool<byte>.Shared.Rent(payload.Length);
@@ -261,7 +261,7 @@ internal sealed class HighPerformanceDeserializer : IMessageDeserializer
         // 这里需要根据实际的服务接口类型进行反序列化
         // 为了演示，我们返回原始字节数据
         // 实际实现中应该通过源码生成器生成具体的反序列化逻辑
-        return payload.ToArray();
+        return Task.FromResult<object?>(payload.ToArray());
     }
 
     public void Dispose()
@@ -279,16 +279,16 @@ internal sealed class HighPerformanceDeserializer : IMessageDeserializer
 /// <summary>
 /// 反序列化任务结构
 /// </summary>
-internal readonly struct MessageDeserializationTask
+internal class MessageDeserializationTask
 {
     public readonly string ConnectionId;
-    public readonly MessagePacket MessagePacket;
+    public readonly MessagePacketHolder MessagePacket;
     public readonly DateTime ReceivedTime;
     public readonly int NetworkProcessorId;
 
     public MessageDeserializationTask(
         string connectionId,
-        MessagePacket messagePacket,
+        MessagePacketHolder messagePacket,
         DateTime receivedTime,
         int networkProcessorId)
     {
