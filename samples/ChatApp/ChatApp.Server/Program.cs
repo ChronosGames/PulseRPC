@@ -75,37 +75,18 @@ internal abstract class Program
         services.AddSingleton<IGameWorld, GameWorld>();
         services.AddSingleton<IPlayerManager, PlayerManager>();
 
-        // 添加PulseRPC服务器 - 使用新的简化配置
+        // 添加PulseRPC服务器 - 基于指南文档的最佳实践
         services.AddPulseRpcServer(builder =>
         {
-            builder
-                .ConfigureServer(options =>
-                {
-                    options.AppName = "ChatGameServer";
-                    options.AppVersion = "2.0.0";
-                    options.MaxConnections = 1000;
-                    options.HeartbeatInterval = TimeSpan.FromSeconds(30);
-                })
-                .AddTcp("TcpChannel", 7000, options =>
-                {
-                    options.NoDelay = true;
-                }, isDefault: true)
-                .AddKcp("KcpChannel", 7001, options =>
-                {
-                    options.NoDelay = true;
-                    options.Interval = 10;
-                    options.Resend = 2;
-                    options.DisableFlowControl = false;
-                });
+            // TCP 监听器配置
+            builder.AddTcp("TcpChannel", 7000, isDefault: true);
 
-            // 默认启用性能优化
-            builder.UseHighPerformanceEngine();
-            builder.UseTieredMessageProcessor();
-            builder.UsePriorityScheduler();
-
-            // 使用新的API注册业务服务 - 使用Singleton生命周期
-            builder.AddService<IPlayerHub, PlayerHub>();
+            // KCP 监听器配置（低延迟）
+            builder.AddKcp("KcpChannel", 7001);
         });
+
+        // 注册 Hub 服务
+        services.AddScoped<IPlayerHub, PlayerHub>();
 
         // 添加服务注册
         // services.AddPulseRpcServiceRegistration(context.Configuration);

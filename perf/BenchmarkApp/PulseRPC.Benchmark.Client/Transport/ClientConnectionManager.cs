@@ -234,10 +234,21 @@ public class ClientConnection : IDisposable
         {
             _logger.LogDebug("连接到服务器: {Host}:{Port}", Host, Port);
 
-            // 创建 PulseRPC 客户端（仅 TCP 通道）
-            var builder = new PulseClientBuilder();
-            builder.AddTcp("TcpChannel", Host, Port);
-            _pulseClient = builder.Build();
+            // 创建 PulseRPC 客户端 - 基于指南文档的最佳实践
+            _pulseClient = new PulseRPCClientBuilder()
+                .ConfigureConnection(Host, Port)
+                .ConfigureTransport(TransportType.Tcp)
+                .ConfigureTransportOptions(options =>
+                {
+                    options.ConnectTimeoutMs = 5000;
+                    options.EnableTcpNoDelay = true;
+                    options.ReadBufferSize = 8192;
+                    options.WriteBufferSize = 8192;
+                })
+                .Build();
+
+            // 初始化并连接
+            await _pulseClient.InitializeAsync(cancellationToken);
 
             // 获取服务代理
             _service = await _pulseClient.GetServiceAsync<IBenchmarkHub>();
@@ -269,7 +280,7 @@ public class ClientConnection : IDisposable
 
             if (_pulseClient != null)
             {
-                await _pulseClient.DisconnectAsync();
+                await _pulseClient.StopAsync();
                 _pulseClient = null;
             }
             _service = null;

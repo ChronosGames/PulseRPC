@@ -15,6 +15,7 @@ using PulseRPC;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Transport;
 using PulseRPC.Serialization;
+using PulseRPC.Sessions;
 using IAuthenticationProvider = PulseRPC.Server.Authentication.IAuthenticationProvider;
 
 namespace GameServer;
@@ -28,7 +29,7 @@ public class PlayerHub(
     IPlayerManager playerManager,
     IEventPublisher eventPublisher,
     PlayerMovementBatcher movementBatcher,
-    IChannelManager channelManager,
+    IClientSessionManager sessionManager,
     IAuthenticationProvider authProvider,
     ILogger<PlayerHub> logger,
     ISerializerProvider serializerProvider)
@@ -107,7 +108,7 @@ public class PlayerHub(
             if (connection != null)
             {
                 // 通过 ChannelManager 获取传输通道
-                var channel = channelManager.GetChannel(connection.ConnectionId);
+                var channel = sessionManager.GetSession(connection.ConnectionId);
                 if (channel != null)
                 {
                     // 创建认证上下文
@@ -176,7 +177,7 @@ public class PlayerHub(
         }
 
         // 通过 ChannelManager 获取传输通道
-        var channel = channelManager.GetChannel(connection.ConnectionId);
+        var channel = sessionManager.GetSession(connection.ConnectionId);
         if (channel == null)
         {
             logger.LogError("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
@@ -267,11 +268,11 @@ public class PlayerHub(
         var currentConnectionId = currentConnection?.ConnectionId;
 
         // 获取所有已认证的通道，但排除当前连接
-        var channels = channelManager.GetAuthenticatedChannels()
+        var sessions = sessionManager.GetAuthenticatedSessions()
             .Where(c => c.ConnectionId != currentConnectionId)
             .ToList();
 
-        if (!channels.Any())
+        if (!sessions.Any())
         {
             logger.LogDebug("没有其他已认证的连接，跳过玩家加入事件广播: {Username}", player.Username);
             return;
@@ -284,17 +285,17 @@ public class PlayerHub(
         var eventDataBytes = writer.WrittenMemory.ToArray();
 
         // 并行发送给其他已认证的连接
-        var tasks = channels.Select(async channel =>
+        var tasks = sessions.Select(async session =>
         {
             try
             {
-                await channel.SendAsync(eventDataBytes, CancellationToken.None);
-                logger.LogTrace("玩家加入事件已发送到连接: {ConnectionId}", channel.ConnectionId);
+                await session.SendAsync(eventDataBytes, CancellationToken.None);
+                logger.LogTrace("玩家加入事件已发送到连接: {ConnectionId}", session.SessionId);
                 return true;
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "向连接 {ConnectionId} 发送玩家加入事件时失败", channel.ConnectionId);
+                logger.LogWarning(ex, "向连接 {ConnectionId} 发送玩家加入事件时失败", session.SessionId);
                 return false;
             }
         });
@@ -303,7 +304,7 @@ public class PlayerHub(
         var successCount = results.Count(r => r);
 
         logger.LogInformation("已广播玩家 {Username} 加入事件到 {SuccessCount}/{TotalCount} 个连接",
-            player.Username, successCount, channels.Count);
+            player.Username, successCount, sessions.Count);
     }
 
     /// <summary>
