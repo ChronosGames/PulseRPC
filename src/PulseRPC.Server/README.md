@@ -63,7 +63,7 @@ PulseRPC.Server DI Interface
 ```csharp
 // 最简配置 - 2行代码
 services.AddPulseRpcTcpServer(5000)
-    .AddService<IUserService, UserService>();
+    .AddHub<IUserService, UserService>();
 
 // 企业级配置 - 支持新的IPulseHub接口
 services.AddPulseRpcServer(builder =>
@@ -71,8 +71,8 @@ services.AddPulseRpcServer(builder =>
     builder.AddTcp("Main", 5000, isDefault: true)
            .AddKcp("Game", 5001)
            .UseHighPerformanceEngine()
-           .AddService<IUserService, UserService>()  // IPulseHub implementation
-           .AddService<IGameHub, GameHub>();          // Event-driven services
+           .AddHub<IUserService, UserService>()  // IPulseHub implementation
+           .AddHub<IGameHub, GameHub>();          // Event-driven services
 });
 ```
 
@@ -108,7 +108,7 @@ var builder = Host.CreateDefaultBuilder(args);
 builder.UsePulseRpcServer(server =>
 {
     server.AddTcp("Default", 5000, isDefault: true)
-          .AddService<IUserService, UserService>();
+          .AddHub<IUserService, UserService>();
 });
 
 var host = builder.Build();
@@ -118,7 +118,7 @@ await host.RunAsync();
 ### 高性能配置
 ```csharp
 services.AddHighThroughputPulseRpcServer(5000, TransportProtocol.Tcp)
-    .AddService<IUserService, UserService>()
+    .AddHub<IUserService, UserService>()
     .UseAuthentication(auth => auth.JwtSecretKey = "secret")
     .ConfigureServer(options =>
     {

@@ -40,14 +40,14 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             {
                 var semanticModel = context.Compilation.GetSemanticModel(classDeclaration.SyntaxTree);
                 var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
-                
+
                 if (classSymbol != null && HasPulseServerGenerationAttribute(classSymbol))
                 {
                     serverGenerationClasses.Add(classDeclaration);
-                    
+
                     // 从PulseServerGeneration特性中获取要扫描的类型
                     var typesToScan = GetMarkerTypesFromClass(classSymbol, semanticModel);
-                    
+
                     foreach (var markerType in typesToScan)
                     {
                         // 扫描标记类型所在程序集中的所有服务接口
@@ -341,7 +341,7 @@ public static class GenerationReport
     /// </summary>
     private static bool HasPulseServerGenerationAttribute(INamedTypeSymbol classSymbol)
     {
-        return classSymbol.GetAttributes().Any(attr => 
+        return classSymbol.GetAttributes().Any(attr =>
             attr.AttributeClass?.Name == PulseServerGenerationAttributeName ||
             attr.AttributeClass?.Name == "PulseServerGeneration");
     }
@@ -362,7 +362,7 @@ public static class GenerationReport
             }
 
             // 获取特性的构造函数参数（markerType）
-            if (attribute.ConstructorArguments.Length > 0 && 
+            if (attribute.ConstructorArguments.Length > 0 &&
                 attribute.ConstructorArguments[0].Value is ITypeSymbol markerType)
             {
                 markerTypes.Add(markerType);
@@ -385,7 +385,7 @@ public static class GenerationReport
         {
             if (type is INamedTypeSymbol namedType && namedType.TypeKind == TypeKind.Interface)
             {
-                // 检查是否实现了IPulseService接口或有PulseService特性
+                // 检查是否实现了IPulseHub接口或有PulseService特性
                 if (IsServiceInterface(namedType))
                 {
                     var serviceModel = CreateServiceModelFromSymbol(namedType);
@@ -430,14 +430,14 @@ public static class GenerationReport
     private static bool IsServiceInterface(INamedTypeSymbol typeSymbol)
     {
         // 检查是否有PulseService特性
-        if (typeSymbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == "PulseServiceAttribute" || 
+        if (typeSymbol.GetAttributes().Any(attr => attr.AttributeClass?.Name == "PulseServiceAttribute" ||
                                                    attr.AttributeClass?.Name == "PulseService"))
         {
             return true;
         }
 
-        // 检查是否实现了IPulseService接口
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseService");
+        // 检查是否实现了IPulseHub接口
+        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
     }
 
     /// <summary>
@@ -455,7 +455,7 @@ public static class GenerationReport
                 {
                     var returnType = methodSymbol.ReturnType.ToDisplayString();
                     var isAsync = IsAsyncMethod(methodSymbol);
-                    
+
                     var method = new MethodModel
                     {
                         MethodName = methodSymbol.Name,
@@ -562,9 +562,9 @@ internal class ServiceSyntaxReceiver : ISyntaxReceiver
                 .Any(baseType =>
                 {
                     var typeName = baseType.Type.ToString();
-                    return typeName == "IPulseService" ||
-                           typeName.EndsWith(".IPulseService") ||
-                           typeName.Contains("IPulseService");
+                    return typeName == "IPulseHub" ||
+                           typeName.EndsWith(".IPulseHub") ||
+                           typeName.Contains("IPulseHub");
                 });
         }
 
