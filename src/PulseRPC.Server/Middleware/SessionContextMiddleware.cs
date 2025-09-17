@@ -6,7 +6,7 @@ namespace PulseRPC.Server.Middleware;
 
 /// <summary>
 /// 会话上下文中间件 - 在处理RPC请求时设置当前会话上下文
-/// 允许IPulseService实现类通过DI获取ISessionContextAccessor来访问会话上下文
+/// 允许IPulseHub实现类通过DI获取ISessionContextAccessor来访问会话上下文
 /// 符合三层抽象架构的应用层设计
 /// </summary>
 internal sealed class SessionContextMiddleware : IPulseRpcMiddleware

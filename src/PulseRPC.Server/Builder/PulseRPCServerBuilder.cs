@@ -249,6 +249,9 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         // 注册会话管理器
         Services.TryAddSingleton<IClientSessionManager, ClientSessionManager>();
 
+        // 注册服务器通道管理器
+        Services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
+
         // 注册事件发布器
         Services.TryAddSingleton<IEventPublisher, EventPublisher>();
 

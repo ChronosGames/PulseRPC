@@ -187,7 +187,7 @@ public class EventListenerBuilder<T> where T : class
     /// 注册事件监听器
     /// </summary>
     /// <returns>订阅令牌</returns>
-    public ISubscriptionToken Register()
+    public Task<ISubscriptionToken> RegisterAsync()
     {
         // 使用辅助类来避免直接依赖源代码生成的方法
         // 辅助类的委托将由源代码生成器设置

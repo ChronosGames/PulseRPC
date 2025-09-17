@@ -11,7 +11,7 @@ namespace PulseRPC.Server.Processing;
 /// <summary>
 /// 增强的服务器通道管理器 - 集成高吞吐量消息处理器
 /// </summary>
-public class ServerChannelManager : IServerChannelManager
+internal class ServerChannelManager : IServerChannelManager
 {
     private readonly ConcurrentDictionary<string, IServerChannel> _channels;
     private readonly IHighThroughputProcessorManager? _processorManager;

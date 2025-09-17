@@ -10,14 +10,16 @@ namespace PulseRPC.Client.Core;
 public sealed class SimpleConnectionRouter : IConnectionRouter
 {
     private readonly ILogger<SimpleConnectionRouter> _logger;
+    private readonly IConnectionRegistry _connectionRegistry;
     private readonly ConcurrentDictionary<string, RoutingRule> _rules = new();
     private readonly object _lock = new();
 
     /// <summary>
     /// 构造函数
     /// </summary>
-    public SimpleConnectionRouter(ILogger<SimpleConnectionRouter>? logger = null)
+    public SimpleConnectionRouter(IConnectionRegistry connectionRegistry, ILogger<SimpleConnectionRouter>? logger = null)
     {
+        _connectionRegistry = connectionRegistry ?? throw new ArgumentNullException(nameof(connectionRegistry));
         _logger = logger ?? NullLogger<SimpleConnectionRouter>.Instance;
     }
 
@@ -94,9 +96,34 @@ public sealed class SimpleConnectionRouter : IConnectionRouter
         if (string.IsNullOrEmpty(routingKey))
             return Array.Empty<IConnection>();
 
-        // TODO: 在 Stage 2 中实现完整的连接匹配逻辑
-        // 目前返回空列表，需要与 ConnectionRegistry 集成
-        _logger.LogWarning("GetMatchingConnections 需要与 ConnectionRegistry 集成 - Stage 2 实现");
+        // 尝试通过连接ID匹配
+        var connectionById = _connectionRegistry.GetConnection(routingKey);
+        if (connectionById != null)
+        {
+            _logger.LogDebug("通过连接ID找到连接: {ConnectionId}", routingKey);
+            return new[] { connectionById };
+        }
+
+        // 如果没有找到，返回所有连接作为后备选项
+        var allConnections = _connectionRegistry.GetAllConnections();
+        if (allConnections.Count > 0)
+        {
+            // 过滤出健康的连接
+            var healthyConnections = allConnections
+                .Where(c => c.State == ExtendedConnectionState.Connected || c.State == ExtendedConnectionState.Active)
+                .ToList();
+
+            if (healthyConnections.Count > 0)
+            {
+                _logger.LogDebug("使用所有健康连接作为后备选项，连接数: {Count}", healthyConnections.Count);
+                return healthyConnections;
+            }
+
+            _logger.LogDebug("使用所有连接作为后备选项，连接数: {Count}", allConnections.Count);
+            return allConnections;
+        }
+
+        _logger.LogWarning("未找到匹配的连接: {RoutingKey}", routingKey);
         return Array.Empty<IConnection>();
     }
 

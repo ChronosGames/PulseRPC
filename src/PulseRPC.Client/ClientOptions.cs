@@ -1,4 +1,6 @@
-﻿namespace PulseRPC.Client;
+﻿using PulseRPC.Client.Core;
+
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 客户端选项
@@ -186,55 +188,55 @@ public class ServiceDiscoveryOptions
 /// <summary>
 /// 连接池配置选项
 /// </summary>
-public class ConnectionPoolOptions
-{
-    /// <summary>
-    /// 是否启用连接池
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
-    /// 最大连接数
-    /// </summary>
-    public int MaxConnections { get; set; } = 100;
-
-    /// <summary>
-    /// 最小连接数
-    /// </summary>
-    public int MinConnections { get; set; } = 10;
-
-    /// <summary>
-    /// 连接空闲超时时间
-    /// </summary>
-    public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
-
-    /// <summary>
-    /// 连接生存时间
-    /// </summary>
-    public TimeSpan MaxLifetime { get; set; } = TimeSpan.FromHours(1);
-
-    /// <summary>
-    /// 获取连接超时时间
-    /// </summary>
-    public TimeSpan AcquireTimeout { get; set; } = TimeSpan.FromSeconds(10);
-
-    /// <summary>
-    /// 连接验证间隔
-    /// </summary>
-    public TimeSpan ValidationInterval { get; set; } = TimeSpan.FromMinutes(5);
-
-    /// <summary>
-    /// 是否在借用时验证连接
-    /// </summary>
-    public bool ValidateOnBorrow { get; set; } = true;
-
-    /// <summary>
-    /// 是否在归还时验证连接
-    /// </summary>
-    public bool ValidateOnReturn { get; set; } = false;
-
-    /// <summary>
-    /// 是否在空闲时验证连接
-    /// </summary>
-    public bool ValidateOnIdle { get; set; } = true;
-}
+// public class ConnectionPoolOptions
+// {
+//     /// <summary>
+//     /// 是否启用连接池
+//     /// </summary>
+//     public bool Enabled { get; set; } = true;
+//
+//     /// <summary>
+//     /// 最大连接数
+//     /// </summary>
+//     public int MaxConnections { get; set; } = 100;
+//
+//     /// <summary>
+//     /// 最小连接数
+//     /// </summary>
+//     public int MinConnections { get; set; } = 10;
+//
+//     /// <summary>
+//     /// 连接空闲超时时间
+//     /// </summary>
+//     public TimeSpan IdleTimeout { get; set; } = TimeSpan.FromMinutes(10);
+//
+//     /// <summary>
+//     /// 连接生存时间
+//     /// </summary>
+//     public TimeSpan MaxLifetime { get; set; } = TimeSpan.FromHours(1);
+//
+//     /// <summary>
+//     /// 获取连接超时时间
+//     /// </summary>
+//     public TimeSpan AcquireTimeout { get; set; } = TimeSpan.FromSeconds(10);
+//
+//     /// <summary>
+//     /// 连接验证间隔
+//     /// </summary>
+//     public TimeSpan ValidationInterval { get; set; } = TimeSpan.FromMinutes(5);
+//
+//     /// <summary>
+//     /// 是否在借用时验证连接
+//     /// </summary>
+//     public bool ValidateOnBorrow { get; set; } = true;
+//
+//     /// <summary>
+//     /// 是否在归还时验证连接
+//     /// </summary>
+//     public bool ValidateOnReturn { get; set; } = false;
+//
+//     /// <summary>
+//     /// 是否在空闲时验证连接
+//     /// </summary>
+//     public bool ValidateOnIdle { get; set; } = true;
+// }

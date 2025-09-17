@@ -10,6 +10,8 @@ db.createUser({
   pwd: 'gameapp_admin_password',
   roles: [
     { role: 'readWrite', db: 'gameapp_dev' },
+    { role: 'dbAdmin', db: 'gameapp_dev' }, // For creating indexes, collections
+    { role: 'clusterMonitor', db: 'admin' }  // For listDatabases
   ]
 });
 

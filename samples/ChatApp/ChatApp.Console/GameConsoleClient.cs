@@ -39,14 +39,13 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
         // 使用 PulseRPC 客户端构建器 API
         _client = new PulseRPCClientBuilder()
-            .ConfigureConnection("localhost", 7000)
-            .ConfigureTransport(TransportType.Tcp)
-            .ConfigureTransportOptions(options =>
+            .AddConnection(ConnectionDescriptor.CreateTcp("ChatApp", "ChatApp", "localhost", 7000, ConnectionStrategy.Persistent))
+            .WithTransportOptions(TransportType.Tcp, new TcpTransportOptions
             {
-                options.ConnectTimeoutMs = 30000;
-                options.EnableTcpNoDelay = true;
-                options.ReadBufferSize = 8192;
-                options.WriteBufferSize = 8192;
+                ConnectionTimeout = 30000,
+                NoDelay = true,
+                SendBufferSize = 8192,
+                RecvBufferSize = 8192,
             })
             .Build();
 
@@ -59,34 +58,13 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             _playerService = await _client.GetServiceAsync<IPlayerHub>();
 
             // 注册事件监听器
-            _eventsSubscription = _client.RegisterEventListener(new PlayerEventsHandler(this));
+            _eventsSubscription = await _client.RegisterEventListenerAsync(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "客户端初始化失败: {Message}", ex.Message);
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// 连接到服务器
-    /// </summary>
-    public async Task ConnectAsync()
-    {
-        _logger.LogInformation("正在连接到服务器...");
-
-        try
-        {
-            // 使用新的客户端 API 连接
-            await _client!.ConnectAsync(_cts!.Token);
-
-            _logger.LogInformation("已连接到服务器 (TCP + KCP)");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "连接服务器失败");
             throw;
         }
     }
@@ -159,9 +137,6 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     /// </summary>
     public async Task RunAsync()
     {
-        // 连接到服务器
-        await ConnectAsync();
-
         // 显示欢迎消息
         System.Console.Clear();
         System.Console.WriteLine("==============================");
@@ -336,19 +311,10 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         _eventsSubscription?.Dispose();
 
         // 取消操作
-        _cts?.Cancel();
-
-        // 断开连接
-        try
+        if (_cts != null)
         {
-            if (_client != null)
-            {
-                await _client.DisconnectAsync(_cts?.Token ?? CancellationToken.None);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "断开连接时发生错误");
+            await _cts.CancelAsync();
+            _cts = null;
         }
 
         // 释放资源

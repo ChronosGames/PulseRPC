@@ -5,7 +5,7 @@ using PulseRPC.Client.Core.ConnectionPool;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// PulseRPC 客户端核心接口 - 基于 UsageExamples.cs 设计
