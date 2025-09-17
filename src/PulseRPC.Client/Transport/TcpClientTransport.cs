@@ -188,24 +188,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
 
         // 触发 ITransportConnection 接口的事件
         StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(
-            _connectionId, ConvertToExtendedState(oldState), ConvertToExtendedState(newState), reason, exception));
-    }
-
-    /// <summary>
-    /// 转换到扩展连接状态
-    /// </summary>
-    private static ExtendedConnectionState ConvertToExtendedState(ConnectionState state)
-    {
-        return state switch
-        {
-            ConnectionState.Disconnected => Core.ExtendedConnectionState.Disconnected,
-            ConnectionState.Connecting => Core.ExtendedConnectionState.Connecting,
-            ConnectionState.Connected => Core.ExtendedConnectionState.Connected,
-            ConnectionState.Disconnecting => Core.ExtendedConnectionState.Disconnecting,
-            ConnectionState.Failed => Core.ExtendedConnectionState.Failed,
-            ConnectionState.Reconnecting => Core.ExtendedConnectionState.Reconnecting,
-            _ => Core.ExtendedConnectionState.Uninitialized
-        };
+            _connectionId, oldState, newState, reason, exception));
     }
 
     /// <summary>

@@ -265,7 +265,7 @@ public sealed class ConnectionPoolHealthResult
     /// <summary>
     /// 连接健康检查结果
     /// </summary>
-    public IReadOnlyList<Health.HealthCheckResult> ConnectionResults { get; set; } = Array.Empty<Health.HealthCheckResult>();
+    public IReadOnlyList<HealthCheckResult> ConnectionResults { get; set; } = Array.Empty<HealthCheckResult>();
 
     /// <summary>
     /// 检查时间

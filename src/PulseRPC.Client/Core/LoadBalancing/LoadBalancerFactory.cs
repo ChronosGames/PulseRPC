@@ -158,7 +158,7 @@ public sealed class LoadBalancerFactory : ILoadBalancerFactory, IDisposable
             throw new ObjectDisposedException(nameof(LoadBalancerFactory));
         }
 
-        ArgumentException.ThrowIfNullOrEmpty(name);
+        if (string.IsNullOrEmpty(name)) throw new ArgumentException(nameof(name));
 
         return _loadBalancers.GetOrAdd(name, _ =>
         {
@@ -186,7 +186,7 @@ public sealed class LoadBalancerFactory : ILoadBalancerFactory, IDisposable
             return;
         }
 
-        ArgumentException.ThrowIfNullOrEmpty(name);
+        if (string.IsNullOrEmpty(name)) throw new ArgumentException(nameof(name));
 
         if (_loadBalancers.TryRemove(name, out var loadBalancer))
         {

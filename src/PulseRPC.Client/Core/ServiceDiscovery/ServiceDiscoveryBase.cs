@@ -136,7 +136,7 @@ public abstract class ServiceDiscoveryBase : IServiceDiscovery, IDisposable
             throw new InvalidOperationException("服务发现未启动");
         }
 
-        ArgumentNullException.ThrowIfNull(instance);
+        if (instance == null) throw new ArgumentNullException(nameof(instance));
 
         try
         {
@@ -182,7 +182,7 @@ public abstract class ServiceDiscoveryBase : IServiceDiscovery, IDisposable
             throw new InvalidOperationException("服务发现未启动");
         }
 
-        ArgumentException.ThrowIfNullOrEmpty(instanceId);
+        if (string.IsNullOrEmpty(instanceId)) throw new ArgumentException(nameof(instanceId));
 
         try
         {
@@ -224,7 +224,7 @@ public abstract class ServiceDiscoveryBase : IServiceDiscovery, IDisposable
             throw new InvalidOperationException("服务发现未启动");
         }
 
-        ArgumentNullException.ThrowIfNull(instance);
+        if (instance == null) throw new ArgumentNullException(nameof(instance));
 
         try
         {
@@ -267,7 +267,7 @@ public abstract class ServiceDiscoveryBase : IServiceDiscovery, IDisposable
             throw new InvalidOperationException("服务发现未启动");
         }
 
-        ArgumentNullException.ThrowIfNull(query);
+        if (query == null) throw new ArgumentNullException(nameof(query));
 
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
@@ -346,7 +346,7 @@ public abstract class ServiceDiscoveryBase : IServiceDiscovery, IDisposable
             return ServiceInstanceStatus.Unknown;
         }
 
-        ArgumentException.ThrowIfNullOrEmpty(instanceId);
+        if (string.IsNullOrEmpty(instanceId)) throw new ArgumentException(nameof(instanceId));
 
         try
         {
@@ -386,7 +386,7 @@ public abstract class ServiceDiscoveryBase : IServiceDiscovery, IDisposable
             throw new InvalidOperationException("服务发现未启动");
         }
 
-        ArgumentException.ThrowIfNullOrEmpty(serviceName);
+        if (string.IsNullOrEmpty(serviceName)) throw new ArgumentException(nameof(serviceName));
 
         try
         {
@@ -421,7 +421,7 @@ public abstract class ServiceDiscoveryBase : IServiceDiscovery, IDisposable
             return;
         }
 
-        ArgumentException.ThrowIfNullOrEmpty(serviceName);
+        if (string.IsNullOrEmpty(serviceName)) throw new ArgumentException(nameof(serviceName));
 
         try
         {
