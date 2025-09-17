@@ -42,7 +42,7 @@
 
 ```
 PulseRPC.Server DI Interface
-├── Integration/                    # 传输层集成
+├── Integration/                     # 传输层集成
 │   ├── ITransportIntegrationManager # 传输集成管理器接口
 │   ├── ITransportProvider          # 传输提供程序接口
 │   ├── TransportIntegrationManager # 传输集成管理器实现
@@ -53,8 +53,8 @@ PulseRPC.Server DI Interface
 │   └── PulseRpcServerBuilder       # 服务器构建器实现
 ├── Extensions/                     # 扩展方法
 │   └── ServiceCollectionExtensions # DI容器扩展
-├── IPulseRpcServer.cs             # 服务器运行时接口
-└── EnhancedPulseRpcServerManager  # 增强的服务器管理器
+├── IPulseServer.cs                 # 服务器运行时接口
+└── EnhancedPulseRpcServerManager   # 增强的服务器管理器
 ```
 
 ## 🚀 核心特性

@@ -20,6 +20,8 @@ public class KcpServerTransport : IServerTransport
     private readonly KcpTransportOptions _options;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
+    private readonly DateTime _connectedAt;
+    private DateTime _lastActivityAt;
 
     private ConnectionState _state = ConnectionState.Connected;
     private Task? _updateTask;
@@ -29,13 +31,16 @@ public class KcpServerTransport : IServerTransport
     public string ConnectionId => _connectionId;
     public string Name => "KCP";
     public TransportType Type => TransportType.Kcp;
+    public TransportType TransportType => TransportType.Kcp;
     public bool IsConnected => _state == ConnectionState.Connected;
     public ConnectionState State => _state;
     public EndPoint LocalEndPoint => _sharedSocket.LocalEndPoint!;
     public EndPoint RemoteEndPoint => _remoteEndpoint;
+    public DateTime ConnectedAt => _connectedAt;
+    public DateTime LastActivityAt => _lastActivityAt;
 
-    public event System.EventHandler<TransportStateEventArgs>? StateChanged;
-    public event System.EventHandler<TransportDataEventArgs>? DataReceived;
+    public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
+    public event EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
     /// 创建KCP服务端连接
@@ -47,6 +52,8 @@ public class KcpServerTransport : IServerTransport
         _remoteEndpoint = remoteEndpoint;
         _options = options ?? new KcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
+        _connectedAt = DateTime.UtcNow;
+        _lastActivityAt = DateTime.UtcNow;
 
         // 创建KCP实例
         _kcp = new KcpCore(conv, OnKcpOutput, _logger);
@@ -98,6 +105,7 @@ public class KcpServerTransport : IServerTransport
             {
                 uint currentTime = GetCurrentTimeMs();
                 _kcp.Update(currentTime);
+                _lastActivityAt = DateTime.UtcNow; // 更新活动时间
                 _logger.LogDebug("KCP连接 {ConnectionId} 数据已发送到KCP协议栈并更新", _connectionId);
             }
             else
@@ -235,6 +243,7 @@ public class KcpServerTransport : IServerTransport
                 var receivedData = new byte[size];
                 Array.Copy(buffer, 0, receivedData, 0, size);
 
+                _lastActivityAt = DateTime.UtcNow; // 更新活动时间
                 DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData));
             }
 
@@ -295,7 +304,7 @@ public class KcpServerTransport : IServerTransport
         _logger.LogInformation("KCP连接状态变更: {ConnectionId} {OldState} -> {NewState} ({Reason})",
             _connectionId, oldState, newState, reason ?? "未指定原因");
 
-        StateChanged?.Invoke(this, new TransportStateEventArgs(oldState, newState, reason, exception));
+        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(_connectionId, oldState, newState, reason, exception));
     }
 
     /// <summary>
@@ -757,7 +766,7 @@ public class KcpServerListener : IServerListener
     /// <summary>
     /// 连接状态变化处理
     /// </summary>
-    private void OnConnectionStateChanged(object? sender, TransportStateEventArgs e)
+    private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
         if (e.CurrentState == ConnectionState.Disconnected)
         {

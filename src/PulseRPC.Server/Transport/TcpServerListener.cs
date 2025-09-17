@@ -13,8 +13,17 @@ namespace PulseRPC.Server.Transport;
 public class TcpServerTransport : TcpTransport, IServerTransport
 {
     private readonly string _connectionId;
+    private readonly DateTime _connectedAt;
+    private DateTime _lastActivityAt;
 
     public string ConnectionId => _connectionId;
+    public DateTime ConnectedAt => _connectedAt;
+    public DateTime LastActivityAt => _lastActivityAt;
+    public TransportType TransportType => TransportType.Tcp;
+
+    // ITransportConnection events
+    public new event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
+    public new event EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
     /// 使用已连接的Socket创建服务端连接
@@ -24,6 +33,8 @@ public class TcpServerTransport : TcpTransport, IServerTransport
         : base(options, logger)
     {
         _connectionId = connectionId;
+        _connectedAt = DateTime.UtcNow;
+        _lastActivityAt = DateTime.UtcNow;
 
         // 替换Socket
         _socket?.Dispose();
@@ -38,8 +49,46 @@ public class TcpServerTransport : TcpTransport, IServerTransport
         // 启动接收循环
         _receiveTask = ReceiveLoopAsync();
 
+        // 订阅基类事件并转发到ITransportConnection事件
+        base.StateChanged += OnBaseStateChanged;
+        base.DataReceived += OnBaseDataReceived;
+
         _logger.LogInformation("接受客户端连接: {ConnectionId} 从 {RemoteEndPoint}",
             _connectionId, socket.RemoteEndPoint);
+    }
+
+    /// <summary>
+    /// 处理基类状态变化事件
+    /// </summary>
+    private void OnBaseStateChanged(object? sender, TransportStateEventArgs e)
+    {
+        var args = new ConnectionStateChangedEventArgs(_connectionId, e.PreviousState, e.CurrentState, e.Reason, e.Exception);
+        StateChanged?.Invoke(this, args);
+    }
+
+    /// <summary>
+    /// 处理基类数据接收事件
+    /// </summary>
+    private void OnBaseDataReceived(object? sender, TransportDataEventArgs e)
+    {
+        // 更新最后活动时间
+        _lastActivityAt = DateTime.UtcNow;
+
+        // 转发事件
+        DataReceived?.Invoke(this, e);
+    }
+
+    /// <summary>
+    /// 发送数据时也要更新活动时间
+    /// </summary>
+    public override async Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    {
+        var result = await base.SendAsync(data, cancellationToken);
+        if (result)
+        {
+            _lastActivityAt = DateTime.UtcNow;
+        }
+        return result;
     }
 
     /// <summary>

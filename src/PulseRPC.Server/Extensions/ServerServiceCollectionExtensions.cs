@@ -57,17 +57,17 @@ public static class ServerServiceCollectionExtensions
         services.TryAddSingleton<IClientSessionManager>(provider => provider.GetRequiredService<ServerSessionManager>());
 
         // 注册增强的通道管理器（桥接新旧架构）
-        services.TryAddSingleton<EnhancedServerChannelManager>(provider =>
-        {
-            var channelManager = provider.GetRequiredService<ServerChannelManager>();
-            var sessionManager = provider.GetRequiredService<ServerSessionManager>();
-            var logger = provider.GetRequiredService<ILogger<EnhancedServerChannelManager>>();
-            return new EnhancedServerChannelManager(channelManager, sessionManager, logger);
-        });
+        // services.TryAddSingleton<EnhancedServerChannelManager>(provider =>
+        // {
+        //     var channelManager = provider.GetRequiredService<ServerChannelManager>();
+        //     var sessionManager = provider.GetRequiredService<ServerSessionManager>();
+        //     var logger = provider.GetRequiredService<ILogger<EnhancedServerChannelManager>>();
+        //     return new EnhancedServerChannelManager(channelManager, sessionManager, logger);
+        // });
 
         // 替换IServerChannelManager的注册，使用增强版本
-        services.AddSingleton<IServerChannelManager>(provider => provider.GetRequiredService<EnhancedServerChannelManager>());
-        services.AddSingleton<IEnhancedServerChannelManager>(provider => provider.GetRequiredService<EnhancedServerChannelManager>());
+        // services.AddSingleton<IServerChannelManager>(provider => provider.GetRequiredService<EnhancedServerChannelManager>());
+        // services.AddSingleton<IEnhancedServerChannelManager>(provider => provider.GetRequiredService<EnhancedServerChannelManager>());
 
         // 注册其他核心服务
         RegisterCoreServerServices(services);

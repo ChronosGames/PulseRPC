@@ -827,7 +827,6 @@ PulseRPC.Transport.ITransportChannel.SetAuthentication(PulseRPC.Authentication.I
 PulseRPC.Transport.ITransportChannel.StateChanged -> System.EventHandler<PulseRPC.Transport.TransportStateEventArgs!>?
 PulseRPC.Transport.ITransportChannel.Transport.get -> PulseRPC.Transport.IServerTransport!
 PulseRPC.Transport.ITransportConnection.StateChanged -> PulseRPC.EventHandler<PulseRPC.Transport.ConnectionStateChangedEventArgs!>!
-PulseRPC.Transport.ITransportManager
 PulseRPC.Transport.Kcp.KcpCommand
 PulseRPC.Transport.Kcp.KcpCommand.Ack = 82 -> PulseRPC.Transport.Kcp.KcpCommand
 PulseRPC.Transport.Kcp.KcpCommand.Push = 81 -> PulseRPC.Transport.Kcp.KcpCommand

@@ -1,4 +1,5 @@
 using PulseRPC.Authentication;
+using PulseRPC.Channels;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Transport;

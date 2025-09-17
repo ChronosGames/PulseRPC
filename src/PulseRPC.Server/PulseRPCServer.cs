@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Builder;
 using PulseRPC.Server.Integration;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
+using PulseRPC.Sessions;
 
 namespace PulseRPC.Server;
 
@@ -14,7 +16,7 @@ namespace PulseRPC.Server;
 /// </summary>
 internal sealed class PulseRPCServer : IPulseRPCServer
 {
-    private readonly ITransportManager _transportManager;
+    private readonly IClientSessionManager _sessionManager;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ServerOptions _serverOptions;
     private readonly ITransportIntegrationManager _transportIntegrationManager;
@@ -33,7 +35,7 @@ internal sealed class PulseRPCServer : IPulseRPCServer
 
     public ServerState State => _state;
     public bool IsRunning => _state == ServerState.Running;
-    public int ActiveConnectionCount => _transportManager.ConnectionCount;
+    public int ActiveConnectionCount => _sessionManager.ActiveSessionCount;
 
     // 事件
     public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
@@ -41,23 +43,23 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
     public PulseRPCServer(
-        ITransportManager? transportManager = null,
+        IClientSessionManager? sessionManager = null,
         ILoggerFactory? loggerFactory = null,
         IOptions<ServerOptions>? serverOptions = null,
         ITransportIntegrationManager? transportIntegrationManager = null)
     {
-        _transportManager = transportManager ?? new TransportManager(TransportManagerType.Server);
-        _loggerFactory = loggerFactory ?? new LoggerFactory();
+        _sessionManager = sessionManager ?? new ClientSessionManager();
+        _loggerFactory = loggerFactory ?? new NullLoggerFactory();
         _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));
         _serverOptions = serverOptions?.Value ?? new ServerOptions();
         _logger = _loggerFactory.CreateLogger<PulseRPCServer>();
 
-        // 订阅传输管理器事件
-        _transportManager.TransportConnected += OnTransportConnected;
-        _transportManager.TransportDisconnected += OnTransportDisconnected;
+        // 订阅会话管理器事件
+        _sessionManager.SessionConnected += OnSessionConnected;
+        _sessionManager.SessionDisconnected += OnSessionDisconnected;
 
-        _logger.LogInformation("增强服务器管理器已初始化，传输管理器类型：{ManagerType}",
-            _transportManager.ManagerType);
+        _logger.LogInformation("增强服务器管理器已初始化，会话管理器类型：{ManagerType}",
+            _sessionManager.GetType().Name);
     }
 
     /// <summary>
@@ -288,14 +290,13 @@ internal sealed class PulseRPCServer : IPulseRPCServer
             _logger.LogDebug("接受新连接: {ConnectionId} from {RemoteEndPoint} via {TransportType}",
                 e.Transport.ConnectionId, e.Transport.RemoteEndPoint, e.Transport.Type);
 
-            // 将连接添加到传输管理器
-            var context = _transportManager.AddTransport(e.Transport);
+            // TODO: 创建客户端会话并添加到会话管理器
+            // 这里需要根据具体的会话实现来创建会话对象
+            // var session = CreateClientSession(e.Transport);
+            // _sessionManager.AddSession(session);
 
-            // 原子增加连接计数
-            Interlocked.Increment(ref _totalConnectionsAccepted);
-
-            _logger.LogInformation("新连接已建立: {ConnectionId}, 当前连接数: {ConnectionCount}",
-                e.Transport.ConnectionId, ActiveConnectionCount);
+            _logger.LogInformation("新连接已接受: {ConnectionId}",
+                e.Transport.ConnectionId);
         }
         catch (Exception ex)
         {
@@ -318,28 +319,26 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     }
 
     /// <summary>
-    /// 处理传输连接事件
+    /// 处理会话连接事件
     /// </summary>
-    private void OnTransportConnected(object? sender, TransportConnectedEventArgs e)
+    private void OnSessionConnected(object? sender, SessionConnectedEventArgs e)
     {
-        _logger.LogDebug("传输已连接：{ConnectionId}", e.TransportContext.ConnectionId);
+        _logger.LogDebug("会话已连接：{SessionId}", e.Session.SessionId);
 
-        // 创建虚拟的IServerChannel实现（如果需要兼容现有事件）
-        // TODO: 根据实际情况决定是否需要这个事件
-        // ClientConnected?.Invoke(this, new ClientConnectedEventArgs(mockServerChannel));
+        // 原子增加连接计数
+        Interlocked.Increment(ref _totalConnectionsAccepted);
+
+        _logger.LogInformation("新会话已建立: {SessionId}, 当前会话数: {SessionCount}",
+            e.Session.SessionId, ActiveConnectionCount);
     }
 
     /// <summary>
-    /// 处理传输断开事件
+    /// 处理会话断开事件
     /// </summary>
-    private void OnTransportDisconnected(object? sender, TransportDisconnectedEventArgs e)
+    private void OnSessionDisconnected(object? sender, SessionDisconnectedEventArgs e)
     {
-        _logger.LogDebug("传输已断开：{ConnectionId}，原因：{Reason}",
-            e.TransportContext.ConnectionId, e.DisconnectReason);
-
-        // 创建虚拟的IServerChannel实现（如果需要兼容现有事件）
-        // TODO: 根据实际情况决定是否需要这个事件
-        // ClientDisconnected?.Invoke(this, new ClientDisconnectedEventArgs(mockServerChannel, e.DisconnectReason));
+        _logger.LogDebug("会话已断开：{SessionId}，原因：{Reason}",
+            e.Session.SessionId, e.DisconnectReason);
     }
 
     /// <summary>
@@ -391,15 +390,15 @@ internal sealed class PulseRPCServer : IPulseRPCServer
 
     public IReadOnlyList<ConnectionInfo> GetActiveConnections()
     {
-        return _transportManager.GetAllTransportContexts()
-            .Select(context => new ConnectionInfo
+        return _sessionManager.GetActiveSessions()
+            .Select(session => new ConnectionInfo
             {
-                ConnectionId = context.ConnectionId,
-                RemoteEndPoint = context.RemoteAddress,
-                TransportType = context.TransportType,
-                IsAuthenticated = context.IsAuthenticated,
-                ConnectedTime = context.ConnectedTime,
-                LastActiveTime = context.LastActiveTime
+                ConnectionId = session.SessionId,
+                RemoteEndPoint = session.RemoteAddress,
+                TransportType = session.TransportType,
+                IsAuthenticated = session.IsAuthenticated,
+                ConnectedTime = session.ConnectedAt,
+                LastActiveTime = session.LastActivityAt
             }).ToList();
     }
 
@@ -416,14 +415,12 @@ internal sealed class PulseRPCServer : IPulseRPCServer
 
     public ServerPerformanceMetrics GetPerformanceMetrics()
     {
-        var transportStats = _transportManager.GetStatistics();
-
         return new ServerPerformanceMetrics
         {
             ActiveConnections = ActiveConnectionCount,
             TotalConnectionsAccepted = Interlocked.Read(ref _totalConnectionsAccepted),
-            TotalMessagesProcessed = transportStats.TotalMessagesProcessed,
-            TotalMessagesDropped = transportStats.TotalMessagesDropped,
+            TotalMessagesProcessed = 0, // TODO: 实现消息处理统计
+            TotalMessagesDropped = 0, // TODO: 实现消息丢弃统计
             AverageLatencyMs = 0, // TODO: 实现延迟统计
             ThroughputMsgsPerSec = 0, // TODO: 实现吞吐量统计
             MemoryUsageMB = GC.GetTotalMemory(false) / 1024.0 / 1024.0,
@@ -435,17 +432,16 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     public void ResetPerformanceMetrics()
     {
         Interlocked.Exchange(ref _totalConnectionsAccepted, 0);
-        _transportManager.ResetStatistics();
         _lastResetTime = DateTime.UtcNow;
         _logger.LogInformation("性能统计已重置");
     }
 
     /// <summary>
-    /// 获取传输管理器
+    /// 获取客户端会话管理器
     /// </summary>
-    public ITransportManager GetTransportManager()
+    public IClientSessionManager GetSessionManager()
     {
-        return _transportManager;
+        return _sessionManager;
     }
 
     /// <summary>
@@ -453,7 +449,8 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     /// </summary>
     public async Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
     {
-        return await _transportManager.BroadcastAsync(data, filter, cancellationToken);
+        // 使用会话管理器进行广播
+        return await _sessionManager.BroadcastAsync(data, null, cancellationToken);
     }
 
     /// <summary>
@@ -461,7 +458,12 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     /// </summary>
     public async Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
-        return await _transportManager.SendAsync(connectionId, data, cancellationToken);
+        var session = _sessionManager.GetSession(connectionId);
+        if (session != null)
+        {
+            return await session.SendAsync(data, cancellationToken);
+        }
+        return false;
     }
 
     // === 资源释放 ===
@@ -481,10 +483,10 @@ internal sealed class PulseRPCServer : IPulseRPCServer
         }
 
         // 取消订阅事件
-        _transportManager.TransportConnected -= OnTransportConnected;
-        _transportManager.TransportDisconnected -= OnTransportDisconnected;
+        _sessionManager.SessionConnected -= OnSessionConnected;
+        _sessionManager.SessionDisconnected -= OnSessionDisconnected;
 
-        _transportManager?.Dispose();
+        _sessionManager?.Dispose();
         _shutdownCts.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -497,13 +499,10 @@ internal sealed class PulseRPCServer : IPulseRPCServer
         }
 
         // 取消订阅事件
-        _transportManager.TransportConnected -= OnTransportConnected;
-        _transportManager.TransportDisconnected -= OnTransportDisconnected;
+        _sessionManager.SessionConnected -= OnSessionConnected;
+        _sessionManager.SessionDisconnected -= OnSessionDisconnected;
 
-        if (_transportManager != null)
-        {
-            await _transportManager.DisposeAsync();
-        }
+        _sessionManager?.Dispose();
 
         _shutdownCts.Dispose();
         GC.SuppressFinalize(this);
