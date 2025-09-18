@@ -195,7 +195,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     }
 }
 
-// LoadBalancingHint enum is defined in IPulseRPCClient.cs
+// LoadBalancingHint enum is defined in IPulseClient.cs
 
 /// <summary>
 /// 负载均衡器统计信息

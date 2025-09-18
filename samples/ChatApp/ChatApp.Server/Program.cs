@@ -31,7 +31,7 @@ internal abstract class Program
             .Build();
 
         // 获取服务器实例
-        var server = host.Services.GetRequiredService<IPulseRPCServer>();
+        var server = host.Services.GetRequiredService<IPulseServer>();
 
         try
         {
@@ -76,7 +76,7 @@ internal abstract class Program
         services.AddSingleton<IPlayerManager, PlayerManager>();
 
         // 添加PulseRPC服务器 - 基于指南文档的最佳实践
-        services.AddPulseRpcServer(builder =>
+        services.AddPulseServer(builder =>
         {
             // TCP 监听器配置
             builder.AddTcp("TcpChannel", 7000, isDefault: true);

@@ -7,6 +7,8 @@ using PulseRPC.Benchmark.Shared;
 using PulseRPC.Client;
 using PulseRPC.Benchmark.Shared.Models;
 using PulseRPC.Client.Core;
+using PulseRPC.Transport;
+using TransportOptions = PulseRPC.Benchmark.Core.Interfaces.TransportOptions;
 
 namespace PulseRPC.Benchmark.Client.Transport;
 
@@ -201,7 +203,7 @@ public class ClientConnection : IDisposable
     private volatile bool _isConnected;
     private volatile bool _disposed;
 
-    private IPulseRPCClient? _pulseClient;
+    private IPulseClient? _pulseClient;
     private IBenchmarkHub? _service;
 
     public string ConnectionId { get; }
@@ -235,15 +237,14 @@ public class ClientConnection : IDisposable
             _logger.LogDebug("连接到服务器: {Host}:{Port}", Host, Port);
 
             // 创建 PulseRPC 客户端 - 基于指南文档的最佳实践
-            _pulseClient = new PulseRPCClientBuilder()
-                .ConfigureConnection(Host, Port)
-                .ConfigureTransport(TransportType.Tcp)
-                .ConfigureTransportOptions(options =>
+            _pulseClient = new PulseClientBuilder()
+                .AddTcpConnection("123", "UnknownServer", Host, Port, ConnectionStrategy.Persistent)
+                .WithTransportOptions(new TransportOptions
                 {
-                    options.ConnectTimeoutMs = 5000;
-                    options.EnableTcpNoDelay = true;
-                    options.ReadBufferSize = 8192;
-                    options.WriteBufferSize = 8192;
+                    ConnectionTimeoutMs = 5000,
+                    EnableTcpNoDelay = true,
+                    SendBufferSize = 8192,
+                    RecvBufferSize = 8192,
                 })
                 .Build();
 

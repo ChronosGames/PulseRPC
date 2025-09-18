@@ -10,7 +10,7 @@ namespace PulseRPC.Client;
 /// <summary>
 /// PulseRPC 客户端核心接口 - 基于 UsageExamples.cs 设计
 /// </summary>
-public interface IPulseRPCClient : IDisposable
+public interface IPulseClient : IDisposable
 {
     /// <summary>
     /// 连接管理器
@@ -83,13 +83,13 @@ public interface IPulseRPCClient : IDisposable
     /// 注册事件监听器（自动路由到最佳连接）
     /// </summary>
     Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, EventListenerOptions? options = null, CancellationToken cancellationToken = default)
-        where T : class, IPulseEventHandler;
+        where T : class, IPulseReceiver;
 
     /// <summary>
     /// 在指定连接上注册事件监听器
     /// </summary>
     Task<ISubscriptionToken> RegisterEventListenerAsync<T>(string connectionId, T listener, EventListenerOptions? options = null, CancellationToken cancellationToken = default)
-        where T : class, IPulseEventHandler;
+        where T : class, IPulseReceiver;
 
     /// <summary>
     /// 断开连接
@@ -516,60 +516,60 @@ public sealed class HealthCheckResult
 /// <summary>
 /// PulseRPC 客户端构建器接口
 /// </summary>
-public interface IPulseRPCClientBuilder
+public interface IPulseClientBuilder
 {
     /// <summary>
     /// 添加连接配置
     /// </summary>
-    IPulseRPCClientBuilder AddConnection(ConnectionDescriptor descriptor);
+    IPulseClientBuilder AddConnection(ConnectionDescriptor descriptor);
 
     /// <summary>
     /// 配置服务发现
     /// </summary>
-    IPulseRPCClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery);
+    IPulseClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery);
 
     /// <summary>
     /// 配置负载均衡策略
     /// </summary>
-    IPulseRPCClientBuilder WithLoadBalancing(LoadBalancingStrategy strategy, IReadOnlyDictionary<string, object>? options = null);
+    IPulseClientBuilder WithLoadBalancing(LoadBalancingStrategy strategy, IReadOnlyDictionary<string, object>? options = null);
 
     /// <summary>
     /// 配置连接池
     /// </summary>
-    IPulseRPCClientBuilder WithConnectionPooling(ConnectionPoolOptions poolOptions);
+    IPulseClientBuilder WithConnectionPooling(ConnectionPoolOptions poolOptions);
 
     /// <summary>
     /// 配置重试策略
     /// </summary>
-    IPulseRPCClientBuilder WithRetryPolicy(RetryPolicy retryPolicy);
+    IPulseClientBuilder WithRetryPolicy(RetryPolicy retryPolicy);
 
     /// <summary>
     /// 配置日志
     /// </summary>
-    IPulseRPCClientBuilder WithLogging(ILoggerFactory loggerFactory);
+    IPulseClientBuilder WithLogging(ILoggerFactory loggerFactory);
 
     /// <summary>
     /// 配置序列化器
     /// </summary>
-    IPulseRPCClientBuilder WithSerializer(ISerializerProvider serializerProvider);
+    IPulseClientBuilder WithSerializer(ISerializerProvider serializerProvider);
 
     /// <summary>
     /// 配置认证提供者
     /// </summary>
-    IPulseRPCClientBuilder WithAuthentication(IAuthenticationProvider authenticationProvider);
+    IPulseClientBuilder WithAuthentication(IAuthenticationProvider authenticationProvider);
 
     /// <summary>
     /// 配置传输选项
     /// </summary>
-    IPulseRPCClientBuilder WithTransportOptions(TransportType transportType, TransportOptions options);
+    IPulseClientBuilder WithTransportOptions(TransportType transportType, TransportOptions options);
 
     /// <summary>
     /// 配置客户端选项
     /// </summary>
-    IPulseRPCClientBuilder Configure(Action<ClientOptions> configure);
+    IPulseClientBuilder Configure(Action<ClientOptions> configure);
 
     /// <summary>
     /// 构建客户端
     /// </summary>
-    IPulseRPCClient Build();
+    IPulseClient Build();
 }

@@ -17,7 +17,7 @@ namespace ChatApp.Console;
 public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
-    private IPulseRPCClient? _client;
+    private IPulseClient? _client;
     private IPlayerHub? _playerService;
     private ISubscriptionToken? _eventsSubscription;
     private CancellationTokenSource? _cts;
@@ -38,8 +38,8 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         _cts = new CancellationTokenSource();
 
         // 使用 PulseRPC 客户端构建器 API
-        _client = new PulseRPCClientBuilder()
-            .AddConnection(ConnectionDescriptor.CreateTcp("ChatApp", "ChatApp", "localhost", 7000, ConnectionStrategy.Persistent))
+        _client = new PulseClientBuilder()
+            .AddConnection(ConnectionDescriptor.CreateTcp("ChatApp001", "ChatApp", "localhost", 7000, ConnectionStrategy.Persistent))
             .WithTransportOptions(TransportType.Tcp, new TcpTransportOptions
             {
                 ConnectionTimeout = 30000,
@@ -55,10 +55,12 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             await _client.InitializeAsync(_cts.Token);
 
             // 获取服务代理
-            _playerService = await _client.GetServiceAsync<IPlayerHub>();
+            _playerService = _client.CreatePlayerHubProxy();
 
             // 注册事件监听器
-            _eventsSubscription = await _client.RegisterEventListenerAsync(new PlayerEventsHandler(this));
+            _eventsSubscription = await _client.RegisterSmartEventListenerAsync<IPlayerLoginEvents>(new PlayerEventsHandler(this));
+            _eventsSubscription =
+                await _client.RegisterSmartEventListenerAsync<IPlayerMovementEvents>(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");
         }

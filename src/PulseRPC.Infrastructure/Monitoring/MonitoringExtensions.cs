@@ -18,7 +18,7 @@ public static class MonitoringExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configuration">配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcMonitoring(
+    public static IServiceCollection AddPulseMonitoring(
         this IServiceCollection services,
         IConfiguration configuration)
     {
@@ -62,7 +62,7 @@ public static class MonitoringExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcMonitoring(
+    public static IServiceCollection AddPulseMonitoring(
         this IServiceCollection services,
         Action<MonitoringOptions> configureOptions)
     {
@@ -117,7 +117,7 @@ public static class MonitoringExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcMetrics(
+    public static IServiceCollection AddPulseMetrics(
         this IServiceCollection services,
         Action<MetricsOptions>? configureOptions = null)
     {
@@ -138,7 +138,7 @@ public static class MonitoringExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcPerformanceMonitoring(
+    public static IServiceCollection AddPulsePerformanceMonitoring(
         this IServiceCollection services,
         Action<PerformanceMonitorOptions>? configureOptions = null)
     {

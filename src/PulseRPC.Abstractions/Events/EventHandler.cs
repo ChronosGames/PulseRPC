@@ -7,7 +7,7 @@ namespace PulseRPC;
 /// <summary>
 /// PulseRPC 事件处理器基础接口 - 标记类可接收服务器推送的事件
 /// </summary>
-public interface IPulseEventHandler
+public interface IPulseReceiver
 {
     // 所有事件监听器都应继承此接口
 }

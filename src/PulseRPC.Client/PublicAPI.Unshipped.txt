@@ -1,122 +1,6 @@
 #nullable enable
 override PulseRPC.Client.Transport.KcpClientTransport.Dispose() -> void
 override PulseRPC.Client.Transport.TcpClientTransport.Dispose() -> void
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.ConnectionStateChangedEventArgs(PulseRPC.Transport.ConnectionState oldState, PulseRPC.Transport.ConnectionState newState, System.Exception? exception = null) -> void
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.Exception.get -> System.Exception?
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.NewState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Client.Channels.ConnectionStateChangedEventArgs.OldState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Client.Channels.OptimizedTransportChannel
-PulseRPC.Client.Channels.OptimizedTransportChannel.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.OptimizedTransportChannel.ConnectionState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Client.Channels.OptimizedTransportChannel.ConnectionStateChanged -> System.EventHandler<PulseRPC.Client.Channels.ConnectionStateChangedEventArgs!>?
-PulseRPC.Client.Channels.OptimizedTransportChannel.DisconnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.OptimizedTransportChannel.Dispose() -> void
-PulseRPC.Client.Channels.OptimizedTransportChannel.IsConnected.get -> bool
-PulseRPC.Client.Channels.OptimizedTransportChannel.Name.get -> string!
-PulseRPC.Client.Channels.OptimizedTransportChannel.OptimizedTransportChannel(string! name, PulseRPC.Transport.IClientTransport! transport, PulseRPC.Serialization.ISerializerProvider! serializerProvider, PulseRPC.Client.Channels.TransportChannelOptions? options = null, Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.Channels.OptimizedTransportChannel!>? logger = null) -> void
-PulseRPC.Client.Channels.OptimizedTransportChannel.RegisterEventCallback(System.Action<string!, byte[]!>! callback) -> void
-PulseRPC.Client.Channels.OptimizedTransportChannel.SendAsync<T>(string! eventName, T message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.OptimizedTransportChannel.SendEventAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.OptimizedTransportChannel.SendRequestAsync<TRequest, TResponse>(string! serviceName, string! methodName, TRequest request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<TResponse>!
-PulseRPC.Client.Channels.OptimizedTransportChannel.SendRequestOptimizedAsync<TRequest, TResponse>(string! serviceName, string! methodName, TRequest request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<TResponse>
-PulseRPC.Client.Channels.OptimizedTransportChannel.SubscribeToEvent<T>(string! eventName, System.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!
-PulseRPC.Client.Channels.SpanBufferWriter
-PulseRPC.Client.Channels.SpanBufferWriter.Advance(int count) -> void
-PulseRPC.Client.Channels.SpanBufferWriter.GetSpan(int sizeHint = 0) -> System.Span<byte>
-PulseRPC.Client.Channels.SpanBufferWriter.SpanBufferWriter() -> void
-PulseRPC.Client.Channels.SpanBufferWriter.SpanBufferWriter(System.Span<byte> buffer) -> void
-PulseRPC.Client.Channels.SpanBufferWriter.WrittenCount.get -> int
-PulseRPC.Client.Channels.SpanBufferWriterAdapter
-PulseRPC.Client.Channels.SpanBufferWriterAdapter.Advance(int count) -> void
-PulseRPC.Client.Channels.SpanBufferWriterAdapter.GetMemory(int sizeHint = 0) -> System.Memory<byte>
-PulseRPC.Client.Channels.SpanBufferWriterAdapter.GetSpan(int sizeHint = 0) -> System.Span<byte>
-PulseRPC.Client.Channels.SpanBufferWriterAdapter.SpanBufferWriterAdapter(System.Span<byte> buffer) -> void
-PulseRPC.Client.Channels.SpanBufferWriterAdapter.WrittenCount.get -> int
-PulseRPC.Client.Channels.SpanBufferWriterAdapter.WrittenSpan.get -> System.ReadOnlySpan<byte>
-PulseRPC.Client.Channels.TransportChannel
-PulseRPC.Client.Channels.TransportChannel.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.TransportChannel.ConnectionState.get -> PulseRPC.Transport.ConnectionState
-PulseRPC.Client.Channels.TransportChannel.ConnectionStateChanged -> System.EventHandler<PulseRPC.Client.Channels.ConnectionStateChangedEventArgs!>?
-PulseRPC.Client.Channels.TransportChannel.DisconnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.TransportChannel.Dispose() -> void
-PulseRPC.Client.Channels.TransportChannel.IsConnected.get -> bool
-PulseRPC.Client.Channels.TransportChannel.Name.get -> string!
-PulseRPC.Client.Channels.TransportChannel.RegisterEventCallback(System.Action<string!, byte[]!>! callback) -> void
-PulseRPC.Client.Channels.TransportChannel.SendAsync<T>(string! eventName, T message, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.TransportChannel.SendEventAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Client.Channels.TransportChannel.SendRequestAsync<TRequest, TResponse>(string! serviceName, string! methodName, TRequest request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<TResponse>!
-PulseRPC.Client.Channels.TransportChannel.SubscribeToEvent<T>(string! eventName, System.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!
-PulseRPC.Client.Channels.TransportChannel.TransportChannel(string! name, PulseRPC.Transport.IClientTransport! transport, PulseRPC.Serialization.ISerializerProvider! serializerProvider, PulseRPC.Client.Channels.TransportChannelOptions? options = null, Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.Channels.TransportChannel!>? logger = null) -> void
-PulseRPC.Client.Channels.TransportChannelOptions
-PulseRPC.Client.Channels.TransportChannelOptions.DefaultTimeout.get -> System.TimeSpan
-PulseRPC.Client.Channels.TransportChannelOptions.DefaultTimeout.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.EnableAutoReconnect.get -> bool
-PulseRPC.Client.Channels.TransportChannelOptions.EnableAutoReconnect.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.EnableMessageCompression.get -> bool
-PulseRPC.Client.Channels.TransportChannelOptions.EnableMessageCompression.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.EnableMessageEncryption.get -> bool
-PulseRPC.Client.Channels.TransportChannelOptions.EnableMessageEncryption.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.HeartbeatInterval.get -> System.TimeSpan
-PulseRPC.Client.Channels.TransportChannelOptions.HeartbeatInterval.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.HeartbeatTimeout.get -> System.TimeSpan
-PulseRPC.Client.Channels.TransportChannelOptions.HeartbeatTimeout.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.MaxReconnectAttempts.get -> int
-PulseRPC.Client.Channels.TransportChannelOptions.MaxReconnectAttempts.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.MaxRetryCount.get -> int
-PulseRPC.Client.Channels.TransportChannelOptions.MaxRetryCount.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.MessageCompressionThreshold.get -> int
-PulseRPC.Client.Channels.TransportChannelOptions.MessageCompressionThreshold.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.MessageProcessingConcurrency.get -> int
-PulseRPC.Client.Channels.TransportChannelOptions.MessageProcessingConcurrency.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.MessageProcessingTimeout.get -> System.TimeSpan
-PulseRPC.Client.Channels.TransportChannelOptions.MessageProcessingTimeout.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.MessageQueueCapacity.get -> int
-PulseRPC.Client.Channels.TransportChannelOptions.MessageQueueCapacity.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.ReconnectBaseDelay.get -> double
-PulseRPC.Client.Channels.TransportChannelOptions.ReconnectBaseDelay.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.RetryBaseDelay.get -> double
-PulseRPC.Client.Channels.TransportChannelOptions.RetryBaseDelay.set -> void
-PulseRPC.Client.Channels.TransportChannelOptions.TransportChannelOptions() -> void
-PulseRPC.Client.Channels.UnityCompatibleObjectPool<T>
-PulseRPC.Client.Channels.UnityCompatibleObjectPool<T>.Get() -> T!
-PulseRPC.Client.Channels.UnityCompatibleObjectPool<T>.Return(T! item) -> void
-PulseRPC.Client.Channels.UnityCompatibleObjectPool<T>.UnityCompatibleObjectPool(System.Func<T!>! createFunc, System.Action<T!>! resetAction, int maxCapacity = 32) -> void
-PulseRPC.Client.ClientConfigurationBuilder
-PulseRPC.Client.ClientConfigurationBuilder.AddKcp(string! name, string! host, int port, System.Action<PulseRPC.Transport.TransportOptions!>? configureOptions = null, bool isDefault = false) -> PulseRPC.Client.ClientConfigurationBuilder!
-PulseRPC.Client.ClientConfigurationBuilder.AddTcp(string! name, string! host, int port, System.Action<PulseRPC.Transport.TransportOptions!>? configureOptions = null, bool isDefault = false) -> PulseRPC.Client.ClientConfigurationBuilder!
-PulseRPC.Client.ClientConfigurationBuilder.AddTransport(PulseRPC.Client.ClientTransportConfiguration! transport) -> PulseRPC.Client.ClientConfigurationBuilder!
-PulseRPC.Client.ClientConfigurationBuilder.AddWebSocket(string! name, string! host, int port, System.Action<PulseRPC.Transport.TransportOptions!>? configureOptions = null, bool isDefault = false) -> PulseRPC.Client.ClientConfigurationBuilder!
-PulseRPC.Client.ClientConfigurationBuilder.ClientConfigurationBuilder() -> void
-PulseRPC.Client.ClientConfigurationBuilder.ConfigureClient(System.Action<PulseRPC.Client.ClientOptions!>! configure) -> PulseRPC.Client.ClientConfigurationBuilder!
-PulseRPC.Client.ClientOptions
-PulseRPC.Client.ClientOptions.AutoReconnect.get -> bool
-PulseRPC.Client.ClientOptions.AutoReconnect.set -> void
-PulseRPC.Client.ClientOptions.ClientOptions() -> void
-PulseRPC.Client.ClientOptions.ConnectionPoolOptions.get -> PulseRPC.Client.ConnectionPoolOptions!
-PulseRPC.Client.ClientOptions.ConnectionPoolOptions.set -> void
-PulseRPC.Client.ClientOptions.ConnectionTimeout.get -> System.TimeSpan
-PulseRPC.Client.ClientOptions.ConnectionTimeout.set -> void
-PulseRPC.Client.ClientOptions.EncryptionKey.get -> string?
-PulseRPC.Client.ClientOptions.EncryptionKey.set -> void
-PulseRPC.Client.ClientOptions.HeartbeatInterval.get -> System.TimeSpan
-PulseRPC.Client.ClientOptions.HeartbeatInterval.set -> void
-PulseRPC.Client.ClientOptions.MaxReconnectDelay.get -> System.TimeSpan
-PulseRPC.Client.ClientOptions.MaxReconnectDelay.set -> void
-PulseRPC.Client.ClientOptions.NoDelay.get -> bool
-PulseRPC.Client.ClientOptions.NoDelay.set -> void
-PulseRPC.Client.ClientOptions.ReceiveBufferSize.get -> int
-PulseRPC.Client.ClientOptions.ReceiveBufferSize.set -> void
-PulseRPC.Client.ClientOptions.ReconnectAttempts.get -> int
-PulseRPC.Client.ClientOptions.ReconnectAttempts.set -> void
-PulseRPC.Client.ClientOptions.ReconnectDelay.get -> System.TimeSpan
-PulseRPC.Client.ClientOptions.ReconnectDelay.set -> void
-PulseRPC.Client.ClientOptions.SendBufferSize.get -> int
-PulseRPC.Client.ClientOptions.SendBufferSize.set -> void
-PulseRPC.Client.ClientOptions.ServiceDiscoveryOptions.get -> PulseRPC.Client.ServiceDiscoveryOptions!
-PulseRPC.Client.ClientOptions.ServiceDiscoveryOptions.set -> void
-PulseRPC.Client.ClientOptions.UseEncryption.get -> bool
-PulseRPC.Client.ClientOptions.UseEncryption.set -> void
 PulseRPC.Client.ClientTransportConfiguration
 PulseRPC.Client.ClientTransportConfiguration.ClientTransportConfiguration() -> void
 PulseRPC.Client.ClientTransportConfiguration.Host.get -> string!
@@ -131,48 +15,12 @@ PulseRPC.Client.ClientTransportConfiguration.Port.get -> int
 PulseRPC.Client.ClientTransportConfiguration.Port.set -> void
 PulseRPC.Client.ClientTransportConfiguration.Type.get -> PulseRPC.Transport.TransportType
 PulseRPC.Client.ClientTransportConfiguration.Type.set -> void
-PulseRPC.Client.ConnectionPoolOptions
-PulseRPC.Client.ConnectionPoolOptions.AcquireTimeout.get -> System.TimeSpan
-PulseRPC.Client.ConnectionPoolOptions.AcquireTimeout.set -> void
-PulseRPC.Client.ConnectionPoolOptions.ConnectionPoolOptions() -> void
-PulseRPC.Client.ConnectionPoolOptions.Enabled.get -> bool
-PulseRPC.Client.ConnectionPoolOptions.Enabled.set -> void
-PulseRPC.Client.ConnectionPoolOptions.IdleTimeout.get -> System.TimeSpan
-PulseRPC.Client.ConnectionPoolOptions.IdleTimeout.set -> void
-PulseRPC.Client.ConnectionPoolOptions.MaxConnections.get -> int
-PulseRPC.Client.ConnectionPoolOptions.MaxConnections.set -> void
-PulseRPC.Client.ConnectionPoolOptions.MaxLifetime.get -> System.TimeSpan
-PulseRPC.Client.ConnectionPoolOptions.MaxLifetime.set -> void
-PulseRPC.Client.ConnectionPoolOptions.MinConnections.get -> int
-PulseRPC.Client.ConnectionPoolOptions.MinConnections.set -> void
-PulseRPC.Client.ConnectionPoolOptions.ValidateOnBorrow.get -> bool
-PulseRPC.Client.ConnectionPoolOptions.ValidateOnBorrow.set -> void
-PulseRPC.Client.ConnectionPoolOptions.ValidateOnIdle.get -> bool
-PulseRPC.Client.ConnectionPoolOptions.ValidateOnIdle.set -> void
-PulseRPC.Client.ConnectionPoolOptions.ValidateOnReturn.get -> bool
-PulseRPC.Client.ConnectionPoolOptions.ValidateOnReturn.set -> void
-PulseRPC.Client.ConnectionPoolOptions.ValidationInterval.get -> System.TimeSpan
-PulseRPC.Client.ConnectionPoolOptions.ValidationInterval.set -> void
+PulseRPC.Client.Core.PulseClientBuilder
+PulseRPC.Client.Core.PulseClientBuilder.PulseClientBuilder() -> void
 PulseRPC.Client.EventErrorManager
 PulseRPC.Client.EventErrorManager.EventErrorManager(Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.EventErrorManager!>? logger = null) -> void
 PulseRPC.Client.EventErrorManager.HandleEventErrorAsync(System.Exception! exception, string! eventName, object? eventData, PulseRPC.EventListenerConfiguration! configuration, System.Func<object?, System.Threading.Tasks.Task!>! eventHandler) -> System.Threading.Tasks.Task<bool>!
-PulseRPC.Client.EventListenerBuilder<T>
-PulseRPC.Client.EventListenerBuilder<T>.EventListenerBuilder(PulseRPC.IPulseClient! client, T! listener) -> void
-PulseRPC.Client.EventListenerBuilder<T>.Register() -> PulseRPC.ISubscriptionToken!
-PulseRPC.Client.EventListenerBuilder<T>.WithBatchProcessing(int batchSize = 10) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithChannel(string! channelName) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithDataFilter<TEvent>(PulseRPC.EventDataFilter<TEvent>! filter) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithDataFilter<TEvent>(string! eventName, PulseRPC.EventDataFilter<TEvent>! filter) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithErrorHandler(PulseRPC.EventErrorHandler! errorHandler) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithErrorHandler(System.Action<System.Exception!, string!>! onError) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithErrorHandling(PulseRPC.ErrorHandlingStrategy strategy) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithEventFilter(System.Func<string!, bool>! filter) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithEventPriority(string! eventName, PulseRPC.EventPriority priority) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithPerformanceMonitoring() -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithRetry(int maxAttempts, System.TimeSpan? retryInterval = null, bool useExponentialBackoff = true) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithRetry(PulseRPC.RetryConfiguration! retryConfig) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilder<T>.WithTimeout(System.TimeSpan timeout) -> PulseRPC.Client.EventListenerBuilder<T!>!
-PulseRPC.Client.EventListenerBuilderExtensions
+PulseRPC.Client.PulseReceiverBuilderExtensions
 PulseRPC.Client.EventListenerRegistrar
 PulseRPC.Client.EventPerformanceWrapper
 PulseRPC.Client.EventPerformanceWrapper.EventPerformanceWrapper(Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.EventPerformanceWrapper!>? logger = null) -> void
@@ -197,8 +45,22 @@ PulseRPC.Client.NetworkChannelEventBus.NetworkChannelEventBus(PulseRPC.Messaging
 PulseRPC.Client.NetworkChannelEventBus.PublishAsync<T>(string! eventName, T eventData, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 PulseRPC.Client.NetworkChannelEventBus.Subscribe<T>(string! eventName, PulseRPC.EventHandler<T>! handler) -> PulseRPC.ISubscriptionToken!
 PulseRPC.Client.NetworkChannelEventBus.Unsubscribe(PulseRPC.ISubscriptionToken! token) -> void
-PulseRPC.Client.PulseRpcClientFactory
-PulseRPC.Client.ServiceCollectionExtensions
+PulseRPC.Client.PulseReceiverBuilder<T>
+PulseRPC.Client.PulseReceiverBuilder<T>.PulseReceiverBuilder(PulseRPC.Client.IPulseClient! client, T! listener) -> void
+PulseRPC.Client.PulseReceiverBuilder<T>.RegisterAsync() -> System.Threading.Tasks.Task<PulseRPC.ISubscriptionToken!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithBatchProcessing(int batchSize = 10) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithChannel(string! channelName) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithDataFilter<TEvent>(PulseRPC.EventDataFilter<TEvent>! filter) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithDataFilter<TEvent>(string! eventName, PulseRPC.EventDataFilter<TEvent>! filter) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithErrorHandler(PulseRPC.EventErrorHandler! errorHandler) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithErrorHandler(System.Action<System.Exception!, string!>! onError) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithErrorHandling(PulseRPC.ErrorHandlingStrategy strategy) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithEventFilter(System.Func<string!, bool>! filter) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithEventPriority(string! eventName, PulseRPC.EventPriority priority) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithPerformanceMonitoring() -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithRetry(int maxAttempts, System.TimeSpan? retryInterval = null, bool useExponentialBackoff = true) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithRetry(PulseRPC.RetryConfiguration! retryConfig) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.PulseReceiverBuilder<T>.WithTimeout(System.TimeSpan timeout) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
 PulseRPC.Client.ServiceDiscoveryOptions
 PulseRPC.Client.ServiceDiscoveryOptions.CacheTimeout.get -> System.TimeSpan
 PulseRPC.Client.ServiceDiscoveryOptions.CacheTimeout.set -> void
@@ -237,77 +99,6 @@ PulseRPC.Client.ServiceDiscoveryType.Custom = 4 -> PulseRPC.Client.ServiceDiscov
 PulseRPC.Client.ServiceDiscoveryType.Dns = 3 -> PulseRPC.Client.ServiceDiscoveryType
 PulseRPC.Client.ServiceDiscoveryType.Etcd = 2 -> PulseRPC.Client.ServiceDiscoveryType
 PulseRPC.Client.ServiceDiscoveryType.Static = 0 -> PulseRPC.Client.ServiceDiscoveryType
-PulseRPC.Client.SmartConnection.MultiInstanceConnectionManager
-PulseRPC.Client.SmartConnection.MultiInstanceConnectionManager.ConfigureServiceRouting<T>(System.Action<PulseRPC.Routing.ServiceRoutingConfiguration<T!>!>! configure) -> void
-PulseRPC.Client.SmartConnection.MultiInstanceConnectionManager.Dispose() -> void
-PulseRPC.Client.SmartConnection.MultiInstanceConnectionManager.GetServiceAsync<T>(string! serviceName, PulseRPC.Routing.IRoutingContext? routingContext = null, PulseRPC.SmartConnection.SmartConnectionOptions? options = null) -> System.Threading.Tasks.Task<T!>!
-PulseRPC.Client.SmartConnection.MultiInstanceConnectionManager.GetServiceAsync<T>(string! serviceName, string! instanceId, PulseRPC.SmartConnection.SmartConnectionOptions? options = null) -> System.Threading.Tasks.Task<T!>!
-PulseRPC.Client.SmartConnection.MultiInstanceConnectionManager.MultiInstanceConnectionManager(PulseRPC.Client.SmartConnection.SmartConnectionManager! connectionManager, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.AggregateAsync<TResult, TAggregated>(System.Func<T!, System.Threading.Tasks.Task<TResult>!>! operation, System.Func<System.Collections.Generic.IEnumerable<TResult>!, TAggregated>! aggregator) -> System.Threading.Tasks.Task<TAggregated>!
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.BroadcastAsync<TResult>(System.Func<T!, System.Threading.Tasks.Task<TResult>!>! operation) -> System.Threading.Tasks.Task<PulseRPC.Routing.BroadcastResult<TResult>!>!
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.Dispose() -> void
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.GetAvailableInstancesAsync() -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<PulseRPC.Routing.ServiceInstanceInfo!>!>!
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.GetInstanceHealthAsync() -> System.Threading.Tasks.Task<System.Collections.Generic.Dictionary<string!, bool>!>!
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.GetServiceAsync(PulseRPC.Routing.IRoutingContext! routingContext) -> System.Threading.Tasks.Task<T!>!
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.GetServiceAsync(string! instanceId) -> System.Threading.Tasks.Task<T!>!
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.InstanceStateChanged -> PulseRPC.EventHandler<PulseRPC.Routing.ServiceInstanceEventArgs!>?
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.LoadBalancingChanged -> PulseRPC.EventHandler<PulseRPC.Routing.LoadBalancingEventArgs!>?
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.MultiInstanceServiceManager(string! serviceName, PulseRPC.Client.SmartConnection.MultiInstanceConnectionManager! connectionManager, PulseRPC.SmartConnection.SmartConnectionOptions! defaultOptions, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
-PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.ParallelAsync<TResult>(System.Func<T!, System.Threading.Tasks.Task<TResult>!>! operation, System.Collections.Generic.IEnumerable<string!>! instanceIds) -> System.Threading.Tasks.Task<PulseRPC.Routing.ParallelResult<TResult>!>!
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.ActiveReferences.get -> int
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.AddReference() -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.AuthToken.get -> PulseRPC.Authentication.AuthenticationToken?
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.AuthToken.set -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.Channel.get -> PulseRPC.Messaging.IClientChannel!
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.Channel.set -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.ChannelManager.get -> PulseRPC.IChannelManager!
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.ChannelManager.set -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.ConnectionKey.get -> string!
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.ConnectionKey.set -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.CreatedAt.get -> System.DateTime
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.CreatedAt.set -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.Dispose() -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.Endpoint.get -> PulseRPC.ConnectionEndpoint!
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.Endpoint.set -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.IsConnected.get -> bool
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.LastUsedAt.get -> System.DateTime
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.LastUsedAt.set -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.Options.get -> PulseRPC.SmartConnection.SmartConnectionOptions!
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.Options.set -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.RemoveReference() -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.ServiceConnectionInfo() -> void
-PulseRPC.Client.SmartConnection.ServiceConnectionInfo.UpdateLastUsed() -> void
-PulseRPC.Client.SmartConnection.ServiceInstanceConnections
-PulseRPC.Client.SmartConnection.ServiceInstanceConnections.Connections.get -> System.Collections.Concurrent.ConcurrentDictionary<string!, PulseRPC.Client.SmartConnection.ServiceConnectionInfo!>!
-PulseRPC.Client.SmartConnection.ServiceInstanceConnections.Dispose() -> void
-PulseRPC.Client.SmartConnection.ServiceInstanceConnections.LastUpdated.get -> System.DateTime
-PulseRPC.Client.SmartConnection.ServiceInstanceConnections.LastUpdated.set -> void
-PulseRPC.Client.SmartConnection.ServiceInstanceConnections.ServiceInstanceConnections() -> void
-PulseRPC.Client.SmartConnection.ServiceInstanceConnections.ServiceName.get -> string!
-PulseRPC.Client.SmartConnection.ServiceInstanceConnections.ServiceName.set -> void
-PulseRPC.Client.SmartConnection.ServiceInstanceNotFoundException
-PulseRPC.Client.SmartConnection.ServiceInstanceNotFoundException.ServiceInstanceNotFoundException(string! message) -> void
-PulseRPC.Client.SmartConnection.ServiceInstanceNotFoundException.ServiceInstanceNotFoundException(string! message, System.Exception! innerException) -> void
-PulseRPC.Client.SmartConnection.ServiceNotFoundException
-PulseRPC.Client.SmartConnection.ServiceNotFoundException.ServiceNotFoundException(string! message) -> void
-PulseRPC.Client.SmartConnection.ServiceNotFoundException.ServiceNotFoundException(string! message, System.Exception! innerException) -> void
-PulseRPC.Client.SmartConnection.ServiceRoutingConfiguration
-PulseRPC.Client.SmartConnection.ServiceRoutingConfiguration.DefaultStrategy.get -> PulseRPC.Routing.ServiceRoutingStrategy
-PulseRPC.Client.SmartConnection.ServiceRoutingConfiguration.DefaultStrategy.set -> void
-PulseRPC.Client.SmartConnection.ServiceRoutingConfiguration.MaxRetries.get -> int
-PulseRPC.Client.SmartConnection.ServiceRoutingConfiguration.MaxRetries.set -> void
-PulseRPC.Client.SmartConnection.ServiceRoutingConfiguration.RetryDelay.get -> PulseRPC.Routing.RetryDelayStrategy
-PulseRPC.Client.SmartConnection.ServiceRoutingConfiguration.RetryDelay.set -> void
-PulseRPC.Client.SmartConnection.ServiceRoutingConfiguration.ServiceRoutingConfiguration() -> void
-PulseRPC.Client.SmartConnection.SmartConnectionManager
-PulseRPC.Client.SmartConnection.SmartConnectionManager.CleanupIdleConnectionsAsync(System.TimeSpan? maxAge = null) -> System.Threading.Tasks.Task<int>!
-PulseRPC.Client.SmartConnection.SmartConnectionManager.Dispose() -> void
-PulseRPC.Client.SmartConnection.SmartConnectionManager.GetConnectionStatistics() -> PulseRPC.ConnectionStatistics!
-PulseRPC.Client.SmartConnection.SmartConnectionManager.GetOrCreateConnectionAsync(string! serviceName, PulseRPC.SmartConnection.SmartConnectionOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.SmartConnection.ServiceConnectionInfo!>!
-PulseRPC.Client.SmartConnection.SmartConnectionManager.GetOrCreateConnectionAsync<T>(string! serviceName, PulseRPC.SmartConnection.SmartConnectionOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.SmartConnection.ServiceConnectionInfo!>!
-PulseRPC.Client.SmartConnection.SmartConnectionManager.SmartConnectionManager(PulseRPC.ServiceDiscovery.IServiceDiscovery! serviceDiscovery, PulseRPC.SmartConnection.SmartConnectionOptions? defaultOptions = null, PulseRPC.IAuthenticationProvider? authProvider = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
 PulseRPC.Client.Transport.FirewallInfo
 PulseRPC.Client.Transport.FirewallInfo.ErrorMessage.get -> string?
 PulseRPC.Client.Transport.FirewallInfo.ErrorMessage.set -> void
@@ -420,17 +211,9 @@ PulseRPC.Transport.ChannelManager.UnregisterChannel(string! channelName) -> void
 static PulseRPC.Client.ClientTransportConfiguration.Kcp(string! name, string! host, int port, PulseRPC.Transport.TransportOptions? options = null, bool isDefault = false) -> PulseRPC.Client.ClientTransportConfiguration!
 static PulseRPC.Client.ClientTransportConfiguration.Tcp(string! name, string! host, int port, PulseRPC.Transport.TransportOptions? options = null, bool isDefault = false) -> PulseRPC.Client.ClientTransportConfiguration!
 static PulseRPC.Client.ClientTransportConfiguration.WebSocket(string! name, string! host, int port, PulseRPC.Transport.TransportOptions? options = null, bool isDefault = false) -> PulseRPC.Client.ClientTransportConfiguration!
-static PulseRPC.Client.EventListenerBuilderExtensions.WithCriticalSettings<T>(this PulseRPC.Client.EventListenerBuilder<T!>! builder) -> PulseRPC.Client.EventListenerBuilder<T!>!
-static PulseRPC.Client.EventListenerBuilderExtensions.WithGameSettings<T>(this PulseRPC.Client.EventListenerBuilder<T!>! builder) -> PulseRPC.Client.EventListenerBuilder<T!>!
-static PulseRPC.Client.EventListenerBuilderExtensions.WithResilience<T>(this PulseRPC.Client.EventListenerBuilder<T!>! builder, PulseRPC.ErrorHandlingStrategy errorStrategy = PulseRPC.ErrorHandlingStrategy.RetryThenSkip, PulseRPC.RetryConfiguration? retryConfig = null) -> PulseRPC.Client.EventListenerBuilder<T!>!
+static PulseRPC.Client.PulseReceiverBuilderExtensions.WithCriticalSettings<T>(this PulseRPC.Client.PulseReceiverBuilder<T!>! builder) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+static PulseRPC.Client.PulseReceiverBuilderExtensions.WithGameSettings<T>(this PulseRPC.Client.PulseReceiverBuilder<T!>! builder) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+static PulseRPC.Client.PulseReceiverBuilderExtensions.WithResilience<T>(this PulseRPC.Client.PulseReceiverBuilder<T!>! builder, PulseRPC.ErrorHandlingStrategy errorStrategy = PulseRPC.ErrorHandlingStrategy.RetryThenSkip, PulseRPC.RetryConfiguration? retryConfig = null) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
 static PulseRPC.Client.EventListenerRegistrar.RegisterWithConfiguration<T>(PulseRPC.IPulseClient! client, T! listener, PulseRPC.EventListenerConfiguration! configuration) -> PulseRPC.ISubscriptionToken!
 static PulseRPC.Client.EventListenerRegistrar.RegisterWithConfigurationDelegate.get -> System.Func<PulseRPC.IPulseClient!, object!, PulseRPC.EventListenerConfiguration!, PulseRPC.ISubscriptionToken!>?
 static PulseRPC.Client.EventListenerRegistrar.RegisterWithConfigurationDelegate.set -> void
-static PulseRPC.Client.PulseRpcClientFactory.CreateClient(System.Action<PulseRPC.IPulseClientBuilder!>! configure) -> PulseRPC.IPulseClient!
-static PulseRPC.Client.PulseRpcClientFactory.CreateKcpClient(string! name, string! host, int port) -> PulseRPC.IPulseClient!
-static PulseRPC.Client.PulseRpcClientFactory.CreateTcpClient(string! name, string! host, int port) -> PulseRPC.IPulseClient!
-static PulseRPC.Client.ServiceCollectionExtensions.AddPulseClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<PulseRPC.IPulseClientBuilder!>! configure) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
-static PulseRPC.Client.ServiceCollectionExtensions.AddPulseKcpClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! name, string! host, int port) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
-static PulseRPC.Client.ServiceCollectionExtensions.AddPulseTcpClient(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! name, string! host, int port) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
-virtual PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.OnInstanceStateChanged(PulseRPC.Routing.ServiceInstanceEventArgs! e) -> void
-virtual PulseRPC.Client.SmartConnection.MultiInstanceServiceManager<T>.OnLoadBalancingChanged(PulseRPC.Routing.LoadBalancingEventArgs! e) -> void

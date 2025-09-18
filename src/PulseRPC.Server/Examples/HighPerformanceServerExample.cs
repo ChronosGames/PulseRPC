@@ -540,14 +540,14 @@
 // /// <summary>
 // /// 主机服务示例 - 演示完整的服务端生命周期
 // /// </summary>
-// public class PulseRPCServerHostedService : BackgroundService
+// public class PulseServerHostedService : BackgroundService
 // {
 //     private readonly HighPerformanceServerExample _server;
-//     private readonly ILogger<PulseRPCServerHostedService> _logger;
+//     private readonly ILogger<PulseServerHostedService> _logger;
 //
-//     public PulseRPCServerHostedService(
+//     public PulseServerHostedService(
 //         HighPerformanceServerExample server,
-//         ILogger<PulseRPCServerHostedService> logger)
+//         ILogger<PulseServerHostedService> logger)
 //     {
 //         _server = server;
 //         _logger = logger;
@@ -591,7 +591,7 @@
 //         services.AddSingleton<IHealthHub, HealthHub>();
 //
 //         // 注册主机服务
-//         services.AddHostedService<PulseRPCServerHostedService>();
+//         services.AddHostedService<PulseServerHostedService>();
 //
 //         return services;
 //     }

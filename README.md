@@ -181,7 +181,7 @@ dotnet test
 
 ```csharp
 // 构建企业级客户端 - 声明式配置
-var client = new PulseRPCClientBuilder()
+var client = new PulseClientBuilder()
     // 核心服务连接（持久连接）
     .AddConnection(new ConnectionDescriptor
     {
@@ -245,7 +245,7 @@ await client.StopAsync();
 ### 2. 微服务架构示例
 
 ```csharp
-var client = new PulseRPCClientBuilder()
+var client = new PulseClientBuilder()
     .WithServiceDiscovery(new KubernetesServiceDiscovery())
     .WithLoadBalancing(LoadBalancingStrategy.LeastConnections)
     .Build();
@@ -271,7 +271,7 @@ await client.DisconnectAsync(orderConnection.Id);
 ### 3. 游戏客户端示例
 
 ```csharp
-var gameClient = new PulseRPCClientBuilder()
+var gameClient = new PulseClientBuilder()
     .AddGameServerSet("production")
     .AddDevelopmentServers("localhost", 8000)
     .WithBattleOptimizations()
@@ -347,7 +347,7 @@ Console.WriteLine($"Pool: {stats.ActiveConnections}/{stats.CurrentSize} connecti
 ### 5. 智能路由和负载均衡
 
 ```csharp
-var client = new PulseRPCClientBuilder()
+var client = new PulseClientBuilder()
     .WithLoadBalancing(LoadBalancingStrategy.ConsistentHash)
     .Build();
 

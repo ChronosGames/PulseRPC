@@ -14,13 +14,13 @@ namespace PulseRPC.Server;
 /// <summary>
 /// 增强的服务器管理器 - 集成传输层管理，高性能线程安全设计
 /// </summary>
-internal sealed class PulseRPCServer : IPulseRPCServer
+internal sealed class PulseServer : IPulseServer
 {
     private readonly IClientSessionManager _sessionManager;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ServerOptions _serverOptions;
     private readonly ITransportIntegrationManager _transportIntegrationManager;
-    private readonly ILogger<PulseRPCServer> _logger;
+    private readonly ILogger<PulseServer> _logger;
 
     private readonly ConcurrentDictionary<string, IServerListener> _listeners = new();
     private readonly ConcurrentDictionary<string, TransportChannelConfiguration> _transports = new();
@@ -42,7 +42,7 @@ internal sealed class PulseRPCServer : IPulseRPCServer
     public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
     public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
-    public PulseRPCServer(
+    public PulseServer(
         IClientSessionManager? sessionManager = null,
         ILoggerFactory? loggerFactory = null,
         IOptions<ServerOptions>? serverOptions = null,
@@ -52,7 +52,7 @@ internal sealed class PulseRPCServer : IPulseRPCServer
         _loggerFactory = loggerFactory ?? new NullLoggerFactory();
         _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));
         _serverOptions = serverOptions?.Value ?? new ServerOptions();
-        _logger = _loggerFactory.CreateLogger<PulseRPCServer>();
+        _logger = _loggerFactory.CreateLogger<PulseServer>();
 
         // 订阅会话管理器事件
         _sessionManager.SessionConnected += OnSessionConnected;
@@ -354,8 +354,6 @@ internal sealed class PulseRPCServer : IPulseRPCServer
 
         StateChanged?.Invoke(this, new ServerStateChangedEventArgs(oldState, newState));
     }
-
-    // === IPulseRpcServer 接口实现 ===
 
     public IReadOnlyDictionary<string, TransportInfo> GetTransports()
     {

@@ -6,7 +6,7 @@ namespace PulseRPC.Server.Builder;
 /// <summary>
 /// PulseRPC 服务器构建器接口 - 支持链式配置
 /// </summary>
-public interface IPulseRPCServerBuilder
+public interface IPulseServerBuilder
 {
     /// <summary>
     /// 服务集合
@@ -21,7 +21,7 @@ public interface IPulseRPCServerBuilder
     /// <param name="port">监听端口</param>
     /// <param name="configure">传输配置回调</param>
     /// <param name="isDefault">是否为默认传输</param>
-    IPulseRPCServerBuilder AddTcp(string name, int port,
+    IPulseServerBuilder AddTcp(string name, int port,
         Action<TcpTransportOptions>? configure = null, bool isDefault = false);
 
     /// <summary>
@@ -31,7 +31,7 @@ public interface IPulseRPCServerBuilder
     /// <param name="port">监听端口</param>
     /// <param name="configure">传输配置回调</param>
     /// <param name="isDefault">是否为默认传输</param>
-    IPulseRPCServerBuilder AddKcp(string name, int port,
+    IPulseServerBuilder AddKcp(string name, int port,
         Action<KcpTransportOptions>? configure = null, bool isDefault = false);
 
     // === 服务注册 ===
@@ -41,7 +41,7 @@ public interface IPulseRPCServerBuilder
     /// <typeparam name="TService">服务接口类型</typeparam>
     /// <typeparam name="TImplementation">服务实现类型</typeparam>
     /// <param name="lifetime">服务生命周期</param>
-    IPulseRPCServerBuilder AddService<TService, TImplementation>(ServiceLifetime lifetime = ServiceLifetime.Singleton)
+    IPulseServerBuilder AddService<TService, TImplementation>(ServiceLifetime lifetime = ServiceLifetime.Singleton)
         where TService : class
         where TImplementation : class, TService;
 
@@ -50,7 +50,7 @@ public interface IPulseRPCServerBuilder
     /// </summary>
     /// <typeparam name="TService">服务接口类型</typeparam>
     /// <param name="implementationInstance">服务实例</param>
-    IPulseRPCServerBuilder AddService<TService>(TService implementationInstance)
+    IPulseServerBuilder AddService<TService>(TService implementationInstance)
         where TService : class;
 
     // === 性能优化配置 ===
@@ -58,52 +58,52 @@ public interface IPulseRPCServerBuilder
     /// 启用高性能消息引擎 (默认启用)
     /// </summary>
     /// <param name="configure">引擎配置回调</param>
-    IPulseRPCServerBuilder UseHighPerformanceEngine(Action<MessageEngineOptions>? configure = null);
+    IPulseServerBuilder UseHighPerformanceEngine(Action<MessageEngineOptions>? configure = null);
 
     /// <summary>
     /// 启用分层消息处理器
     /// </summary>
     /// <param name="configure">处理器配置回调</param>
-    IPulseRPCServerBuilder UseTieredMessageProcessor(Action<TieredProcessorOptions>? configure = null);
+    IPulseServerBuilder UseTieredMessageProcessor(Action<TieredProcessorOptions>? configure = null);
 
     /// <summary>
     /// 启用优先级感知调度器
     /// </summary>
     /// <param name="configure">调度器配置回调</param>
-    IPulseRPCServerBuilder UsePriorityScheduler(Action<PrioritySchedulerOptions>? configure = null);
+    IPulseServerBuilder UsePriorityScheduler(Action<PrioritySchedulerOptions>? configure = null);
 
     // === 安全和认证 ===
     /// <summary>
     /// 启用身份认证
     /// </summary>
     /// <param name="configure">认证配置回调</param>
-    IPulseRPCServerBuilder UseAuthentication(Action<AuthenticationOptions>? configure = null);
+    IPulseServerBuilder UseAuthentication(Action<AuthenticationOptions>? configure = null);
 
     /// <summary>
     /// 启用角色授权
     /// </summary>
     /// <param name="configure">授权配置回调</param>
-    IPulseRPCServerBuilder UseAuthorization(Action<AuthorizationOptions>? configure = null);
+    IPulseServerBuilder UseAuthorization(Action<AuthorizationOptions>? configure = null);
 
     // === 中间件和拦截器 ===
     /// <summary>
     /// 添加中间件
     /// </summary>
     /// <typeparam name="TMiddleware">中间件类型</typeparam>
-    IPulseRPCServerBuilder UseMiddleware<TMiddleware>() where TMiddleware : class, IPulseRpcMiddleware;
+    IPulseServerBuilder UseMiddleware<TMiddleware>() where TMiddleware : class, IPulseMiddleware;
 
     /// <summary>
     /// 添加拦截器
     /// </summary>
     /// <typeparam name="TInterceptor">拦截器类型</typeparam>
-    IPulseRPCServerBuilder UseInterceptor<TInterceptor>() where TInterceptor : class, IPulseRpcInterceptor;
+    IPulseServerBuilder UseInterceptor<TInterceptor>() where TInterceptor : class, IPulseInterceptor;
 
     // === 服务器配置 ===
     /// <summary>
     /// 配置服务器选项
     /// </summary>
     /// <param name="configure">服务器配置回调</param>
-    IPulseRPCServerBuilder ConfigureServer(Action<ServerOptions> configure);
+    IPulseServerBuilder ConfigureServer(Action<ServerOptions> configure);
 
     // === 构建 ===
     /// <summary>
@@ -263,7 +263,7 @@ public class AuthorizationOptions
 /// <summary>
 /// PulseRPC 中间件接口
 /// </summary>
-public interface IPulseRpcMiddleware
+public interface IPulseMiddleware
 {
     /// <summary>
     /// 执行中间件逻辑
@@ -271,27 +271,27 @@ public interface IPulseRpcMiddleware
     /// <param name="context">请求上下文</param>
     /// <param name="next">下一个中间件</param>
     /// <returns>处理任务</returns>
-    Task InvokeAsync(IPulseRpcContext context, Func<Task> next);
+    Task InvokeAsync(IPulseContext context, Func<Task> next);
 }
 
 /// <summary>
 /// PulseRPC 拦截器接口
 /// </summary>
-public interface IPulseRpcInterceptor
+public interface IPulseInterceptor
 {
     /// <summary>
     /// 请求前拦截
     /// </summary>
     /// <param name="context">请求上下文</param>
     /// <returns>拦截任务</returns>
-    Task OnRequestAsync(IPulseRpcContext context);
+    Task OnRequestAsync(IPulseContext context);
 
     /// <summary>
     /// 响应后拦截
     /// </summary>
     /// <param name="context">请求上下文</param>
     /// <returns>拦截任务</returns>
-    Task OnResponseAsync(IPulseRpcContext context);
+    Task OnResponseAsync(IPulseContext context);
 
     /// <summary>
     /// 异常拦截
@@ -299,13 +299,13 @@ public interface IPulseRpcInterceptor
     /// <param name="context">请求上下文</param>
     /// <param name="exception">异常信息</param>
     /// <returns>拦截任务</returns>
-    Task OnExceptionAsync(IPulseRpcContext context, Exception exception);
+    Task OnExceptionAsync(IPulseContext context, Exception exception);
 }
 
 /// <summary>
 /// PulseRPC 请求上下文接口
 /// </summary>
-public interface IPulseRpcContext
+public interface IPulseContext
 {
     /// <summary>
     /// 请求标识

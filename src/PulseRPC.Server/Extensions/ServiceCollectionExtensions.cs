@@ -20,10 +20,10 @@ public static class ServiceCollectionExtensions
     /// </summary>
     /// <param name="services">服务集合</param>
     /// <returns>服务器构建器</returns>
-    public static IPulseRPCServerBuilder AddPulseRpcServer(this IServiceCollection services)
+    public static IPulseServerBuilder AddPulseServer(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
-        return new PulseRPCServerBuilder(services);
+        return new PulseServerBuilder(services);
     }
 
     /// <summary>
@@ -32,12 +32,12 @@ public static class ServiceCollectionExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configure">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServer(this IServiceCollection services, Action<IPulseRPCServerBuilder> configure)
+    public static IServiceCollection AddPulseServer(this IServiceCollection services, Action<IPulseServerBuilder> configure)
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
 
-        var builder = services.AddPulseRpcServer();
+        var builder = services.AddPulseServer();
         configure(builder);
 
         // 默认启用性能优化
@@ -58,13 +58,13 @@ public static class ServiceCollectionExtensions
     /// <param name="configuration">配置对象</param>
     /// <param name="sectionName">配置节名称</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcServer(this IServiceCollection services, IConfiguration configuration, string sectionName = "PulseRPC:Server")
+    public static IServiceCollection AddPulseServer(this IServiceCollection services, IConfiguration configuration, string sectionName = "PulseRPC:Server")
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
         ArgumentException.ThrowIfNullOrWhiteSpace(sectionName);
 
-        return services.AddPulseRpcServer(builder =>
+        return services.AddPulseServer(builder =>
         {
             builder.ConfigureFromConfiguration(configuration, sectionName);
         });
@@ -79,7 +79,7 @@ public static class ServiceCollectionExtensions
     /// <param name="port">监听端口</param>
     /// <param name="configure">额外配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcTcpServer(this IServiceCollection services, int port, Action<IPulseRPCServerBuilder>? configure = null)
+    public static IServiceCollection AddPulseTcpServer(this IServiceCollection services, int port, Action<IPulseServerBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -88,7 +88,7 @@ public static class ServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(port), port, "端口必须在1-65535范围内");
         }
 
-        return services.AddPulseRpcServer(builder =>
+        return services.AddPulseServer(builder =>
         {
             builder.AddTcp("Default", port, isDefault: true)
                    .UseHighPerformanceEngine() // 默认启用性能优化
@@ -106,7 +106,7 @@ public static class ServiceCollectionExtensions
     /// <param name="port">监听端口</param>
     /// <param name="configure">额外配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcKcpServer(this IServiceCollection services, int port, Action<IPulseRPCServerBuilder>? configure = null)
+    public static IServiceCollection AddPulseKcpServer(this IServiceCollection services, int port, Action<IPulseServerBuilder>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -115,7 +115,7 @@ public static class ServiceCollectionExtensions
             throw new ArgumentOutOfRangeException(nameof(port), port, "端口必须在1-65535范围内");
         }
 
-        return services.AddPulseRpcServer(builder =>
+        return services.AddPulseServer(builder =>
         {
             builder.AddKcp("Default", port, isDefault: true)
                    .UseHighPerformanceEngine() // 默认启用性能优化
@@ -135,12 +135,12 @@ public static class ServiceCollectionExtensions
     /// <param name="port">监听端口</param>
     /// <param name="protocol">传输协议</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddHighThroughputPulseRpcServer(this IServiceCollection services, int port, TransportProtocol protocol = TransportProtocol.Tcp)
+    public static IServiceCollection AddHighThroughputPulseServer(this IServiceCollection services, int port, TransportProtocol protocol = TransportProtocol.Tcp)
     {
         ArgumentNullException.ThrowIfNull(services);
         ValidatePortRange(port, nameof(port));
 
-        return services.AddPulseRpcServer(builder =>
+        return services.AddPulseServer(builder =>
         {
             // 配置传输
             if (protocol == TransportProtocol.Tcp)
@@ -191,12 +191,12 @@ public static class ServiceCollectionExtensions
     /// <param name="port">监听端口</param>
     /// <param name="protocol">传输协议</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddLowLatencyPulseRpcServer(this IServiceCollection services, int port, TransportProtocol protocol = TransportProtocol.Tcp)
+    public static IServiceCollection AddLowLatencyPulseServer(this IServiceCollection services, int port, TransportProtocol protocol = TransportProtocol.Tcp)
     {
         ArgumentNullException.ThrowIfNull(services);
         ValidatePortRange(port, nameof(port));
 
-        return services.AddPulseRpcServer(builder =>
+        return services.AddPulseServer(builder =>
         {
             // 配置传输
             if (protocol == TransportProtocol.Tcp)
@@ -247,15 +247,15 @@ public static class ServiceCollectionExtensions
     /// <param name="hostBuilder">主机构建器</param>
     /// <param name="configure">配置回调</param>
     /// <returns>主机构建器</returns>
-    public static IHostBuilder UsePulseRpcServer(this IHostBuilder hostBuilder, Action<IPulseRPCServerBuilder> configure)
+    public static IHostBuilder UsePulseServer(this IHostBuilder hostBuilder, Action<IPulseServerBuilder> configure)
     {
         ArgumentNullException.ThrowIfNull(hostBuilder);
         ArgumentNullException.ThrowIfNull(configure);
 
         return hostBuilder.ConfigureServices((context, services) =>
         {
-            services.AddPulseRpcServer(configure);
-            services.AddHostedService<PulseRpcServerHostedService>();
+            services.AddPulseServer(configure);
+            services.AddHostedService<PulseServerHostedService>();
         });
     }
 
@@ -265,15 +265,15 @@ public static class ServiceCollectionExtensions
     /// <param name="hostBuilder">主机构建器</param>
     /// <param name="sectionName">配置节名称</param>
     /// <returns>主机构建器</returns>
-    public static IHostBuilder UsePulseRpcServer(this IHostBuilder hostBuilder, string sectionName = "PulseRPC:Server")
+    public static IHostBuilder UsePulseServer(this IHostBuilder hostBuilder, string sectionName = "PulseRPC:Server")
     {
         ArgumentNullException.ThrowIfNull(hostBuilder);
         ArgumentException.ThrowIfNullOrWhiteSpace(sectionName);
 
         return hostBuilder.ConfigureServices((context, services) =>
         {
-            services.AddPulseRpcServer(context.Configuration, sectionName);
-            services.AddHostedService<PulseRpcServerHostedService>();
+            services.AddPulseServer(context.Configuration, sectionName);
+            services.AddHostedService<PulseServerHostedService>();
         });
     }
 
@@ -300,13 +300,13 @@ public enum TransportProtocol
 /// <summary>
 /// PulseRPC 服务器托管服务 - 高性能后台服务
 /// </summary>
-internal sealed class PulseRpcServerHostedService : IHostedService
+internal sealed class PulseServerHostedService : IHostedService
 {
-    private readonly IPulseRPCServer _server;
-    private readonly ILogger<PulseRpcServerHostedService> _logger;
+    private readonly IPulseServer _server;
+    private readonly ILogger<PulseServerHostedService> _logger;
 
-    public PulseRpcServerHostedService(IPulseRPCServer server,
-        ILogger<PulseRpcServerHostedService> logger)
+    public PulseServerHostedService(IPulseServer server,
+        ILogger<PulseServerHostedService> logger)
     {
         _server = server ?? throw new ArgumentNullException(nameof(server));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -357,8 +357,8 @@ public static class ConfigurationExtensions
     /// <param name="configuration">配置对象</param>
     /// <param name="sectionName">配置节名称</param>
     /// <returns>服务器构建器</returns>
-    public static IPulseRPCServerBuilder ConfigureFromConfiguration(
-        this IPulseRPCServerBuilder builder,
+    public static IPulseServerBuilder ConfigureFromConfiguration(
+        this IPulseServerBuilder builder,
         IConfiguration configuration,
         string sectionName = "PulseRPC:Server")
     {
@@ -404,7 +404,7 @@ public static class ConfigurationExtensions
         return builder;
     }
 
-    private static void ConfigureTransport(IPulseRPCServerBuilder builder, TransportConfiguration config)
+    private static void ConfigureTransport(IPulseServerBuilder builder, TransportConfiguration config)
     {
         if (config.Type.Equals("Tcp", StringComparison.OrdinalIgnoreCase))
         {
@@ -438,7 +438,7 @@ public static class ConfigurationExtensions
         }
     }
 
-    private static void ConfigurePerformanceOptions(IPulseRPCServerBuilder builder, IConfigurationSection section)
+    private static void ConfigurePerformanceOptions(IPulseServerBuilder builder, IConfigurationSection section)
     {
         var performanceSection = section.GetSection("Performance");
         if (performanceSection.Exists())

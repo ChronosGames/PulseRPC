@@ -1,385 +1,528 @@
-// using PulseRPC.Transport;
-// using Microsoft.Extensions.Logging;
-// using System;
-// using System.Net;
-// using Microsoft.Extensions.Logging.Abstractions;
-// using PulseRPC.Client.Channels;
-// using PulseRPC.Client.Transport;
-// using PulseRPC.Serialization;
-// using PulseRPC.Client.Serialization;
-// using PulseRPC.Messaging;
-// using System.Collections.Concurrent;
-// using System.Runtime.CompilerServices;
-// using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Authentication;
+using PulseRPC.Serialization;
 using PulseRPC.Client.Core;
-// using ConnectionState = PulseRPC.Transport.ConnectionState;
-//
+using PulseRPC.Client.Core.ConnectionPool;
+
 namespace PulseRPC.Client;
 
-// /// <summary>
-// /// PulseRPC 统一客户端接口 - 整合所有客户端功能
-// /// </summary>
-// public interface IPulseClient : IDisposable
-// {
-//     /// <summary>
-//     /// 连接管理器
-//     /// </summary>
-//     IConnectionManager Connections { get; }
-//
-//     /// <summary>
-//     /// 初始化客户端（替代原来的 ConnectAsync）
-//     /// </summary>
-//     Task InitializeAsync(CancellationToken cancellationToken = default);
-//
-//     /// <summary>
-//     /// 停止客户端（替代原来的 DisconnectAsync）
-//     /// </summary>
-//     Task StopAsync(CancellationToken cancellationToken = default);
-//
-//     /// <summary>
-//     /// 客户端是否已初始化
-//     /// </summary>
-//     bool IsInitialized { get; }
-// }
-//
-
 /// <summary>
-/// 高性能 PulseRPC 客户端实现
-/// 使用零分配设计和缓存优化
+/// PulseRPC 客户端实现
 /// </summary>
-// internal class PulseClient : IPulseRPCClient
-// {
-//     private readonly IChannelManager _channelManager;
-//     private readonly ISerializerManager _serializerManager;
-//     private readonly ILogger<PulseClient> _logger;
-//     private readonly ILoggerFactory _loggerFactory;
-//     private readonly Dictionary<string, ClientTransportInfo> _transports = new();
-//
-//     // 服务代理缓存 - 线程安全
-//     private readonly ConcurrentDictionary<Type, object> _serviceProxyCache = new();
-//
-//     private volatile bool _isConnected;
-//     private volatile bool _disposed;
-//
-//     public PulseClient(
-//         IChannelManager? channelManager = null,
-//         ISerializerManager? serializerManager = null,
-//         ILoggerFactory? loggerFactory = null)
-//     {
-//         _loggerFactory = loggerFactory ?? NullLoggerFactory.Instance;
-//         _logger = _loggerFactory.CreateLogger<PulseClient>();
-//         _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
-//         _serializerManager = serializerManager ?? new SerializerManager();
-//
-//         // 订阅传输事件
-//         _transportManager.TransportConnected += OnTransportConnected;
-//         _transportManager.TransportDisconnected += OnTransportDisconnected;
-//     }
-//
-//     /// <summary>
-//     /// 添加传输配置
-//     /// </summary>
-//     internal void AddTransport(ClientTransportConfiguration config)
-//     {
-//         if (_isConnected)
-//         {
-//             throw new InvalidOperationException("客户端已连接，无法添加传输");
-//         }
-//
-//         if (_transports.ContainsKey(config.Name))
-//         {
-//             throw new ArgumentException($"传输配置已存在: {config.Name}");
-//         }
-//
-//         var transportInfo = new ClientTransportInfo
-//         {
-//             Name = config.Name,
-//             Type = config.Type,
-//             Host = config.Host,
-//             Port = config.Port,
-//             Options = config.Options,
-//             IsDefault = config.IsDefault,
-//         };
-//
-//         _transports.Add(config.Name, transportInfo);
-//
-//         _logger.LogInformation("已添加 {Type} 传输配置: {Name}, 目标: {Host}:{Port}",
-//             config.Type, config.Name, config.Host, config.Port);
-//     }
-//
-//     /// <summary>
-//     /// 批量添加传输配置
-//     /// </summary>
-//     internal void AddTransports(IEnumerable<ClientTransportConfiguration> configurations)
-//     {
-//         foreach (var config in configurations)
-//         {
-//             AddTransport(config);
-//         }
-//     }
-//
-//     /// <summary>
-//     /// 连接到服务器
-//     /// </summary>
-//     public async Task ConnectAsync(CancellationToken cancellationToken = default)
-//     {
-//         if (_isConnected)
-//         {
-//             return;
-//         }
-//
-//         if (_transports.Count == 0)
-//         {
-//             throw new InvalidOperationException("没有配置任何传输");
-//         }
-//
-//         _logger.LogInformation("正在连接到服务器，传输配置数量：{Count}", _transports.Count);
-//
-//         try
-//         {
-//             // 连接所有配置的传输
-//             var connectionTasks = _transports.Values.Select(async transportInfo =>
-//             {
-//                 _logger.LogDebug("正在连接 {Type} 传输: {Name} at {Host}:{Port}", transportInfo.Type, transportInfo.Name, transportInfo.Host, transportInfo.Port);
-//
-//                 // 创建传输连接（这里需要根据实际的传输工厂来创建）
-//                 // 暂时使用模拟实现
-//                 var transport = await CreateTransportAsync(transportInfo, cancellationToken);
-//
-//                 // 添加到传输管理器
-//                 var context = _transportManager.AddTransport(transport);
-//
-//                 // 设置默认传输
-//                 if (transportInfo.IsDefault)
-//                 {
-//                     _transportManager.SetDefaultTransport(transport.Name);
-//                 }
-//
-//                 _logger.LogInformation("{Type} 传输已连接: {Name} {ServiceId}", transportInfo.Type, transportInfo.Name, context.ConnectionId);
-//             });
-//
-//             // 等待所有传输连接完成
-//             await Task.WhenAll(connectionTasks);
-//
-//             _isConnected = true;
-//             _logger.LogInformation("所有传输已连接，客户端连接完成。活动连接数：{Count}", _transportManager.ConnectionCount);
-//         }
-//         catch (Exception ex)
-//         {
-//             _logger.LogError(ex, "连接服务器失败");
-//
-//             // 清理已连接的传输
-//             await DisconnectAsync(CancellationToken.None);
-//             throw;
-//         }
-//     }
-//
-//     /// <summary>
-//     /// 断开连接
-//     /// </summary>
-//     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
-//     {
-//         if (!_isConnected && _transportManager.ConnectionCount == 0)
-//             return;
-//
-//         _logger.LogInformation("正在断开连接，当前连接数：{Count}", _transportManager.ConnectionCount);
-//
-//         try
-//         {
-//             // 断开所有传输连接
-//             var connectionIds = _transportManager.ConnectionIds.ToList();
-//             var disconnectionTasks = connectionIds.Select(async connectionId =>
-//             {
-//                 try
-//                 {
-//                     await _transportManager.RemoveTransportAsync(connectionId);
-//                     _logger.LogDebug("传输连接已断开：{ConnectionId}", connectionId);
-//                 }
-//                 catch (Exception ex)
-//                 {
-//                     _logger.LogWarning(ex, "断开传输连接时发生异常：{ConnectionId}", connectionId);
-//                 }
-//             });
-//
-//             // 等待所有传输断开完成
-//             await Task.WhenAll(disconnectionTasks);
-//
-//             _isConnected = false;
-//             _logger.LogInformation("所有传输已断开，客户端断开连接完成");
-//         }
-//         catch (Exception ex)
-//         {
-//             _logger.LogError(ex, "断开连接时发生错误");
-//             _isConnected = false; // 即使出错也标记为未连接
-//         }
-//     }
-//
-//
-//     /// <summary>
-//     /// 获取服务代理 - 高性能缓存实现
-//     /// </summary>
-//     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-//     public T GetService<T>() where T : class, IPulseHub
-//     {
-//         // 使用类型缓存避免重复创建
-//         if (_serviceProxyCache.TryGetValue(typeof(T), out var cachedService))
-//         {
-//             return (T)cachedService;
-//         }
-//
-//         // 使用源码生成器生成的扩展方法
-//         var service = this.GetServiceInternal<T>();
-//         _serviceProxyCache.TryAdd(typeof(T), service);
-//         return service;
-//     }
-//
-//     /// <summary>
-//     /// 获取服务代理 - 异步版本
-//     /// </summary>
-//     public async Task<T> GetServiceAsync<T>(string? serviceName = null, CancellationToken cancellationToken = default)
-//         where T : class, IPulseHub
-//     {
-//         // 对于普通客户端，直接返回同步版本
-//         return GetService<T>();
-//     }
-//
-//     /// <summary>
-//     /// 配置序列化器
-//     /// </summary>
-//     public IPulseClient WithSerializer(ISerializerProvider serializerProvider)
-//     {
-//         _serializerManager.SetDefaultProvider(serializerProvider);
-//         return this;
-//     }
-//
-//     /// <summary>
-//     /// 配置默认序列化器
-//     /// </summary>
-//     public IPulseClient WithDefaultSerializer(MemoryPack.MemoryPackSerializerOptions options)
-//     {
-//         var provider = PulseRPCSerializerProvider.Instance.WithOptions(options);
-//         return WithSerializer(provider);
-//     }
-//
-//     /// <summary>
-//     /// 获取连接统计信息
-//     /// </summary>
-//     // public async Task<ConnectionStatistics> GetConnectionStatisticsAsync(CancellationToken cancellationToken = default)
-//     // {
-//     //     var transportStats = _transportManager.GetStatistics();
-//     //
-//     //     return new ConnectionStatistics
-//     //     {
-//     //         TotalConnections = (int)transportStats.TotalTransportsCreated,
-//     //         ActiveConnections = transportStats.ActiveTransports,
-//     //         IdleConnections = 0, // TODO: 实现空闲连接统计
-//     //         FailedConnections = (int)(transportStats.TotalTransportsCreated - transportStats.TotalTransportsRemoved - transportStats.ActiveTransports),
-//     //         Timestamp = DateTime.UtcNow
-//     //     };
-//     // }
-//
-//     /// <summary>
-//     /// 连接状态变化事件
-//     /// </summary>
-//     // public event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
-//
-//     /// <summary>
-//     /// 获取默认传输上下文
-//     /// </summary>
-//     // public TransportContext? GetDefaultTransportContext()
-//     // {
-//     //     return _transportManager.GetDefaultTransportContext();
-//     // }
-//
-//     /// <summary>
-//     /// 释放资源
-//     /// </summary>
-//     public void Dispose()
-//     {
-//         if (_disposed)
-//             return;
-//
-//         try
-//         {
-//             if (_isConnected)
-//             {
-//                 DisconnectAsync().Wait(TimeSpan.FromSeconds(5));
-//             }
-//         }
-//         catch (Exception ex)
-//         {
-//             _logger.LogError(ex, "释放资源时断开连接失败");
-//         }
-//
-//         // 取消订阅传输事件
-//         _transportManager.TransportConnected -= OnTransportConnected;
-//         _transportManager.TransportDisconnected -= OnTransportDisconnected;
-//
-//         _transportManager?.Dispose();
-//         _disposed = true;
-//
-//         GC.SuppressFinalize(this);
-//     }
-//
-//     /// <summary>
-//     /// 创建传输连接 - 模拟实现，实际需要根据传输工厂来创建
-//     /// </summary>
-//     private Task<ITransport> CreateTransportAsync(ClientTransportInfo transportInfo, CancellationToken cancellationToken)
-//     {
-//         IClientTransport transport = transportInfo.Type switch
-//         {
-//             TransportType.Tcp => new TcpClientTransport(transportInfo.Options as TcpTransportOptions ?? new TcpTransportOptions(), _loggerFactory.CreateLogger<TcpClientTransport>()),
-//             TransportType.Kcp => new KcpClientTransport(transportInfo.Options as KcpTransportOptions ?? new KcpTransportOptions(), _loggerFactory.CreateLogger<KcpClientTransport>()),
-//             _ => throw new NotSupportedException($"不支持的传输类型: {transportInfo.Type}")
-//         };
-//
-//         return Task.FromResult<ITransport>(transport);
-//     }
-//
-//     /// <summary>
-//     /// 处理传输连接事件
-//     /// </summary>
-//     private void OnTransportConnected(object? sender, TransportConnectedEventArgs e)
-//     {
-//         _logger.LogDebug("传输已连接：{ConnectionId}", e.TransportContext.ConnectionId);
-//
-//         var oldState = _isConnected ? ConnectionState.Connected : ConnectionState.Disconnected;
-//         var newState = _transportManager.ConnectionCount > 0 ? ConnectionState.Connected : ConnectionState.Disconnected;
-//
-//         if (oldState != newState)
-//         {
-//             ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(oldState, newState));
-//         }
-//     }
-//
-//     /// <summary>
-//     /// 处理传输断开事件
-//     /// </summary>
-//     private void OnTransportDisconnected(object? sender, TransportDisconnectedEventArgs e)
-//     {
-//         _logger.LogDebug("传输已断开：{ConnectionId}, 原因：{Reason}",
-//             e.TransportContext.ConnectionId, e.DisconnectReason);
-//
-//         var oldState = _isConnected ? ConnectionState.Connected : ConnectionState.Disconnected;
-//         var newState = _transportManager.ConnectionCount > 0 ? ConnectionState.Connected : ConnectionState.Disconnected;
-//
-//         if (oldState != newState)
-//         {
-//             _isConnected = newState == ConnectionState.Connected;
-//             ConnectionStateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(oldState, newState));
-//         }
-//     }
-//
-//     /// <summary>
-//     /// 客户端传输信息
-//     /// </summary>
-//     private class ClientTransportInfo
-//     {
-//         public string Name { get; set; } = string.Empty;
-//         public TransportType Type { get; set; }
-//         public string Host { get; set; } = string.Empty;
-//         public int Port { get; set; }
-//         public TransportOptions? Options { get; set; }
-//         public bool IsDefault { get; set; }
-//     }
-// }
+internal sealed class PulseClient : IPulseClient
+{
+    private readonly ILogger<PulseClient> _logger;
+    private readonly List<ConnectionDescriptor> _initialConnections;
+    private readonly ClientOptions _clientOptions;
+    private readonly RetryPolicy? _retryPolicy;
+
+    // 核心组件
+    private readonly IConnectionManager _connectionManager;
+    private readonly IConnectionRouter _connectionRouter;
+    private readonly IServiceDiscovery? _serviceDiscovery;
+    private readonly IConnectionRegistry _connectionRegistry;
+    private readonly IConnectionLifecycleManager _connectionLifecycleManager;
+    private readonly ILoadBalancer _loadBalancer;
+
+    // 状态管理
+    private ClientState _state = ClientState.Uninitialized;
+    private readonly object _stateLock = new();
+    private volatile bool _disposed;
+
+    // 统计信息
+    private readonly ClientStatistics _statistics = new();
+    private readonly DateTime _startTime = DateTime.UtcNow;
+
+    /// <summary>
+    /// 连接管理器
+    /// </summary>
+    public IConnectionManager Connections => _connectionManager;
+
+    /// <summary>
+    /// 连接路由器
+    /// </summary>
+    public IConnectionRouter Router => _connectionRouter;
+
+    /// <summary>
+    /// 服务发现
+    /// </summary>
+    public IServiceDiscovery ServiceDiscovery => _serviceDiscovery ?? throw new InvalidOperationException("服务发现未配置");
+
+    /// <summary>
+    /// 连接注册表
+    /// </summary>
+    public IConnectionRegistry Registry => _connectionRegistry;
+
+    /// <summary>
+    /// 连接生命周期管理器
+    /// </summary>
+    public IConnectionLifecycleManager Lifecycle => _connectionLifecycleManager;
+
+    /// <summary>
+    /// 负载均衡器
+    /// </summary>
+    public ILoadBalancer LoadBalancer => _loadBalancer;
+
+    /// <summary>
+    /// 客户端状态
+    /// </summary>
+    public ClientState State => _state;
+
+    /// <summary>
+    /// 客户端状态变化事件
+    /// </summary>
+    public event EventHandler<ClientStateChangedEventArgs>? StateChanged;
+
+    /// <summary>
+    /// 构造函数
+    /// </summary>
+    public PulseClient(
+        IReadOnlyList<ConnectionDescriptor> connections,
+        IServiceDiscovery? serviceDiscovery = null,
+        ILoggerFactory? loggerFactory = null,
+        ISerializerProvider? serializerProvider = null,
+        IAuthenticationProvider? authenticationProvider = null,
+        LoadBalancingStrategy loadBalancingStrategy = LoadBalancingStrategy.RoundRobin,
+        IReadOnlyDictionary<string, object>? loadBalancingOptions = null,
+        ConnectionPoolOptions? connectionPoolOptions = null,
+        RetryPolicy? retryPolicy = null,
+        ClientOptions? clientOptions = null)
+    {
+        _initialConnections = connections?.ToList() ?? new List<ConnectionDescriptor>();
+        _serviceDiscovery = serviceDiscovery;
+        _retryPolicy = retryPolicy;
+        _clientOptions = clientOptions ?? new ClientOptions();
+
+        var logger = loggerFactory ?? NullLoggerFactory.Instance;
+        _logger = logger.CreateLogger<PulseClient>();
+
+        // 初始化统计信息
+        _statistics.ClientName = _clientOptions.Name;
+        _statistics.StartTime = _startTime;
+
+        // 创建核心组件（暂时使用基础实现）
+        _connectionManager = new ConnectionManager(_serviceDiscovery, logger);
+        _connectionRegistry = new SimpleConnectionRegistry();
+        _connectionRouter = new SimpleConnectionRouter(_connectionRegistry, logger.CreateLogger<SimpleConnectionRouter>());
+        _connectionLifecycleManager = new SimpleConnectionLifecycleManager(_connectionManager, logger.CreateLogger<SimpleConnectionLifecycleManager>());
+        _loadBalancer = CreateLoadBalancer(loadBalancingStrategy, loadBalancingOptions, logger);
+
+        _logger.LogInformation("PulseRPC 客户端已创建，初始连接数: {Count}", _initialConnections.Count);
+    }
+
+    /// <summary>
+    /// 初始化客户端
+    /// </summary>
+    public async Task InitializeAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        lock (_stateLock)
+        {
+            if (_state != ClientState.Uninitialized)
+            {
+                throw new InvalidOperationException($"客户端已初始化，当前状态: {_state}");
+            }
+
+            _state = ClientState.Initializing;
+        }
+
+        OnStateChanged(ClientState.Uninitialized, ClientState.Initializing);
+
+        try
+        {
+            _logger.LogInformation("开始初始化 PulseRPC 客户端");
+
+            // 初始化路由器默认规则
+            if (_connectionRouter is SimpleConnectionRouter simpleRouter)
+            {
+                simpleRouter.AddDefaultRules();
+            }
+
+            // 连接到所有初始连接
+            var connectionTasks = _initialConnections.Select(async descriptor =>
+            {
+                try
+                {
+                    var connection = await _connectionManager.ConnectAsync(descriptor, cancellationToken);
+                    _connectionRegistry.RegisterConnection(new SimpleConnection(connection));
+                    _logger.LogInformation("连接成功: {ConnectionId}", descriptor.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "连接失败: {ConnectionId}", descriptor.Id);
+                    throw;
+                }
+            });
+
+            await Task.WhenAll(connectionTasks);
+
+            lock (_stateLock)
+            {
+                _state = ClientState.Running;
+            }
+
+            OnStateChanged(ClientState.Initializing, ClientState.Running);
+            _logger.LogInformation("PulseRPC 客户端初始化完成，活跃连接数: {Count}", _connectionManager.Count);
+        }
+        catch (Exception ex)
+        {
+            lock (_stateLock)
+            {
+                _state = ClientState.Error;
+            }
+
+            OnStateChanged(ClientState.Initializing, ClientState.Error, ex);
+            _logger.LogError(ex, "PulseRPC 客户端初始化失败");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 停止客户端
+    /// </summary>
+    public async Task StopAsync(bool graceful = true, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        lock (_stateLock)
+        {
+            if (_state == ClientState.Stopped || _state == ClientState.Stopping)
+            {
+                return;
+            }
+
+            _state = ClientState.Stopping;
+        }
+
+        var previousState = _state;
+        OnStateChanged(previousState, ClientState.Stopping);
+
+        try
+        {
+            _logger.LogInformation("开始停止 PulseRPC 客户端，优雅停止: {Graceful}", graceful);
+
+            var stopTimeout = timeout ?? TimeSpan.FromSeconds(30);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(stopTimeout);
+
+            // 断开所有连接
+            var connections = _connectionManager.GetAllConnections();
+            var disconnectTasks = connections.Select(async connection =>
+            {
+                try
+                {
+                    await _connectionManager.DisconnectAsync(connection.Id, cts.Token);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "断开连接失败: {ConnectionId}", connection.Id);
+                }
+            });
+
+            await Task.WhenAll(disconnectTasks);
+
+            lock (_stateLock)
+            {
+                _state = ClientState.Stopped;
+            }
+
+            OnStateChanged(ClientState.Stopping, ClientState.Stopped);
+            _logger.LogInformation("PulseRPC 客户端已停止");
+        }
+        catch (Exception ex)
+        {
+            lock (_stateLock)
+            {
+                _state = ClientState.Error;
+            }
+
+            OnStateChanged(ClientState.Stopping, ClientState.Error, ex);
+            _logger.LogError(ex, "停止 PulseRPC 客户端失败");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 连接到服务
+    /// </summary>
+    public async Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        EnsureRunning();
+
+        var connectionContext = await _connectionManager.ConnectAsync(descriptor, cancellationToken);
+        var connection = new SimpleConnection(connectionContext);
+        _connectionRegistry.RegisterConnection(connection);
+
+        return connection;
+    }
+
+    /// <summary>
+    /// 通过服务发现连接到服务
+    /// </summary>
+    public async Task<IConnection> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        EnsureRunning();
+
+        if (_serviceDiscovery == null)
+        {
+            throw new InvalidOperationException("服务发现未配置");
+        }
+
+        // 通过服务发现获取端点
+        var endpoints = await _serviceDiscovery.DiscoverAsync(serviceName, cancellationToken);
+        var healthyEndpoints = endpoints.Where(e => e.IsHealthy).ToList();
+
+        if (healthyEndpoints.Count == 0)
+        {
+            throw new InvalidOperationException($"未找到健康的服务实例: {serviceName}");
+        }
+
+        // 使用负载均衡器选择端点
+        var selectedEndpoint = healthyEndpoints.First(); // 简化实现，后续使用负载均衡器
+
+        var descriptor = new ConnectionDescriptor
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = $"service-{serviceName}",
+            ServiceName = serviceName,
+            Endpoint = selectedEndpoint.Address,
+            Transport = options?.PreferredTransport ?? selectedEndpoint.Transport,
+            Strategy = options?.Strategy ?? ConnectionStrategy.Session,
+            AutoReconnect = options?.AutoReconnect ?? true,
+            ConnectTimeout = options?.ConnectTimeout
+        };
+
+        return await ConnectAsync(descriptor, cancellationToken);
+    }
+
+    /// <summary>
+    /// 获取服务代理（自动路由到最佳连接）
+    /// </summary>
+    public async Task<T> GetServiceAsync<T>(ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)
+        where T : class, IPulseHub
+    {
+        ThrowIfDisposed();
+        EnsureRunning();
+
+        // 获取最佳连接
+        var connection = await _connectionRouter.RouteAsync(typeof(T).Name, null, cancellationToken);
+        return await connection.GetServiceAsync<T>();
+    }
+
+    /// <summary>
+    /// 获取指定连接的服务代理
+    /// </summary>
+    public async Task<T> GetServiceAsync<T>(string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)
+        where T : class, IPulseHub
+    {
+        ThrowIfDisposed();
+        EnsureRunning();
+
+        var connection = _connectionRegistry.GetConnection(connectionId);
+        if (connection == null)
+        {
+            throw new ArgumentException($"连接不存在: {connectionId}", nameof(connectionId));
+        }
+
+        return await connection.GetServiceAsync<T>();
+    }
+
+    /// <summary>
+    /// 注册事件监听器（自动路由到最佳连接）
+    /// </summary>
+    public async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, EventListenerOptions? options = null, CancellationToken cancellationToken = default)
+        where T : class, IPulseReceiver
+    {
+        ThrowIfDisposed();
+        EnsureRunning();
+
+        // 获取最佳连接
+        var connection = await _connectionRouter.RouteAsync(typeof(T).Name, null, cancellationToken);
+        var connectionContext = _connectionManager.GetConnection(connection.Id);
+        if (connectionContext == null)
+        {
+            throw new InvalidOperationException($"连接上下文不存在: {connection.Id}");
+        }
+
+        return await connectionContext.RegisterEventListenerAsync(listener);
+    }
+
+    /// <summary>
+    /// 在指定连接上注册事件监听器
+    /// </summary>
+    public async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(string connectionId, T listener, EventListenerOptions? options = null, CancellationToken cancellationToken = default)
+        where T : class, IPulseReceiver
+    {
+        ThrowIfDisposed();
+        EnsureRunning();
+
+        var connectionContext = _connectionManager.GetConnection(connectionId);
+        if (connectionContext == null)
+        {
+            throw new ArgumentException($"连接不存在: {connectionId}", nameof(connectionId));
+        }
+
+        return await connectionContext.RegisterEventListenerAsync(listener);
+    }
+
+    /// <summary>
+    /// 断开连接
+    /// </summary>
+    public async Task DisconnectAsync(string connectionId, bool graceful = true, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        await _connectionManager.DisconnectAsync(connectionId, cancellationToken);
+        _connectionRegistry.UnregisterConnection(connectionId);
+    }
+
+    /// <summary>
+    /// 批量断开连接
+    /// </summary>
+    public async Task<int> DisconnectAsync(Func<IConnection, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        var connectionsToDisconnect = _connectionRegistry.GetAllConnections().Where(predicate).ToList();
+
+        var disconnectTasks = connectionsToDisconnect.Select(async connection =>
+        {
+            try
+            {
+                await DisconnectAsync(connection.Id, graceful, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "断开连接失败: {ConnectionId}", connection.Id);
+            }
+        });
+
+        await Task.WhenAll(disconnectTasks);
+        return connectionsToDisconnect.Count;
+    }
+
+    /// <summary>
+    /// 获取客户端统计信息
+    /// </summary>
+    public ClientStatistics GetStatistics()
+    {
+        ThrowIfDisposed();
+
+        _statistics.Uptime = DateTime.UtcNow - _startTime;
+        _statistics.TotalConnections = _connectionManager.Count;
+        _statistics.ActiveConnections = _connectionRegistry.GetAllConnections().Count(c => c.State == ExtendedConnectionState.Connected || c.State == ExtendedConnectionState.Active);
+        _statistics.Timestamp = DateTime.UtcNow;
+
+        return _statistics;
+    }
+
+    /// <summary>
+    /// 执行健康检查
+    /// </summary>
+    public async Task<ClientHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        var checkStart = DateTime.UtcNow;
+        var connectionResults = await _connectionLifecycleManager.PerformHealthChecksAsync(cancellationToken);
+
+        var overallHealth = connectionResults.All(r => r.Health == ConnectionHealth.Healthy)
+            ? ConnectionHealth.Healthy
+            : connectionResults.Any(r => r.Health == ConnectionHealth.Healthy)
+                ? ConnectionHealth.Degraded
+                : ConnectionHealth.Unhealthy;
+
+        return new ClientHealthCheckResult
+        {
+            OverallHealth = overallHealth,
+            ConnectionResults = connectionResults,
+            ServiceDiscoveryHealth = _serviceDiscovery != null ? ConnectionHealth.Healthy : ConnectionHealth.Unknown,
+            CheckedAt = checkStart,
+            TotalCheckTime = DateTime.UtcNow - checkStart
+        };
+    }
+
+    /// <summary>
+    /// 创建负载均衡器
+    /// </summary>
+    private static ILoadBalancer CreateLoadBalancer(
+        LoadBalancingStrategy strategy,
+        IReadOnlyDictionary<string, object>? options,
+        ILoggerFactory loggerFactory)
+    {
+        // 暂时返回简单实现，后续在 Stage 3 中完善
+        return new SimpleLoadBalancer(strategy, loggerFactory.CreateLogger<SimpleLoadBalancer>());
+    }
+
+    /// <summary>
+    /// 确保客户端处于运行状态
+    /// </summary>
+    private void EnsureRunning()
+    {
+        if (_state != ClientState.Running)
+        {
+            throw new InvalidOperationException($"客户端未处于运行状态，当前状态: {_state}");
+        }
+    }
+
+    /// <summary>
+    /// 触发状态变化事件
+    /// </summary>
+    private void OnStateChanged(ClientState previousState, ClientState currentState, Exception? exception = null)
+    {
+        var eventArgs = new ClientStateChangedEventArgs
+        {
+            PreviousState = previousState,
+            CurrentState = currentState,
+            Exception = exception,
+            Timestamp = DateTime.UtcNow
+        };
+
+        StateChanged?.Invoke(this, eventArgs);
+    }
+
+    /// <summary>
+    /// 检查是否已释放
+    /// </summary>
+    private void ThrowIfDisposed()
+    {
+        if (_disposed)
+        {
+            throw new ObjectDisposedException(nameof(PulseClient));
+        }
+    }
+
+    /// <summary>
+    /// 释放资源
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+
+        _disposed = true;
+
+        try
+        {
+            // 停止客户端
+            if (_state == ClientState.Running)
+            {
+                StopAsync().Wait(TimeSpan.FromSeconds(10));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "停止客户端时发生错误");
+        }
+
+        // 释放组件
+        _connectionManager?.Dispose();
+        _serviceDiscovery?.Dispose();
+
+        _logger.LogInformation("PulseRPC 客户端已释放");
+    }
+}

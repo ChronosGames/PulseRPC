@@ -42,7 +42,7 @@ namespace ChatApp
     /// 聊天Hub接收器接口 - 服务端调用客户端的API
     /// </summary>
     [Channel("TcpChannel")]
-    public interface IChatHubReceiver : IPulseEventHandler
+    public interface IChatHubReceiver : IPulseReceiver
     {
         /// <summary>
         /// 有用户加入时触发

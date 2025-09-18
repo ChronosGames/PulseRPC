@@ -83,5 +83,5 @@ public interface IConnectionContext : IDisposable
     /// <summary>
     /// 注册事件监听器
     /// </summary>
-    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener) where T : class, IPulseEventHandler;
+    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener) where T : class, IPulseReceiver;
 }
