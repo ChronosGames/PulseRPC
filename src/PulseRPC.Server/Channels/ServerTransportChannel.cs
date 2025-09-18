@@ -3,15 +3,23 @@ using PulseRPC.Authentication;
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
 using System.Net;
+using PulseRPC.Server.Authentication;
 
 namespace PulseRPC.Server.Transport;
 
-public interface IServerChannel : ITransportChannel
+public interface IServerChannel : IServerTransport
 {
+    bool IsAuthenticated { get; }
+
+    IAuthenticationContext? AuthenticationContext { get; set; }
+
+    void SetAuthentication(IAuthenticationContext authContext);
+
+    void ClearAuthentication();
 }
 
 /// <summary>
-/// 服务器传输通道实现，包装 IServerTransport 并提供认证和会话管理
+/// 服务器传输通道实现，包装 IServerListener 并提供认证和会话管理
 /// 现在继承三层抽象架构中的ITransportChannel接口
 /// </summary>
 public class ServerTransportChannel : IServerChannel
@@ -24,6 +32,9 @@ public class ServerTransportChannel : IServerChannel
     private IAuthenticationContext? _authenticationContext;
     private DateTime _lastActiveTime;
     private bool _disposed;
+
+    public string Name => _transport.Name;
+    public TransportType Type => _transport.Type;
 
     /// <summary>
     /// 构造函数
@@ -72,7 +83,7 @@ public class ServerTransportChannel : IServerChannel
     public bool IsConnected => _transport.IsConnected;
 
     /// <inheritdoc />
-    public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
+    public event EventHandler<TransportStateEventArgs>? StateChanged;
     #endregion
 
     #region ISessionChannel Implementation
@@ -195,16 +206,16 @@ public class ServerTransportChannel : IServerChannel
     {
         if (_disposed) return;
 
-        await _transport.CloseAsync(cancellationToken);
+        _transport.Dispose();
     }
 
     /// <inheritdoc />
-    public event PulseRPC.EventHandler<TransportDataEventArgs>? DataReceived;
+    public event EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
     /// 处理传输层状态变更事件
     /// </summary>
-    private void OnTransportStateChanged(object? sender, ConnectionStateChangedEventArgs e)
+    private void OnTransportStateChanged(object? sender, TransportStateEventArgs e)
     {
         // 直接转发ConnectionStateChangedEventArgs事件
         StateChanged?.Invoke(this, e);

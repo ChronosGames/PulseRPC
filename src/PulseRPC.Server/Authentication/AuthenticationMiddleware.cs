@@ -1,13 +1,6 @@
-using System;
-using PulseRPC;
-using PulseRPC.Server.Authentication;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using System.Security.Claims;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Channels;
 using PulseRPC.Transport;
 using PulseRPC.Server.Transport;
 
@@ -48,10 +41,10 @@ public class AuthenticationMiddleware
         try
         {
             // 获取传输通道
-            var channel = _channelManager.GetChannel(transport.ConnectionId);
+            var channel = _channelManager.GetChannel(transport.Name);
             if (channel == null)
             {
-                _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", transport.ConnectionId);
+                _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", transport.Name);
                 return false;
             }
 

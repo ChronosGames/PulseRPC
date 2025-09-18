@@ -6,7 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.ServiceDiscovery;
+namespace PulseRPC.Client.ServiceDiscovery;
 
 /// <summary>
 /// 服务发现基类

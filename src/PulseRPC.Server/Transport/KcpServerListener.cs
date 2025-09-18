@@ -37,9 +37,9 @@ public class KcpServerTransport : IServerTransport
     public EndPoint LocalEndPoint => _sharedSocket.LocalEndPoint!;
     public EndPoint RemoteEndPoint => _remoteEndpoint;
     public DateTime ConnectedAt => _connectedAt;
-    public DateTime LastActivityAt => _lastActivityAt;
+    public DateTime LastActiveTime => _lastActivityAt;
 
-    public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
+    public event EventHandler<TransportStateEventArgs>? StateChanged;
     public event EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
@@ -304,7 +304,7 @@ public class KcpServerTransport : IServerTransport
         _logger.LogInformation("KCP连接状态变更: {ConnectionId} {OldState} -> {NewState} ({Reason})",
             _connectionId, oldState, newState, reason ?? "未指定原因");
 
-        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(_connectionId, oldState, newState, reason, exception));
+        StateChanged?.Invoke(this, new TransportStateEventArgs(_connectionId, oldState, newState, reason, exception));
     }
 
     /// <summary>
@@ -766,7 +766,7 @@ public class KcpServerListener : IServerListener
     /// <summary>
     /// 连接状态变化处理
     /// </summary>
-    private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
+    private void OnConnectionStateChanged(object? sender, TransportStateEventArgs e)
     {
         if (e.CurrentState == ConnectionState.Disconnected)
         {

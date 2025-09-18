@@ -29,7 +29,6 @@ public class PlayerHub(
     IPlayerManager playerManager,
     IEventPublisher eventPublisher,
     PlayerMovementBatcher movementBatcher,
-    IClientSessionManager sessionManager,
     IAuthenticationProvider authProvider,
     ILogger<PlayerHub> logger,
     ISerializerProvider serializerProvider)

@@ -1,4 +1,4 @@
-namespace PulseRPC.Client.Core.LifecycleStrategies;
+namespace PulseRPC.Client.LifecycleStrategies;
 
 /// <summary>
 /// 连接生命周期策略接口
@@ -33,32 +33,32 @@ public interface IConnectionLifecycleStrategy : IDisposable
     /// <summary>
     /// 创建连接
     /// </summary>
-    Task<IConnectionContext> CreateConnectionAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
+    Task<IConnection> CreateConnectionAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 管理连接生命周期
     /// </summary>
-    Task ManageConnectionAsync(IConnectionContext connection, CancellationToken cancellationToken = default);
+    Task ManageConnectionAsync(IConnection connection, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 处理连接断开
     /// </summary>
-    Task OnConnectionDisconnectedAsync(IConnectionContext connection, string reason, Exception? exception = null);
+    Task OnConnectionDisconnectedAsync(IConnection connection, string reason, Exception? exception = null);
 
     /// <summary>
     /// 处理连接失败
     /// </summary>
-    Task OnConnectionFailedAsync(IConnectionContext connection, Exception exception);
+    Task OnConnectionFailedAsync(IConnection connection, Exception exception);
 
     /// <summary>
     /// 清理连接
     /// </summary>
-    Task CleanupConnectionAsync(IConnectionContext connection, string reason);
+    Task CleanupConnectionAsync(IConnection connection, string reason);
 
     /// <summary>
     /// 检查连接是否应该保持活跃
     /// </summary>
-    bool ShouldKeepAlive(IConnectionContext connection, TimeSpan idleDuration);
+    bool ShouldKeepAlive(IConnection connection, TimeSpan idleDuration);
 
     /// <summary>
     /// 获取重连延迟时间

@@ -1,5 +1,5 @@
 using System;
-using PulseRPC.Client.Core;
+using PulseRPC.Client;
 
 namespace PulseRPC.Client;
 

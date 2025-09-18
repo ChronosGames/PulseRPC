@@ -57,7 +57,7 @@ public interface IClientChannel : IDisposable
 /// 高性能消息头部 - 紧凑布局，零分配设计
 /// </summary>
 [MemoryPackable]
-public partial struct MessageHeader
+public partial class MessageHeader
 {
     [MemoryPackOrder(0)]
     public MessageType Type { get; set; }
@@ -66,13 +66,11 @@ public partial struct MessageHeader
     public Guid MessageId { get; set; }
 
     [MemoryPackOrder(2)]
-    public string ServiceName { get; set; }
+    public string ServiceName { get; set; } = string.Empty;
 
-    [MemoryPackOrder(3)]
-    public string MethodName { get; set; }
+    [MemoryPackOrder(3)] public string MethodName { get; set; } = string.Empty;
 
-    [MemoryPackOrder(4)]
-    public int PayloadLength { get; set; }
+    [MemoryPackOrder(4)] public int PayloadLength { get; set; }
 
     [MemoryPackOrder(5)]
     public MessageFlags Flags { get; set; }
@@ -82,6 +80,11 @@ public partial struct MessageHeader
 
     [MemoryPackOrder(7)]
     public ushort SequenceNumber { get; set; }
+
+    [MemoryPackConstructor]
+    public MessageHeader()
+    {
+    }
 
     public MessageHeader(MessageType type, string serviceName, string methodName)
     {
@@ -124,4 +127,18 @@ public enum MessageFlags : byte
     HighPriority = 8,       // 高优先级
     Reliable = 16,          // 可靠传输
     Ordered = 32,           // 有序传输
+}
+
+public class NetworkMessage
+{
+    public MessageHeader Header;
+    public byte[] Body;
+    public ReadOnlyMemory<byte> Payload;
+
+    public NetworkMessage(MessageHeader header, byte[]? body)
+    {
+        Header = header ?? throw new ArgumentNullException(nameof(header));
+        Body = body ?? Array.Empty<byte>();
+        Payload = new ReadOnlyMemory<byte>(Body);
+    }
 }

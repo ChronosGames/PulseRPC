@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
 
-namespace PulseRPC.Client.Core.ConnectionPool;
+namespace PulseRPC.Client.ConnectionPool;
 
 /// <summary>
 /// 动态大小连接池 - 根据需求动态调整连接数量
@@ -95,7 +95,7 @@ public sealed class DynamicConnectionPool : ConnectionPool
     /// <summary>
     /// 创建新连接
     /// </summary>
-    protected override async Task<IConnectionContext> CreateConnectionAsync(CancellationToken cancellationToken = default)
+    protected override async Task<IConnection> CreateConnectionAsync(CancellationToken cancellationToken = default)
     {
         if (_currentConnections >= _maxSize)
         {

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace PulseRPC.Client.Core.ConnectionPool;
+namespace PulseRPC.Client.ConnectionPool;
 
 /// <summary>
 /// 固定大小连接池 - 维护固定数量的连接
@@ -59,7 +59,7 @@ public sealed class FixedSizeConnectionPool : ConnectionPool
     /// <summary>
     /// 创建新连接
     /// </summary>
-    protected override async Task<IConnectionContext> CreateConnectionAsync(CancellationToken cancellationToken = default)
+    protected override async Task<IConnection> CreateConnectionAsync(CancellationToken cancellationToken = default)
     {
         if (_currentConnections >= _fixedSize)
         {

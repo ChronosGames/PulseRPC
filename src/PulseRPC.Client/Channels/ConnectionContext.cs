@@ -1,10 +1,9 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PulseRPC.Client.Transport;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 连接上下文实现 - 表示一个活跃的连接实例
@@ -15,7 +14,7 @@ public sealed class ConnectionContext : IConnectionContext
     private readonly ILogger _logger;
     private readonly ConnectionStateMachine _stateMachine;
     private readonly ConnectionStatistics _statistics;
-    private readonly ConcurrentDictionary<Type, object> _serviceProxyCache = new();
+    private readonly Dictionary<string, string> _tags;
     private readonly object _lock = new();
     private volatile bool _disposed;
 
@@ -23,11 +22,6 @@ public sealed class ConnectionContext : IConnectionContext
     /// 连接ID
     /// </summary>
     public string Id => Descriptor.Id;
-
-    /// <summary>
-    /// 连接配置（从描述符转换而来）
-    /// </summary>
-    public ConnectionConfig Config { get; }
 
     /// <summary>
     /// 连接描述符
@@ -38,6 +32,11 @@ public sealed class ConnectionContext : IConnectionContext
     /// 端点地址
     /// </summary>
     public EndpointAddress Endpoint { get; }
+
+    public string Name => _transport.Name;
+    public TransportType Type => _transport.Type;
+    public bool IsConnected => _transport.IsConnected;
+    ConnectionState ITransport.State => _transport.State;
 
     /// <summary>
     /// 连接状态
@@ -50,29 +49,42 @@ public sealed class ConnectionContext : IConnectionContext
     public ConnectionStatistics Statistics => _statistics;
 
     /// <summary>
+    /// 连接标签
+    /// </summary>
+    public Dictionary<string, string> Tags => _tags;
+
+    /// <summary>
     /// 远程端点地址
     /// </summary>
-    public System.Net.EndPoint? RemoteEndPoint => _transport.RemoteEndPoint;
+    public System.Net.EndPoint RemoteEndPoint => _transport.RemoteEndPoint;
+
+    event EventHandler<TransportStateEventArgs>? ITransport.StateChanged
+    {
+        add => _transport.StateChanged += value;
+        remove => _transport.StateChanged -= value;
+    }
+
+    public event EventHandler<TransportDataEventArgs>? DataReceived;
+
+    public Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    {
+        return _transport.SendAsync(data, cancellationToken);
+    }
 
     /// <summary>
     /// 本地端点地址
     /// </summary>
-    public System.Net.EndPoint? LocalEndPoint => _transport.LocalEndPoint;
+    public System.Net.EndPoint LocalEndPoint => _transport.LocalEndPoint;
 
     /// <summary>
     /// 连接创建时间
     /// </summary>
-    public DateTime CreatedAt => _transport.ConnectedAt;
+    public DateTime CreatedAt => _statistics.CreatedAt;
 
     /// <summary>
     /// 最后活动时间
     /// </summary>
-    public DateTime LastActivityAt => _transport.LastActivityAt;
-
-    /// <summary>
-    /// 连接状态变化事件
-    /// </summary>
-    public event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
+    public DateTime LastActivityAt => _statistics.LastActiveAt;
 
     /// <summary>
     /// 构造函数
@@ -88,29 +100,6 @@ public sealed class ConnectionContext : IConnectionContext
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _logger = logger ?? NullLogger.Instance;
 
-        // 从描述符创建配置
-        Config = new ConnectionConfig
-        {
-            Name = descriptor.Name,
-            ServiceName = descriptor.ServiceName,
-            Host = endpoint.Host,
-            Port = endpoint.Port,
-            Transport = descriptor.Transport,
-            Lifetime = descriptor.Strategy switch
-            {
-                ConnectionStrategy.Persistent => ConnectionLifetime.Persistent,
-                ConnectionStrategy.Session => ConnectionLifetime.Session,
-                ConnectionStrategy.Transient => ConnectionLifetime.Transient,
-                ConnectionStrategy.Pooled => ConnectionLifetime.Session,
-                _ => ConnectionLifetime.Session
-            },
-            AutoReconnect = descriptor.AutoReconnect,
-            IdleTimeout = descriptor.IdleTimeout,
-            Tags = new Dictionary<string, string>(descriptor.Tags),
-            ConnectTimeout = descriptor.ConnectTimeout,
-            Options = descriptor.TransportOptions
-        };
-
         // 初始化状态机
         _stateMachine = new ConnectionStateMachine(descriptor.Id);
         _stateMachine.StateChanged += OnStateMachineStateChanged;
@@ -123,9 +112,13 @@ public sealed class ConnectionContext : IConnectionContext
             LastActiveAt = DateTime.UtcNow
         };
 
+        // 初始化标签（从描述符复制）
+        _tags = new Dictionary<string, string>(descriptor.Tags);
+
         // 监听传输层状态变化
         _transport.StateChanged += OnTransportStateChanged;
     }
+
 
     /// <summary>
     /// 连接到服务器
@@ -194,51 +187,6 @@ public sealed class ConnectionContext : IConnectionContext
         }
     }
 
-    /// <summary>
-    /// 获取服务代理
-    /// </summary>
-    public async Task<T> GetServiceAsync<T>() where T : class, IPulseHub
-    {
-        ThrowIfDisposed();
-
-        if (!_stateMachine.IsAvailable())
-        {
-            throw new InvalidOperationException($"连接不可用，当前状态: {State}");
-        }
-
-        // 使用缓存避免重复创建代理
-        var serviceType = typeof(T);
-        if (_serviceProxyCache.TryGetValue(serviceType, out var cachedProxy))
-        {
-            UpdateActivity();
-            return (T)cachedProxy;
-        }
-
-        // 这里应该通过 Source Generator 生成的扩展方法来创建代理
-        // 暂时抛出异常提示需要实现
-        throw new NotImplementedException(
-            $"服务代理 {serviceType.Name} 需要通过 Source Generator 生成。" +
-            "请确保项目正确引用了 PulseRPC.Client.SourceGenerator。");
-    }
-
-    /// <summary>
-    /// 注册事件监听器
-    /// </summary>
-    public async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener) where T : class, IPulseReceiver
-    {
-        ThrowIfDisposed();
-
-        if (!_stateMachine.IsAvailable())
-        {
-            throw new InvalidOperationException($"连接不可用，当前状态: {State}");
-        }
-
-        // 这里应该通过 Source Generator 生成的扩展方法来注册监听器
-        // 暂时抛出异常提示需要实现
-        throw new NotImplementedException(
-            $"事件监听器 {typeof(T).Name} 需要通过 Source Generator 生成。" +
-            "请确保项目正确引用了 PulseRPC.Client.SourceGenerator。");
-    }
 
     /// <summary>
     /// 更新活跃时间
@@ -259,13 +207,13 @@ public sealed class ConnectionContext : IConnectionContext
     /// </summary>
     private void OnStateMachineStateChanged(object? sender, ConnectionStateChangedEventArgs e)
     {
-        StateChanged?.Invoke(this, e);
+        this.ConnectionStateChanged?.Invoke(this, e);
     }
 
     /// <summary>
     /// 处理传输层状态变化
     /// </summary>
-    private void OnTransportStateChanged(object? sender, PulseRPC.Transport.ConnectionStateChangedEventArgs e)
+    private void OnTransportStateChanged(object? sender, TransportStateEventArgs e)
     {
         ExtendedConnectionState newState;
         switch (e.CurrentState)
@@ -276,8 +224,15 @@ public sealed class ConnectionContext : IConnectionContext
             case ConnectionState.Connected:
                 newState = ExtendedConnectionState.Connected;
                 break;
+            case ConnectionState.Disconnected:
+                newState = ExtendedConnectionState.Disconnected;
+                break;
+            case ConnectionState.Failed:
+                newState = ExtendedConnectionState.Failed;
+                break;
             default:
-                throw new NotSupportedException();
+                newState = ExtendedConnectionState.Uninitialized;
+                break;
         }
 
         var reason = e.Reason ?? "传输层状态变化";
@@ -321,8 +276,6 @@ public sealed class ConnectionContext : IConnectionContext
             _logger.LogError(ex, "释放传输层资源时发生错误: {ConnectionId}", Id);
         }
 
-        // 清理代理缓存
-        _serviceProxyCache.Clear();
 
         _logger.LogDebug("连接上下文已释放: {ConnectionId}", Id);
     }
@@ -331,50 +284,79 @@ public sealed class ConnectionContext : IConnectionContext
     {
         return $"Connection[{Id}]: {State} -> {Endpoint}";
     }
+
+    /// <summary>
+    /// 发送消息（用于 Source Generator 生成的代理）
+    /// </summary>
+    public ValueTask SendAsync<T>(string hubName, string methodName, in T message, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        if (!_stateMachine.IsAvailable())
+        {
+            throw new InvalidOperationException($"连接不可用，当前状态: {State}");
+        }
+
+        // 序列化消息并通过传输层发送
+        // 这里需要根据实际的消息序列化和传输协议来实现
+        // 暂时抛出 NotImplementedException，等待具体的传输层实现
+        throw new NotImplementedException("消息发送功能需要传输层的具体实现");
+    }
+
+    /// <summary>
+    /// 发送消息并接收响应（用于 Source Generator 生成的代理）
+    /// </summary>
+    public ValueTask<TResponse> InvokeAsync<TResponse>(string hubName, string methodName, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        if (!_stateMachine.IsAvailable())
+        {
+            throw new InvalidOperationException($"连接不可用，当前状态: {State}");
+        }
+
+        // 发送消息并等待响应
+        // 这里需要根据实际的请求-响应模式来实现
+        // 暂时抛出 NotImplementedException，等待具体的传输层实现
+        throw new NotImplementedException("请求-响应功能需要传输层的具体实现");
+    }
+
+    /// <summary>
+    /// 发送消息并接收响应（用于 Source Generator 生成的代理）
+    /// </summary>
+    public ValueTask<TResponse> InvokeAsync<TRequest, TResponse>(string hubName, string methodName, in TRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        if (!_stateMachine.IsAvailable())
+        {
+            throw new InvalidOperationException($"连接不可用，当前状态: {State}");
+        }
+
+        // 发送消息并等待响应
+        // 这里需要根据实际的请求-响应模式来实现
+        // 暂时抛出 NotImplementedException，等待具体的传输层实现
+        throw new NotImplementedException("请求-响应功能需要传输层的具体实现");
+    }
+
+    /// <summary>
+    /// 注册事件监听器的内部实现（用于 Source Generator 生成的扩展方法）
+    /// </summary>
+    public Task<ISubscriptionToken> RegisterReceiverAsync<T>(T listener, CancellationToken cancellationToken = default) where T : class, IPulseReceiver
+    {
+        ThrowIfDisposed();
+
+        if (!_stateMachine.IsAvailable())
+        {
+            throw new InvalidOperationException($"连接不可用，当前状态: {State}");
+        }
+
+        // 注册事件监听器
+        // 这里需要根据实际的事件订阅机制来实现
+        // 暂时抛出 NotImplementedException，等待具体的事件系统实现
+        throw new NotImplementedException("事件监听器注册功能需要事件系统的具体实现");
+    }
+
+    public event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
 }
-
-/// <summary>
-/// 简单的订阅令牌实现
-/// </summary>
-// public sealed class SubscriptionToken : ISubscriptionToken
-// {
-//     private readonly Action _unsubscribeAction;
-//     private volatile bool _isDisposed;
-//
-//     public SubscriptionToken(Action unsubscribeAction)
-//     {
-//         _unsubscribeAction = unsubscribeAction ?? throw new ArgumentNullException(nameof(unsubscribeAction));
-//     }
-//
-//     /// <summary>
-//     /// 取消订阅
-//     /// </summary>
-//     public async Task UnsubscribeAsync()
-//     {
-//         if (_isDisposed)
-//             return;
-//
-//         _isDisposed = true;
-//         _unsubscribeAction?.Invoke();
-//         await Task.CompletedTask;
-//     }
-//
-//     /// <summary>
-//     /// 释放资源
-//     /// </summary>
-//     public void Dispose()
-//     {
-//         UnsubscribeAsync().Wait(TimeSpan.FromSeconds(5));
-//     }
-// }
-
-/// <summary>
-/// 订阅令牌接口
-/// </summary>
-// public interface ISubscriptionToken : IDisposable
-// {
-//     /// <summary>
-//     /// 取消订阅
-//     /// </summary>
-//     Task UnsubscribeAsync();
-// }

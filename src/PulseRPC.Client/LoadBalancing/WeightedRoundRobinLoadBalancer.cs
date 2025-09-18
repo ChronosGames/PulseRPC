@@ -1,12 +1,12 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Client.Core.ServiceDiscovery;
+using PulseRPC.Client.ServiceDiscovery;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.LoadBalancing;
+namespace PulseRPC.Client.LoadBalancing;
 
 /// <summary>
 /// 加权轮询负载均衡器

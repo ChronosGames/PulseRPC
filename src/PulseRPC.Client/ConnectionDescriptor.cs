@@ -1,7 +1,7 @@
 using PulseRPC.Transport;
 // using System.ComponentModel.DataAnnotations; // Not available in netstandard2.1
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 连接描述符 - 完整描述一个连接的配置信息

@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Client.Core.ConnectionPool;
-using PulseRPC.Client.Core.Health;
+using PulseRPC.Client.ConnectionPool;
+using PulseRPC.Client.Health;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -9,7 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.Monitoring;
+namespace PulseRPC.Client.Monitoring;
 
 /// <summary>
 /// 监控仪表板服务
@@ -454,7 +454,7 @@ public sealed class MonitoringDashboardService : IMonitoringDashboard, IDisposab
                     {
                         var alert = new HealthIssue
                         {
-                            Severity = rule.Severity,
+                            Severity = MapAlertLevelToHealthStatus(rule.Level),
                             Description = rule.Description,
                             Source = rule.Name,
                             Timestamp = DateTime.UtcNow,
@@ -583,5 +583,20 @@ public sealed class MonitoringDashboardService : IMonitoringDashboard, IDisposab
         }
 
         _logger.LogInformation("监控仪表板服务已关闭");
+    }
+
+    /// <summary>
+    /// 将 AlertLevel 映射到 SystemHealthStatus
+    /// </summary>
+    private static SystemHealthStatus MapAlertLevelToHealthStatus(AlertLevel alertLevel)
+    {
+        return alertLevel switch
+        {
+            AlertLevel.Info => SystemHealthStatus.Healthy,
+            AlertLevel.Warning => SystemHealthStatus.Warning,
+            AlertLevel.Error => SystemHealthStatus.Critical,
+            AlertLevel.Critical => SystemHealthStatus.Critical,
+            _ => SystemHealthStatus.Warning
+        };
     }
 }

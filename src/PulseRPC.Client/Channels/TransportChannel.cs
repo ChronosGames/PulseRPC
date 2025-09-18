@@ -11,24 +11,6 @@
 // namespace PulseRPC.Client.Channels;
 //
 // /// <summary>
-// /// 连接状态改变事件参数
-// /// </summary>
-// public class ConnectionStateChangedEventArgs : EventArgs
-// {
-//     public ConnectionState OldState { get; }
-//     public ConnectionState NewState { get; }
-//     public Exception? Exception { get; }
-//
-//     public ConnectionStateChangedEventArgs(ConnectionState oldState, ConnectionState newState,
-//         Exception? exception = null)
-//     {
-//         OldState = oldState;
-//         NewState = newState;
-//         Exception = exception;
-//     }
-// }
-//
-// /// <summary>
 // /// 基于传输层的消息通道
 // /// </summary>
 // public class TransportChannel : IClientChannel

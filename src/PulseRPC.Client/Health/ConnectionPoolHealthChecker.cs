@@ -1,11 +1,11 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Client.Core.ConnectionPool;
+using PulseRPC.Client.ConnectionPool;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.Health;
+namespace PulseRPC.Client.Health;
 
 /// <summary>
 /// 连接池健康检查器

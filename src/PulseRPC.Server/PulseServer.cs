@@ -7,7 +7,6 @@ using PulseRPC.Server.Integration;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
-using PulseRPC.Sessions;
 
 namespace PulseRPC.Server;
 
@@ -16,9 +15,9 @@ namespace PulseRPC.Server;
 /// </summary>
 internal sealed class PulseServer : IPulseServer
 {
-    private readonly IClientSessionManager _sessionManager;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ServerOptions _serverOptions;
+    private readonly IServerChannelManager _channelManager;
     private readonly ITransportIntegrationManager _transportIntegrationManager;
     private readonly ILogger<PulseServer> _logger;
 
@@ -35,7 +34,7 @@ internal sealed class PulseServer : IPulseServer
 
     public ServerState State => _state;
     public bool IsRunning => _state == ServerState.Running;
-    public int ActiveConnectionCount => _sessionManager.ActiveSessionCount;
+    public int ActiveConnectionCount => _channelManager.ConnectionCount;
 
     // 事件
     public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
@@ -43,23 +42,19 @@ internal sealed class PulseServer : IPulseServer
     public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
     public PulseServer(
-        IClientSessionManager? sessionManager = null,
         ILoggerFactory? loggerFactory = null,
         IOptions<ServerOptions>? serverOptions = null,
+        IServerChannelManager? channelManager = null,
         ITransportIntegrationManager? transportIntegrationManager = null)
     {
-        _sessionManager = sessionManager ?? new ClientSessionManager();
         _loggerFactory = loggerFactory ?? new NullLoggerFactory();
+        _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
         _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));
         _serverOptions = serverOptions?.Value ?? new ServerOptions();
         _logger = _loggerFactory.CreateLogger<PulseServer>();
 
-        // 订阅会话管理器事件
-        _sessionManager.SessionConnected += OnSessionConnected;
-        _sessionManager.SessionDisconnected += OnSessionDisconnected;
-
         _logger.LogInformation("增强服务器管理器已初始化，会话管理器类型：{ManagerType}",
-            _sessionManager.GetType().Name);
+            _channelManager.GetType().Name);
     }
 
     /// <summary>
@@ -287,20 +282,18 @@ internal sealed class PulseServer : IPulseServer
     {
         try
         {
-            _logger.LogDebug("接受新连接: {ConnectionId} from {RemoteEndPoint} via {TransportType}",
-                e.Transport.ConnectionId, e.Transport.RemoteEndPoint, e.Transport.Type);
+            _logger.LogDebug("接受新连接: {ConnectionId} from {RemoteEndPoint} via {TransportType}", e.Transport.ConnectionId, e.Transport.RemoteEndPoint, e.Transport.Type);
 
             // TODO: 创建客户端会话并添加到会话管理器
             // 这里需要根据具体的会话实现来创建会话对象
             // var session = CreateClientSession(e.Transport);
             // _sessionManager.AddSession(session);
 
-            _logger.LogInformation("新连接已接受: {ConnectionId}",
-                e.Transport.ConnectionId);
+            _logger.LogInformation("新连接已接受: {ConnectionId}", e.Transport.Name);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "处理新连接时发生异常: {ConnectionId}", e.Transport.ConnectionId);
+            _logger.LogError(ex, "处理新连接时发生异常: {ConnectionId}", e.Transport.Name);
 
             // 异步关闭有问题的连接
             _ = Task.Run(async () =>
@@ -312,33 +305,10 @@ internal sealed class PulseServer : IPulseServer
                 catch (Exception closeEx)
                 {
                     _logger.LogDebug(closeEx, "关闭异常连接时发生异常: {ConnectionId}",
-                        e.Transport.ConnectionId);
+                        e.Transport.Name);
                 }
             });
         }
-    }
-
-    /// <summary>
-    /// 处理会话连接事件
-    /// </summary>
-    private void OnSessionConnected(object? sender, SessionConnectedEventArgs e)
-    {
-        _logger.LogDebug("会话已连接：{SessionId}", e.Session.SessionId);
-
-        // 原子增加连接计数
-        Interlocked.Increment(ref _totalConnectionsAccepted);
-
-        _logger.LogInformation("新会话已建立: {SessionId}, 当前会话数: {SessionCount}",
-            e.Session.SessionId, ActiveConnectionCount);
-    }
-
-    /// <summary>
-    /// 处理会话断开事件
-    /// </summary>
-    private void OnSessionDisconnected(object? sender, SessionDisconnectedEventArgs e)
-    {
-        _logger.LogDebug("会话已断开：{SessionId}，原因：{Reason}",
-            e.Session.SessionId, e.DisconnectReason);
     }
 
     /// <summary>
@@ -388,15 +358,15 @@ internal sealed class PulseServer : IPulseServer
 
     public IReadOnlyList<ConnectionInfo> GetActiveConnections()
     {
-        return _sessionManager.GetActiveSessions()
+        return _channelManager.GetAllChannels()
             .Select(session => new ConnectionInfo
             {
-                ConnectionId = session.SessionId,
-                RemoteEndPoint = session.RemoteAddress,
-                TransportType = session.TransportType,
+                ConnectionId = session.ConnectionId,
+                RemoteEndPoint = session.RemoteEndPoint,
+                TransportType = session.Type,
                 IsAuthenticated = session.IsAuthenticated,
                 ConnectedTime = session.ConnectedAt,
-                LastActiveTime = session.LastActivityAt
+                LastActiveTime = session.LastActiveTime
             }).ToList();
     }
 
@@ -435,20 +405,12 @@ internal sealed class PulseServer : IPulseServer
     }
 
     /// <summary>
-    /// 获取客户端会话管理器
-    /// </summary>
-    public IClientSessionManager GetSessionManager()
-    {
-        return _sessionManager;
-    }
-
-    /// <summary>
     /// 广播消息到所有连接
     /// </summary>
-    public async Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
+    public Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
     {
         // 使用会话管理器进行广播
-        return await _sessionManager.BroadcastAsync(data, null, cancellationToken);
+        return _channelManager.BroadcastAsync(data, cancellationToken);
     }
 
     /// <summary>
@@ -456,7 +418,7 @@ internal sealed class PulseServer : IPulseServer
     /// </summary>
     public async Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
-        var session = _sessionManager.GetSession(connectionId);
+        var session = _channelManager.GetChannel(connectionId);
         if (session != null)
         {
             return await session.SendAsync(data, cancellationToken);
@@ -480,11 +442,6 @@ internal sealed class PulseServer : IPulseServer
             }
         }
 
-        // 取消订阅事件
-        _sessionManager.SessionConnected -= OnSessionConnected;
-        _sessionManager.SessionDisconnected -= OnSessionDisconnected;
-
-        _sessionManager?.Dispose();
         _shutdownCts.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -495,12 +452,6 @@ internal sealed class PulseServer : IPulseServer
         {
             await StopAsync();
         }
-
-        // 取消订阅事件
-        _sessionManager.SessionConnected -= OnSessionConnected;
-        _sessionManager.SessionDisconnected -= OnSessionDisconnected;
-
-        _sessionManager?.Dispose();
 
         _shutdownCts.Dispose();
         GC.SuppressFinalize(this);

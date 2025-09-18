@@ -1,6 +1,6 @@
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 连接配置 - 简化的连接配置类，用于灵活的连接创建

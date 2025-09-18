@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.Health;
+namespace PulseRPC.Client.Health;
 
 /// <summary>
 /// 健康检查状态

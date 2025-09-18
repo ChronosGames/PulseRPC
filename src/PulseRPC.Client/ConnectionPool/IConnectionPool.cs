@@ -1,9 +1,15 @@
 using Microsoft.Extensions.Logging;
 
-namespace PulseRPC.Client.Core.ConnectionPool;
+namespace PulseRPC.Client.ConnectionPool;
 
 /// <summary>
-/// 连接池接口 - 管理连接的获取、释放和生命周期
+/// 连接池接口 - 高性能连接池管理
+/// 实现思路：
+/// - 租借模式：使用租借模式管理连接生命周期
+/// - 动态扩缩容：根据负载动态调整连接池大小
+/// - 健康检查：定期检查池中连接的健康状态
+/// - 空闲回收：自动回收长时间空闲的连接
+/// - 统计监控：提供详细的连接池统计信息
 /// </summary>
 public interface IConnectionPool : IDisposable
 {
@@ -104,7 +110,12 @@ public interface IConnectionPool : IDisposable
 }
 
 /// <summary>
-/// 连接租借接口 - 表示从连接池中租借的连接
+/// 连接租借接口 - 连接池中连接的租借凭证
+/// 实现思路：
+/// - RAII模式：通过Dispose自动归还连接
+/// - 状态跟踪：跟踪租借状态，防止重复归还
+/// - 使用统计：记录连接使用情况
+/// - 超时保护：防止连接被长时间占用
 /// </summary>
 public interface IConnectionLease : IDisposable
 {
@@ -116,7 +127,7 @@ public interface IConnectionLease : IDisposable
     /// <summary>
     /// 连接上下文
     /// </summary>
-    IConnectionContext Connection { get; }
+    IConnection Connection { get; }
 
     /// <summary>
     /// 租借时间

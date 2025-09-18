@@ -2,8 +2,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Authentication;
 using PulseRPC.Serialization;
-using PulseRPC.Client.Core;
-using PulseRPC.Client.Core.ConnectionPool;
+using PulseRPC.Client;
+using PulseRPC.Client.ConnectionPool;
 
 namespace PulseRPC.Client;
 
@@ -146,7 +146,7 @@ internal sealed class PulseClient : IPulseClient
                 try
                 {
                     var connection = await _connectionManager.ConnectAsync(descriptor, cancellationToken);
-                    _connectionRegistry.RegisterConnection(new SimpleConnection(connection));
+                    _connectionRegistry.RegisterConnection(connection);
                     _logger.LogInformation("连接成功: {ConnectionId}", descriptor.Id);
                 }
                 catch (Exception ex)
@@ -252,8 +252,7 @@ internal sealed class PulseClient : IPulseClient
         ThrowIfDisposed();
         EnsureRunning();
 
-        var connectionContext = await _connectionManager.ConnectAsync(descriptor, cancellationToken);
-        var connection = new SimpleConnection(connectionContext);
+        var connection = await _connectionManager.ConnectAsync(descriptor, cancellationToken);
         _connectionRegistry.RegisterConnection(connection);
 
         return connection;
@@ -308,9 +307,9 @@ internal sealed class PulseClient : IPulseClient
         ThrowIfDisposed();
         EnsureRunning();
 
-        // 获取最佳连接
-        var connection = await _connectionRouter.RouteAsync(typeof(T).Name, null, cancellationToken);
-        return await connection.GetServiceAsync<T>();
+        // 服务代理现在通过 Source Generator 扩展方法提供
+        // 这里需要通过其他方式来创建服务代理
+        throw new NotImplementedException("服务代理获取功能需要通过 Source Generator 生成的扩展方法实现");
     }
 
     /// <summary>
@@ -328,7 +327,9 @@ internal sealed class PulseClient : IPulseClient
             throw new ArgumentException($"连接不存在: {connectionId}", nameof(connectionId));
         }
 
-        return await connection.GetServiceAsync<T>();
+        // 服务代理现在通过 Source Generator 扩展方法提供
+        // 这里需要通过其他方式来创建服务代理
+        throw new NotImplementedException("指定连接的服务代理获取功能需要通过 Source Generator 生成的扩展方法实现");
     }
 
     /// <summary>
@@ -348,7 +349,7 @@ internal sealed class PulseClient : IPulseClient
             throw new InvalidOperationException($"连接上下文不存在: {connection.Id}");
         }
 
-        return await connectionContext.RegisterEventListenerAsync(listener);
+        return await connectionContext.RegisterReceiverAsync(listener, cancellationToken);
     }
 
     /// <summary>
@@ -366,7 +367,7 @@ internal sealed class PulseClient : IPulseClient
             throw new ArgumentException($"连接不存在: {connectionId}", nameof(connectionId));
         }
 
-        return await connectionContext.RegisterEventListenerAsync(listener);
+        return await connectionContext.RegisterReceiverAsync(listener, cancellationToken);
     }
 
     /// <summary>

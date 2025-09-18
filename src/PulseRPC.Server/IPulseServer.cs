@@ -1,7 +1,6 @@
 using System.Net;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
-using PulseRPC.Sessions;
 using TransportContext = System.Net.TransportContext;
 
 namespace PulseRPC.Server;
@@ -33,12 +32,6 @@ public interface IPulseServer : IAsyncDisposable, IDisposable
     /// 服务器是否正在运行
     /// </summary>
     bool IsRunning => State == ServerState.Running;
-
-    // === 会话管理 ===
-    /// <summary>
-    /// 获取客户端会话管理器
-    /// </summary>
-    IClientSessionManager GetSessionManager();
 
     /// <summary>
     /// 获取已配置的传输信息
@@ -143,8 +136,8 @@ public sealed class TransportInfo
 public sealed class ConnectionInfo
 {
     public required string ConnectionId { get; init; }
-    public required string RemoteEndPoint { get; init; }
-    public PulseRPC.Transport.TransportType TransportType { get; init; }
+    public required EndPoint RemoteEndPoint { get; init; }
+    public TransportType TransportType { get; init; }
     public bool IsAuthenticated { get; init; }
     public DateTime ConnectedTime { get; init; }
     public DateTime LastActiveTime { get; init; }

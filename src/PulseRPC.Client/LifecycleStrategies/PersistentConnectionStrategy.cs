@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace PulseRPC.Client.Core.LifecycleStrategies;
+namespace PulseRPC.Client.LifecycleStrategies;
 
 /// <summary>
 /// 持久化连接策略 - 维持长期连接，自动重连
@@ -61,7 +61,7 @@ public sealed class PersistentConnectionStrategy : ConnectionLifecycleStrategyBa
     /// <summary>
     /// 管理连接生命周期
     /// </summary>
-    protected override async Task OnManageConnectionAsync(IConnectionContext connection, CancellationToken cancellationToken = default)
+    protected override async Task OnManageConnectionAsync(IConnection connection, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("开始管理持久化连接: {ConnectionId}", connection.Id);
 
@@ -78,7 +78,7 @@ public sealed class PersistentConnectionStrategy : ConnectionLifecycleStrategyBa
     /// <summary>
     /// 处理连接断开
     /// </summary>
-    protected override async Task OnConnectionDisconnectedInternalAsync(IConnectionContext connection, string reason, Exception? exception = null)
+    protected override async Task OnConnectionDisconnectedInternalAsync(IConnection connection, string reason, Exception? exception = null)
     {
         _logger.LogWarning("持久化连接断开，准备重连: {ConnectionId}, 原因: {Reason}", connection.Id, reason);
 
@@ -91,7 +91,7 @@ public sealed class PersistentConnectionStrategy : ConnectionLifecycleStrategyBa
     /// <summary>
     /// 处理连接失败
     /// </summary>
-    protected override async Task OnConnectionFailedInternalAsync(IConnectionContext connection, Exception exception)
+    protected override async Task OnConnectionFailedInternalAsync(IConnection connection, Exception exception)
     {
         _logger.LogError(exception, "持久化连接失败，准备重连: {ConnectionId}", connection.Id);
 
@@ -104,7 +104,7 @@ public sealed class PersistentConnectionStrategy : ConnectionLifecycleStrategyBa
     /// <summary>
     /// 检查连接是否应该保持活跃
     /// </summary>
-    protected override bool ShouldKeepAliveInternal(IConnectionContext connection, TimeSpan idleDuration)
+    protected override bool ShouldKeepAliveInternal(IConnection connection, TimeSpan idleDuration)
     {
         // 持久化连接总是保持活跃，不因为空闲而断开
         return true;
@@ -113,7 +113,7 @@ public sealed class PersistentConnectionStrategy : ConnectionLifecycleStrategyBa
     /// <summary>
     /// 清理连接
     /// </summary>
-    protected override async Task OnCleanupConnectionAsync(IConnectionContext connection, string reason)
+    protected override async Task OnCleanupConnectionAsync(IConnection connection, string reason)
     {
         _logger.LogInformation("清理持久化连接: {ConnectionId}, 原因: {Reason}", connection.Id, reason);
 
@@ -129,7 +129,7 @@ public sealed class PersistentConnectionStrategy : ConnectionLifecycleStrategyBa
     /// <summary>
     /// 尝试重连
     /// </summary>
-    private async Task TryReconnectAsync(IConnectionContext connection)
+    private async Task TryReconnectAsync(IConnection connection)
     {
         ReconnectInfo reconnectInfo;
 
@@ -235,7 +235,7 @@ public sealed class PersistentConnectionStrategy : ConnectionLifecycleStrategyBa
         await base.PerformMaintenanceAsync();
 
         // 检查需要重连的连接
-        var connectionsToReconnect = new List<IConnectionContext>();
+        var connectionsToReconnect = new List<IConnection>();
 
         foreach (var kvp in _managedConnections)
         {
@@ -327,14 +327,14 @@ public sealed class PersistentConnectionStrategy : ConnectionLifecycleStrategyBa
 /// </summary>
 internal sealed class ReconnectInfo
 {
-    public IConnectionContext Connection { get; }
+    public IConnection Connection { get; }
     public int Attempts { get; set; }
     public bool IsReconnecting { get; set; }
     public DateTime? LastReconnectAt { get; set; }
     public DateTime? LastFailureAt { get; set; }
     public Exception? LastException { get; set; }
 
-    public ReconnectInfo(IConnectionContext connection)
+    public ReconnectInfo(IConnection connection)
     {
         Connection = connection;
         Attempts = 0;

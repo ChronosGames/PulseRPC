@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PulseRPC.Channels;
 using PulseRPC.Server.Engine;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
@@ -29,7 +28,7 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 通道超时时间（毫秒）
     /// </summary>
-    public int ChannelTimeoutMs { get; set; } = 300000; // 5分钟
+    public TimeSpan ChannelTimeout { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// 当前连接数
@@ -44,17 +43,17 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 通道连接事件
     /// </summary>
-    public event System.EventHandler<ChannelEventArgs>? ChannelConnected;
+    public event EventHandler<ChannelEventArgs>? ChannelConnected;
 
     /// <summary>
     /// 通道断开事件
     /// </summary>
-    public event System.EventHandler<ChannelEventArgs>? ChannelDisconnected;
+    public event EventHandler<ChannelEventArgs>? ChannelDisconnected;
 
     /// <summary>
     /// 通道认证事件
     /// </summary>
-    public event System.EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;
+    public event EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;
 
     public ServerChannelManager(
         ILogger<ServerChannelManager> logger,
@@ -101,7 +100,7 @@ internal class ServerChannelManager : IServerChannelManager
             // 如果启用了高吞吐量处理器，为此通道创建处理器
             _ = Task.Run(async () => await TryCreateHighThroughputProcessorAsync(channel));
 
-            ChannelConnected?.Invoke(this, new ChannelEventArgs((IChannel)channel));
+            ChannelConnected?.Invoke(this, new ChannelEventArgs(channel));
             return channel;
         }
         else
@@ -171,7 +170,7 @@ internal class ServerChannelManager : IServerChannelManager
         channel.StateChanged -= OnChannelStateChanged;
 
         // 触发断开事件
-        ChannelDisconnected?.Invoke(this, new ChannelEventArgs((IChannel)channel));
+        ChannelDisconnected?.Invoke(this, new ChannelEventArgs(channel));
 
         // 释放通道资源
         channel.Dispose();
@@ -296,13 +295,12 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 处理通道状态变更事件
     /// </summary>
-    private void OnChannelStateChanged(object? sender, ConnectionStateChangedEventArgs e)
+    private void OnChannelStateChanged(object? sender, TransportStateEventArgs e)
     {
-        if (sender is not IChannel channel)
+        if (sender is not IServerChannel channel)
             return;
 
-        _logger.LogDebug("通道状态变更: {ConnectionId} - {OldState} -> {NewState}",
-            channel.ConnectionId, e.PreviousState, e.CurrentState);
+        _logger.LogDebug("通道状态变更: {ConnectionId} - {OldState} -> {NewState}", channel.ConnectionId, e.PreviousState, e.CurrentState);
 
         // 如果连接断开，自动移除通道
         if (e.CurrentState == ConnectionState.Disconnected)
@@ -321,7 +319,7 @@ internal class ServerChannelManager : IServerChannelManager
 
         try
         {
-            var expiredThreshold = DateTime.UtcNow.AddMilliseconds(-ChannelTimeoutMs);
+            var expiredThreshold = DateTime.UtcNow - ChannelTimeout;
             var expiredChannels = _channels.Values
                 .Where(c => c.LastActiveTime < expiredThreshold)
                 .ToList();

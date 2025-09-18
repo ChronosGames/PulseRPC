@@ -11,7 +11,7 @@ namespace PulseRPC.Client.Transport;
 /// </summary>
 public class KcpClientTransport : KcpTransport, IClientTransport
 {
-    private int _reconnectAttempts = 0;
+    private int _reconnectAttempts;
     private Timer? _reconnectTimer;
     private string? _host;
     private int _port;
@@ -32,10 +32,6 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     public DateTime ConnectedAt => _connectedAt;
     public DateTime LastActivityAt => _lastActivityAt;
     public TransportType TransportType => Type;
-
-    // ITransportConnection events with proper signatures
-    public new event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
-    public new event EventHandler<TransportDataEventArgs>? DataReceived;
 
     // ITransportConnection method
     public Task CloseAsync(CancellationToken cancellationToken = default)
@@ -465,11 +461,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         _lastActivityAt = DateTime.UtcNow;
 
         // 调用基类的状态变更方法
-        base.ChangeState(newState, reason, exception);
-
-        // 触发 ITransportConnection 接口的事件
-        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(
-            _connectionId, oldState, newState, reason, exception));
+        ChangeState(newState, reason, exception);
     }
 
     /// <summary>

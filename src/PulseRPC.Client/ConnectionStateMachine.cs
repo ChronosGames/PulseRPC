@@ -1,6 +1,6 @@
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 扩展的连接状态枚举 - 支持更详细的状态跟踪
@@ -348,6 +348,20 @@ public sealed class ConnectionStateMachine
             ExtendedConnectionState.Failed => ConnectionState.Failed,
             ExtendedConnectionState.Disposed => ConnectionState.Disconnected,
             _ => ConnectionState.Disconnected
+        };
+    }
+
+    public static ExtendedConnectionState ToConnectionState(ConnectionState state)
+    {
+        return state switch
+        {
+            ConnectionState.Disconnected => ExtendedConnectionState.Disconnected,
+            ConnectionState.Connecting => ExtendedConnectionState.Connecting,
+            ConnectionState.Connected => ExtendedConnectionState.Connected,
+            ConnectionState.Disconnecting => ExtendedConnectionState.Disconnecting,
+            ConnectionState.Failed => ExtendedConnectionState.Failed,
+            ConnectionState.Reconnecting => ExtendedConnectionState.Reconnecting,
+            _ => ExtendedConnectionState.Uninitialized,
         };
     }
 

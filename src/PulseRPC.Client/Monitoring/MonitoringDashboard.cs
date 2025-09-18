@@ -1,13 +1,13 @@
-using PulseRPC.Client.Core.ConnectionPool;
-using PulseRPC.Client.Core.Health;
-using PulseRPC.Client.Core.LifecycleStrategies;
+using PulseRPC.Client.ConnectionPool;
+using PulseRPC.Client.Health;
+using PulseRPC.Client.LifecycleStrategies;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.Monitoring;
+namespace PulseRPC.Client.Monitoring;
 
 /// <summary>
 /// 系统健康状态
@@ -348,7 +348,7 @@ public sealed class HealthIssue
     /// <summary>
     /// 问题描述
     /// </summary>
-    public string Description { get; set; } = string.Empty;
+    public string? Description { get; set; }
 
     /// <summary>
     /// 来源
@@ -572,43 +572,4 @@ public sealed class AlertConfiguration
     public List<AlertRule> Rules { get; set; } = new();
 }
 
-/// <summary>
-/// 警报规则
-/// </summary>
-public sealed class AlertRule
-{
-    /// <summary>
-    /// 规则名称
-    /// </summary>
-    public string Name { get; set; } = string.Empty;
 
-    /// <summary>
-    /// 指标名称
-    /// </summary>
-    public string MetricName { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 条件表达式
-    /// </summary>
-    public string Condition { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 阈值
-    /// </summary>
-    public double Threshold { get; set; }
-
-    /// <summary>
-    /// 严重程度
-    /// </summary>
-    public SystemHealthStatus Severity { get; set; }
-
-    /// <summary>
-    /// 描述
-    /// </summary>
-    public string Description { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 是否启用
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-}
