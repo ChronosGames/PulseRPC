@@ -166,7 +166,7 @@ internal class Program
                 });
 
                 // 3. 配置 PulseRPC 服务端 - 基于指南文档的最佳实践
-                services.AddPulseRPCServer(options =>
+                services.AddPulseServer(options =>
                 {
                     // TCP 监听器配置
                     options.ListenOn("127.0.0.1", port, TransportType.Tcp);

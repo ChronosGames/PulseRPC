@@ -19,7 +19,7 @@ public abstract class BenchmarkClientBase : IDisposable
 {
     protected readonly ILogger Logger;
     protected readonly ILoggerFactory LoggerFactory;
-    protected IPulseRPCClient? PulseRPCClient;
+    protected IPulseClient? PulseClient;
     protected IBenchmarkHub? BenchmarkService;
     private CancellationTokenSource? _cts;
     private bool _disposed = false;
@@ -69,7 +69,7 @@ public abstract class BenchmarkClientBase : IDisposable
         _cts = new CancellationTokenSource();
 
         // 创建通道管理器
-        var builder = new PulseRPCClientBuilder();
+        var builder = new PulseClientBuilder();
         builder.AddTransport("TcpChannel", TransportType.Tcp, "localhost", 12345, new TcpTransportOptions
         {
             NoDelay = true,
@@ -93,10 +93,10 @@ public abstract class BenchmarkClientBase : IDisposable
             builder.AddTransport("KcpChannel", TransportType.Kcp, "localhost", 12345, kcpOptions);
         }
 
-        PulseRPCClient = builder.Build();
+        PulseClient = builder.Build();
 
         // 获取服务代理
-        BenchmarkService = await this.PulseRPCClient.GetServiceAsync<IBenchmarkHub>();
+        BenchmarkService = await this.PulseClient.GetServiceAsync<IBenchmarkHub>();
 
         Logger.LogInformation("基准测试客户端初始化完成");
     }
@@ -159,7 +159,7 @@ public abstract class BenchmarkClientBase : IDisposable
             _cts?.Cancel();
             _cts?.Dispose();
 
-            PulseRPCClient?.Dispose();
+            PulseClient?.Dispose();
         }
         catch (Exception ex)
         {

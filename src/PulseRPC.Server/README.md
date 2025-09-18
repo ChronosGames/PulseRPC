@@ -49,12 +49,12 @@ PulseRPC.Server DI Interface
 │   ├── TcpTransportProvider        # TCP传输提供程序
 │   └── KcpTransportProvider        # KCP传输提供程序
 ├── Builder/                        # 构建器模式
-│   ├── IPulseRpcServerBuilder      # 服务器构建器接口
-│   └── PulseRpcServerBuilder       # 服务器构建器实现
+│   ├── IPulseServerBuilder      # 服务器构建器接口
+│   └── PulseServerBuilder       # 服务器构建器实现
 ├── Extensions/                     # 扩展方法
 │   └── ServiceCollectionExtensions # DI容器扩展
 ├── IPulseServer.cs                 # 服务器运行时接口
-└── EnhancedPulseRpcServerManager   # 增强的服务器管理器
+└── EnhancedPulseServerManager   # 增强的服务器管理器
 ```
 
 ## 🚀 核心特性
@@ -62,11 +62,11 @@ PulseRPC.Server DI Interface
 ### 1. 简洁易用的API设计
 ```csharp
 // 最简配置 - 2行代码
-services.AddPulseRpcTcpServer(5000)
+services.AddPulseTcpServer(5000)
     .AddHub<IUserService, UserService>();
 
 // 企业级配置 - 支持新的IPulseHub接口
-services.AddPulseRpcServer(builder =>
+services.AddPulseServer(builder =>
 {
     builder.AddTcp("Main", 5000, isDefault: true)
            .AddKcp("Game", 5001)
@@ -105,7 +105,7 @@ services.AddPulseRpcServer(builder =>
 // Program.cs
 var builder = Host.CreateDefaultBuilder(args);
 
-builder.UsePulseRpcServer(server =>
+builder.UsePulseServer(server =>
 {
     server.AddTcp("Default", 5000, isDefault: true)
           .AddHub<IUserService, UserService>();
@@ -117,7 +117,7 @@ await host.RunAsync();
 
 ### 高性能配置
 ```csharp
-services.AddHighThroughputPulseRpcServer(5000, TransportProtocol.Tcp)
+services.AddHighThroughputPulseServer(5000, TransportProtocol.Tcp)
     .AddHub<IUserService, UserService>()
     .UseAuthentication(auth => auth.JwtSecretKey = "secret")
     .ConfigureServer(options =>
@@ -130,7 +130,7 @@ services.AddHighThroughputPulseRpcServer(5000, TransportProtocol.Tcp)
 ### 配置文件方式
 ```csharp
 // Program.cs
-builder.UsePulseRpcServer("PulseRPC:Server");
+builder.UsePulseServer("PulseRPC:Server");
 
 // appsettings.json
 {

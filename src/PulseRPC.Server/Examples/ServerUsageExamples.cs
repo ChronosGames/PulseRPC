@@ -24,7 +24,7 @@
 //         services.AddLogging(builder => builder.AddConsole());
 //
 //         // 使用增强的PulseRPC服务端（三层抽象架构）
-//         services.AddEnhancedPulseRPCServer(options =>
+//         services.AddEnhancedPulseServer(options =>
 //         {
 //             options.EnableSessionManagement = true;
 //             options.SessionTimeoutMs = 300000; // 5分钟
@@ -65,7 +65,7 @@
 //     {
 //         var services = new ServiceCollection();
 //         services.AddLogging(builder => builder.AddConsole());
-//         services.AddEnhancedPulseRPCServer();
+//         services.AddEnhancedPulseServer();
 //         services.AddSessionBroadcast();
 //
 //         var serviceProvider = services.BuildServiceProvider();
@@ -124,7 +124,7 @@
 //     {
 //         var services = new ServiceCollection();
 //         services.AddLogging(builder => builder.AddConsole());
-//         services.AddEnhancedPulseRPCServer();
+//         services.AddEnhancedPulseServer();
 //         services.AddSessionHealthChecks();
 //
 //         var serviceProvider = services.BuildServiceProvider();
@@ -180,7 +180,7 @@
 //         var builder = Host.CreateApplicationBuilder();
 //
 //         // 配置增强的PulseRPC服务端
-//         builder.Services.AddEnhancedPulseRPCServer(options =>
+//         builder.Services.AddEnhancedPulseServer(options =>
 //         {
 //             options.EnableSessionManagement = true;
 //             options.SessionTimeoutMs = 300000; // 5分钟
@@ -225,7 +225,7 @@
 //     {
 //         var services = new ServiceCollection();
 //         services.AddLogging(builder => builder.AddConsole());
-//         services.AddEnhancedPulseRPCServer();
+//         services.AddEnhancedPulseServer();
 //
 //         var serviceProvider = services.BuildServiceProvider();
 //         var sessionManager = serviceProvider.GetRequiredService<IServerSessionManager>();

@@ -86,9 +86,9 @@ public sealed class FixedSizeConnectionPool : ConnectionPool
     /// <summary>
     /// 检查是否可以创建新连接
     /// </summary>
-    protected override async Task<bool> CanCreateNewConnectionAsync()
+    protected override Task<bool> CanCreateNewConnectionAsync()
     {
-        return _currentConnections < _fixedSize;
+        return Task.FromResult(_currentConnections < _fixedSize);
     }
 
     /// <summary>

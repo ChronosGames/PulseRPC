@@ -15,7 +15,7 @@ public class BenchmarkServerHost(
     ILogger<BenchmarkServerHost> logger,
     IServiceProvider serviceProvider,
     ServerConfiguration config,
-    IPulseRPCServer pulseServer,
+    IPulseServer pulseServer,
     IMetricsCollector metricsCollector)
     : BackgroundService
 {
@@ -23,7 +23,7 @@ public class BenchmarkServerHost(
     private readonly IServiceProvider _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
     private readonly ServerConfiguration _config = config ?? throw new ArgumentNullException(nameof(config));
     private readonly IMetricsCollector _metricsCollector = metricsCollector ?? throw new ArgumentNullException(nameof(metricsCollector));
-    private readonly IPulseRPCServer _pulseServer = pulseServer ?? throw new ArgumentNullException(nameof(pulseServer));
+    private readonly IPulseServer _pulseServer = pulseServer ?? throw new ArgumentNullException(nameof(pulseServer));
 
     private readonly Lock _stateLock = new();
     private ServerState _currentState = ServerState.Stopped;

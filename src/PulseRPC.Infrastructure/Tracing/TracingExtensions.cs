@@ -45,7 +45,7 @@ public static class TracingExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configuration">配置</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcTracing(
+    public static IServiceCollection AddPulseTracing(
         this IServiceCollection services,
         IConfiguration configuration)
     {
@@ -60,7 +60,7 @@ public static class TracingExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置回调</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRpcTracing(
+    public static IServiceCollection AddPulseTracing(
         this IServiceCollection services,
         Action<TracingOptions> configureOptions)
     {

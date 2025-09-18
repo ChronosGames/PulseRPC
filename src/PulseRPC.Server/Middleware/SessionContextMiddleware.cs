@@ -9,7 +9,7 @@ namespace PulseRPC.Server.Middleware;
 /// 允许IPulseHub实现类通过DI获取ISessionContextAccessor来访问会话上下文
 /// 符合三层抽象架构的应用层设计
 /// </summary>
-internal sealed class SessionContextMiddleware : IPulseRpcMiddleware
+internal sealed class SessionContextMiddleware : IPulseMiddleware
 {
     private readonly ILogger<SessionContextMiddleware> _logger;
     private readonly ISessionContextAccessor _contextAccessor;
@@ -31,7 +31,7 @@ internal sealed class SessionContextMiddleware : IPulseRpcMiddleware
     /// <param name="context">请求上下文</param>
     /// <param name="next">下一个中间件</param>
     /// <returns>处理任务</returns>
-    public async Task InvokeAsync(IPulseRpcContext context, Func<Task> next)
+    public async Task InvokeAsync(IPulseContext context, Func<Task> next)
     {
         // 尝试从请求上下文中获取会话ID（连接ID）
         var sessionId = ExtractSessionId(context);
@@ -82,7 +82,7 @@ internal sealed class SessionContextMiddleware : IPulseRpcMiddleware
     /// </summary>
     /// <param name="context">请求上下文</param>
     /// <returns>会话ID，如果不存在则返回null</returns>
-    private static string? ExtractSessionId(IPulseRpcContext context)
+    private static string? ExtractSessionId(IPulseContext context)
     {
         // 尝试从上下文数据中获取会话ID（连接ID）
         if (context.Items.TryGetValue("SessionId", out var sessionIdObj) &&
@@ -136,7 +136,7 @@ public static class SessionContextMiddlewareExtensions
     /// </summary>
     /// <param name="builder">服务器构建器</param>
     /// <returns>服务器构建器</returns>
-    public static IPulseRPCServerBuilder UseSessionContextMiddleware(this IPulseRPCServerBuilder builder)
+    public static IPulseServerBuilder UseSessionContextMiddleware(this IPulseServerBuilder builder)
     {
         return builder.UseMiddleware<SessionContextMiddleware>();
     }
@@ -147,7 +147,7 @@ public static class SessionContextMiddlewareExtensions
     /// <param name="builder">服务器构建器</param>
     /// <returns>服务器构建器</returns>
     [Obsolete("Use UseSessionContextMiddleware instead")]
-    public static IPulseRPCServerBuilder UseTransportContextMiddleware(this IPulseRPCServerBuilder builder)
+    public static IPulseServerBuilder UseTransportContextMiddleware(this IPulseServerBuilder builder)
     {
         return builder.UseMiddleware<SessionContextMiddleware>();
     }

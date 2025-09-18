@@ -17,7 +17,7 @@ namespace PulseRPC.Server.Builder;
 /// <summary>
 /// 服务器构建器实现 - 高性能链式配置
 /// </summary>
-public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
+public sealed class PulseServerBuilder : IPulseServerBuilder
 {
     private readonly List<TransportChannelConfiguration> _transports = new();
     private readonly List<Type> _middlewareTypes = new();
@@ -25,7 +25,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
 
     public IServiceCollection Services { get; }
 
-    public PulseRPCServerBuilder(IServiceCollection services)
+    public PulseServerBuilder(IServiceCollection services)
     {
         Services = services ?? throw new ArgumentNullException(nameof(services));
 
@@ -33,7 +33,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         RegisterCoreServices();
     }
 
-    public IPulseRPCServerBuilder AddTcp(string name, int port,
+    public IPulseServerBuilder AddTcp(string name, int port,
         Action<TcpTransportOptions>? configure = null, bool isDefault = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -59,7 +59,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder AddKcp(string name, int port,
+    public IPulseServerBuilder AddKcp(string name, int port,
         Action<KcpTransportOptions>? configure = null, bool isDefault = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -85,14 +85,14 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder AddService<TService, TImplementation>(ServiceLifetime lifetime = ServiceLifetime.Singleton)
+    public IPulseServerBuilder AddService<TService, TImplementation>(ServiceLifetime lifetime = ServiceLifetime.Singleton)
         where TService : class
         where TImplementation : class, TService
     {
         Services.Add(ServiceDescriptor.Describe(typeof(TService), typeof(TImplementation), lifetime));
 
         // 注册到服务选项中，用于服务发现
-        Services.Configure<PulseRpcServiceOptions>(options =>
+        Services.Configure<PulseServiceOptions>(options =>
         {
             options.Services.Add(new PulseRPCServiceDescriptor
             {
@@ -106,13 +106,13 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder AddService<TService>(TService implementationInstance) where TService : class
+    public IPulseServerBuilder AddService<TService>(TService implementationInstance) where TService : class
     {
         ArgumentNullException.ThrowIfNull(implementationInstance);
 
         Services.AddSingleton(implementationInstance);
 
-        Services.Configure<PulseRpcServiceOptions>(options =>
+        Services.Configure<PulseServiceOptions>(options =>
         {
             options.Services.Add(new PulseRPCServiceDescriptor
             {
@@ -126,7 +126,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder UseHighPerformanceEngine(Action<MessageEngineOptions>? configure = null)
+    public IPulseServerBuilder UseHighPerformanceEngine(Action<MessageEngineOptions>? configure = null)
     {
         Services.Configure<MessageEngineOptions>(options =>
         {
@@ -140,7 +140,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder UseTieredMessageProcessor(Action<TieredProcessorOptions>? configure = null)
+    public IPulseServerBuilder UseTieredMessageProcessor(Action<TieredProcessorOptions>? configure = null)
     {
         Services.Configure<TieredProcessorOptions>(options =>
         {
@@ -151,7 +151,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder UsePriorityScheduler(Action<PrioritySchedulerOptions>? configure = null)
+    public IPulseServerBuilder UsePriorityScheduler(Action<PrioritySchedulerOptions>? configure = null)
     {
         Services.Configure<PrioritySchedulerOptions>(options =>
         {
@@ -162,7 +162,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder UseAuthentication(Action<AuthenticationOptions>? configure = null)
+    public IPulseServerBuilder UseAuthentication(Action<AuthenticationOptions>? configure = null)
     {
         Services.Configure<AuthenticationOptions>(options =>
         {
@@ -176,7 +176,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder UseAuthorization(Action<AuthorizationOptions>? configure = null)
+    public IPulseServerBuilder UseAuthorization(Action<AuthorizationOptions>? configure = null)
     {
         Services.Configure<AuthorizationOptions>(options =>
         {
@@ -187,21 +187,21 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         return this;
     }
 
-    public IPulseRPCServerBuilder UseMiddleware<TMiddleware>() where TMiddleware : class, IPulseRpcMiddleware
+    public IPulseServerBuilder UseMiddleware<TMiddleware>() where TMiddleware : class, IPulseMiddleware
     {
         _middlewareTypes.Add(typeof(TMiddleware));
         Services.TryAddTransient<TMiddleware>();
         return this;
     }
 
-    public IPulseRPCServerBuilder UseInterceptor<TInterceptor>() where TInterceptor : class, IPulseRpcInterceptor
+    public IPulseServerBuilder UseInterceptor<TInterceptor>() where TInterceptor : class, IPulseInterceptor
     {
         _interceptorTypes.Add(typeof(TInterceptor));
         Services.TryAddTransient<TInterceptor>();
         return this;
     }
 
-    public IPulseRPCServerBuilder ConfigureServer(Action<ServerOptions> configure)
+    public IPulseServerBuilder ConfigureServer(Action<ServerOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
         Services.Configure(configure);
@@ -214,7 +214,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         ValidateConfiguration();
 
         // 注册服务器实例
-        Services.TryAddSingleton<IPulseRPCServer>(serviceProvider =>
+        Services.TryAddSingleton<IPulseServer>(serviceProvider =>
         {
             var sessionManager = serviceProvider.GetRequiredService<IClientSessionManager>();
             var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
@@ -222,7 +222,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
             var transportIntegrationManager = serviceProvider.GetRequiredService<ITransportIntegrationManager>();
 
             // 创建增强的服务器管理器
-            var serverManager = new PulseRPCServer(
+            var serverManager = new PulseServer(
                 sessionManager,
                 loggerFactory,
                 serverOptions,
@@ -256,7 +256,7 @@ public sealed class PulseRPCServerBuilder : IPulseRPCServerBuilder
         Services.TryAddSingleton<IEventPublisher, EventPublisher>();
 
         // 注册服务工厂
-        Services.TryAddSingleton<IPulseRpcServiceFactory, PulseRpcServiceFactory>();
+        Services.TryAddSingleton<IPulseServiceFactory, PulseServiceFactory>();
 
         // 注册消息处理器
         Services.TryAddSingleton<IMessageDispatcher, CompiledMessageDispatcher>();
@@ -330,7 +330,7 @@ internal static class TransportIntegrationExtensions
 /// <summary>
 /// PulseRPC 服务选项
 /// </summary>
-public class PulseRpcServiceOptions
+public class PulseServiceOptions
 {
     /// <summary>
     /// 注册的服务集合
@@ -382,7 +382,7 @@ public class PulseRPCServiceDescriptor
 /// <summary>
 /// PulseRPC 服务工厂接口
 /// </summary>
-public interface IPulseRpcServiceFactory
+public interface IPulseServiceFactory
 {
     /// <summary>
     /// 创建服务实例
@@ -408,12 +408,12 @@ public interface IPulseRpcServiceFactory
 /// <summary>
 /// PulseRPC 服务工厂实现
 /// </summary>
-internal sealed class PulseRpcServiceFactory : IPulseRpcServiceFactory
+internal sealed class PulseServiceFactory : IPulseServiceFactory
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IOptions<PulseRpcServiceOptions> _serviceOptions;
+    private readonly IOptions<PulseServiceOptions> _serviceOptions;
 
-    public PulseRpcServiceFactory(IServiceProvider serviceProvider, IOptions<PulseRpcServiceOptions> serviceOptions)
+    public PulseServiceFactory(IServiceProvider serviceProvider, IOptions<PulseServiceOptions> serviceOptions)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _serviceOptions = serviceOptions ?? throw new ArgumentNullException(nameof(serviceOptions));

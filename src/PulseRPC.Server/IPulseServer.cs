@@ -9,7 +9,7 @@ namespace PulseRPC.Server;
 /// <summary>
 /// PulseRPC 服务器运行时接口
 /// </summary>
-public interface IPulseRPCServer : IAsyncDisposable, IDisposable
+public interface IPulseServer : IAsyncDisposable, IDisposable
 {
     // === 生命周期管理 ===
     /// <summary>

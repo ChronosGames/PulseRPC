@@ -35,7 +35,7 @@ namespace ChatApp
     /// 事件接口 - 登录相关事件使用TCP
     /// </summary>
     [Channel("TcpChannel")]
-    public interface IPlayerLoginEvents : IPulseEventHandler
+    public interface IPlayerLoginEvents : IPulseReceiver
     {
         // 下行通知: 玩家加入游戏
         void OnPlayerJoined(PlayerJoinedEvent eventData);
@@ -48,7 +48,7 @@ namespace ChatApp
     /// 事件接口 - 位置更新使用KCP
     /// </summary>
     [Channel("KcpChannel")]
-    public interface IPlayerMovementEvents : IPulseEventHandler
+    public interface IPlayerMovementEvents : IPulseReceiver
     {
         // 下行通知: 玩家移动
         void OnPlayerMoved(PlayerMovedEvent eventData);

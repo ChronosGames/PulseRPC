@@ -224,7 +224,7 @@ public sealed class ConnectionContext : IConnectionContext
     /// <summary>
     /// 注册事件监听器
     /// </summary>
-    public async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener) where T : class, IPulseEventHandler
+    public async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener) where T : class, IPulseReceiver
     {
         ThrowIfDisposed();
 

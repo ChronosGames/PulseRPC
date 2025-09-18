@@ -18,7 +18,7 @@ public static class ServerServiceCollectionExtensions
     /// </summary>
     /// <param name="services">服务集合</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddPulseRPCServer(this IServiceCollection services)
+    public static IServiceCollection AddPulseServer(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
 
@@ -34,7 +34,7 @@ public static class ServerServiceCollectionExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configure">配置选项</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddEnhancedPulseRPCServer(this IServiceCollection services, Action<EnhancedServerOptions>? configure = null)
+    public static IServiceCollection AddEnhancedPulseServer(this IServiceCollection services, Action<EnhancedServerOptions>? configure = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using PulseRPC.Client.Core;
 using PulseRPC.Events;
 
 namespace PulseRPC.Client;
@@ -10,13 +9,13 @@ namespace PulseRPC.Client;
 /// 事件监听器构建器 - 提供流式配置API
 /// </summary>
 /// <typeparam name="T">事件监听器类型</typeparam>
-public class EventListenerBuilder<T> where T : class
+public sealed class PulseReceiverBuilder<T> where T : class
 {
-    private readonly IPulseRPCClient _client;
+    private readonly IPulseClient _client;
     private readonly T _listener;
     private readonly EventListenerConfiguration _configuration;
 
-    public EventListenerBuilder(IPulseRPCClient client, T listener)
+    public PulseReceiverBuilder(IPulseClient client, T listener)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _listener = listener ?? throw new ArgumentNullException(nameof(listener));
@@ -28,7 +27,7 @@ public class EventListenerBuilder<T> where T : class
     /// </summary>
     /// <param name="channelName">通道名称</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithChannel(string channelName)
+    public PulseReceiverBuilder<T> WithChannel(string channelName)
     {
         _configuration.ChannelName = channelName;
         return this;
@@ -39,7 +38,7 @@ public class EventListenerBuilder<T> where T : class
     /// </summary>
     /// <param name="filter">过滤器委托</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithEventFilter(Func<string, bool> filter)
+    public PulseReceiverBuilder<T> WithEventFilter(Func<string, bool> filter)
     {
         _configuration.EventFilter = filter;
         return this;
@@ -52,7 +51,7 @@ public class EventListenerBuilder<T> where T : class
     /// <param name="eventName">事件名称</param>
     /// <param name="filter">数据过滤器</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithDataFilter<TEvent>(string eventName, EventDataFilter<TEvent> filter)
+    public PulseReceiverBuilder<T> WithDataFilter<TEvent>(string eventName, EventDataFilter<TEvent> filter)
     {
         _configuration.DataFilters[eventName] = data => data is TEvent eventData && filter(eventData);
         return this;
@@ -64,7 +63,7 @@ public class EventListenerBuilder<T> where T : class
     /// <typeparam name="TEvent">事件数据类型</typeparam>
     /// <param name="filter">数据过滤器</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithDataFilter<TEvent>(EventDataFilter<TEvent> filter)
+    public PulseReceiverBuilder<T> WithDataFilter<TEvent>(EventDataFilter<TEvent> filter)
     {
         var eventName = typeof(TEvent).Name;
         return WithDataFilter(eventName, filter);
@@ -75,7 +74,7 @@ public class EventListenerBuilder<T> where T : class
     /// </summary>
     /// <param name="strategy">错误处理策略</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithErrorHandling(ErrorHandlingStrategy strategy)
+    public PulseReceiverBuilder<T> WithErrorHandling(ErrorHandlingStrategy strategy)
     {
         _configuration.ErrorHandling = strategy;
         return this;
@@ -86,7 +85,7 @@ public class EventListenerBuilder<T> where T : class
     /// </summary>
     /// <param name="errorHandler">错误处理器</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithErrorHandler(EventErrorHandler errorHandler)
+    public PulseReceiverBuilder<T> WithErrorHandler(EventErrorHandler errorHandler)
     {
         _configuration.ErrorHandler = errorHandler;
         _configuration.ErrorHandling = ErrorHandlingStrategy.Custom;
@@ -98,7 +97,7 @@ public class EventListenerBuilder<T> where T : class
     /// </summary>
     /// <param name="onError">错误回调</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithErrorHandler(Action<Exception, string> onError)
+    public PulseReceiverBuilder<T> WithErrorHandler(Action<Exception, string> onError)
     {
         _configuration.ErrorHandler = (ex, eventName, _, _) =>
         {
@@ -114,7 +113,7 @@ public class EventListenerBuilder<T> where T : class
     /// </summary>
     /// <param name="retryConfig">重试配置</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithRetry(RetryConfiguration retryConfig)
+    public PulseReceiverBuilder<T> WithRetry(RetryConfiguration retryConfig)
     {
         _configuration.RetryConfig = retryConfig;
         return this;
@@ -127,7 +126,7 @@ public class EventListenerBuilder<T> where T : class
     /// <param name="retryInterval">重试间隔</param>
     /// <param name="useExponentialBackoff">是否使用指数退避</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithRetry(int maxAttempts, TimeSpan? retryInterval = null, bool useExponentialBackoff = true)
+    public PulseReceiverBuilder<T> WithRetry(int maxAttempts, TimeSpan? retryInterval = null, bool useExponentialBackoff = true)
     {
         _configuration.RetryConfig = new RetryConfiguration
         {
@@ -143,7 +142,7 @@ public class EventListenerBuilder<T> where T : class
     /// </summary>
     /// <param name="timeout">超时时间</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithTimeout(TimeSpan timeout)
+    public PulseReceiverBuilder<T> WithTimeout(TimeSpan timeout)
     {
         _configuration.Timeout = timeout;
         return this;
@@ -154,7 +153,7 @@ public class EventListenerBuilder<T> where T : class
     /// </summary>
     /// <param name="batchSize">批量大小</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithBatchProcessing(int batchSize = 10)
+    public PulseReceiverBuilder<T> WithBatchProcessing(int batchSize = 10)
     {
         _configuration.EnableBatchProcessing = true;
         _configuration.BatchSize = batchSize;
@@ -167,7 +166,7 @@ public class EventListenerBuilder<T> where T : class
     /// <param name="eventName">事件名称</param>
     /// <param name="priority">优先级</param>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithEventPriority(string eventName, EventPriority priority)
+    public PulseReceiverBuilder<T> WithEventPriority(string eventName, EventPriority priority)
     {
         _configuration.EventPriorities[eventName] = priority;
         return this;
@@ -177,7 +176,7 @@ public class EventListenerBuilder<T> where T : class
     /// 启用性能监控
     /// </summary>
     /// <returns>构建器实例</returns>
-    public EventListenerBuilder<T> WithPerformanceMonitoring()
+    public PulseReceiverBuilder<T> WithPerformanceMonitoring()
     {
         _configuration.EnablePerformanceMonitoring = true;
         return this;
@@ -198,12 +197,12 @@ public class EventListenerBuilder<T> where T : class
 /// <summary>
 /// 事件监听器构建器的便捷扩展方法
 /// </summary>
-public static class EventListenerBuilderExtensions
+public static class PulseReceiverBuilderExtensions
 {
     /// <summary>
     /// 快速配置常用的错误处理 + 重试策略
     /// </summary>
-    public static EventListenerBuilder<T> WithResilience<T>(this EventListenerBuilder<T> builder,
+    public static PulseReceiverBuilder<T> WithResilience<T>(this PulseReceiverBuilder<T> builder,
         ErrorHandlingStrategy errorStrategy = ErrorHandlingStrategy.RetryThenSkip,
         RetryConfiguration? retryConfig = null) where T : class
     {
@@ -217,7 +216,7 @@ public static class EventListenerBuilderExtensions
     /// <summary>
     /// 配置游戏场景的推荐设置
     /// </summary>
-    public static EventListenerBuilder<T> WithGameSettings<T>(this EventListenerBuilder<T> builder) where T : class
+    public static PulseReceiverBuilder<T> WithGameSettings<T>(this PulseReceiverBuilder<T> builder) where T : class
     {
         return builder
             .WithResilience(ErrorHandlingStrategy.LogAndContinue, RetryConfigurations.Fast)
@@ -228,7 +227,7 @@ public static class EventListenerBuilderExtensions
     /// <summary>
     /// 配置关键业务场景的推荐设置
     /// </summary>
-    public static EventListenerBuilder<T> WithCriticalSettings<T>(this EventListenerBuilder<T> builder) where T : class
+    public static PulseReceiverBuilder<T> WithCriticalSettings<T>(this PulseReceiverBuilder<T> builder) where T : class
     {
         return builder
             .WithResilience(ErrorHandlingStrategy.RetryThenThrow, RetryConfigurations.Persistent)

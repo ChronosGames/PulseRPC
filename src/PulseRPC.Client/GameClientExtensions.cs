@@ -12,7 +12,7 @@ public static class GameClientExtensions
     /// 连接到核心游戏服务器
     /// </summary>
     public static async Task<IConnectionContext> ConnectToCoreServerAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         string serviceName,
         TransportType transport = TransportType.Tcp,
         CancellationToken cancellationToken = default)
@@ -34,7 +34,7 @@ public static class GameClientExtensions
     /// 连接到战斗服务器
     /// </summary>
     public static async Task<IConnectionContext> ConnectToBattleServerAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         string battleId,
         string host,
         int port,
@@ -59,7 +59,7 @@ public static class GameClientExtensions
     /// 连接到副本服务器
     /// </summary>
     public static async Task<IConnectionContext> ConnectToInstanceServerAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         string instanceId,
         string host,
         int port,
@@ -84,7 +84,7 @@ public static class GameClientExtensions
     /// 连接到地图服务器
     /// </summary>
     public static async Task<IConnectionContext> ConnectToMapServerAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         string mapId,
         string? serviceName = null,
         CancellationToken cancellationToken = default)
@@ -107,7 +107,7 @@ public static class GameClientExtensions
     /// 批量断开特定类型的连接
     /// </summary>
     public static async Task DisconnectByTypeAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         string type,
         CancellationToken cancellationToken = default)
     {
@@ -120,7 +120,7 @@ public static class GameClientExtensions
     /// 离开战斗（断开战斗服连接）
     /// </summary>
     public static async Task LeaveBattleAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         string battleId,
         CancellationToken cancellationToken = default)
     {
@@ -131,7 +131,7 @@ public static class GameClientExtensions
     /// 离开副本（断开副本服连接）
     /// </summary>
     public static async Task LeaveInstanceAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         string instanceId,
         CancellationToken cancellationToken = default)
     {
@@ -142,7 +142,7 @@ public static class GameClientExtensions
     /// 切换地图（断开旧地图，连接新地图）
     /// </summary>
     public static async Task<IConnectionContext> SwitchMapAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         string oldMapId,
         string newMapId,
         string? serviceName = null,
@@ -161,7 +161,7 @@ public static class GameClientExtensions
     /// 使用临时连接执行操作（自动清理）
     /// </summary>
     public static async Task WithTemporaryConnectionAsync(
-        this IPulseRPCClient client,
+        this IPulseClient client,
         ConnectionConfig config,
         Func<IConnectionContext, Task> action,
         CancellationToken cancellationToken = default)
