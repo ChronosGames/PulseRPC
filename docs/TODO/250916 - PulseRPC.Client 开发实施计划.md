@@ -23,7 +23,7 @@
 - [ ] 完善 `ConnectionDescriptor` 类定义
 - [ ] 实现 `ConnectionStrategy` 枚举和相关策略
 - [ ] 定义 `ConnectionConfig` 类
-- [ ] 完善 `IPulseRPCClient` 接口
+- [ ] 完善 `IPulseClient` 接口
 - [ ] 实现 `ConnectionState` 状态机
 
 **成功标准**:
@@ -52,8 +52,8 @@
 **Status**: Not Started
 
 **任务清单**:
-- [ ] 重构 `PulseRPCClientBuilder`
-- [ ] 实现 `PulseRPCClient` 主类
+- [ ] 重构 `PulseClientBuilder`
+- [ ] 实现 `PulseClient` 主类
 - [ ] 添加流畅的配置 API
 - [ ] 实现 `Build()` 方法
 - [ ] 添加基础的错误处理
@@ -65,7 +65,7 @@
 
 **测试场景**:
 ```csharp
-var client = new PulseRPCClientBuilder()
+var client = new PulseClientBuilder()
     .AddConnection(new ConnectionDescriptor { /* ... */ })
     .Build();
 await client.InitializeAsync();
@@ -166,7 +166,7 @@ var stats = pool.GetStatistics();
 
 **测试场景**:
 ```csharp
-var client = new PulseRPCClientBuilder()
+var client = new PulseClientBuilder()
     .WithServiceDiscovery(new ConsulServiceDiscovery("consul:8500"))
     .WithLoadBalancing(LoadBalancingStrategy.WeightedRoundRobin)
     .Build();
@@ -211,7 +211,7 @@ var client = new PulseRPCClientBuilder()
 
 **测试场景**:
 ```csharp
-var gameClient = new PulseRPCClientBuilder()
+var gameClient = new PulseClientBuilder()
     .AddGameServerSet("production")
     .WithBattleOptimizations()
     .Build();
@@ -303,7 +303,7 @@ client.Router.RegisterRule(new RoutingRule
 
 **测试场景**:
 ```csharp
-var client = new PulseRPCClientBuilder()
+var client = new PulseClientBuilder()
     .WithRetryPolicy(new RetryPolicy
     {
         MaxRetries = 5,

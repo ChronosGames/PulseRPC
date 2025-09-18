@@ -1,5 +1,4 @@
 using PulseRPC.Authentication;
-using PulseRPC.Channels;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Transport;
@@ -7,15 +6,15 @@ namespace PulseRPC.Server.Transport;
 /// <summary>
 /// 通道事件参数
 /// </summary>
-public class ChannelEventArgs(IChannel channel) : EventArgs
+public class ChannelEventArgs(IServerChannel channel) : EventArgs
 {
-    public IChannel Channel { get; } = channel ?? throw new ArgumentNullException(nameof(channel));
+    public IServerChannel Channel { get; } = channel ?? throw new ArgumentNullException(nameof(channel));
 }
 
 /// <summary>
 /// 通道认证事件参数
 /// </summary>
-public class ChannelAuthenticatedEventArgs(IChannel channel, IAuthenticationContext authContext)
+public class ChannelAuthenticatedEventArgs(IServerChannel channel, IAuthenticationContext authContext)
     : ChannelEventArgs(channel)
 {
     public IAuthenticationContext AuthenticationContext { get; } = authContext ?? throw new ArgumentNullException(nameof(authContext));
@@ -44,7 +43,7 @@ public interface IServerChannelManager : IDisposable
     /// <summary>
     /// 通道超时时间（毫秒）
     /// </summary>
-    int ChannelTimeoutMs { get; set; }
+    TimeSpan ChannelTimeout { get; set; }
 
     /// <summary>
     /// 当前连接数
@@ -59,17 +58,17 @@ public interface IServerChannelManager : IDisposable
     /// <summary>
     /// 通道连接事件
     /// </summary>
-    event System.EventHandler<ChannelEventArgs>? ChannelConnected;
+    event EventHandler<ChannelEventArgs>? ChannelConnected;
 
     /// <summary>
     /// 通道断开事件
     /// </summary>
-    event System.EventHandler<ChannelEventArgs>? ChannelDisconnected;
+    event EventHandler<ChannelEventArgs>? ChannelDisconnected;
 
     /// <summary>
     /// 通道认证事件
     /// </summary>
-    event System.EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;
+    event EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;
 
     /// <summary>
     /// 添加新的传输通道

@@ -44,12 +44,12 @@ public interface ITransport : IDisposable
     /// <summary>
     /// 状态变更事件
     /// </summary>
-    event System.EventHandler<TransportStateEventArgs>? StateChanged;
+    event EventHandler<TransportStateEventArgs>? StateChanged;
 
     /// <summary>
     /// 数据接收事件
     /// </summary>
-    event System.EventHandler<TransportDataEventArgs>? DataReceived;
+    event EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
     /// 发送数据
@@ -58,21 +58,16 @@ public interface ITransport : IDisposable
 }
 
 /// <summary>
-/// 客户端传输接口
-/// 继承ITransportConnection提供统一的连接抽象
+/// 客户端传输层接口 - 底层网络传输抽象
+/// 实现思路：
+/// - 协议抽象：支持TCP、KCP、WebSocket等多种协议
+/// - 异步IO：使用异步IO提高性能
+/// - 连接复用：支持连接复用和管道化
+/// - 流量控制：实现发送和接收的流量控制
+/// - 错误处理：统一的错误处理和重连机制
 /// </summary>
-public interface IClientTransport : ITransportConnection
+public interface IClientTransport : ITransport
 {
-    /// <summary>
-    /// 传输名称 (从原ITransport继承的属性)
-    /// </summary>
-    string Name { get; }
-
-    /// <summary>
-    /// 传输类型 (从原ITransport继承的属性，映射到TransportType)
-    /// </summary>
-    TransportType Type { get; }
-
     /// <summary>
     /// 连接到远程主机
     /// </summary>
@@ -88,17 +83,18 @@ public interface IClientTransport : ITransportConnection
 /// 服务端连接接口
 /// 继承ITransportConnection提供统一的连接抽象
 /// </summary>
-public interface IServerTransport : ITransportConnection
+public interface IServerTransport : ITransport
 {
     /// <summary>
-    /// 传输名称 (从原ITransport继承的属性)
+    /// 连接唯一标识
     /// </summary>
-    string Name { get; }
+    string ConnectionId => this.Name;
 
-    /// <summary>
-    /// 传输类型 (从原ITransport继承的属性，映射到TransportType)
-    /// </summary>
-    TransportType Type { get; }
+    DateTime ConnectedAt { get; }
+
+    DateTime LastActiveTime { get; }
+
+    Task CloseAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -129,7 +125,7 @@ public interface IServerListener : IDisposable
     /// <summary>
     /// 客户端连接事件
     /// </summary>
-    event System.EventHandler<ServerConnectionEventArgs> ConnectionAccepted;
+    event EventHandler<ServerConnectionEventArgs> ConnectionAccepted;
 
     /// <summary>
     /// 启动监听
@@ -200,6 +196,11 @@ public enum ConnectionState
 public class TransportStateEventArgs : EventArgs
 {
     /// <summary>
+    /// 连接唯一标识
+    /// </summary>
+    public string ConnectionId { get; }
+
+    /// <summary>
     /// 旧状态
     /// </summary>
     public ConnectionState PreviousState { get; }
@@ -220,11 +221,13 @@ public class TransportStateEventArgs : EventArgs
     public Exception? Exception { get; }
 
     public TransportStateEventArgs(
+        string connectionId,
         ConnectionState previousState,
         ConnectionState currentState,
         string? reason = null,
         Exception? exception = null)
     {
+        ConnectionId = connectionId;
         PreviousState = previousState;
         CurrentState = currentState;
         Reason = reason;

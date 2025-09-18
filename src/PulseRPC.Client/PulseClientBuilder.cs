@@ -3,7 +3,7 @@ using PulseRPC.Authentication;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// PulseRPC 客户端构建器

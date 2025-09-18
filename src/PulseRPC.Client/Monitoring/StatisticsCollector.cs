@@ -7,7 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.Monitoring;
+namespace PulseRPC.Client.Monitoring;
 
 /// <summary>
 /// 统计信息收集器

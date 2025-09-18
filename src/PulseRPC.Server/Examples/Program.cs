@@ -337,7 +337,7 @@
 // /// <summary>
 // /// 模拟服务端传输实现
 // /// </summary>
-// internal class MockServerTransport : IServerTransport
+// internal class MockServerTransport : IServerListener
 // {
 //     public string Name => "MockServer";
 //     public TransportType Type => TransportType.Tcp;

@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.ServiceDiscovery;
+namespace PulseRPC.Client.ServiceDiscovery;
 
 /// <summary>
 /// 内存服务发现器

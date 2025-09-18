@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PulseRPC.Client.Core.ConnectionPool;
+using PulseRPC.Client.ConnectionPool;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 简单连接生命周期管理器实现 - Stage 1 基础版本
@@ -84,7 +84,7 @@ public sealed class SimpleConnectionLifecycleManager : IConnectionLifecycleManag
     public async Task<int> CleanupIdleConnectionsAsync(TimeSpan idleTimeout, CancellationToken cancellationToken = default)
     {
         var connections = _connectionManager.GetAllConnections();
-        var idleConnections = new List<IConnectionContext>();
+        var idleConnections = new List<IConnection>();
         var cutoffTime = DateTime.UtcNow - idleTimeout;
 
         _logger.LogDebug("开始清理空闲连接，超时阈值: {IdleTimeout}", idleTimeout);

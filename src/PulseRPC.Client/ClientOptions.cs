@@ -1,76 +1,46 @@
-﻿using PulseRPC.Client.Core;
+﻿using PulseRPC.Client;
 
 namespace PulseRPC.Client;
 
 /// <summary>
 /// 客户端选项
 /// </summary>
-public class OldClientOptions
+public sealed class ClientOptions
 {
     /// <summary>
-    /// 连接超时时间
+    /// 客户端名称
     /// </summary>
-    public TimeSpan ConnectionTimeout { get; set; } = TimeSpan.FromSeconds(10);
+    public string Name { get; set; } = "PulseRPC-Client";
 
     /// <summary>
-    /// 接收缓冲区大小
+    /// 默认超时时间
     /// </summary>
-    public int ReceiveBufferSize { get; set; } = 8192;
+    public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// 发送缓冲区大小
+    /// 最大并发连接数
     /// </summary>
-    public int SendBufferSize { get; set; } = 8192;
+    public int MaxConcurrentConnections { get; set; } = 100;
 
     /// <summary>
-    /// 是否自动重连
+    /// 启用调试模式
     /// </summary>
-    public bool AutoReconnect { get; set; } = true;
+    public bool EnableDebugMode { get; set; }
 
     /// <summary>
-    /// 重连尝试次数
+    /// 启用统计信息收集
     /// </summary>
-    public int ReconnectAttempts { get; set; } = 3;
+    public bool EnableStatistics { get; set; } = true;
 
     /// <summary>
-    /// 初始重连延迟
+    /// 自动清理间隔
     /// </summary>
-    public TimeSpan ReconnectDelay { get; set; } = TimeSpan.FromSeconds(3);
+    public TimeSpan AutoCleanupInterval { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// 最大重连延迟
+    /// 自定义设置字典
     /// </summary>
-    public TimeSpan MaxReconnectDelay { get; set; } = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// 心跳间隔
-    /// </summary>
-    public TimeSpan HeartbeatInterval { get; set; } = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// 是否禁用Nagle算法
-    /// </summary>
-    public bool NoDelay { get; set; } = true;
-
-    /// <summary>
-    /// 是否使用加密
-    /// </summary>
-    public bool UseEncryption { get; set; } = false;
-
-    /// <summary>
-    /// 加密密钥
-    /// </summary>
-    public string? EncryptionKey { get; set; } = null;
-
-    /// <summary>
-    /// 服务发现配置
-    /// </summary>
-    public ServiceDiscoveryOptions ServiceDiscoveryOptions { get; set; } = new();
-
-    /// <summary>
-    /// 连接池配置
-    /// </summary>
-    public ConnectionPoolOptions ConnectionPoolOptions { get; set; } = new();
+    public Dictionary<string, string> Settings { get; set; } = new();
 }
 
 /// <summary>

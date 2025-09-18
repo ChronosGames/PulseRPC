@@ -796,9 +796,9 @@ PulseRPC.Transport.IServerListener.Name.get -> string!
 PulseRPC.Transport.IServerListener.StartAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 PulseRPC.Transport.IServerListener.StopAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 PulseRPC.Transport.IServerListener.Type.get -> PulseRPC.Transport.TransportType
-PulseRPC.Transport.IServerTransport
-PulseRPC.Transport.IServerTransport.CloseAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
-PulseRPC.Transport.IServerTransport.ConnectionId.get -> string!
+PulseRPC.Transport.IServerListener
+PulseRPC.Transport.IServerListener.CloseAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Transport.IServerListener.ConnectionId.get -> string!
 PulseRPC.Transport.ITransport
 PulseRPC.Transport.ITransport.DataReceived -> System.EventHandler<PulseRPC.Transport.TransportDataEventArgs!>?
 PulseRPC.Transport.ITransport.IsConnected.get -> bool
@@ -825,7 +825,7 @@ PulseRPC.Transport.ITransportChannel.RemoteAddress.get -> string!
 PulseRPC.Transport.ITransportChannel.SendAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
 PulseRPC.Transport.ITransportChannel.SetAuthentication(PulseRPC.Authentication.IAuthenticationContext! authContext) -> void
 PulseRPC.Transport.ITransportChannel.StateChanged -> System.EventHandler<PulseRPC.Transport.TransportStateEventArgs!>?
-PulseRPC.Transport.ITransportChannel.Transport.get -> PulseRPC.Transport.IServerTransport!
+PulseRPC.Transport.ITransportChannel.Transport.get -> PulseRPC.Transport.IServerListener!
 PulseRPC.Transport.ITransportConnection.StateChanged -> PulseRPC.EventHandler<PulseRPC.Transport.ConnectionStateChangedEventArgs!>!
 PulseRPC.Transport.Kcp.KcpCommand
 PulseRPC.Transport.Kcp.KcpCommand.Ack = 82 -> PulseRPC.Transport.Kcp.KcpCommand
@@ -921,8 +921,8 @@ PulseRPC.Transport.PoolStatistics.PoolStatistics() -> void
 PulseRPC.Transport.PoolStatistics.TotalRented -> long
 PulseRPC.Transport.PoolStatistics.TotalReturned -> long
 PulseRPC.Transport.ServerConnectionEventArgs
-PulseRPC.Transport.ServerConnectionEventArgs.ServerConnectionEventArgs(PulseRPC.Transport.IServerTransport! transport) -> void
-PulseRPC.Transport.ServerConnectionEventArgs.Transport.get -> PulseRPC.Transport.IServerTransport!
+PulseRPC.Transport.ServerConnectionEventArgs.ServerConnectionEventArgs(PulseRPC.Transport.IServerListener! transport) -> void
+PulseRPC.Transport.ServerConnectionEventArgs.Transport.get -> PulseRPC.Transport.IServerListener!
 PulseRPC.Transport.Tcp.ChunkHeader
 PulseRPC.Transport.Tcp.ChunkHeader.ChunkHeader() -> void
 PulseRPC.Transport.Tcp.ChunkHeader.ChunkHeader(int chunkId, int chunkIndex, int totalChunks, int chunkSize) -> void

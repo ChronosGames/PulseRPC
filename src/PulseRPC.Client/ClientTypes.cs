@@ -1,7 +1,7 @@
-using PulseRPC.Client.Core.ConnectionPool;
+using PulseRPC.Client.ConnectionPool;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 客户端状态
@@ -96,6 +96,21 @@ public sealed class ClientStatistics
     public int ActiveConnections { get; set; }
 
     /// <summary>
+    /// 总服务请求数
+    /// </summary>
+    public long TotalServiceRequests { get; set; }
+
+    /// <summary>
+    /// 成功服务请求数
+    /// </summary>
+    public long SuccessfulServiceRequests { get; set; }
+
+    /// <summary>
+    /// 失败服务请求数
+    /// </summary>
+    public long FailedServiceRequests { get; set; }
+
+    /// <summary>
     /// 统计时间戳
     /// </summary>
     public DateTime Timestamp { get; set; }
@@ -133,47 +148,6 @@ public sealed class ClientHealthCheckResult
 }
 
 /// <summary>
-/// 客户端选项
-/// </summary>
-public sealed class ClientOptions
-{
-    /// <summary>
-    /// 客户端名称
-    /// </summary>
-    public string Name { get; set; } = "PulseRPC-Client";
-
-    /// <summary>
-    /// 默认超时时间
-    /// </summary>
-    public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(30);
-
-    /// <summary>
-    /// 最大并发连接数
-    /// </summary>
-    public int MaxConcurrentConnections { get; set; } = 100;
-
-    /// <summary>
-    /// 启用调试模式
-    /// </summary>
-    public bool EnableDebugMode { get; set; }
-
-    /// <summary>
-    /// 启用统计信息收集
-    /// </summary>
-    public bool EnableStatistics { get; set; } = true;
-
-    /// <summary>
-    /// 自动清理间隔
-    /// </summary>
-    public TimeSpan AutoCleanupInterval { get; set; } = TimeSpan.FromMinutes(5);
-
-    /// <summary>
-    /// 自定义设置字典
-    /// </summary>
-    public Dictionary<string, string> Settings { get; set; } = new();
-}
-
-/// <summary>
 /// 服务连接选项
 /// </summary>
 public sealed class ServiceConnectionOptions
@@ -205,6 +179,31 @@ public sealed class ServiceConnectionOptions
 public sealed class ServiceProxyOptions
 {
     /// <summary>
+    /// 指定连接ID（精确路由）
+    /// </summary>
+    public string? ConnectionId { get; set; }
+
+    /// <summary>
+    /// 指定通道名称（按name过滤）
+    /// </summary>
+    public string? ChannelName { get; set; }
+
+    /// <summary>
+    /// 路由标签
+    /// </summary>
+    public Dictionary<string, string>? Tags { get; set; }
+
+    /// <summary>
+    /// 偏好区域
+    /// </summary>
+    public string? PreferredRegion { get; set; }
+
+    /// <summary>
+    /// 负载均衡提示
+    /// </summary>
+    public LoadBalancingHint LoadBalancingHint { get; set; } = LoadBalancingHint.None;
+
+    /// <summary>
     /// 超时时间
     /// </summary>
     public TimeSpan? Timeout { get; set; }
@@ -218,6 +217,21 @@ public sealed class ServiceProxyOptions
     /// 缓存策略
     /// </summary>
     public bool UseCache { get; set; } = true;
+
+    /// <summary>
+    /// 启用缓存
+    /// </summary>
+    public bool EnableCaching { get; set; } = true;
+
+    /// <summary>
+    /// 最大重试次数
+    /// </summary>
+    public int MaxRetries { get; set; } = 3;
+
+    /// <summary>
+    /// 重试延迟
+    /// </summary>
+    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(100);
 }
 
 /// <summary>
@@ -266,3 +280,4 @@ public sealed class RetryPolicy
     /// </summary>
     public TimeSpan MaxRetryInterval { get; set; } = TimeSpan.FromSeconds(30);
 }
+

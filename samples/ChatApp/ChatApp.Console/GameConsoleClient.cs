@@ -1,9 +1,9 @@
 ﻿using System.Numerics;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
-using PulseRPC.Transport;
 using PulseRPC.Client;
-using PulseRPC.Client.Core;
+using PulseRPC.Client;
+using PulseRPC.Transport;
 using ISubscriptionToken = PulseRPC.ISubscriptionToken;
 
 namespace ChatApp.Console;
@@ -55,12 +55,10 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             await _client.InitializeAsync(_cts.Token);
 
             // 获取服务代理
-            _playerService = _client.CreatePlayerHubProxy();
+            _playerService = await _client.GetPlayerHubAsync("ChatApp");
 
             // 注册事件监听器
-            _eventsSubscription = await _client.RegisterSmartEventListenerAsync<IPlayerLoginEvents>(new PlayerEventsHandler(this));
-            _eventsSubscription =
-                await _client.RegisterSmartEventListenerAsync<IPlayerMovementEvents>(new PlayerEventsHandler(this));
+            _eventsSubscription = await _client.RegisterEventListenerAsync(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");
         }

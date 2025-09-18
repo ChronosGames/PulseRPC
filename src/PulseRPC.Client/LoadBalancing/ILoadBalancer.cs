@@ -1,10 +1,10 @@
-using PulseRPC.Client.Core.ServiceDiscovery;
+using PulseRPC.Client.ServiceDiscovery;
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.LoadBalancing;
+namespace PulseRPC.Client.LoadBalancing;
 
 /// <summary>
 /// 负载均衡策略类型

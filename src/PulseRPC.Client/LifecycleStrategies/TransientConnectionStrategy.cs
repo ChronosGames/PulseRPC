@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace PulseRPC.Client.Core.LifecycleStrategies;
+namespace PulseRPC.Client.LifecycleStrategies;
 
 /// <summary>
 /// 瞬态连接策略 - 短期连接，用完即断开，不重连
@@ -76,7 +76,7 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
     /// <summary>
     /// 创建连接
     /// </summary>
-    public override async Task<IConnectionContext> CreateConnectionAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
+    public override async Task<IConnection> CreateConnectionAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("创建瞬态连接: {ConnectionId}", descriptor.Id);
 
@@ -95,13 +95,12 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
     /// <summary>
     /// 管理连接生命周期
     /// </summary>
-    protected override async Task OnManageConnectionAsync(IConnectionContext connection, CancellationToken cancellationToken = default)
+    protected override async Task OnManageConnectionAsync(IConnection connection, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("管理瞬态连接: {ConnectionId}", connection.Id);
 
         // 瞬态连接不进行重连，断开就清理
-        if (connection.State == ExtendedConnectionState.Disconnected ||
-            connection.State == ExtendedConnectionState.Failed)
+        if (connection.State == ExtendedConnectionState.Disconnected || connection.State == ExtendedConnectionState.Failed)
         {
             _logger.LogDebug("瞬态连接已断开，准备清理: {ConnectionId}", connection.Id);
             await CleanupConnectionAsync(connection, "瞬态连接断开");
@@ -135,7 +134,7 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
     /// <summary>
     /// 处理连接断开
     /// </summary>
-    protected override async Task OnConnectionDisconnectedInternalAsync(IConnectionContext connection, string reason, Exception? exception = null)
+    protected override async Task OnConnectionDisconnectedInternalAsync(IConnection connection, string reason, Exception? exception = null)
     {
         _logger.LogInformation("瞬态连接断开: {ConnectionId}, 原因: {Reason}", connection.Id, reason);
 
@@ -172,7 +171,7 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
     /// <summary>
     /// 处理连接失败
     /// </summary>
-    protected override async Task OnConnectionFailedInternalAsync(IConnectionContext connection, Exception exception)
+    protected override async Task OnConnectionFailedInternalAsync(IConnection connection, Exception exception)
     {
         _logger.LogWarning(exception, "瞬态连接失败: {ConnectionId}", connection.Id);
 
@@ -209,7 +208,7 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
     /// <summary>
     /// 检查连接是否应该保持活跃
     /// </summary>
-    protected override bool ShouldKeepAliveInternal(IConnectionContext connection, TimeSpan idleDuration)
+    protected override bool ShouldKeepAliveInternal(IConnection connection, TimeSpan idleDuration)
     {
         // 瞬态连接空闲后立即断开
         if (idleDuration > _options.IdleTimeout)
@@ -247,7 +246,7 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
     /// <summary>
     /// 清理连接
     /// </summary>
-    protected override async Task OnCleanupConnectionAsync(IConnectionContext connection, string reason)
+    protected override async Task OnCleanupConnectionAsync(IConnection connection, string reason)
     {
         _logger.LogInformation("清理瞬态连接: {ConnectionId}, 原因: {Reason}", connection.Id, reason);
 
@@ -312,7 +311,7 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
         await base.PerformMaintenanceAsync();
 
         // 清理已完成或过期的瞬态连接
-        var connectionsToCleanup = new List<IConnectionContext>();
+        var connectionsToCleanup = new List<IConnection>();
         var now = DateTime.UtcNow;
 
         lock (_transientLock)
@@ -415,7 +414,7 @@ public sealed class TransientConnectionStrategy : ConnectionLifecycleStrategyBas
 /// </summary>
 internal sealed class TransientInfo
 {
-    public IConnectionContext Connection { get; }
+    public IConnection Connection { get; }
     public DateTime CreatedAt { get; }
     public bool IsCompleted { get; set; }
     public string? CompletionReason { get; set; }
@@ -425,7 +424,7 @@ internal sealed class TransientInfo
     public string? DisconnectReason { get; set; }
     public Exception? FailureException { get; set; }
 
-    public TransientInfo(IConnectionContext connection)
+    public TransientInfo(IConnection connection)
     {
         Connection = connection;
         CreatedAt = DateTime.UtcNow;

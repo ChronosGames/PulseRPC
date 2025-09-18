@@ -1,9 +1,8 @@
 ﻿using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Client.Core;
+using PulseRPC.Client;
 using PulseRPC.Transport;
 using PulseRPC.Transport.Tcp;
-using ConnectionStateChangedEventArgs = PulseRPC.Transport.ConnectionStateChangedEventArgs;
 
 namespace PulseRPC.Client.Transport;
 
@@ -31,10 +30,6 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     public DateTime ConnectedAt => _connectedAt;
     public DateTime LastActivityAt => _lastActivityAt;
     public TransportType TransportType => Type;
-
-    // ITransportConnection events with proper signatures
-    public new event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
-    public new event EventHandler<TransportDataEventArgs>? DataReceived;
 
     // ITransportConnection method
     public Task CloseAsync(CancellationToken cancellationToken = default)
@@ -184,11 +179,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
         _lastActivityAt = DateTime.UtcNow;
 
         // 调用基类的状态变更方法
-        base.ChangeState(newState, reason, exception);
-
-        // 触发 ITransportConnection 接口的事件
-        StateChanged?.Invoke(this, new ConnectionStateChangedEventArgs(
-            _connectionId, oldState, newState, reason, exception));
+        ChangeState(newState, reason, exception);
     }
 
     /// <summary>

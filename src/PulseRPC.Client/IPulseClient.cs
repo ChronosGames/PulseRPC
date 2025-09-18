@@ -1,14 +1,19 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
-using PulseRPC.Client.Core;
-using PulseRPC.Client.Core.ConnectionPool;
+using PulseRPC.Client;
+using PulseRPC.Client.ConnectionPool;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client;
 
 /// <summary>
-/// PulseRPC 客户端核心接口 - 基于 UsageExamples.cs 设计
+/// PulseRPC 客户端核心接口 - 统一客户端入口
+/// 实现思路：
+/// - 聚合所有子组件（连接管理、路由、负载均衡等）
+/// - 提供高级 API 隐藏底层复杂性
+/// - 管理客户端生命周期（初始化、运行、停止）
+/// - 提供统一的错误处理和重试机制
 /// </summary>
 public interface IPulseClient : IDisposable
 {
@@ -118,19 +123,25 @@ public interface IPulseClient : IDisposable
 }
 
 /// <summary>
-/// 连接管理器接口 - 管理所有连接
+/// 连接管理器接口 - 管理所有连接的创建、销毁和生命周期
+/// 实现思路：
+/// - 连接工厂职责：根据配置创建不同类型的连接
+/// - 连接注册表：维护所有活跃连接的索引
+/// - 生命周期管理：自动管理连接的创建和销毁
+/// - 健康监控：定期检查连接健康状态
+/// - 资源管理：防止连接泄漏，自动清理无用连接
 /// </summary>
 public interface IConnectionManager : IDisposable
 {
     /// <summary>
     /// 连接到服务
     /// </summary>
-    Task<IConnectionContext> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
+    Task<IConnection> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 通过描述符连接
     /// </summary>
-    Task<IConnectionContext> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
+    Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 断开连接
@@ -140,52 +151,52 @@ public interface IConnectionManager : IDisposable
     /// <summary>
     /// 批量断开连接
     /// </summary>
-    Task DisconnectAsync(Func<IConnectionContext, bool> predicate, CancellationToken cancellationToken = default);
+    Task DisconnectAsync(Func<IConnection, bool> predicate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取连接
     /// </summary>
-    IConnectionContext? GetConnection(string connectionId);
+    IConnection? GetConnection(string connectionId);
+
+    /// <summary>
+    /// 根据标签查找连接
+    /// </summary>
+    IReadOnlyList<IConnection> GetConnectionsByTag(string key, string? value = null);
 
     /// <summary>
     /// 获取所有连接
     /// </summary>
-    IReadOnlyList<IConnectionContext> GetAllConnections();
+    IReadOnlyList<IConnection> GetAllConnections();
 
     /// <summary>
     /// 连接数量
     /// </summary>
     int Count { get; }
+
+    /// <summary>
+    /// 获取或创建连接
+    /// </summary>
+    // Task<IConnection> GetOrCreateConnectionAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 清理空闲连接
+    /// </summary>
+    Task<int> CleanupIdleConnectionsAsync(TimeSpan? maxAge = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 连接状态变化事件
+    /// </summary>
+    // event EventHandler<ConnectionStateChangedEventArgs> ConnectionStateChanged;
 }
 
 /// <summary>
-/// 连接接口 - 更轻量级的连接表示
-/// </summary>
-public interface IConnection : IDisposable
-{
-    /// <summary>
-    /// 连接ID
-    /// </summary>
-    string Id { get; }
-
-    /// <summary>
-    /// 连接描述符
-    /// </summary>
-    ConnectionDescriptor Descriptor { get; }
-
-    /// <summary>
-    /// 连接状态
-    /// </summary>
-    ExtendedConnectionState State { get; }
-
-    /// <summary>
-    /// 获取服务代理
-    /// </summary>
-    Task<T> GetServiceAsync<T>() where T : class, IPulseHub;
-}
-
-/// <summary>
-/// 连接路由器接口 - 智能路由功能
+/// 连接路由器接口 - 智能路由决策引擎
+/// 实现思路：
+/// - 规则引擎：支持灵活的路由规则配置
+/// - 多维度路由：支持基于标签、区域、用户等多维度路由
+/// - 缓存优化：缓存路由决策结果，提高性能
+/// - 故障转移：自动检测连接故障并切换到备用连接
+/// - 负载感知：结合负载均衡器进行智能选择
 /// </summary>
 public interface IConnectionRouter
 {
@@ -211,7 +222,13 @@ public interface IConnectionRouter
 }
 
 /// <summary>
-/// 服务发现接口
+/// 服务发现接口 - 动态服务实例发现
+/// 实现思路：
+/// - 多后端支持：支持Consul、Etcd、Kubernetes等服务发现后端
+/// - 缓存机制：本地缓存服务实例信息，减少网络开销
+/// - 变更通知：实时监听服务实例变化并通知上层
+/// - 健康检查：集成健康检查，过滤不健康的实例
+/// - 故障恢复：服务发现后端故障时的恢复机制
 /// </summary>
 public interface IServiceDiscovery : IDisposable
 {
@@ -253,7 +270,13 @@ public interface IServiceWatcher : IDisposable
 }
 
 /// <summary>
-/// 连接注册表接口
+/// 连接注册表接口 - 连接实例的注册和查询
+/// 实现思路：
+/// - 索引优化：使用多种索引支持快速查询
+/// - 并发安全：使用读写锁保证并发安全
+/// - 事件通知：连接注册/注销时发送事件
+/// - 标签查询：支持基于标签的复杂查询
+/// - 内存优化：使用弱引用避免内存泄漏
 /// </summary>
 public interface IConnectionRegistry
 {
@@ -294,7 +317,13 @@ public interface IConnectionRegistry
 }
 
 /// <summary>
-/// 连接生命周期管理器接口
+/// 连接生命周期管理器接口 - 管理连接的整个生命周期
+/// 实现思路：
+/// - 策略模式：支持不同的生命周期管理策略
+/// - 定时维护：定期执行健康检查和清理任务
+/// - 事件驱动：响应连接状态变化事件
+/// - 资源优化：自动清理无用连接，优化资源使用
+/// - 故障恢复：自动重连和故障转移
 /// </summary>
 public interface IConnectionLifecycleManager
 {
@@ -310,7 +339,13 @@ public interface IConnectionLifecycleManager
 }
 
 /// <summary>
-/// 负载均衡器接口
+/// 负载均衡器接口 - 智能负载分配
+/// 实现思路：
+/// - 多策略支持：支持轮询、最少连接、一致性哈希等策略
+/// - 健康感知：只选择健康的连接实例
+/// - 权重支持：支持基于权重的负载分配
+/// - 性能监控：根据响应时间等指标进行智能选择
+/// - 动态调整：根据实时负载情况动态调整策略
 /// </summary>
 public interface ILoadBalancer
 {
@@ -515,6 +550,11 @@ public sealed class HealthCheckResult
 
 /// <summary>
 /// PulseRPC 客户端构建器接口
+/// 实现思路：
+/// - 使用构建器模式提供流畅的配置API
+/// - 延迟初始化，在Build()时创建所有组件
+/// - 配置验证，确保必需的配置项都已设置
+/// - 支持扩展点，允许自定义组件实现
 /// </summary>
 public interface IPulseClientBuilder
 {

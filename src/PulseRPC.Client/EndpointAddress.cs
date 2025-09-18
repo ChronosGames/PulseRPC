@@ -1,6 +1,6 @@
 using System;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 端点地址

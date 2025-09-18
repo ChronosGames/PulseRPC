@@ -300,7 +300,7 @@ PulseRPC.Transport              → PulseRPC.Core.Memory
 - [x] 创建PriorityAwareScheduler优先级调度
 - [x] 集成WorkStealingMessageProcessor并发处理
 
-### 6.3 第三阶段 (2-3周): I/O和序列化优化  
+### 6.3 第三阶段 (2-3周): I/O和序列化优化
 - [ ] 实现BatchedNetworkWriter批量写入
 - [ ] 开发ZeroCopySerializationPipeline序列化管道
 - [ ] 创建ReactiveBackpressureController背压控制

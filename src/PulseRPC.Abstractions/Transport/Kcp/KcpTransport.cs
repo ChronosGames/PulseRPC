@@ -309,7 +309,7 @@ public class KcpTransport : ITransport
         _logger.LogInformation("KCP传输状态变更: {OldState} -> {NewState} ({Reason})",
             oldState, newState, reason ?? "未指定原因");
 
-        StateChanged?.Invoke(this, new TransportStateEventArgs(oldState, newState, reason, exception));
+        StateChanged?.Invoke(this, new TransportStateEventArgs(Name, oldState, newState, reason, exception));
     }
 
     /// <summary>

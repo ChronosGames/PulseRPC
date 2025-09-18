@@ -13,14 +13,6 @@ public interface IPulseReceiver
 }
 
 /// <summary>
-/// 事件处理委托
-/// </summary>
-/// <typeparam name="T">事件数据类型</typeparam>
-/// <param name="sender">事件源</param>
-/// <param name="eventData">事件数据</param>
-public delegate void EventHandler<T>(object? sender, T eventData);
-
-/// <summary>
 /// 订阅令牌接口
 /// </summary>
 public interface ISubscriptionToken : IDisposable

@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
 
-namespace PulseRPC.Client.Core.ConnectionPool;
+namespace PulseRPC.Client.ConnectionPool;
 
 /// <summary>
 /// 连接池工厂实现

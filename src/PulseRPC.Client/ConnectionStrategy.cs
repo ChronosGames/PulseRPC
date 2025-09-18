@@ -1,6 +1,6 @@
 using PulseRPC.Transport;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 连接策略枚举 - 定义连接的生命周期和管理方式

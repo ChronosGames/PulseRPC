@@ -1,6 +1,6 @@
 using System;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 连接统计信息
@@ -61,6 +61,11 @@ public sealed class ConnectionStatistics
     /// 平均响应时间
     /// </summary>
     public TimeSpan AverageResponseTime { get; set; }
+
+    /// <summary>
+    /// 活跃请求数
+    /// </summary>
+    public int ActiveRequests { get; set; }
 
     /// <summary>
     /// 最后错误时间

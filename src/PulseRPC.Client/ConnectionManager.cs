@@ -4,7 +4,7 @@ using PulseRPC.Client.Transport;
 using PulseRPC.Transport;
 using System.Collections.Concurrent;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 连接管理器实现 - 管理所有连接的创建、维护和销毁
@@ -36,7 +36,7 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 通过配置连接
     /// </summary>
-    public async Task<IConnectionContext> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default)
+    public async Task<IConnection> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -53,7 +53,7 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 通过描述符连接
     /// </summary>
-    public async Task<IConnectionContext> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
+    public async Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -81,7 +81,7 @@ public sealed class ConnectionManager : IConnectionManager
             _logger.LogInformation("开始创建连接: {ConnectionId} ({Name})", descriptor.Id, descriptor.Name);
 
             // 解析端点地址
-            EndpointAddress? endpoint = await ResolveEndpointAsync(descriptor, cancellationToken);
+            var endpoint = await ResolveEndpointAsync(descriptor, cancellationToken);
             if (endpoint == null)
             {
                 throw new InvalidOperationException($"无法解析连接端点: {descriptor.Id}");
@@ -98,9 +98,6 @@ public sealed class ConnectionManager : IConnectionManager
                 throw new InvalidOperationException($"注册连接失败: {descriptor.Id}");
             }
 
-            // 监听连接状态变化
-            connectionContext.StateChanged += OnConnectionStateChanged;
-
             try
             {
                 // 执行连接
@@ -112,7 +109,6 @@ public sealed class ConnectionManager : IConnectionManager
             {
                 // 连接失败，清理资源
                 _connections.TryRemove(descriptor.Id, out _);
-                connectionContext.StateChanged -= OnConnectionStateChanged;
                 connectionContext.Dispose();
                 throw;
             }
@@ -139,7 +135,6 @@ public sealed class ConnectionManager : IConnectionManager
         {
             _logger.LogInformation("断开连接: {ConnectionId}", connectionId);
 
-            connection.StateChanged -= OnConnectionStateChanged;
             try
             {
                 await connection.DisconnectAsync(cancellationToken);
@@ -154,7 +149,7 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 批量断开连接
     /// </summary>
-    public async Task DisconnectAsync(Func<IConnectionContext, bool> predicate, CancellationToken cancellationToken = default)
+    public async Task DisconnectAsync(Func<IConnection, bool> predicate, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -192,7 +187,7 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 获取连接
     /// </summary>
-    public IConnectionContext? GetConnection(string connectionId)
+    public IConnection? GetConnection(string connectionId)
     {
         ThrowIfDisposed();
 
@@ -204,10 +199,17 @@ public sealed class ConnectionManager : IConnectionManager
         return _connections.TryGetValue(connectionId, out var connection) ? connection : null;
     }
 
+    public IReadOnlyList<IConnection> GetConnectionsByTag(string key, string? value = null)
+    {
+        ThrowIfDisposed();
+
+        return _connections.Select(x => x.Value.Tags.TryGetValue(key, out var v) && (value == null || v == value) ? x.Value : null).Cast<IConnection>().ToArray();
+    }
+
     /// <summary>
     /// 获取所有连接
     /// </summary>
-    public IReadOnlyList<IConnectionContext> GetAllConnections()
+    public IReadOnlyList<IConnection> GetAllConnections()
     {
         ThrowIfDisposed();
         return _connections.Values.ToList();
@@ -276,27 +278,6 @@ public sealed class ConnectionManager : IConnectionManager
     }
 
     /// <summary>
-    /// 处理连接状态变化
-    /// </summary>
-    private void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
-    {
-        _logger.LogDebug("连接状态变化: {ConnectionId} {PreviousState} -> {CurrentState} ({Reason})",
-            e.ConnectionId, e.PreviousState, e.CurrentState, e.Reason ?? "Unknown");
-
-        // 如果连接失败或断开，可以在这里处理重连逻辑
-        if (e.CurrentState == ExtendedConnectionState.Failed)
-        {
-            _logger.LogWarning("连接失败: {ConnectionId} - {Reason}", e.ConnectionId, e.Reason);
-
-            // TODO: 实现自动重连逻辑
-        }
-        else if (e.CurrentState == ExtendedConnectionState.Disconnected)
-        {
-            _logger.LogInformation("连接已断开: {ConnectionId} - {Reason}", e.ConnectionId, e.Reason);
-        }
-    }
-
-    /// <summary>
     /// 检查是否已释放
     /// </summary>
     private void ThrowIfDisposed()
@@ -324,7 +305,6 @@ public sealed class ConnectionManager : IConnectionManager
         {
             try
             {
-                connection.StateChanged -= OnConnectionStateChanged;
                 await connection.DisconnectAsync(CancellationToken.None);
                 connection.Dispose();
             }
@@ -348,5 +328,10 @@ public sealed class ConnectionManager : IConnectionManager
         _serviceDiscovery?.Dispose();
 
         _logger.LogInformation("连接管理器已关闭");
+    }
+
+    public Task<int> CleanupIdleConnectionsAsync(TimeSpan? maxAge = null, CancellationToken cancellationToken = default)
+    {
+        throw new NotImplementedException();
     }
 }

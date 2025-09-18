@@ -105,7 +105,7 @@ public static class EnhancedEventListenerExtensions
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 批量订阅多个事件监听器 - 优化大量订阅的性能");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static async Task<IList<ISubscriptionToken>> BatchSubscribeAsync<T>(");
+        sb.AppendLine("        public static Task<ISubscriptionToken[]> BatchSubscribeAsync<T>(");
         sb.AppendLine("            this IPulseClient client,");
         sb.AppendLine("            IEnumerable<T> listeners,");
         sb.AppendLine("            SmartSubscriptionOptions? options = null) where T : class, IPulseReceiver");
@@ -114,12 +114,11 @@ public static class EnhancedEventListenerExtensions
         sb.AppendLine("            if (listeners == null) throw new ArgumentNullException(nameof(listeners));");
         sb.AppendLine();
         sb.AppendLine("            var listenerList = listeners.ToList();");
-        sb.AppendLine("            if (listenerList.Count == 0) return new List<ISubscriptionToken>();");
+        sb.AppendLine("            if (listenerList.Count == 0) return Task.FromResult(Array.Empty<ISubscriptionToken>());");
         sb.AppendLine();
         sb.AppendLine("            // 并行订阅以提高性能");
         sb.AppendLine("            var tasks = listenerList.Select(listener => client.RegisterSmartEventListenerAsync(listener, options));");
-        sb.AppendLine("            var tokens = await Task.WhenAll(tasks);");
-        sb.AppendLine("            return tokens.ToList();");
+        sb.AppendLine("            return Task.WhenAll(tasks);");
         sb.AppendLine("        }");
         sb.AppendLine();
 

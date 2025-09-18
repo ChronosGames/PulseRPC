@@ -10,7 +10,6 @@ using PulseRPC.Server.Integration;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
-using PulseRPC.Sessions;
 
 namespace PulseRPC.Server.Builder;
 
@@ -216,16 +215,16 @@ public sealed class PulseServerBuilder : IPulseServerBuilder
         // 注册服务器实例
         Services.TryAddSingleton<IPulseServer>(serviceProvider =>
         {
-            var sessionManager = serviceProvider.GetRequiredService<IClientSessionManager>();
             var loggerFactory = serviceProvider.GetRequiredService<ILoggerFactory>();
             var serverOptions = serviceProvider.GetRequiredService<IOptions<ServerOptions>>();
+            var channelManager = serviceProvider.GetRequiredService<IServerChannelManager>();
             var transportIntegrationManager = serviceProvider.GetRequiredService<ITransportIntegrationManager>();
 
             // 创建增强的服务器管理器
             var serverManager = new PulseServer(
-                sessionManager,
                 loggerFactory,
                 serverOptions,
+                channelManager,
                 transportIntegrationManager);
 
             // 添加配置的传输通道
@@ -245,9 +244,6 @@ public sealed class PulseServerBuilder : IPulseServerBuilder
     {
         // 注册序列化器提供程序
         Services.TryAddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
-
-        // 注册会话管理器
-        Services.TryAddSingleton<IClientSessionManager, ClientSessionManager>();
 
         // 注册服务器通道管理器
         Services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();

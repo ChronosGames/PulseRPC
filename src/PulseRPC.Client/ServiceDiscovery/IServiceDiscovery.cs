@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.ServiceDiscovery;
+namespace PulseRPC.Client.ServiceDiscovery;
 
 /// <summary>
 /// 服务实例状态

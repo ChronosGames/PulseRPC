@@ -119,7 +119,7 @@ public readonly ref struct MessagePacket
         // 2. 反序列化头部
         var header = new MessageHeader();
         var deserializeSize = MemoryPackSerializer.Deserialize(headerBuffer, ref header, s_headerOptions);
-        if (header.PayloadLength != deserializeSize)
+        if (header!.PayloadLength != deserializeSize)
             return false;
 
         // 3. 验证负载长度

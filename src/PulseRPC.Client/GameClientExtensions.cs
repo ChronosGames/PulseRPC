@@ -1,4 +1,4 @@
-using PulseRPC.Client.Core;
+using PulseRPC.Client;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client;
@@ -11,7 +11,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 连接到核心游戏服务器
     /// </summary>
-    public static async Task<IConnectionContext> ConnectToCoreServerAsync(
+    public static async Task<IConnection> ConnectToCoreServerAsync(
         this IPulseClient client,
         string serviceName,
         TransportType transport = TransportType.Tcp,
@@ -33,7 +33,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 连接到战斗服务器
     /// </summary>
-    public static async Task<IConnectionContext> ConnectToBattleServerAsync(
+    public static async Task<IConnection> ConnectToBattleServerAsync(
         this IPulseClient client,
         string battleId,
         string host,
@@ -58,7 +58,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 连接到副本服务器
     /// </summary>
-    public static async Task<IConnectionContext> ConnectToInstanceServerAsync(
+    public static async Task<IConnection> ConnectToInstanceServerAsync(
         this IPulseClient client,
         string instanceId,
         string host,
@@ -83,7 +83,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 连接到地图服务器
     /// </summary>
-    public static async Task<IConnectionContext> ConnectToMapServerAsync(
+    public static async Task<IConnection> ConnectToMapServerAsync(
         this IPulseClient client,
         string mapId,
         string? serviceName = null,
@@ -112,7 +112,7 @@ public static class GameClientExtensions
         CancellationToken cancellationToken = default)
     {
         await client.Connections.DisconnectAsync(
-            conn => conn.Config.Tags.GetValueOrDefault("type") == type,
+            conn => conn.Tags.GetValueOrDefault("type") == type,
             cancellationToken);
     }
 
@@ -141,7 +141,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 切换地图（断开旧地图，连接新地图）
     /// </summary>
-    public static async Task<IConnectionContext> SwitchMapAsync(
+    public static async Task<IConnection> SwitchMapAsync(
         this IPulseClient client,
         string oldMapId,
         string newMapId,
@@ -163,7 +163,7 @@ public static class GameClientExtensions
     public static async Task WithTemporaryConnectionAsync(
         this IPulseClient client,
         ConnectionConfig config,
-        Func<IConnectionContext, Task> action,
+        Func<IConnection, Task> action,
         CancellationToken cancellationToken = default)
     {
         var connection = await client.Connections.ConnectAsync(config, cancellationToken);

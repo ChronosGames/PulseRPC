@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
 
-namespace PulseRPC.Client.Core;
+namespace PulseRPC.Client;
 
 /// <summary>
 /// 简单负载均衡器实现 - Stage 1 基础版本
@@ -52,7 +52,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
         // 根据提示调整策略
         var effectiveStrategy = ApplyHint(Strategy, hint);
 
-        IConnection? selectedConnection = effectiveStrategy switch
+        var selectedConnection = effectiveStrategy switch
         {
             LoadBalancingStrategy.RoundRobin => SelectRoundRobin(healthyConnections),
             LoadBalancingStrategy.Random => SelectRandom(healthyConnections),

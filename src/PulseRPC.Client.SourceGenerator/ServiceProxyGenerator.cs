@@ -9,10 +9,9 @@ using PulseRPC.Generator.Generators;
 namespace PulseRPC.Generator;
 
 [Generator(LanguageNames.CSharp)]
-public partial class ServiceProxyGenerator : IIncrementalGenerator
+public class ServiceProxyGenerator : IIncrementalGenerator
 {
     private const string PulseClientGenerationAttributeName = "PulseClientGenerationAttribute";
-    private const string PulseServiceAttributeName = "PulseServiceAttribute";
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -240,46 +239,46 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
-        sb.AppendLine("using PulseRPC.Client.Core;");
+        sb.AppendLine("using PulseRPC.Client;");
         sb.AppendLine();
 
         // 生成命名空间
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine("{");
 
-        // 生成高性能代理类
+        // 生成基于 IConnection 的代理类
         sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// 高性能 {interfaceName} 服务代理");
+        sb.AppendLine($"    /// 基于连接的 {interfaceName} 服务代理");
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine($"    public sealed class {interfaceName}Proxy : {interfaceName}");
         sb.AppendLine("    {");
-        sb.AppendLine("        private readonly IPulseClient _client;");
+        sb.AppendLine("        private readonly IConnection _connection;");
         sb.AppendLine();
         sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 初始化 {interfaceName} 服务代理");
+        sb.AppendLine($"        /// 初始化 {interfaceName} 连接代理");
         sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        /// <param name=\"client\">PulseRPC客户端</param>");
-        sb.AppendLine($"        public {interfaceName}Proxy(IPulseClient client)");
+        sb.AppendLine($"        /// <param name=\"connection\">连接</param>");
+        sb.AppendLine($"        public {interfaceName}Proxy(IConnection connection)");
         sb.AppendLine("        {");
-        sb.AppendLine($"            _client = client ?? throw new ArgumentNullException(nameof(client));");
+        sb.AppendLine($"            _connection = connection ?? throw new ArgumentNullException(nameof(connection));");
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        // 生成高性能方法实现
+        // 生成基于连接上下文的方法实现
         foreach (var member in interfaceSymbol.GetMembers())
         {
-            if (member is not IMethodSymbol methodSymbol)
+            if (member is not IMethodSymbol methodSymbol2)
                 continue;
 
             // 自动处理所有公共方法
-            if (methodSymbol.DeclaredAccessibility != Accessibility.Public)
+            if (methodSymbol2.DeclaredAccessibility != Accessibility.Public)
                 continue;
 
-            // 生成高性能方法实现
-            GenerateHighPerformanceMethodImplementation(sb, methodSymbol, defaultChannelName, namespaceName, interfaceName);
+            // 生成基于连接上下文的方法实现
+            GenerateConnectionContextMethodImplementation(sb, methodSymbol2, defaultChannelName, namespaceName, interfaceName);
         }
 
-        // 结束类和命名空间
+        // 结束连接代理类和命名空间
         sb.AppendLine("    }");
         sb.AppendLine("}");
 
@@ -380,7 +379,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
 
         // 简化的方法调用实现，委托给客户端的实际实现
         sb.AppendLine($"            // 通过服务发现或直接连接获取服务");
-        sb.AppendLine($"            var service = await _client.GetServiceAsync<{interfaceName}>(null, {tokenName});");
+        sb.AppendLine($"            var service = await _connection.GetServiceAsync<{interfaceName}>(null, {tokenName});");
         if (isVoid || isValueTaskVoid)
         {
             var parameterList = string.Join(", ", parameters.Where(p =>
@@ -856,7 +855,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
-        sb.AppendLine("using PulseRPC.Client.Core;");
+        sb.AppendLine("using PulseRPC.Client;");
         sb.AppendLine();
 
         // 生成命名空间
@@ -867,7 +866,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// 服务扩展方法");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine($"    public static class ServiceExtensions");
+        sb.AppendLine("    public static class ServiceExtensions");
         sb.AppendLine("    {");
 
         // 生成简化的服务代理工厂方法
@@ -883,14 +882,17 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
 
                 sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// 创建 {interfaceName} 服务代理");
+                sb.AppendLine($"        /// 获取指定连接的 {interfaceName} 服务代理");
                 sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        public static {fullTypeName}Proxy Create{serviceName}Proxy(this IPulseClient client)");
+                sb.AppendLine($"        public static Task<{fullTypeName}Proxy> Get{serviceName}Async(this IPulseClient self, string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)");
                 sb.AppendLine("        {");
-                sb.AppendLine("            if (client == null)");
-                sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
+                sb.AppendLine("            var connection = self.Registry.GetConnection(connectionId);");
+                sb.AppendLine("            if (connection == null)");
+                sb.AppendLine("            {");
+                sb.AppendLine("                throw new ArgumentException($\"连接不存在: {connectionId}\", nameof(connectionId));");
+                sb.AppendLine("            }");
                 sb.AppendLine();
-                sb.AppendLine($"            return new {fullTypeName}Proxy(client);");
+                sb.AppendLine($"            return new {fullTypeName}Proxy(connection);");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -904,6 +906,7 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 if (interfaceSymbol == null) continue;
 
                 var interfaceName = interfaceSymbol.Name;
+                var fullTypeName = GetFullTypeName(interfaceSymbol);
                 var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
                 var handlerClassName = interfaceName.StartsWith("I")
                     ? interfaceName.Substring(1) + "Handler"
@@ -918,6 +921,21 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
                 sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
                 sb.AppendLine();
                 sb.AppendLine($"            return new {handlerClassName}(client);");
+                sb.AppendLine("        }");
+                sb.AppendLine();
+
+                // 生成 IConnectionContext 的事件监听器扩展方法
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// 在指定连接上注册 {interfaceName} 事件监听器");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        public static Task<ISubscriptionToken> RegisterEventListener(this IConnectionContext context, {fullTypeName} listener)");
+                sb.AppendLine("        {");
+                sb.AppendLine("            if (context == null)");
+                sb.AppendLine("                throw new ArgumentNullException(nameof(context));");
+                sb.AppendLine("            if (listener == null)");
+                sb.AppendLine("                throw new ArgumentNullException(nameof(listener));");
+                sb.AppendLine();
+                sb.AppendLine($"            return context.RegisterEventListenerInternalAsync(listener);");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -1074,5 +1092,93 @@ public partial class ServiceProxyGenerator : IIncrementalGenerator
         }
 
         return string.Join(", ", paramNames);
+    }
+
+    private static void GenerateConnectionContextMethodImplementation(
+        StringBuilder sb,
+        IMethodSymbol methodSymbol,
+        string defaultChannelName,
+        string namespaceName,
+        string interfaceName)
+    {
+        var methodName = methodSymbol.Name;
+        var returnType = methodSymbol.ReturnType.ToDisplayString();
+
+        // 获取方法级别的通道特性，如果没有则使用接口级别的默认通道
+        var channelName = GetChannelAttributeValue(methodSymbol) ?? defaultChannelName;
+
+        sb.AppendLine($"        /// <summary>");
+        sb.AppendLine($"        /// 调用 {methodName} 方法");
+        sb.AppendLine($"        /// </summary>");
+
+        // 生成方法签名
+        var parameters = methodSymbol.Parameters;
+        var paramList = string.Join(", ", parameters.Select(p =>
+            $"{p.Type.ToDisplayString()} {p.Name}"));
+
+        // 检查是否是异步方法
+        var isAsync = returnType.StartsWith("System.Threading.Tasks.Task") || returnType.StartsWith("System.Threading.Tasks.ValueTask");
+
+        if (isAsync)
+        {
+            sb.AppendLine($"        public async {returnType} {methodName}({paramList})");
+        }
+        else
+        {
+            sb.AppendLine($"        public {returnType} {methodName}({paramList})");
+        }
+
+        sb.AppendLine("        {");
+
+        if (isAsync)
+        {
+            var str = string.Join(", ", parameters.Select(p => p.Name));
+
+            // 根据返回类型生成不同的调用
+            if (returnType == "System.Threading.Tasks.Task" || returnType == "System.Threading.Tasks.ValueTask")
+            {
+                // void Task 方法
+                sb.AppendLine($"            await _connection.SendAsync(\"{interfaceName}\", \"{methodName}\"{(string.IsNullOrEmpty(str) ? string.Empty : ", " + str)});");
+            }
+            else
+            {
+                // Task<T> 方法
+                var taskType = returnType
+                    .Replace("System.Threading.Tasks.Task<", string.Empty)
+                    .Replace("System.Threading.Tasks.ValueTask<", string.Empty)
+                    .TrimEnd('>');
+
+                if (parameters.Length > 1)
+                {
+                    var requestType = "Tuple<" + string.Join(", ", parameters.Select(x => x.Type.ToDisplayString())) + ">";
+                    sb.AppendLine($"            var __request__ = new {requestType}({string.Join(", ", parameters.Select(x => x.Name))});");
+                    sb.AppendLine($"            return await _connection.InvokeAsync<{requestType}, {taskType}>(\"{interfaceName}\", \"{methodName}\", in __request__);");
+                }
+                else if (parameters.Length == 1)
+                {
+                    sb.AppendLine($"            return await _connection.InvokeAsync<{parameters.First().Type.ToDisplayString()}, {taskType}>(\"{interfaceName}\", \"{methodName}\", in {parameters.First().Name});");
+                }
+                else
+                {
+                    sb.AppendLine($"            return await _connection.InvokeAsync<{taskType}>(\"{interfaceName}\", \"{methodName}\");");
+                }
+            }
+        }
+        else
+        {
+            // 生成同步实现
+            sb.AppendLine($"            // 同步方法通过异步实现");
+            if (returnType == "void")
+            {
+                sb.AppendLine($"            _connection.SendAsync(nameof({interfaceName}), nameof({methodName}), {string.Join(", ", parameters.Select(p => p.Name))}).GetAwaiter().GetResult();");
+            }
+            else
+            {
+                sb.AppendLine($"            return {methodName}({string.Join(", ", parameters.Select(p => p.Name))}).GetAwaiter().GetResult();");
+            }
+        }
+
+        sb.AppendLine("        }");
+        sb.AppendLine();
     }
 }

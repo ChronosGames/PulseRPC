@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 
-namespace PulseRPC.Client.Core.ConnectionPool;
+namespace PulseRPC.Client.ConnectionPool;
 
 /// <summary>
 /// 连接池基类 - 提供公共的连接池管理功能
@@ -528,7 +528,7 @@ public abstract class ConnectionPool : IConnectionPool
     /// <summary>
     /// 创建新连接（抽象方法，由子类实现）
     /// </summary>
-    protected abstract Task<IConnectionContext> CreateConnectionAsync(CancellationToken cancellationToken = default);
+    protected abstract Task<IConnection> CreateConnectionAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 检查是否可以创建新连接（抽象方法，由子类实现）
@@ -571,7 +571,7 @@ public abstract class ConnectionPool : IConnectionPool
     /// <summary>
     /// 创建连接租借
     /// </summary>
-    protected virtual IConnectionLease CreateLease(IConnectionContext connection)
+    protected virtual IConnectionLease CreateLease(IConnection connection)
     {
         return new ConnectionLease(connection);
     }
@@ -772,11 +772,11 @@ public abstract class ConnectionPool : IConnectionPool
 /// </summary>
 public sealed class PooledConnection
 {
-    public IConnectionContext Context { get; }
+    public IConnection Context { get; }
     public DateTime CreatedAt { get; }
     public DateTime LastUsedAt { get; set; }
 
-    public PooledConnection(IConnectionContext context, DateTime lastUsedAt)
+    public PooledConnection(IConnection context, DateTime lastUsedAt)
     {
         Context = context;
         CreatedAt = DateTime.UtcNow;
@@ -800,7 +800,7 @@ internal sealed class ConnectionLease : IConnectionLease
     /// <summary>
     /// 连接上下文
     /// </summary>
-    public IConnectionContext Connection { get; }
+    public IConnection Connection { get; }
 
     /// <summary>
     /// 租借时间
@@ -822,7 +822,7 @@ internal sealed class ConnectionLease : IConnectionLease
     /// </summary>
     public Dictionary<string, object> Tags { get; } = new();
 
-    public ConnectionLease(IConnectionContext connection)
+    public ConnectionLease(IConnection connection)
     {
         Connection = connection ?? throw new ArgumentNullException(nameof(connection));
         AcquiredAt = DateTime.UtcNow;

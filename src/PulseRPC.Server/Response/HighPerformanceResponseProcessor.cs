@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Server.Dispatch;
-using PulseRPC.Sessions;
 
 namespace PulseRPC.Server.Response;
 

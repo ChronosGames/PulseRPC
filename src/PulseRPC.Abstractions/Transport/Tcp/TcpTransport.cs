@@ -102,8 +102,8 @@ public abstract class TcpTransport : ITransport
     public long TotalBytesSent => Interlocked.Read(ref _totalBytesSent);
     public long TotalBytesReceived => Interlocked.Read(ref _totalBytesReceived);
 
-    public event System.EventHandler<TransportStateEventArgs>? StateChanged;
-    public event System.EventHandler<TransportDataEventArgs>? DataReceived;
+    public event EventHandler<TransportStateEventArgs>? StateChanged;
+    public event EventHandler<TransportDataEventArgs>? DataReceived;
 
     protected TcpTransport(TcpTransportOptions? options = null, ILogger? logger = null)
     {
@@ -401,7 +401,7 @@ public abstract class TcpTransport : ITransport
 
         _logger.LogInformation("传输状态变更: {OldState} -> {NewState} ({Reason})", oldState, newState, reason ?? "未指定原因");
 
-        StateChanged?.Invoke(this, new TransportStateEventArgs(oldState, newState, reason, exception));
+        StateChanged?.Invoke(this, new TransportStateEventArgs(this.Name, oldState, newState, reason, exception));
     }
 
     /// <summary>

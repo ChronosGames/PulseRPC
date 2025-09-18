@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
-using PulseRPC.Client.Core.ConnectionPool;
+using PulseRPC.Client.ConnectionPool;
 
-namespace PulseRPC.Client.Core.LifecycleStrategies;
+namespace PulseRPC.Client.LifecycleStrategies;
 
 /// <summary>
 /// 连接池连接策略 - 与连接池集成，管理池化连接的生命周期
@@ -77,7 +77,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 创建连接
     /// </summary>
-    public override async Task<IConnectionContext> CreateConnectionAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
+    public override async Task<IConnection> CreateConnectionAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("创建连接池连接: {ConnectionId}", descriptor.Id);
 
@@ -97,7 +97,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
         // 注册到管理列表
         var lifecycleInfo = new ConnectionLifecycleInfo(connection, DateTime.UtcNow);
         _managedConnections.TryAdd(connection.Id, lifecycleInfo);
-        connection.StateChanged += OnConnectionStateChanged;
+        connection.ConnectionStateChanged += OnConnectionStateChanged;
 
         _statistics.ManagedConnections = _managedConnections.Count;
         _logger.LogDebug("连接池连接已创建: {ConnectionId}, 连接池: {PoolName}", connection.Id, poolName);
@@ -108,7 +108,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 管理连接生命周期
     /// </summary>
-    protected override async Task OnManageConnectionAsync(IConnectionContext connection, CancellationToken cancellationToken = default)
+    protected override async Task OnManageConnectionAsync(IConnection connection, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("管理连接池连接: {ConnectionId}", connection.Id);
 
@@ -137,7 +137,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 处理连接断开
     /// </summary>
-    protected override async Task OnConnectionDisconnectedInternalAsync(IConnectionContext connection, string reason, Exception? exception = null)
+    protected override async Task OnConnectionDisconnectedInternalAsync(IConnection connection, string reason, Exception? exception = null)
     {
         _logger.LogInformation("连接池连接断开: {ConnectionId}, 原因: {Reason}", connection.Id, reason);
 
@@ -159,7 +159,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 处理连接失败
     /// </summary>
-    protected override async Task OnConnectionFailedInternalAsync(IConnectionContext connection, Exception exception)
+    protected override async Task OnConnectionFailedInternalAsync(IConnection connection, Exception exception)
     {
         _logger.LogError(exception, "连接池连接失败: {ConnectionId}", connection.Id);
 
@@ -182,7 +182,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 检查连接是否应该保持活跃
     /// </summary>
-    protected override bool ShouldKeepAliveInternal(IConnectionContext connection, TimeSpan idleDuration)
+    protected override bool ShouldKeepAliveInternal(IConnection connection, TimeSpan idleDuration)
     {
         // 连接池连接的保活主要由连接池策略决定
         lock (_poolLock)
@@ -216,7 +216,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 清理连接
     /// </summary>
-    protected override async Task OnCleanupConnectionAsync(IConnectionContext connection, string reason)
+    protected override async Task OnCleanupConnectionAsync(IConnection connection, string reason)
     {
         _logger.LogInformation("清理连接池连接: {ConnectionId}, 原因: {Reason}", connection.Id, reason);
 
@@ -320,7 +320,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 处理失败的连接池连接
     /// </summary>
-    private async Task HandleFailedPooledConnectionAsync(IConnectionContext connection)
+    private async Task HandleFailedPooledConnectionAsync(IConnection connection)
     {
         lock (_poolLock)
         {
@@ -340,7 +340,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 将连接归还给连接池
     /// </summary>
-    private async Task ReturnConnectionToPoolAsync(IConnectionContext connection, string reason)
+    private async Task ReturnConnectionToPoolAsync(IConnection connection, string reason)
     {
         lock (_poolLock)
         {
@@ -492,7 +492,7 @@ public sealed class PooledConnectionStrategy : ConnectionLifecycleStrategyBase
 /// </summary>
 internal sealed class PooledConnectionInfo
 {
-    public IConnectionContext Connection { get; }
+    public IConnection Connection { get; }
     public IConnectionPool Pool { get; }
     public IConnectionLease Lease { get; }
     public DateTime CreatedAt { get; }
@@ -502,7 +502,7 @@ internal sealed class PooledConnectionInfo
     public Exception? LastException { get; set; }
     public int FailureCount { get; set; }
 
-    public PooledConnectionInfo(IConnectionContext connection, IConnectionPool pool, IConnectionLease lease)
+    public PooledConnectionInfo(IConnection connection, IConnectionPool pool, IConnectionLease lease)
     {
         Connection = connection;
         Pool = pool;

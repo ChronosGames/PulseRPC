@@ -19,11 +19,8 @@ public class TcpServerTransport : TcpTransport, IServerTransport
     public string ConnectionId => _connectionId;
     public DateTime ConnectedAt => _connectedAt;
     public DateTime LastActivityAt => _lastActivityAt;
+    public DateTime LastActiveTime => _lastActivityAt;
     public TransportType TransportType => TransportType.Tcp;
-
-    // ITransportConnection events
-    public new event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
-    public new event EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
     /// 使用已连接的Socket创建服务端连接
@@ -62,8 +59,7 @@ public class TcpServerTransport : TcpTransport, IServerTransport
     /// </summary>
     private void OnBaseStateChanged(object? sender, TransportStateEventArgs e)
     {
-        var args = new ConnectionStateChangedEventArgs(_connectionId, e.PreviousState, e.CurrentState, e.Reason, e.Exception);
-        StateChanged?.Invoke(this, args);
+        ChangeState(e.CurrentState, e.Reason, e.Exception);
     }
 
     /// <summary>
@@ -73,9 +69,6 @@ public class TcpServerTransport : TcpTransport, IServerTransport
     {
         // 更新最后活动时间
         _lastActivityAt = DateTime.UtcNow;
-
-        // 转发事件
-        DataReceived?.Invoke(this, e);
     }
 
     /// <summary>

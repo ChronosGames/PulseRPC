@@ -45,10 +45,10 @@ public sealed class TransportValidationResult
     public List<string> Warnings { get; init; } = new();
 
     public static TransportValidationResult Valid() => new() { IsValid = true };
-    
-    public static TransportValidationResult Invalid(params string[] errors) => 
+
+    public static TransportValidationResult Invalid(params string[] errors) =>
         new() { IsValid = false, Errors = errors.ToList() };
-    
-    public static TransportValidationResult ValidWithWarnings(params string[] warnings) => 
+
+    public static TransportValidationResult ValidWithWarnings(params string[] warnings) =>
         new() { IsValid = true, Warnings = warnings.ToList() };
 }

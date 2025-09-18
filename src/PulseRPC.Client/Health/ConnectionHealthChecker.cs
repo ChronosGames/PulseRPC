@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Client.Core.Health;
+namespace PulseRPC.Client.Health;
 
 /// <summary>
 /// 连接健康检查器
