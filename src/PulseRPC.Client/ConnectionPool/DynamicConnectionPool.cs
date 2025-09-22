@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client.ConnectionPool;
 
@@ -95,7 +96,7 @@ public sealed class DynamicConnectionPool : ConnectionPool
     /// <summary>
     /// 创建新连接
     /// </summary>
-    protected override async Task<IConnection> CreateConnectionAsync(CancellationToken cancellationToken = default)
+    protected override async Task<IClientChannel> CreateConnectionAsync(CancellationToken cancellationToken = default)
     {
         if (_currentConnections >= _maxSize)
         {

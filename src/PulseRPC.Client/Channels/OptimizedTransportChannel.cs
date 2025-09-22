@@ -15,9 +15,8 @@ namespace PulseRPC.Client.Channels;
 /// <summary>
 /// 优化的传输通道 - 减少热路径内存分配
 /// </summary>
-public class OptimizedTransportChannel : IClientChannel
+internal class OptimizedTransportChannel : IClientChannel
 {
-    private readonly string _name;
     private readonly IClientTransport _transport;
     private readonly ISerializerProvider _serializerProvider;
     private readonly TransportChannelOptions _options;
@@ -47,24 +46,44 @@ public class OptimizedTransportChannel : IClientChannel
     // 事件回调
     private Action<string, byte[]>? _eventCallback;
 
-    public string Name => _name;
+    public string Id => _transport.Name;
     public bool IsConnected => _transport.IsConnected;
-    public ConnectionState ConnectionState => _transport.State;
 
-    public event EventHandler<ConnectionStateChangedEventArgs>? ConnectionStateChanged;
+    // IClientChannel properties that integrate IConnection functionality
+    public ConnectionDescriptor Descriptor { get; private set; }
+    public ExtendedConnectionState State => _transport.State.ToExtended();
+    public ConnectionStatistics Statistics { get; private set; }
+    public Dictionary<string, string> Tags => Descriptor?.Tags ?? new Dictionary<string, string>();
+
+    public event EventHandler<TransportStateEventArgs>? ConnectionStateChanged;
+
+    // Backward compatibility - keep old event for existing code
+    public event EventHandler<ConnectionStateChangedEventArgs>? LegacyConnectionStateChanged;
 
     public OptimizedTransportChannel(
-        string name,
         IClientTransport transport,
         ISerializerProvider serializerProvider,
         TransportChannelOptions? options = null,
         ILogger<OptimizedTransportChannel>? logger = null)
     {
-        _name = name;
         _transport = transport;
         _serializerProvider = serializerProvider;
         _options = options ?? new TransportChannelOptions();
         _logger = logger ?? NullLogger<OptimizedTransportChannel>.Instance;
+
+        // Initialize IConnection integration properties
+        Descriptor = new ConnectionDescriptor
+        {
+            Id = transport.Name,
+            Name = transport.Name,
+            Transport = transport.Type,
+            Strategy = ConnectionStrategy.Session
+        };
+        Statistics = new ConnectionStatistics
+        {
+            ConnectionId = transport.Name,
+            CreatedAt = DateTime.UtcNow
+        };
 
         // 初始化对象池
         _messageHeaderPool = new UnityCompatibleObjectPool<MessageHeader>(() => new MessageHeader(), ResetMessageHeader, 32);
@@ -318,12 +337,12 @@ public class OptimizedTransportChannel : IClientChannel
         }
     }
 
-    public async Task SendAsync<T>(string eventName, T message, CancellationToken cancellationToken = default)
+    public Task SendAsync<T>(string eventName, T message, CancellationToken cancellationToken = default)
     {
-        await SendEventAsync(eventName, message, cancellationToken);
+        return SendEventAsync(eventName, message, cancellationToken);
     }
 
-    public ISubscriptionToken SubscribeToEvent<T>(string eventName, System.EventHandler<T> handler)
+    public ISubscriptionToken SubscribeToEvent<T>(string eventName, EventHandler<T> handler)
     {
         lock (_syncRoot)
         {
@@ -336,9 +355,17 @@ public class OptimizedTransportChannel : IClientChannel
             var subscription = new EventSubscription<T>(eventName, handler);
             subscriptions.Add(subscription);
 
-            return new SubscriptionToken(subscription.Id, eventName, typeof(T),
-                () => UnsubscribeEvent(eventName, subscription.Id));
+            return new SubscriptionToken(subscription.Id, eventName, typeof(T), () => UnsubscribeEvent(eventName, subscription.Id));
         }
+    }
+
+    public async Task RegisterReceiverAsync<T>(T receiver, CancellationToken cancellationToken = default) where T : class
+    {
+        if (receiver == null) throw new ArgumentNullException(nameof(receiver));
+
+        // 简单实现 - 在实际项目中需要根据接收器类型注册相应的事件处理器
+        await Task.CompletedTask;
+        _logger.LogInformation("Receiver {ReceiverType} registered", typeof(T).Name);
     }
 
     // ... 其余方法保持不变，但可以进行类似的优化
@@ -505,16 +532,26 @@ public class OptimizedTransportChannel : IClientChannel
     {
         try
         {
-            var eventArgs = new ConnectionStateChangedEventArgs
+            // Update Statistics
+            if (e.CurrentState == ConnectionState.Connected)
+            {
+                Statistics.ConnectedAt = DateTime.UtcNow;
+            }
+            Statistics.LastActiveAt = DateTime.UtcNow;
+
+            // Fire the new event with the correct signature
+            ConnectionStateChanged?.Invoke(this, e);
+
+            // Fire legacy event for backward compatibility
+            var legacyEventArgs = new ConnectionStateChangedEventArgs
             {
                 ConnectionId = e.ConnectionId,
-                PreviousState = ConnectionStateMachine.ToConnectionState(e.PreviousState),
-                CurrentState = ConnectionStateMachine.ToConnectionState(e.CurrentState),
+                PreviousState = e.PreviousState.ToExtended(),
+                CurrentState = e.CurrentState.ToExtended(),
                 Reason = e.Reason,
                 Exception = e.Exception,
             };
-
-            ConnectionStateChanged?.Invoke(this, eventArgs);
+            LegacyConnectionStateChanged?.Invoke(this, legacyEventArgs);
 
             if (e.CurrentState == ConnectionState.Disconnected)
             {

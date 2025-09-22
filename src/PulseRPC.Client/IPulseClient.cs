@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
 using PulseRPC.Client;
 using PulseRPC.Client.ConnectionPool;
+using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
@@ -65,12 +66,12 @@ public interface IPulseClient : IDisposable
     /// <summary>
     /// 连接到服务
     /// </summary>
-    Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
+    Task<IClientChannel> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 通过服务发现连接到服务
     /// </summary>
-    Task<IConnection> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default);
+    Task<IClientChannel> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取服务代理（自动路由到最佳连接）
@@ -104,7 +105,7 @@ public interface IPulseClient : IDisposable
     /// <summary>
     /// 批量断开连接
     /// </summary>
-    Task<int> DisconnectAsync(Func<IConnection, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default);
+    Task<int> DisconnectAsync(Func<IClientChannel, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取客户端统计信息
@@ -136,12 +137,12 @@ public interface IConnectionManager : IDisposable
     /// <summary>
     /// 连接到服务
     /// </summary>
-    Task<IConnection> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
+    Task<IClientChannel> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 通过描述符连接
     /// </summary>
-    Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
+    Task<IClientChannel> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 断开连接
@@ -151,22 +152,22 @@ public interface IConnectionManager : IDisposable
     /// <summary>
     /// 批量断开连接
     /// </summary>
-    Task DisconnectAsync(Func<IConnection, bool> predicate, CancellationToken cancellationToken = default);
+    Task DisconnectAsync(Func<IClientChannel, bool> predicate, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取连接
     /// </summary>
-    IConnection? GetConnection(string connectionId);
+    IClientChannel? GetConnection(string connectionId);
 
     /// <summary>
     /// 根据标签查找连接
     /// </summary>
-    IReadOnlyList<IConnection> GetConnectionsByTag(string key, string? value = null);
+    IReadOnlyList<IClientChannel> GetConnectionsByTag(string key, string? value = null);
 
     /// <summary>
     /// 获取所有连接
     /// </summary>
-    IReadOnlyList<IConnection> GetAllConnections();
+    IReadOnlyList<IClientChannel> GetAllConnections();
 
     /// <summary>
     /// 连接数量
@@ -176,7 +177,7 @@ public interface IConnectionManager : IDisposable
     /// <summary>
     /// 获取或创建连接
     /// </summary>
-    // Task<IConnection> GetOrCreateConnectionAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
+    // Task<IClientChannel> GetOrCreateConnectionAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 清理空闲连接
@@ -213,12 +214,12 @@ public interface IConnectionRouter
     /// <summary>
     /// 路由到最佳连接
     /// </summary>
-    Task<IConnection> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default);
+    Task<IClientChannel> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 获取所有匹配的连接
     /// </summary>
-    IReadOnlyList<IConnection> GetMatchingConnections(string routingKey, RoutingContext? context = null);
+    IReadOnlyList<IClientChannel> GetMatchingConnections(string routingKey, RoutingContext? context = null);
 }
 
 /// <summary>
@@ -283,7 +284,7 @@ public interface IConnectionRegistry
     /// <summary>
     /// 注册连接
     /// </summary>
-    void RegisterConnection(IConnection connection);
+    void RegisterConnection(IClientChannel connection);
 
     /// <summary>
     /// 注销连接
@@ -293,17 +294,17 @@ public interface IConnectionRegistry
     /// <summary>
     /// 根据标签获取连接
     /// </summary>
-    IReadOnlyList<IConnection> GetConnectionsByTags(Dictionary<string, string> tags);
+    IReadOnlyList<IClientChannel> GetConnectionsByTags(Dictionary<string, string> tags);
 
     /// <summary>
     /// 获取连接
     /// </summary>
-    IConnection? GetConnection(string connectionId);
+    IClientChannel? GetConnection(string connectionId);
 
     /// <summary>
     /// 获取所有连接
     /// </summary>
-    IReadOnlyList<IConnection> GetAllConnections();
+    IReadOnlyList<IClientChannel> GetAllConnections();
 
     /// <summary>
     /// 连接注册事件
@@ -352,7 +353,7 @@ public interface ILoadBalancer
     /// <summary>
     /// 选择最佳连接
     /// </summary>
-    IConnection? SelectConnection(IReadOnlyList<IConnection> connections, LoadBalancingHint hint = LoadBalancingHint.None);
+    IClientChannel? SelectConnection(IReadOnlyList<IClientChannel> connections, LoadBalancingHint hint = LoadBalancingHint.None);
 
     /// <summary>
     /// 负载均衡策略
@@ -383,7 +384,7 @@ public sealed class RoutingRule
     /// <summary>
     /// 连接选择器
     /// </summary>
-    public Func<IReadOnlyList<IConnection>, RoutingContext?, IConnection?> Selector { get; set; } = (connections, _) => connections.FirstOrDefault();
+    public Func<IReadOnlyList<IClientChannel>, RoutingContext?, IClientChannel?> Selector { get; set; } = (connections, _) => connections.FirstOrDefault();
 
     /// <summary>
     /// 规则优先级（数值越大优先级越高）
@@ -500,7 +501,7 @@ public enum ServiceChangeType
 /// </summary>
 public sealed class ConnectionRegisteredEventArgs : EventArgs
 {
-    public IConnection Connection { get; set; } = null!;
+    public IClientChannel Connection { get; set; } = null!;
 }
 
 /// <summary>

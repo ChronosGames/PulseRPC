@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client.LifecycleStrategies;
 
@@ -69,7 +70,7 @@ public sealed class SessionConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 管理连接生命周期
     /// </summary>
-    protected override async Task OnManageConnectionAsync(IConnection connection, CancellationToken cancellationToken = default)
+    protected override async Task OnManageConnectionAsync(IClientChannel connection, CancellationToken cancellationToken = default)
     {
         _logger.LogDebug("开始管理会话连接: {ConnectionId}", connection.Id);
 
@@ -96,7 +97,7 @@ public sealed class SessionConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 处理连接断开
     /// </summary>
-    protected override async Task OnConnectionDisconnectedInternalAsync(IConnection connection, string reason, Exception? exception = null)
+    protected override async Task OnConnectionDisconnectedInternalAsync(IClientChannel connection, string reason, Exception? exception = null)
     {
         _logger.LogInformation("会话连接断开: {ConnectionId}, 原因: {Reason}", connection.Id, reason);
 
@@ -125,7 +126,7 @@ public sealed class SessionConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 处理连接失败
     /// </summary>
-    protected override async Task OnConnectionFailedInternalAsync(IConnection connection, Exception exception)
+    protected override async Task OnConnectionFailedInternalAsync(IClientChannel connection, Exception exception)
     {
         _logger.LogWarning(exception, "会话连接失败: {ConnectionId}", connection.Id);
 
@@ -155,7 +156,7 @@ public sealed class SessionConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 检查连接是否应该保持活跃
     /// </summary>
-    protected override bool ShouldKeepAliveInternal(IConnection connection, TimeSpan idleDuration)
+    protected override bool ShouldKeepAliveInternal(IClientChannel connection, TimeSpan idleDuration)
     {
         // 会话连接在空闲超时后会断开
         if (_options.DisconnectOnIdle && idleDuration > _options.IdleTimeout)
@@ -188,7 +189,7 @@ public sealed class SessionConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 清理连接
     /// </summary>
-    protected override async Task OnCleanupConnectionAsync(IConnection connection, string reason)
+    protected override async Task OnCleanupConnectionAsync(IClientChannel connection, string reason)
     {
         _logger.LogInformation("清理会话连接: {ConnectionId}, 原因: {Reason}", connection.Id, reason);
 
@@ -268,7 +269,7 @@ public sealed class SessionConnectionStrategy : ConnectionLifecycleStrategyBase
     /// <summary>
     /// 尝试重连
     /// </summary>
-    private async Task TryReconnectAsync(IConnection connection)
+    private async Task TryReconnectAsync(IClientChannel connection)
     {
         SessionInfo sessionInfo;
 
@@ -358,7 +359,7 @@ public sealed class SessionConnectionStrategy : ConnectionLifecycleStrategyBase
         await base.PerformMaintenanceAsync();
 
         // 检查过期的会话
-        var expiredSessions = new List<IConnection>();
+        var expiredSessions = new List<IClientChannel>();
         var maxSessionDuration = _options.MaxConnectionLifetime ?? TimeSpan.FromHours(2);
         var now = DateTime.UtcNow;
 
@@ -451,7 +452,7 @@ public sealed class SessionConnectionStrategy : ConnectionLifecycleStrategyBase
 /// </summary>
 internal sealed class SessionInfo
 {
-    public IConnection Connection { get; }
+    public IClientChannel Connection { get; }
     public DateTime CreatedAt { get; }
     public DateTime? LastReconnectAt { get; set; }
     public DateTime? LastDisconnectedAt { get; set; }
@@ -462,7 +463,7 @@ internal sealed class SessionInfo
     public int FailureCount { get; set; }
     public bool IsReconnecting { get; set; }
 
-    public SessionInfo(IConnection connection)
+    public SessionInfo(IClientChannel connection)
     {
         Connection = connection;
         CreatedAt = DateTime.UtcNow;

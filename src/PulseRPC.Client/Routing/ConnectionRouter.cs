@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Text.RegularExpressions;
 using PulseRPC.Client;
 using PulseRPC.Client;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client.Routing;
 
@@ -381,7 +382,7 @@ public sealed class ConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 尝试匹配规则
     /// </summary>
-    private async Task<RoutingResult?> TryMatchRule(RoutingRule rule, RoutingContext context, IReadOnlyList<IConnection> availableConnections, TimeSpan elapsed)
+    private async Task<RoutingResult?> TryMatchRule(RoutingRule rule, RoutingContext context, IReadOnlyList<IClientChannel> availableConnections, TimeSpan elapsed)
     {
         try
         {
@@ -571,7 +572,7 @@ public sealed class ConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 基于标签选择连接
     /// </summary>
-    private IConnection? SelectByTag(IReadOnlyList<IConnection> connections, RoutingContext context)
+    private IClientChannel? SelectByTag(IReadOnlyList<IClientChannel> connections, RoutingContext context)
     {
         // 简单实现：选择第一个匹配标签的连接
         foreach (var connection in connections)
@@ -591,7 +592,7 @@ public sealed class ConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 基于区域选择连接
     /// </summary>
-    private IConnection? SelectByRegion(IReadOnlyList<IConnection> connections, RoutingContext context)
+    private IClientChannel? SelectByRegion(IReadOnlyList<IClientChannel> connections, RoutingContext context)
     {
         if (string.IsNullOrEmpty(context.Region))
         {
@@ -608,7 +609,7 @@ public sealed class ConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 基于负载选择连接
     /// </summary>
-    private IConnection? SelectByLoad(IReadOnlyList<IConnection> connections, RoutingContext context)
+    private IClientChannel? SelectByLoad(IReadOnlyList<IClientChannel> connections, RoutingContext context)
     {
         // 简单实现：选择负载最轻的连接（基于连接数）
         return connections.OrderBy(c => c.Statistics?.ActiveRequests ?? 0).FirstOrDefault();

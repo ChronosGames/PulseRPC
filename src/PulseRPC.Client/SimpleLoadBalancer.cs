@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client;
 
@@ -33,7 +34,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 选择最佳连接
     /// </summary>
-    public IConnection? SelectConnection(IReadOnlyList<IConnection> connections, LoadBalancingHint hint = LoadBalancingHint.None)
+    public IClientChannel? SelectConnection(IReadOnlyList<IClientChannel> connections, LoadBalancingHint hint = LoadBalancingHint.None)
     {
         if (connections == null || connections.Count == 0)
         {
@@ -74,7 +75,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 轮询选择
     /// </summary>
-    private IConnection SelectRoundRobin(IReadOnlyList<IConnection> connections)
+    private IClientChannel SelectRoundRobin(IReadOnlyList<IClientChannel> connections)
     {
         lock (_lock)
         {
@@ -87,7 +88,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 随机选择
     /// </summary>
-    private IConnection SelectRandom(IReadOnlyList<IConnection> connections)
+    private IClientChannel SelectRandom(IReadOnlyList<IClientChannel> connections)
     {
         lock (_lock)
         {
@@ -99,7 +100,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 最少连接选择
     /// </summary>
-    private IConnection SelectLeastConnections(IReadOnlyList<IConnection> connections)
+    private IClientChannel SelectLeastConnections(IReadOnlyList<IClientChannel> connections)
     {
         // 简化实现：选择第一个连接（Stage 1）
         // 在 Stage 2 中会实现真正的连接数统计
@@ -110,7 +111,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 加权轮询选择
     /// </summary>
-    private IConnection SelectWeightedRoundRobin(IReadOnlyList<IConnection> connections)
+    private IClientChannel SelectWeightedRoundRobin(IReadOnlyList<IClientChannel> connections)
     {
         // 简化实现：忽略权重，使用普通轮询（Stage 1）
         // 在 Stage 2 中会实现真正的权重支持
@@ -121,7 +122,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 一致性哈希选择
     /// </summary>
-    private IConnection SelectConsistentHash(IReadOnlyList<IConnection> connections, LoadBalancingHint hint)
+    private IClientChannel SelectConsistentHash(IReadOnlyList<IClientChannel> connections, LoadBalancingHint hint)
     {
         // 简化实现：基于连接ID的哈希（Stage 1）
         // 在 Stage 2 中会实现真正的一致性哈希环
@@ -151,7 +152,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 检查连接是否健康
     /// </summary>
-    private static bool IsHealthyConnection(IConnection connection)
+    private static bool IsHealthyConnection(IClientChannel connection)
     {
         return connection.State switch
         {
@@ -165,7 +166,7 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 获取连接权重
     /// </summary>
-    private static int GetConnectionWeight(IConnection connection)
+    private static int GetConnectionWeight(IClientChannel connection)
     {
         // 简化实现：所有连接权重相等（Stage 1）
         // 在 Stage 2 中从连接标签或配置中读取权重

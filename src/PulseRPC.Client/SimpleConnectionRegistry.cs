@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client;
 
@@ -13,7 +14,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     private readonly EnhancedRegistryOptions _options;
 
     // 核心存储
-    private readonly ConcurrentDictionary<string, IConnection> _connections = new();
+    private readonly ConcurrentDictionary<string, IClientChannel> _connections = new();
     private readonly ReaderWriterLockSlim _indexLock = new();
 
     // 索引优化
@@ -65,7 +66,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 注册连接
     /// </summary>
-    public void RegisterConnection(IConnection connection)
+    public void RegisterConnection(IClientChannel connection)
     {
         ThrowIfDisposed();
 
@@ -152,12 +153,12 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 根据标签获取连接
     /// </summary>
-    public IReadOnlyList<IConnection> GetConnectionsByTags(Dictionary<string, string> tags)
+    public IReadOnlyList<IClientChannel> GetConnectionsByTags(Dictionary<string, string> tags)
     {
         ThrowIfDisposed();
 
         if (tags == null || tags.Count == 0)
-            return Array.Empty<IConnection>();
+            return Array.Empty<IClientChannel>();
 
         // 尝试从缓存获取
         var cacheKey = GenerateCacheKey("tags", tags);
@@ -171,7 +172,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
 
         // 使用索引优化查询
         var candidateIds = GetCandidatesByTags(tags);
-        var matchingConnections = new List<IConnection>();
+        var matchingConnections = new List<IClientChannel>();
 
         foreach (var connectionId in candidateIds)
         {
@@ -203,7 +204,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 获取连接
     /// </summary>
-    public IConnection? GetConnection(string connectionId)
+    public IClientChannel? GetConnection(string connectionId)
     {
         ThrowIfDisposed();
 
@@ -217,7 +218,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 获取所有连接
     /// </summary>
-    public IReadOnlyList<IConnection> GetAllConnections()
+    public IReadOnlyList<IClientChannel> GetAllConnections()
     {
         ThrowIfDisposed();
 
@@ -252,10 +253,10 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 根据服务名称获取连接
     /// </summary>
-    public IReadOnlyList<IConnection> GetConnectionsByServiceName(string serviceName)
+    public IReadOnlyList<IClientChannel> GetConnectionsByServiceName(string serviceName)
     {
         if (string.IsNullOrEmpty(serviceName))
-            return Array.Empty<IConnection>();
+            return Array.Empty<IClientChannel>();
 
         var matchingConnections = _connections.Values
             .Where(c => string.Equals(c.Descriptor?.ServiceName, serviceName, StringComparison.OrdinalIgnoreCase))
@@ -267,7 +268,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 根据连接状态获取连接
     /// </summary>
-    public IReadOnlyList<IConnection> GetConnectionsByState(ExtendedConnectionState state)
+    public IReadOnlyList<IClientChannel> GetConnectionsByState(ExtendedConnectionState state)
     {
         var matchingConnections = _connections.Values
             .Where(c => c.State == state)
@@ -279,7 +280,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 获取健康的连接
     /// </summary>
-    public IReadOnlyList<IConnection> GetHealthyConnections()
+    public IReadOnlyList<IClientChannel> GetHealthyConnections()
     {
         var healthyConnections = _connections.Values
             .Where(c => c.State == ExtendedConnectionState.Connected ||
@@ -334,7 +335,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 更新索引（添加连接）
     /// </summary>
-    private void UpdateIndexesOnAdd(IConnection connection)
+    private void UpdateIndexesOnAdd(IClientChannel connection)
     {
         _indexLock.EnterWriteLock();
         try
@@ -370,7 +371,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 更新索引（移除连接）
     /// </summary>
-    private void UpdateIndexesOnRemove(IConnection connection)
+    private void UpdateIndexesOnRemove(IClientChannel connection)
     {
         _indexLock.EnterWriteLock();
         try
@@ -465,7 +466,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 失效相关缓存
     /// </summary>
-    private void InvalidateRelevantCache(IConnection connection)
+    private void InvalidateRelevantCache(IClientChannel connection)
     {
         if (!_options.EnableQueryCache) return;
 
@@ -520,7 +521,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 更新统计（添加）
     /// </summary>
-    private void UpdateMetricsOnAdd(IConnection connection)
+    private void UpdateMetricsOnAdd(IClientChannel connection)
     {
         lock (_metricsLock)
         {
@@ -532,7 +533,7 @@ internal sealed class SimpleConnectionRegistry : IConnectionRegistry, IDisposabl
     /// <summary>
     /// 更新统计（移除）
     /// </summary>
-    private void UpdateMetricsOnRemove(IConnection connection)
+    private void UpdateMetricsOnRemove(IClientChannel connection)
     {
         lock (_metricsLock)
         {
@@ -689,7 +690,7 @@ internal class CachedQueryResult
     /// <summary>
     /// 缓存的连接列表
     /// </summary>
-    public IReadOnlyList<IConnection> Connections { get; set; } = Array.Empty<IConnection>();
+    public IReadOnlyList<IClientChannel> Connections { get; set; } = Array.Empty<IClientChannel>();
 
     /// <summary>
     /// 过期时间

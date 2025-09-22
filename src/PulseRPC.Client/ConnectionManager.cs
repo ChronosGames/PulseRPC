@@ -3,6 +3,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Client.Transport;
 using PulseRPC.Transport;
 using System.Collections.Concurrent;
+using PulseRPC.Client.Channels;
+using PulseRPC.Messaging;
+using PulseRPC.Serialization;
 
 namespace PulseRPC.Client;
 
@@ -13,7 +16,8 @@ public sealed class ConnectionManager : IConnectionManager
 {
     private readonly ILogger<ConnectionManager> _logger;
     private readonly IServiceDiscovery? _serviceDiscovery;
-    private readonly ConcurrentDictionary<string, ConnectionContext> _connections = new();
+    private readonly ISerializerProvider _serializerProvider;
+    private readonly ConcurrentDictionary<string, IClientChannel> _connections = new();
     private readonly SemaphoreSlim _connectionSemaphore = new(1, 1);
     private volatile bool _disposed;
 
@@ -26,9 +30,11 @@ public sealed class ConnectionManager : IConnectionManager
     /// 构造函数
     /// </summary>
     public ConnectionManager(
+        ISerializerProvider? serializerProvider = null,
         IServiceDiscovery? serviceDiscovery = null,
         ILoggerFactory? loggerFactory = null)
     {
+        _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
         _serviceDiscovery = serviceDiscovery;
         _logger = loggerFactory?.CreateLogger<ConnectionManager>() ?? NullLogger<ConnectionManager>.Instance;
     }
@@ -36,7 +42,7 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 通过配置连接
     /// </summary>
-    public async Task<IConnection> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default)
+    public async Task<IClientChannel> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -53,7 +59,7 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 通过描述符连接
     /// </summary>
-    public async Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
+    public async Task<IClientChannel> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -89,7 +95,7 @@ public sealed class ConnectionManager : IConnectionManager
 
             // 创建传输连接
             var transport = CreateTransport(descriptor);
-            var connectionContext = new ConnectionContext(descriptor, endpoint, transport, _logger);
+            var connectionContext = new OptimizedTransportChannel(transport, _serializerProvider, null, _logger.GetType().GetGenericArguments().Length > 0 ? (ILogger<OptimizedTransportChannel>?)_logger as ILogger<OptimizedTransportChannel> : null);
 
             // 注册连接
             if (!_connections.TryAdd(descriptor.Id, connectionContext))
@@ -101,7 +107,7 @@ public sealed class ConnectionManager : IConnectionManager
             try
             {
                 // 执行连接
-                await connectionContext.ConnectAsync(cancellationToken);
+                await connectionContext.ConnectAsync(endpoint.Host, endpoint.Port, cancellationToken);
                 _logger.LogInformation("连接创建成功: {ConnectionId} -> {Endpoint}", descriptor.Id, endpoint);
                 return connectionContext;
             }
@@ -149,7 +155,7 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 批量断开连接
     /// </summary>
-    public async Task DisconnectAsync(Func<IConnection, bool> predicate, CancellationToken cancellationToken = default)
+    public async Task DisconnectAsync(Func<IClientChannel, bool> predicate, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -187,7 +193,7 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 获取连接
     /// </summary>
-    public IConnection? GetConnection(string connectionId)
+    public IClientChannel? GetConnection(string connectionId)
     {
         ThrowIfDisposed();
 
@@ -199,17 +205,17 @@ public sealed class ConnectionManager : IConnectionManager
         return _connections.TryGetValue(connectionId, out var connection) ? connection : null;
     }
 
-    public IReadOnlyList<IConnection> GetConnectionsByTag(string key, string? value = null)
+    public IReadOnlyList<IClientChannel> GetConnectionsByTag(string key, string? value = null)
     {
         ThrowIfDisposed();
 
-        return _connections.Select(x => x.Value.Tags.TryGetValue(key, out var v) && (value == null || v == value) ? x.Value : null).Cast<IConnection>().ToArray();
+        return _connections.Values.Where(x => x.Tags.TryGetValue(key, out var v) && (value == null || v == value)).ToList();
     }
 
     /// <summary>
     /// 获取所有连接
     /// </summary>
-    public IReadOnlyList<IConnection> GetAllConnections()
+    public IReadOnlyList<IClientChannel> GetAllConnections()
     {
         ThrowIfDisposed();
         return _connections.Values.ToList();

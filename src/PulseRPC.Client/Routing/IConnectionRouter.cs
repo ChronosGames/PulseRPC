@@ -3,6 +3,7 @@ using PulseRPC.Client.ServiceDiscovery;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client.Routing;
 
@@ -192,13 +193,13 @@ public sealed class RoutingRule
     /// <summary>
     /// 目标选择器
     /// </summary>
-    public Func<IReadOnlyList<IConnection>, RoutingContext, IConnection?> Selector { get; set; } =
+    public Func<IReadOnlyList<IClientChannel>, RoutingContext, IClientChannel?> Selector { get; set; } =
         (connections, _) => connections.FirstOrDefault();
 
     /// <summary>
     /// 目标过滤器
     /// </summary>
-    public Func<IConnection, RoutingContext, bool>? Filter { get; set; }
+    public Func<IClientChannel, RoutingContext, bool>? Filter { get; set; }
 
     /// <summary>
     /// 路由权重
@@ -369,7 +370,7 @@ public sealed class RoutingResult
     /// <summary>
     /// 选择的连接
     /// </summary>
-    public IConnection? SelectedConnection { get; }
+    public IClientChannel? SelectedConnection { get; }
 
     /// <summary>
     /// 是否成功
@@ -409,7 +410,7 @@ public sealed class RoutingResult
     /// <summary>
     /// 构造函数 - 成功
     /// </summary>
-    public RoutingResult(IConnection selectedConnection, RoutingRule? matchedRule, int candidateCount, TimeSpan routingTime, string? reason = null)
+    public RoutingResult(IClientChannel selectedConnection, RoutingRule? matchedRule, int candidateCount, TimeSpan routingTime, string? reason = null)
     {
         SelectedConnection = selectedConnection;
         MatchedRule = matchedRule;
@@ -433,7 +434,7 @@ public sealed class RoutingResult
     /// <summary>
     /// 创建成功结果
     /// </summary>
-    public static RoutingResult Success(IConnection connection, RoutingRule? rule, int candidateCount, TimeSpan routingTime, string? reason = null)
+    public static RoutingResult Success(IClientChannel connection, RoutingRule? rule, int candidateCount, TimeSpan routingTime, string? reason = null)
         => new(connection, rule, candidateCount, routingTime, reason);
 
     /// <summary>

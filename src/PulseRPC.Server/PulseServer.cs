@@ -96,7 +96,7 @@ internal sealed class PulseServer : IPulseServer
 
         lock (_stateLock)
         {
-            if (_state == ServerState.Running || _state == ServerState.Starting)
+            if (_state is ServerState.Running or ServerState.Starting)
             {
                 return;
             }
@@ -178,7 +178,7 @@ internal sealed class PulseServer : IPulseServer
     {
         lock (_stateLock)
         {
-            if (_state == ServerState.Stopped || _state == ServerState.Stopping)
+            if (_state is ServerState.Stopped or ServerState.Stopping)
             {
                 return;
             }
@@ -191,7 +191,7 @@ internal sealed class PulseServer : IPulseServer
             _logger.LogInformation("正在停止服务器...");
 
             // 触发内部取消令牌
-            _shutdownCts.Cancel();
+            await _shutdownCts.CancelAsync();
 
             // 并行停止所有监听器
             await StopAllListenersAsync();
@@ -319,7 +319,10 @@ internal sealed class PulseServer : IPulseServer
         var oldState = _state;
         if (oldState == newState) return;
 
-        _state = newState;
+        lock (_stateLock)
+        {
+            _state = newState;
+        }
         _logger.LogInformation("服务器状态变更: {OldState} -> {NewState}", oldState, newState);
 
         StateChanged?.Invoke(this, new ServerStateChangedEventArgs(oldState, newState));
