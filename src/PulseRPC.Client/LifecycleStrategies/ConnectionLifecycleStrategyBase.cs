@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
+using PulseRPC.Messaging;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Client.LifecycleStrategies;
 
@@ -112,7 +114,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 创建连接
     /// </summary>
-    public virtual async Task<IConnection> CreateConnectionAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
+    public virtual async Task<IClientChannel> CreateConnectionAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         EnsureRunning();
@@ -136,7 +138,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 管理连接生命周期
     /// </summary>
-    public virtual async Task ManageConnectionAsync(IConnection connection, CancellationToken cancellationToken = default)
+    public virtual async Task ManageConnectionAsync(IClientChannel connection, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         EnsureRunning();
@@ -155,7 +157,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 处理连接断开
     /// </summary>
-    public virtual async Task OnConnectionDisconnectedAsync(IConnection connection, string reason, Exception? exception = null)
+    public virtual async Task OnConnectionDisconnectedAsync(IClientChannel connection, string reason, Exception? exception = null)
     {
         ThrowIfDisposed();
 
@@ -175,7 +177,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 处理连接失败
     /// </summary>
-    public virtual async Task OnConnectionFailedAsync(IConnection connection, Exception exception)
+    public virtual async Task OnConnectionFailedAsync(IClientChannel connection, Exception exception)
     {
         ThrowIfDisposed();
 
@@ -196,7 +198,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 清理连接
     /// </summary>
-    public virtual async Task CleanupConnectionAsync(IConnection connection, string reason)
+    public virtual async Task CleanupConnectionAsync(IClientChannel connection, string reason)
     {
         ThrowIfDisposed();
 
@@ -220,7 +222,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 检查连接是否应该保持活跃
     /// </summary>
-    public virtual bool ShouldKeepAlive(IConnection connection, TimeSpan idleDuration)
+    public virtual bool ShouldKeepAlive(IClientChannel connection, TimeSpan idleDuration)
     {
         if (_options.DisconnectOnIdle && idleDuration > _options.IdleTimeout)
         {
@@ -278,7 +280,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 具体策略的连接管理逻辑（子类实现）
     /// </summary>
-    protected virtual async Task OnManageConnectionAsync(IConnection connection, CancellationToken cancellationToken = default)
+    protected virtual async Task OnManageConnectionAsync(IClientChannel connection, CancellationToken cancellationToken = default)
     {
         await Task.CompletedTask;
     }
@@ -286,7 +288,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 具体策略的连接断开处理逻辑（子类实现）
     /// </summary>
-    protected virtual async Task OnConnectionDisconnectedInternalAsync(IConnection connection, string reason, Exception? exception = null)
+    protected virtual async Task OnConnectionDisconnectedInternalAsync(IClientChannel connection, string reason, Exception? exception = null)
     {
         await Task.CompletedTask;
     }
@@ -294,7 +296,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 具体策略的连接失败处理逻辑（子类实现）
     /// </summary>
-    protected virtual async Task OnConnectionFailedInternalAsync(IConnection connection, Exception exception)
+    protected virtual async Task OnConnectionFailedInternalAsync(IClientChannel connection, Exception exception)
     {
         await Task.CompletedTask;
     }
@@ -302,7 +304,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 具体策略的连接清理逻辑（子类实现）
     /// </summary>
-    protected virtual async Task OnCleanupConnectionAsync(IConnection connection, string reason)
+    protected virtual async Task OnCleanupConnectionAsync(IClientChannel connection, string reason)
     {
         await Task.CompletedTask;
     }
@@ -310,7 +312,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 具体策略的保持活跃检查逻辑（子类实现）
     /// </summary>
-    protected virtual bool ShouldKeepAliveInternal(IConnection connection, TimeSpan idleDuration)
+    protected virtual bool ShouldKeepAliveInternal(IClientChannel connection, TimeSpan idleDuration)
     {
         return true;
     }
@@ -339,7 +341,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     protected virtual async Task PerformMaintenanceAsync()
     {
         var now = DateTime.UtcNow;
-        var connectionsToCleanup = new List<IConnection>();
+        var connectionsToCleanup = new List<IClientChannel>();
 
         foreach (var kvp in _managedConnections)
         {
@@ -402,7 +404,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 执行心跳检测
     /// </summary>
-    protected virtual async Task PerformHeartbeatAsync(IConnection connection, ConnectionLifecycleInfo lifecycleInfo)
+    protected virtual async Task PerformHeartbeatAsync(IClientChannel connection, ConnectionLifecycleInfo lifecycleInfo)
     {
         try
         {
@@ -433,16 +435,16 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
     /// <summary>
     /// 处理连接状态变化
     /// </summary>
-    protected async void OnConnectionStateChanged(object? sender, ConnectionStateChangedEventArgs e)
+    protected async void OnConnectionStateChanged(object? sender, TransportStateEventArgs e)
     {
         if (_disposed)
             return;
 
         try
         {
-            if (sender is IConnection connection)
+            if (sender is IClientChannel connection)
             {
-                switch (e.CurrentState)
+                switch (e.CurrentState.ToExtended())
                 {
                     case ExtendedConnectionState.Disconnected:
                         await OnConnectionDisconnectedAsync(connection, e.Reason ?? "状态变化", e.Exception);
@@ -566,7 +568,7 @@ public abstract class ConnectionLifecycleStrategyBase : IConnectionLifecycleStra
 /// </summary>
 public sealed class ConnectionLifecycleInfo
 {
-    public IConnection Connection { get; }
+    public IClientChannel Connection { get; }
     public DateTime CreatedAt { get; }
     public DateTime LastHeartbeatAt { get; set; }
     public DateTime? LastDisconnectedAt { get; set; }
@@ -576,7 +578,7 @@ public sealed class ConnectionLifecycleInfo
     public int ReconnectAttempts { get; set; }
     public int FailureCount { get; set; }
 
-    public ConnectionLifecycleInfo(IConnection connection, DateTime createdAt)
+    public ConnectionLifecycleInfo(IClientChannel connection, DateTime createdAt)
     {
         Connection = connection;
         CreatedAt = createdAt;

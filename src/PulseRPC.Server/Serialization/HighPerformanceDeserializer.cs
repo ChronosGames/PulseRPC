@@ -109,7 +109,7 @@ internal sealed class HighPerformanceDeserializer : IMessageDeserializer
         _deserializationWriter.Complete();
 
         // 取消所有处理任务
-        _shutdownCts.Cancel();
+        await _shutdownCts.CancelAsync();
 
         // 等待所有处理任务完成
         if (_processingTasks != null)

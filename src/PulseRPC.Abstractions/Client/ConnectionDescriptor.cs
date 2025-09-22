@@ -1,7 +1,163 @@
 using PulseRPC.Transport;
-// using System.ComponentModel.DataAnnotations; // Not available in netstandard2.1
+using System;
+using System.Collections.Generic;
 
 namespace PulseRPC.Client;
+
+/// <summary>
+/// 端点地址
+/// </summary>
+public sealed class EndpointAddress
+{
+    /// <summary>
+    /// 主机名或IP地址
+    /// </summary>
+    public string Host { get; }
+
+    /// <summary>
+    /// 端口号
+    /// </summary>
+    public int Port { get; }
+
+    /// <summary>
+    /// 构造函数
+    /// </summary>
+    public EndpointAddress(string host, int port)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            throw new ArgumentException("主机名不能为空", nameof(host));
+        }
+
+        if (port <= 0 || port > 65535)
+        {
+            throw new ArgumentOutOfRangeException(nameof(port), "端口号必须在1-65535范围内");
+        }
+
+        Host = host;
+        Port = port;
+    }
+
+    /// <summary>
+    /// 验证端点地址的有效性
+    /// </summary>
+    public ValidationResult Validate()
+    {
+        var errors = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(Host))
+            errors.Add("主机地址不能为空");
+
+        if (Port <= 0 || Port > 65535)
+            errors.Add("端口号必须在 1-65535 范围内");
+
+        return new ValidationResult
+        {
+            IsValid = errors.Count == 0,
+            Errors = errors
+        };
+    }
+
+    /// <summary>
+    /// 克隆端点地址
+    /// </summary>
+    public EndpointAddress Clone()
+    {
+        return new EndpointAddress(Host, Port);
+    }
+
+    /// <summary>
+    /// 从字符串解析端点地址
+    /// </summary>
+    public static EndpointAddress Parse(string endpoint)
+    {
+        if (string.IsNullOrWhiteSpace(endpoint))
+        {
+            throw new ArgumentException("端点地址不能为空", nameof(endpoint));
+        }
+
+        var lastColonIndex = endpoint.LastIndexOf(':');
+        if (lastColonIndex == -1)
+        {
+            throw new ArgumentException("端点地址格式无效，应为 host:port", nameof(endpoint));
+        }
+
+        var host = endpoint.Substring(0, lastColonIndex);
+        var portStr = endpoint.Substring(lastColonIndex + 1);
+
+        if (!int.TryParse(portStr, out var port))
+        {
+            throw new ArgumentException("端口号格式无效", nameof(endpoint));
+        }
+
+        return new EndpointAddress(host, port);
+    }
+
+    /// <summary>
+    /// 尝试从字符串解析端点地址
+    /// </summary>
+    public static bool TryParse(string endpoint, out EndpointAddress? result)
+    {
+        result = null;
+
+        try
+        {
+            result = Parse(endpoint);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public override string ToString()
+    {
+        return $"{Host}:{Port}";
+    }
+
+    public override bool Equals(object? obj)
+    {
+        if (obj is EndpointAddress other)
+        {
+            return Host.Equals(other.Host, StringComparison.OrdinalIgnoreCase) && Port == other.Port;
+        }
+        return false;
+    }
+
+    public override int GetHashCode()
+    {
+#if NETSTANDARD2_1
+        return Host.ToLowerInvariant().GetHashCode() ^ Port.GetHashCode();
+#else
+        return HashCode.Combine(Host.ToLowerInvariant(), Port);
+#endif
+    }
+}
+
+/// <summary>
+/// 验证结果
+/// </summary>
+public sealed class ValidationResult
+{
+    /// <summary>
+    /// 是否验证通过
+    /// </summary>
+    public bool IsValid { get; set; }
+
+    /// <summary>
+    /// 错误信息列表
+    /// </summary>
+    public List<string> Errors { get; set; } = new();
+
+    /// <summary>
+    /// 获取错误信息字符串
+    /// </summary>
+    public string GetErrorString()
+    {
+        return string.Join("; ", Errors);
+    }
+}
 
 /// <summary>
 /// 连接描述符 - 完整描述一个连接的配置信息
@@ -246,25 +402,103 @@ public sealed class ConnectionDescriptor
 }
 
 /// <summary>
-/// 验证结果
+/// 连接策略枚举
 /// </summary>
-public sealed class ValidationResult
+public enum ConnectionStrategy
 {
     /// <summary>
-    /// 是否验证通过
+    /// 会话级连接 - 在客户端运行期间保持连接
     /// </summary>
-    public bool IsValid { get; set; }
+    Session,
 
     /// <summary>
-    /// 错误信息列表
+    /// 瞬态连接 - 用完即断开
     /// </summary>
-    public List<string> Errors { get; set; } = new();
+    Transient,
 
     /// <summary>
-    /// 获取错误信息字符串
+    /// 持久连接 - 始终保持连接，自动重连
     /// </summary>
-    public string GetErrorString()
-    {
-        return string.Join("; ", Errors);
-    }
+    Persistent,
+
+    /// <summary>
+    /// 池化连接 - 使用连接池管理
+    /// </summary>
+    Pooled
+}
+
+/// <summary>
+/// 连接统计信息
+/// </summary>
+public sealed class ConnectionStatistics
+{
+    /// <summary>
+    /// 连接ID
+    /// </summary>
+    public string ConnectionId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 创建时间
+    /// </summary>
+    public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// 连接时间
+    /// </summary>
+    public DateTime? ConnectedAt { get; set; }
+
+    /// <summary>
+    /// 最后活动时间
+    /// </summary>
+    public DateTime LastActiveAt { get; set; }
+
+    /// <summary>
+    /// 发送的消息数
+    /// </summary>
+    public long MessagesSent { get; set; }
+
+    /// <summary>
+    /// 接收的消息数
+    /// </summary>
+    public long MessagesReceived { get; set; }
+
+    /// <summary>
+    /// 发送的字节数
+    /// </summary>
+    public long BytesSent { get; set; }
+
+    /// <summary>
+    /// 接收的字节数
+    /// </summary>
+    public long BytesReceived { get; set; }
+
+    /// <summary>
+    /// 错误计数
+    /// </summary>
+    public long ErrorCount { get; set; }
+
+    /// <summary>
+    /// 重连次数
+    /// </summary>
+    public int ReconnectCount { get; set; }
+
+    /// <summary>
+    /// 平均响应时间
+    /// </summary>
+    public TimeSpan AverageResponseTime { get; set; }
+
+    /// <summary>
+    /// 活跃请求数
+    /// </summary>
+    public int ActiveRequests { get; set; }
+
+    /// <summary>
+    /// 最后错误时间
+    /// </summary>
+    public DateTime? LastErrorAt { get; set; }
+
+    /// <summary>
+    /// 最后错误信息
+    /// </summary>
+    public string? LastError { get; set; }
 }

@@ -1,4 +1,5 @@
 using PulseRPC.Client;
+using PulseRPC.Messaging;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client;
@@ -11,7 +12,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 连接到核心游戏服务器
     /// </summary>
-    public static async Task<IConnection> ConnectToCoreServerAsync(
+    public static async Task<IClientChannel> ConnectToCoreServerAsync(
         this IPulseClient client,
         string serviceName,
         TransportType transport = TransportType.Tcp,
@@ -33,7 +34,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 连接到战斗服务器
     /// </summary>
-    public static async Task<IConnection> ConnectToBattleServerAsync(
+    public static async Task<IClientChannel> ConnectToBattleServerAsync(
         this IPulseClient client,
         string battleId,
         string host,
@@ -58,7 +59,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 连接到副本服务器
     /// </summary>
-    public static async Task<IConnection> ConnectToInstanceServerAsync(
+    public static async Task<IClientChannel> ConnectToInstanceServerAsync(
         this IPulseClient client,
         string instanceId,
         string host,
@@ -83,7 +84,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 连接到地图服务器
     /// </summary>
-    public static async Task<IConnection> ConnectToMapServerAsync(
+    public static async Task<IClientChannel> ConnectToMapServerAsync(
         this IPulseClient client,
         string mapId,
         string? serviceName = null,
@@ -141,7 +142,7 @@ public static class GameClientExtensions
     /// <summary>
     /// 切换地图（断开旧地图，连接新地图）
     /// </summary>
-    public static async Task<IConnection> SwitchMapAsync(
+    public static async Task<IClientChannel> SwitchMapAsync(
         this IPulseClient client,
         string oldMapId,
         string newMapId,
@@ -163,7 +164,7 @@ public static class GameClientExtensions
     public static async Task WithTemporaryConnectionAsync(
         this IPulseClient client,
         ConnectionConfig config,
-        Func<IConnection, Task> action,
+        Func<IClientChannel, Task> action,
         CancellationToken cancellationToken = default)
     {
         var connection = await client.Connections.ConnectAsync(config, cancellationToken);

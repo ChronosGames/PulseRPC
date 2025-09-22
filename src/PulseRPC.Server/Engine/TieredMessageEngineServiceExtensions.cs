@@ -19,8 +19,7 @@ public static class TieredMessageEngineServiceExtensions
     /// </summary>
     public static IServiceCollection AddTieredMessageEngine(
         this IServiceCollection services,
-        Action<TieredEngineManagerOptions>? configureManagerOptions = null,
-        bool useCompatibilityAdapter = true)
+        Action<TieredEngineManagerOptions>? configureManagerOptions = null)
     {
         // 注册引擎管理器选项
         if (configureManagerOptions != null)
@@ -51,13 +50,6 @@ public static class TieredMessageEngineServiceExtensions
 
         // 注册核心引擎管理器
         services.AddSingleton<ITieredMessageEngineManager, TieredMessageEngineManager>();
-
-        if (useCompatibilityAdapter)
-        {
-            // 注册兼容性适配器，替换原有的IHighThroughputProcessorManager  
-            services.RemoveAll<IHighThroughputProcessorManager>();
-            services.AddSingleton<IHighThroughputProcessorManager, HighThroughputProcessorManager>();
-        }
 
         return services;
     }

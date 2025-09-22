@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client;
 
@@ -102,7 +103,7 @@ internal sealed class EnhancedConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 路由到最佳连接
     /// </summary>
-    public async Task<IConnection> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default)
+    public async Task<IClientChannel> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default)
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(EnhancedConnectionRouter));
@@ -197,10 +198,10 @@ internal sealed class EnhancedConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 获取所有匹配的连接
     /// </summary>
-    public IReadOnlyList<IConnection> GetMatchingConnections(string routingKey, RoutingContext? context = null)
+    public IReadOnlyList<IClientChannel> GetMatchingConnections(string routingKey, RoutingContext? context = null)
     {
         if (string.IsNullOrEmpty(routingKey))
-            return Array.Empty<IConnection>();
+            return Array.Empty<IClientChannel>();
 
         return GetCandidateConnectionsAsync(routingKey, context, CancellationToken.None).Result;
     }
@@ -208,7 +209,7 @@ internal sealed class EnhancedConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 获取候选连接
     /// </summary>
-    private async Task<IReadOnlyList<IConnection>> GetCandidateConnectionsAsync(
+    private async Task<IReadOnlyList<IClientChannel>> GetCandidateConnectionsAsync(
         string routingKey,
         RoutingContext? context,
         CancellationToken cancellationToken)
@@ -292,9 +293,9 @@ internal sealed class EnhancedConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 应用路由规则
     /// </summary>
-    private async Task<IConnection?> ApplyRoutingRulesAsync(
+    private async Task<IClientChannel?> ApplyRoutingRulesAsync(
         string routingKey,
-        IReadOnlyList<IConnection> connections,
+        IReadOnlyList<IClientChannel> connections,
         RoutingContext? context,
         CancellationToken cancellationToken)
     {
@@ -332,7 +333,7 @@ internal sealed class EnhancedConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 检查连接是否健康
     /// </summary>
-    private bool IsConnectionHealthy(IConnection connection)
+    private bool IsConnectionHealthy(IClientChannel connection)
     {
         if (connection == null)
             return false;
@@ -447,7 +448,7 @@ internal sealed class EnhancedConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 尝试从缓存获取
     /// </summary>
-    private bool TryGetFromCache(string cacheKey, out IConnection connection)
+    private bool TryGetFromCache(string cacheKey, out IClientChannel connection)
     {
         connection = null!;
 
@@ -474,7 +475,7 @@ internal sealed class EnhancedConnectionRouter : IConnectionRouter, IDisposable
     /// <summary>
     /// 缓存路由结果
     /// </summary>
-    private void CacheRouteResult(string cacheKey, IConnection connection)
+    private void CacheRouteResult(string cacheKey, IClientChannel connection)
     {
         if (_routeCache.Count >= _options.MaxCacheSize)
         {
@@ -619,9 +620,9 @@ internal sealed class EnhancedConnectionRouter : IConnectionRouter, IDisposable
 /// <summary>
 /// 缓存的路由结果
 /// </summary>
-internal readonly record struct CachedRouteResult(IConnection Connection, DateTime CachedAt)
+internal readonly record struct CachedRouteResult(IClientChannel Connection, DateTime CachedAt)
 {
-    public IConnection Connection { get; } = Connection;
+    public IClientChannel Connection { get; } = Connection;
     public DateTime CachedAt { get; } = CachedAt;
 }
 

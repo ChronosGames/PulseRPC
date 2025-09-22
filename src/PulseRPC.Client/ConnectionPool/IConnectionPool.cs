@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client.ConnectionPool;
 
@@ -127,7 +128,7 @@ public interface IConnectionLease : IDisposable
     /// <summary>
     /// 连接上下文
     /// </summary>
-    IConnection Connection { get; }
+    IClientChannel Connection { get; }
 
     /// <summary>
     /// 租借时间

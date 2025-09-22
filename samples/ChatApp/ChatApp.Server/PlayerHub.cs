@@ -15,7 +15,6 @@ using PulseRPC;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Transport;
 using PulseRPC.Serialization;
-using PulseRPC.Sessions;
 using IAuthenticationProvider = PulseRPC.Server.Authentication.IAuthenticationProvider;
 
 namespace GameServer;
@@ -26,6 +25,7 @@ namespace GameServer;
 [PulseServerGeneration(typeof(IPlayerHub))]
 public class PlayerHub(
     IGameWorld gameWorld,
+    IServerChannelManager serverChannelManager,
     IPlayerManager playerManager,
     IEventPublisher eventPublisher,
     PlayerMovementBatcher movementBatcher,
@@ -107,7 +107,7 @@ public class PlayerHub(
             if (connection != null)
             {
                 // 通过 ChannelManager 获取传输通道
-                var channel = sessionManager.GetSession(connection.ConnectionId);
+                var channel = serverChannelManager.GetChannel(connection.ConnectionId);
                 if (channel != null)
                 {
                     // 创建认证上下文
@@ -176,7 +176,7 @@ public class PlayerHub(
         }
 
         // 通过 ChannelManager 获取传输通道
-        var channel = sessionManager.GetSession(connection.ConnectionId);
+        var channel = serverChannelManager.GetChannel(connection.ConnectionId);
         if (channel == null)
         {
             logger.LogError("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
@@ -267,7 +267,7 @@ public class PlayerHub(
         var currentConnectionId = currentConnection?.ConnectionId;
 
         // 获取所有已认证的通道，但排除当前连接
-        var sessions = sessionManager.GetAuthenticatedSessions()
+        var sessions = serverChannelManager.GetAuthenticatedChannels()
             .Where(c => c.ConnectionId != currentConnectionId)
             .ToList();
 
@@ -289,12 +289,12 @@ public class PlayerHub(
             try
             {
                 await session.SendAsync(eventDataBytes, CancellationToken.None);
-                logger.LogTrace("玩家加入事件已发送到连接: {ConnectionId}", session.SessionId);
+                logger.LogTrace("玩家加入事件已发送到连接: {ConnectionId}", session.ConnectionId);
                 return true;
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "向连接 {ConnectionId} 发送玩家加入事件时失败", session.SessionId);
+                logger.LogWarning(ex, "向连接 {ConnectionId} 发送玩家加入事件时失败", session.ConnectionId);
                 return false;
             }
         });

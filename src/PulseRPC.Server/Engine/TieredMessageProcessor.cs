@@ -14,6 +14,28 @@ using MessageStatus = PulseRPC.Server.Memory.MessageStatus;
 namespace PulseRPC.Server.Engine;
 
 /// <summary>
+/// 适配器统计信息
+/// </summary>
+public class AdapterStatistics
+{
+    public string ConnectionId { get; set; } = "";
+
+    // 适配器统计
+    public long TotalAdapterMessages { get; set; }
+    public long TotalConversions { get; set; }
+
+    // TieredProcessor统计
+    public PerformanceSummary? TieredProcessorSummary { get; set; }
+
+    // 性能指标
+    public double CurrentThroughput { get; set; }
+    public TimeSpan AverageBatchProcessingTime { get; set; }
+    public TimeSpan P95BatchProcessingTime { get; set; }
+    public double L1BackpressureRate { get; set; }
+    public double MessageErrorRate { get; set; }
+}
+
+/// <summary>
 /// 分层消息处理器 - 实现三层缓冲和自适应批处理的高性能消息处理
 ///
 /// L1: 高速无锁环形缓冲区 (ZeroCopyCircularBuffer)
@@ -122,7 +144,7 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
         // 从L3内存池租用缓冲区
         var bufferArray = _l3MemoryPool.Rent(messageData.Length);
         messageData.CopyTo(bufferArray.AsMemory());
-        
+
         // 创建引用计数缓冲区
         var refCountedBuffer = new ReferenceCountedBuffer(bufferArray, buffer => _l3MemoryPool.Return(buffer));
 
@@ -490,14 +512,14 @@ public class TieredMessageProcessorOptions
     public int CriticalMessageTimeoutUs { get; set; } = 1000; // 关键消息等待1ms
     public int CriticalMessageTimeoutMs { get; set; } = 1; // 关键消息等待1ms（毫秒版本）
     public int L2BackpressureWaitMs { get; set; } = 1; // L2背压等待时间
-    
+
     // L2批处理配置
     public int L2BatchIntervalMs { get; set; } = 5; // L2批处理间隔
-    
+
     // L3内存池详细配置
     public int L3SmallPoolSize { get; set; } = 512 * 1024; // 512KB
     public int L3MediumPoolSize { get; set; } = 2048 * 1024; // 2MB
-    
+
     // 性能监控
     public int PerformanceCheckFrequency { get; set; } = 10; // 每10个批次检查一次性能
     public int BatchSoftTimeoutMs { get; set; } = 50; // 批处理软超时50ms

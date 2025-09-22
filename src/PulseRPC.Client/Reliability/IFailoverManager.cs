@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client.Reliability;
 
@@ -101,12 +102,12 @@ public sealed class FailoverResult
     /// <summary>
     /// 原始连接
     /// </summary>
-    public IConnection? OriginalConnection { get; }
+    public IClientChannel? OriginalConnection { get; }
 
     /// <summary>
     /// 备选连接
     /// </summary>
-    public IConnection? FailoverConnection { get; }
+    public IClientChannel? FailoverConnection { get; }
 
     /// <summary>
     /// 故障转移策略
@@ -147,8 +148,8 @@ public sealed class FailoverResult
     /// 构造函数 - 成功
     /// </summary>
     public FailoverResult(
-        IConnection originalConnection,
-        IConnection failoverConnection,
+        IClientChannel originalConnection,
+        IClientChannel failoverConnection,
         FailoverStrategy strategy,
         FailoverTrigger trigger,
         TimeSpan failoverTime,
@@ -170,7 +171,7 @@ public sealed class FailoverResult
     /// 构造函数 - 失败
     /// </summary>
     public FailoverResult(
-        IConnection? originalConnection,
+        IClientChannel? originalConnection,
         FailoverStrategy strategy,
         FailoverTrigger trigger,
         TimeSpan failoverTime,
@@ -246,17 +247,17 @@ public sealed class FailoverConfiguration
     /// <summary>
     /// 故障转移条件评估器
     /// </summary>
-    public Func<IConnection, FailoverContext, bool>? FailoverConditionEvaluator { get; set; }
+    public Func<IClientChannel, FailoverContext, bool>? FailoverConditionEvaluator { get; set; }
 
     /// <summary>
     /// 连接选择器
     /// </summary>
-    public Func<IReadOnlyList<IConnection>, FailoverContext, IConnection?>? ConnectionSelector { get; set; }
+    public Func<IReadOnlyList<IClientChannel>, FailoverContext, IClientChannel?>? ConnectionSelector { get; set; }
 
     /// <summary>
     /// 连接健康检查器
     /// </summary>
-    public Func<IConnection, CancellationToken, Task<bool>>? HealthChecker { get; set; }
+    public Func<IClientChannel, CancellationToken, Task<bool>>? HealthChecker { get; set; }
 
     /// <summary>
     /// 扩展配置
@@ -272,12 +273,12 @@ public sealed class FailoverContext
     /// <summary>
     /// 原始连接
     /// </summary>
-    public IConnection OriginalConnection { get; }
+    public IClientChannel OriginalConnection { get; }
 
     /// <summary>
     /// 候选连接列表
     /// </summary>
-    public IReadOnlyList<IConnection> CandidateConnections { get; }
+    public IReadOnlyList<IClientChannel> CandidateConnections { get; }
 
     /// <summary>
     /// 触发原因
@@ -337,7 +338,7 @@ public sealed class FailoverContext
     /// <summary>
     /// 构造函数
     /// </summary>
-    public FailoverContext(IConnection originalConnection, IReadOnlyList<IConnection> candidateConnections)
+    public FailoverContext(IClientChannel originalConnection, IReadOnlyList<IClientChannel> candidateConnections)
     {
         OriginalConnection = originalConnection;
         CandidateConnections = candidateConnections;
@@ -384,12 +385,12 @@ public sealed class FailbackEventArgs : EventArgs
     /// <summary>
     /// 当前连接
     /// </summary>
-    public IConnection CurrentConnection { get; }
+    public IClientChannel CurrentConnection { get; }
 
     /// <summary>
     /// 原始连接
     /// </summary>
-    public IConnection OriginalConnection { get; }
+    public IClientChannel OriginalConnection { get; }
 
     /// <summary>
     /// 是否成功
@@ -409,7 +410,7 @@ public sealed class FailbackEventArgs : EventArgs
     /// <summary>
     /// 构造函数
     /// </summary>
-    public FailbackEventArgs(IConnection currentConnection, IConnection originalConnection, bool isSuccess, string? reason = null)
+    public FailbackEventArgs(IClientChannel currentConnection, IClientChannel originalConnection, bool isSuccess, string? reason = null)
     {
         CurrentConnection = currentConnection;
         OriginalConnection = originalConnection;
@@ -533,22 +534,22 @@ public interface IFailoverManager
     /// <summary>
     /// 检查是否需要故障转移
     /// </summary>
-    Task<bool> ShouldFailoverAsync(IConnection connection, FailoverTrigger trigger, Exception? exception = null);
+    Task<bool> ShouldFailoverAsync(IClientChannel connection, FailoverTrigger trigger, Exception? exception = null);
 
     /// <summary>
     /// 尝试回切到原始连接
     /// </summary>
-    Task<bool> TryFailbackAsync(IConnection currentConnection, IConnection originalConnection, CancellationToken cancellationToken = default);
+    Task<bool> TryFailbackAsync(IClientChannel currentConnection, IClientChannel originalConnection, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 手动触发故障转移
     /// </summary>
-    Task<FailoverResult> ManualFailoverAsync(IConnection connection, string? reason = null, CancellationToken cancellationToken = default);
+    Task<FailoverResult> ManualFailoverAsync(IClientChannel connection, string? reason = null, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 注册连接监控
     /// </summary>
-    void RegisterConnectionMonitoring(IConnection connection);
+    void RegisterConnectionMonitoring(IClientChannel connection);
 
     /// <summary>
     /// 取消连接监控
@@ -629,17 +630,17 @@ public interface IFailoverManagerBuilder
     /// <summary>
     /// 设置故障转移条件评估器
     /// </summary>
-    IFailoverManagerBuilder WithFailoverCondition(Func<IConnection, FailoverContext, bool> evaluator);
+    IFailoverManagerBuilder WithFailoverCondition(Func<IClientChannel, FailoverContext, bool> evaluator);
 
     /// <summary>
     /// 设置连接选择器
     /// </summary>
-    IFailoverManagerBuilder WithConnectionSelector(Func<IReadOnlyList<IConnection>, FailoverContext, IConnection?> selector);
+    IFailoverManagerBuilder WithConnectionSelector(Func<IReadOnlyList<IClientChannel>, FailoverContext, IClientChannel?> selector);
 
     /// <summary>
     /// 设置健康检查器
     /// </summary>
-    IFailoverManagerBuilder WithHealthChecker(Func<IConnection, CancellationToken, Task<bool>> healthChecker);
+    IFailoverManagerBuilder WithHealthChecker(Func<IClientChannel, CancellationToken, Task<bool>> healthChecker);
 
     /// <summary>
     /// 构建故障转移管理器

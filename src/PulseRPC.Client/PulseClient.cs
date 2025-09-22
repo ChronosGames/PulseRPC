@@ -4,6 +4,7 @@ using PulseRPC.Authentication;
 using PulseRPC.Serialization;
 using PulseRPC.Client;
 using PulseRPC.Client.ConnectionPool;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client;
 
@@ -102,7 +103,7 @@ internal sealed class PulseClient : IPulseClient
         _statistics.StartTime = _startTime;
 
         // 创建核心组件（暂时使用基础实现）
-        _connectionManager = new ConnectionManager(_serviceDiscovery, logger);
+        _connectionManager = new ConnectionManager(null, _serviceDiscovery, logger);
         _connectionRegistry = new SimpleConnectionRegistry();
         _connectionRouter = new SimpleConnectionRouter(_connectionRegistry, logger.CreateLogger<SimpleConnectionRouter>());
         _connectionLifecycleManager = new SimpleConnectionLifecycleManager(_connectionManager, logger.CreateLogger<SimpleConnectionLifecycleManager>());
@@ -247,7 +248,7 @@ internal sealed class PulseClient : IPulseClient
     /// <summary>
     /// 连接到服务
     /// </summary>
-    public async Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
+    public async Task<IClientChannel> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         EnsureRunning();
@@ -261,7 +262,7 @@ internal sealed class PulseClient : IPulseClient
     /// <summary>
     /// 通过服务发现连接到服务
     /// </summary>
-    public async Task<IConnection> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default)
+    public async Task<IClientChannel> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
         EnsureRunning();
@@ -349,7 +350,8 @@ internal sealed class PulseClient : IPulseClient
             throw new InvalidOperationException($"连接上下文不存在: {connection.Id}");
         }
 
-        return await connectionContext.RegisterReceiverAsync(listener, cancellationToken);
+        await connectionContext.RegisterReceiverAsync(listener, cancellationToken);
+        return new SubscriptionToken(Guid.NewGuid(), typeof(T).Name, typeof(T), () => { }); // TODO: Proper subscription management needed
     }
 
     /// <summary>
@@ -367,7 +369,8 @@ internal sealed class PulseClient : IPulseClient
             throw new ArgumentException($"连接不存在: {connectionId}", nameof(connectionId));
         }
 
-        return await connectionContext.RegisterReceiverAsync(listener, cancellationToken);
+        await connectionContext.RegisterReceiverAsync(listener, cancellationToken);
+        return new SubscriptionToken(Guid.NewGuid(), typeof(T).Name, typeof(T), () => { }); // TODO: Proper subscription management needed
     }
 
     /// <summary>
@@ -384,7 +387,7 @@ internal sealed class PulseClient : IPulseClient
     /// <summary>
     /// 批量断开连接
     /// </summary>
-    public async Task<int> DisconnectAsync(Func<IConnection, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default)
+    public async Task<int> DisconnectAsync(Func<IClientChannel, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 

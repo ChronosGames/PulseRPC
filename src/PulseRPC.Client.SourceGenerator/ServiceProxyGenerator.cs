@@ -246,19 +246,19 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"namespace {namespaceName}");
         sb.AppendLine("{");
 
-        // 生成基于 IConnection 的代理类
+        // 生成基于 IClientChannel 的代理类
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// 基于连接的 {interfaceName} 服务代理");
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine($"    public sealed class {interfaceName}Proxy : {interfaceName}");
         sb.AppendLine("    {");
-        sb.AppendLine("        private readonly IConnection _connection;");
+        sb.AppendLine("        private readonly IClientChannel _connection;");
         sb.AppendLine();
         sb.AppendLine($"        /// <summary>");
         sb.AppendLine($"        /// 初始化 {interfaceName} 连接代理");
         sb.AppendLine($"        /// </summary>");
         sb.AppendLine($"        /// <param name=\"connection\">连接</param>");
-        sb.AppendLine($"        public {interfaceName}Proxy(IConnection connection)");
+        sb.AppendLine($"        public {interfaceName}Proxy(IClientChannel connection)");
         sb.AppendLine("        {");
         sb.AppendLine($"            _connection = connection ?? throw new ArgumentNullException(nameof(connection));");
         sb.AppendLine("        }");
@@ -892,7 +892,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 sb.AppendLine("                throw new ArgumentException($\"连接不存在: {connectionId}\", nameof(connectionId));");
                 sb.AppendLine("            }");
                 sb.AppendLine();
-                sb.AppendLine($"            return new {fullTypeName}Proxy(connection);");
+                sb.AppendLine($"            return Task.FromResult(new {fullTypeName}Proxy(connection));");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }

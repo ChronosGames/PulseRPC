@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Client;
 
@@ -57,7 +58,7 @@ public sealed class SimpleConnectionRouter : IConnectionRouter
     /// <summary>
     /// 路由到最佳连接
     /// </summary>
-    public async Task<IConnection> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default)
+    public async Task<IClientChannel> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(routingKey))
             throw new ArgumentException("路由键不能为空", nameof(routingKey));
@@ -91,10 +92,10 @@ public sealed class SimpleConnectionRouter : IConnectionRouter
     /// <summary>
     /// 获取所有匹配的连接
     /// </summary>
-    public IReadOnlyList<IConnection> GetMatchingConnections(string routingKey, RoutingContext? context = null)
+    public IReadOnlyList<IClientChannel> GetMatchingConnections(string routingKey, RoutingContext? context = null)
     {
         if (string.IsNullOrEmpty(routingKey))
-            return Array.Empty<IConnection>();
+            return Array.Empty<IClientChannel>();
 
         // 尝试通过连接ID匹配
         var connectionById = _connectionRegistry.GetConnection(routingKey);
@@ -124,13 +125,13 @@ public sealed class SimpleConnectionRouter : IConnectionRouter
         }
 
         _logger.LogWarning("未找到匹配的连接: {RoutingKey}", routingKey);
-        return Array.Empty<IConnection>();
+        return Array.Empty<IClientChannel>();
     }
 
     /// <summary>
     /// 应用路由规则选择连接
     /// </summary>
-    private IConnection? ApplyRoutingRules(string routingKey, IReadOnlyList<IConnection> connections, RoutingContext? context)
+    private IClientChannel? ApplyRoutingRules(string routingKey, IReadOnlyList<IClientChannel> connections, RoutingContext? context)
     {
         if (connections.Count == 0)
             return null;

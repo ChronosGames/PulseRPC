@@ -281,3 +281,132 @@ public sealed class RetryPolicy
     public TimeSpan MaxRetryInterval { get; set; } = TimeSpan.FromSeconds(30);
 }
 
+/// <summary>
+/// 负载均衡提示
+/// </summary>
+public enum LoadBalancingHint
+{
+    /// <summary>
+    /// 无特定提示
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// 优先使用最少连接
+    /// </summary>
+    LeastConnections,
+
+    /// <summary>
+    /// 优先使用本地连接
+    /// </summary>
+    PreferLocal,
+
+    /// <summary>
+    /// 优先快速响应
+    /// </summary>
+    PreferFast,
+
+    /// <summary>
+    /// 使用粘性会话
+    /// </summary>
+    StickySession,
+
+    /// <summary>
+    /// 粘性模式（简化版）
+    /// </summary>
+    Sticky,
+
+    /// <summary>
+    /// 分布式模式
+    /// </summary>
+    Distribute
+}
+
+/// <summary>
+/// 负载均衡策略
+/// </summary>
+public enum LoadBalancingStrategy
+{
+    /// <summary>
+    /// 随机选择
+    /// </summary>
+    Random,
+
+    /// <summary>
+    /// 轮询
+    /// </summary>
+    RoundRobin,
+
+    /// <summary>
+    /// 最少连接
+    /// </summary>
+    LeastConnections,
+
+    /// <summary>
+    /// 加权轮询
+    /// </summary>
+    WeightedRoundRobin,
+
+    /// <summary>
+    /// 一致性哈希
+    /// </summary>
+    ConsistentHash
+}
+
+/// <summary>
+/// 连接生命周期
+/// </summary>
+public enum ConnectionLifetime
+{
+    /// <summary>
+    /// 单例 - 全局共享
+    /// </summary>
+    Singleton,
+
+    /// <summary>
+    /// 会话 - 会话级别的连接
+    /// </summary>
+    Session,
+
+    /// <summary>
+    /// 持久 - 持久化连接
+    /// </summary>
+    Persistent,
+
+    /// <summary>
+    /// 作用域 - 在特定作用域内共享
+    /// </summary>
+    Scoped,
+
+    /// <summary>
+    /// 瞬态 - 每次创建新实例
+    /// </summary>
+    Transient
+}
+
+/// <summary>
+/// 连接池策略
+/// </summary>
+public enum PoolingStrategy
+{
+    /// <summary>
+    /// 无连接池
+    /// </summary>
+    None,
+
+    /// <summary>
+    /// 固定大小池
+    /// </summary>
+    FixedSize,
+
+    /// <summary>
+    /// 动态大小池
+    /// </summary>
+    Dynamic,
+
+    /// <summary>
+    /// 按需创建池
+    /// </summary>
+    OnDemand
+}
+
