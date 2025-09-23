@@ -1,4 +1,6 @@
 #nullable enable
+override PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer.Name.get -> string!
+override PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer.Strategy.get -> PulseRPC.Client.LoadBalancing.LoadBalancingStrategy
 override PulseRPC.Client.Transport.KcpClientTransport.Dispose() -> void
 override PulseRPC.Client.Transport.TcpClientTransport.Dispose() -> void
 PulseRPC.Client.ClientTransportConfiguration
@@ -18,7 +20,13 @@ PulseRPC.Client.ClientTransportConfiguration.Type.set -> void
 PulseRPC.Client.ConnectionPool.IConnectionPool
 PulseRPC.Client.ConnectionPool.IConnectionPool.Name.get -> string!
 PulseRPC.Client.ConnectionPool.IConnectionPool.State.get -> PulseRPC.Client.ConnectionPool.ConnectionPoolState
+PulseRPC.Client.IConnectionLifecycleManager
 PulseRPC.Client.LifecycleStrategies.IConnectionLifecycleStrategy.Name.get -> string!
+PulseRPC.Client.LoadBalancing.InstanceHealthInfo.ErrorRate.get -> double
+PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer
+PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer.LeastConnectionsLoadBalancer(PulseRPC.Client.LoadBalancing.LoadBalancingConfiguration? configuration = null, Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer!>? logger = null) -> void
+PulseRPC.Client.LoadBalancing.LoadBalancingStrategy
+PulseRPC.Client.LoadBalancing.LoadBalancingStrategy.Random = 0 -> PulseRPC.Client.LoadBalancing.LoadBalancingStrategy
 PulseRPC.Client.PulseClientBuilder
 PulseRPC.Client.PulseClientBuilder.PulseClientBuilder() -> void
 PulseRPC.Client.EventErrorManager
@@ -65,6 +73,10 @@ PulseRPC.Client.PulseReceiverBuilder<T>.WithPerformanceMonitoring() -> PulseRPC.
 PulseRPC.Client.PulseReceiverBuilder<T>.WithRetry(int maxAttempts, System.TimeSpan? retryInterval = null, bool useExponentialBackoff = true) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
 PulseRPC.Client.PulseReceiverBuilder<T>.WithRetry(PulseRPC.RetryConfiguration! retryConfig) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
 PulseRPC.Client.PulseReceiverBuilder<T>.WithTimeout(System.TimeSpan timeout) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
+PulseRPC.Client.Reliability.ICircuitBreaker
+PulseRPC.Client.Routing.RoutingResult.RoutingResult(PulseRPC.Messaging.IClientChannel! selectedConnection, PulseRPC.Client.Routing.RoutingRule? matchedRule, int candidateCount, System.TimeSpan routingTime, string? reason = null) -> void
+PulseRPC.Client.Serialization.ISerializerManager
+PulseRPC.Client.ServiceDiscovery.IServiceDiscovery
 PulseRPC.Client.ServiceDiscoveryOptions
 PulseRPC.Client.ServiceDiscoveryOptions.CacheTimeout.get -> System.TimeSpan
 PulseRPC.Client.ServiceDiscoveryOptions.CacheTimeout.set -> void

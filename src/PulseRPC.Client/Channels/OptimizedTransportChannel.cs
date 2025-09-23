@@ -309,15 +309,15 @@ internal class OptimizedTransportChannel : IClientChannel
         return await SendRequestOptimizedAsync<TRequest, TResponse>(serviceName, methodName, request, cancellationToken);
     }
 
-    public async Task SendEventAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default)
+    public async Task SendEventAsync<T>(string hubName, string methodName, T eventData, CancellationToken cancellationToken = default)
     {
         var header = _messageHeaderPool.Get();
         try
         {
             header.Type = MessageType.Event;
             header.MessageId = Guid.NewGuid();
-            header.ServiceName = string.Empty;
-            header.MethodName = eventName;
+            header.ServiceName = hubName;
+            header.MethodName = methodName;
 
             var bufferWriter = _bufferWriterPool.Get();
             try
@@ -337,11 +337,6 @@ internal class OptimizedTransportChannel : IClientChannel
         }
     }
 
-    public Task SendAsync<T>(string eventName, T message, CancellationToken cancellationToken = default)
-    {
-        return SendEventAsync(eventName, message, cancellationToken);
-    }
-
     public ISubscriptionToken SubscribeToEvent<T>(string eventName, EventHandler<T> handler)
     {
         lock (_syncRoot)
@@ -357,15 +352,6 @@ internal class OptimizedTransportChannel : IClientChannel
 
             return new SubscriptionToken(subscription.Id, eventName, typeof(T), () => UnsubscribeEvent(eventName, subscription.Id));
         }
-    }
-
-    public async Task RegisterReceiverAsync<T>(T receiver, CancellationToken cancellationToken = default) where T : class
-    {
-        if (receiver == null) throw new ArgumentNullException(nameof(receiver));
-
-        // 简单实现 - 在实际项目中需要根据接收器类型注册相应的事件处理器
-        await Task.CompletedTask;
-        _logger.LogInformation("Receiver {ReceiverType} registered", typeof(T).Name);
     }
 
     // ... 其余方法保持不变，但可以进行类似的优化

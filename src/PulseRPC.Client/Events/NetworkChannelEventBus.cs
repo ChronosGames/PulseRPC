@@ -60,7 +60,7 @@ public class NetworkChannelEventBus : IEventBus
         try
         {
             // 通过通道发送事件
-            await _channel.SendEventAsync(eventName, eventData, cancellationToken);
+            await _channel.SendEventAsync(string.Empty, eventName, eventData, cancellationToken);
         }
         catch (Exception ex)
         {

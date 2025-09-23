@@ -73,29 +73,8 @@ public interface IPulseClient : IDisposable
     /// </summary>
     Task<IClientChannel> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// 获取服务代理（自动路由到最佳连接）
-    /// </summary>
-    Task<T> GetServiceAsync<T>(ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)
-        where T : class, IPulseHub;
-
-    /// <summary>
-    /// 获取指定连接的服务代理
-    /// </summary>
-    Task<T> GetServiceAsync<T>(string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)
-        where T : class, IPulseHub;
-
-    /// <summary>
-    /// 注册事件监听器（自动路由到最佳连接）
-    /// </summary>
-    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(T listener, EventListenerOptions? options = null, CancellationToken cancellationToken = default)
-        where T : class, IPulseReceiver;
-
-    /// <summary>
-    /// 在指定连接上注册事件监听器
-    /// </summary>
-    Task<ISubscriptionToken> RegisterEventListenerAsync<T>(string connectionId, T listener, EventListenerOptions? options = null, CancellationToken cancellationToken = default)
-        where T : class, IPulseReceiver;
+    // 注意：GetServiceAsync<T> 和 RegisterEventListenerAsync<T> 方法现在通过
+    // PulseClientFactoryExtensions 扩展方法提供，以支持源代码生成器工厂模式
 
     /// <summary>
     /// 断开连接
