@@ -31,6 +31,8 @@ public static class SmartEventHandlerGenerator
         // 生成智能事件处理器类（只生成特定于此接口的处理器）
         GenerateSmartHandlerClass(sb, interfaceSymbol, handlerClassName, channelName);
 
+        // CompositeSubscriptionToken 已在 PulseRPC.Abstractions 中定义，无需重复生成
+
         // 结束命名空间
         sb.AppendLine("}");
 
@@ -51,6 +53,7 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine("using System.Threading.Channels;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC.Client.Events;");
+        sb.AppendLine("using PulseRPC.Client;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine();
     }
@@ -62,7 +65,10 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// 智能事件处理器 - 为 {interfaceName} 提供高性能事件处理功能");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public sealed class Smart{handlerClassName} : IDisposable");
+        var smartClassName = interfaceSymbol.Name.StartsWith("I")
+            ? $"Smart{interfaceSymbol.Name.Substring(1)}Handler"
+            : $"Smart{interfaceSymbol.Name}Handler";
+        sb.AppendLine($"    public sealed class {smartClassName} : IDisposable");
         sb.AppendLine("    {");
         sb.AppendLine($"        private readonly ConcurrentDictionary<{interfaceName}, SubscriptionContext> _subscriptions = new();");
         sb.AppendLine("        private readonly EventMetrics _metrics = new();");
@@ -71,13 +77,13 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine("        private volatile bool _disposed;");
         sb.AppendLine();
 
-        sb.AppendLine($"        public Smart{handlerClassName}()");
+        sb.AppendLine($"        public {smartClassName}()");
         sb.AppendLine("        {");
         sb.AppendLine("            _batchProcessor = new BatchProcessor(_metrics);");
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        sb.AppendLine($"        internal Smart{handlerClassName}(EventMetrics? customMetrics)");
+        sb.AppendLine($"        internal {smartClassName}(EventMetrics? customMetrics)");
         sb.AppendLine("        {");
         sb.AppendLine("            if (customMetrics != null)");
         sb.AppendLine("            {");
@@ -89,6 +95,9 @@ public static class SmartEventHandlerGenerator
 
         // 生成订阅方法
         GenerateSubscriptionMethods(sb, interfaceSymbol);
+
+        // 生成通道集成方法
+        GenerateChannelIntegrationMethods(sb, interfaceSymbol);
 
         // 生成监控方法
         GenerateMonitoringMethods(sb);
@@ -230,6 +239,116 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine();
     }
 
+    private static void GenerateChannelIntegrationMethods(StringBuilder sb, INamedTypeSymbol interfaceSymbol)
+    {
+        var interfaceName = interfaceSymbol.Name;
+
+        sb.AppendLine($"        /// <summary>");
+        sb.AppendLine($"        /// 连接到 IClientChannel 并订阅所有事件");
+        sb.AppendLine($"        /// </summary>");
+        sb.AppendLine($"        public async Task<ISubscriptionToken> ConnectToChannelAsync(PulseRPC.Client.IClientChannel channel)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            ThrowIfDisposed();");
+        sb.AppendLine("            var tokens = new List<ISubscriptionToken>();");
+        sb.AppendLine();
+
+        // 为每个接口方法生成通道订阅
+        foreach (var member in interfaceSymbol.GetMembers())
+        {
+            if (member is IMethodSymbol methodSymbol && methodSymbol.DeclaredAccessibility == Accessibility.Public)
+            {
+                GenerateChannelEventSubscription(sb, methodSymbol, interfaceName);
+            }
+        }
+
+        sb.AppendLine("            // 返回复合订阅令牌");
+        sb.AppendLine("            return new CompositeSubscriptionToken(tokens);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // 为每个接口方法生成智能分发方法（用于从通道事件调用）
+        foreach (var member in interfaceSymbol.GetMembers())
+        {
+            if (member is IMethodSymbol methodSymbol && methodSymbol.DeclaredAccessibility == Accessibility.Public)
+            {
+                GenerateChannelDispatchMethod(sb, methodSymbol, interfaceName);
+            }
+        }
+    }
+
+    private static void GenerateChannelEventSubscription(StringBuilder sb, IMethodSymbol methodSymbol, string interfaceName)
+    {
+        var methodName = methodSymbol.Name;
+        var parameters = methodSymbol.Parameters;
+
+        // 确定事件数据类型
+        string eventDataType;
+        if (parameters.Length == 0)
+        {
+            eventDataType = "object";
+        }
+        else if (parameters.Length == 1)
+        {
+            eventDataType = parameters[0].Type.ToDisplayString();
+        }
+        else
+        {
+            // 多个参数时创建一个包装类型名称
+            eventDataType = $"{methodName}EventData";
+        }
+
+        sb.AppendLine($"            // 订阅 {methodName} 事件");
+        sb.AppendLine($"            tokens.Add(channel.SubscribeToEvent<{eventDataType}>(\"{methodName}\", ");
+        sb.AppendLine($"                (sender, eventData) => Dispatch{methodName}FromChannelAsync(eventData)));");
+        sb.AppendLine();
+    }
+
+    private static void GenerateChannelDispatchMethod(StringBuilder sb, IMethodSymbol methodSymbol, string interfaceName)
+    {
+        var methodName = methodSymbol.Name;
+        var parameters = methodSymbol.Parameters;
+
+        sb.AppendLine($"        /// <summary>");
+        sb.AppendLine($"        /// 从通道分发 {methodName} 事件到智能处理器");
+        sb.AppendLine($"        /// </summary>");
+
+        // 确定参数类型和处理方式
+        if (parameters.Length == 0)
+        {
+            sb.AppendLine($"        private async Task Dispatch{methodName}FromChannelAsync(object eventData)");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            await Dispatch{methodName}Async();");
+            sb.AppendLine("        }");
+        }
+        else if (parameters.Length == 1)
+        {
+            var paramType = parameters[0].Type.ToDisplayString();
+            var paramName = parameters[0].Name;
+            sb.AppendLine($"        private async Task Dispatch{methodName}FromChannelAsync({paramType} {paramName})");
+            sb.AppendLine("        {");
+            sb.AppendLine($"            await Dispatch{methodName}Async({paramName});");
+            sb.AppendLine("        }");
+        }
+        else
+        {
+            // 多个参数的情况下，假设 eventData 是一个包含所有参数的对象
+            sb.AppendLine($"        private async Task Dispatch{methodName}FromChannelAsync({methodName}EventData eventData)");
+            sb.AppendLine("        {");
+            sb.Append($"            await Dispatch{methodName}Async(");
+
+            // 生成参数列表
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                if (i > 0) sb.Append(", ");
+                sb.Append($"eventData.{parameters[i].Name}");
+            }
+
+            sb.AppendLine(");");
+            sb.AppendLine("        }");
+        }
+        sb.AppendLine();
+    }
+
     private static void GenerateMonitoringMethods(StringBuilder sb)
     {
         sb.AppendLine("        /// <summary>");
@@ -293,6 +412,7 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine("        }");
         sb.AppendLine();
     }
+
 
     // 辅助方法
     private static string GetHandlerClassName(string interfaceName)

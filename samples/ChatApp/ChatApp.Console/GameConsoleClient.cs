@@ -55,7 +55,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             await _client.InitializeAsync(_cts.Token);
 
             // 获取服务代理
-            _playerService = await _client.GetPlayerHubAsync("ChatApp");
+            _playerService = await _client.GetServiceAsync<IPlayerHub>("ChatApp");
 
             // 注册事件监听器
             _eventsSubscription = await _client.RegisterEventListenerAsync(new PlayerEventsHandler(this));

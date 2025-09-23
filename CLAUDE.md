@@ -52,6 +52,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 生成器特殊约定
 - PulseRPC.Client.SourceGenerator生成的代码要符合C# 9.0及以下的语法规范
+- PulseRPC.Server.SourceGenerator生成的代码要符合C# 11.0及以上的语法规范
 
 ### 客户端实现约定
 - 客户端部分的接口与实现避免使用反射，尽量通过 PulseRPC.Client.SourceGenerator 使用代码生成替代

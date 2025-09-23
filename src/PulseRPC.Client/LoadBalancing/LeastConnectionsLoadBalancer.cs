@@ -29,8 +29,7 @@ public sealed class LeastConnectionsLoadBalancer : LoadBalancerBase
         LoadBalancingConfiguration? configuration = null,
         ILogger<LeastConnectionsLoadBalancer>? logger = null)
         : base(configuration, logger)
-    {
-    }
+    { }
 
     /// <summary>
     /// 内部选择实例实现
