@@ -95,7 +95,7 @@ public sealed class ConnectionManager : IConnectionManager
 
             // 创建传输连接
             var transport = CreateTransport(descriptor);
-            var connectionContext = new OptimizedTransportChannel(transport, _serializerProvider, null, _logger.GetType().GetGenericArguments().Length > 0 ? (ILogger<OptimizedTransportChannel>?)_logger as ILogger<OptimizedTransportChannel> : null);
+            var connectionContext = new OptimizedTransportChannel(transport, _serializerProvider);
 
             // 注册连接
             if (!_connections.TryAdd(descriptor.Id, connectionContext))
@@ -272,10 +272,12 @@ public sealed class ConnectionManager : IConnectionManager
         return descriptor.Transport switch
         {
             TransportType.Tcp => new TcpClientTransport(
+                descriptor.Id,
                 transportOptions as TcpTransportOptions,
                 _logger),
 
             TransportType.Kcp => new KcpClientTransport(
+                descriptor.Id,
                 transportOptions as KcpTransportOptions,
                 _logger),
 

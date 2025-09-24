@@ -41,10 +41,10 @@ public class AuthenticationMiddleware
         try
         {
             // 获取传输通道
-            var channel = _channelManager.GetChannel(transport.Name);
+            var channel = _channelManager.GetChannel(transport.Id);
             if (channel == null)
             {
-                _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", transport.Name);
+                _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", transport.Id);
                 return false;
             }
 
@@ -71,7 +71,7 @@ public class AuthenticationMiddleware
                 if (authResult.IsAuthenticated && authResult.User != null)
                 {
                     // 创建新的认证上下文
-                    var authContext = new PulseRPC.Server.Authentication.AuthenticationContext(transport.ConnectionId);
+                    var authContext = new AuthenticationContext(transport.Id);
                     var userId = authResult.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                     var username = authResult.User.FindFirst(ClaimTypes.Name)?.Value;
 

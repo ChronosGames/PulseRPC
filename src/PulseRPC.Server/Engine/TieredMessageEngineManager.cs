@@ -81,7 +81,7 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
 
             return engine;
         });
-        
+
         return Task.FromResult(engine);
     }
 
@@ -100,7 +100,7 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
         {
             try
             {
-                engine.Dispose();
+                await engine.DisposeAsync();
                 _logger.LogDebug("HighPerformanceMessageEngine已释放：ConnectionId={ConnectionId}", connectionId);
             }
             catch (Exception ex)

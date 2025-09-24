@@ -28,10 +28,8 @@ public class KcpServerTransport : IServerTransport
     private bool _disposed;
     private readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-    public string ConnectionId => _connectionId;
-    public string Name => "KCP";
+    public string Id => _connectionId;
     public TransportType Type => TransportType.Kcp;
-    public TransportType TransportType => TransportType.Kcp;
     public bool IsConnected => _state == ConnectionState.Connected;
     public ConnectionState State => _state;
     public EndPoint LocalEndPoint => _sharedSocket.LocalEndPoint!;
@@ -503,7 +501,7 @@ public class KcpServerListener : IServerListener
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "关闭KCP连接时发生异常: {ConnectionId}", connection.ConnectionId);
+                _logger.LogWarning(ex, "关闭KCP连接时发生异常: {ConnectionId}", connection.Id);
             }
         }
 
@@ -771,7 +769,7 @@ public class KcpServerListener : IServerListener
         if (e.CurrentState == ConnectionState.Disconnected)
         {
             var connection = (KcpServerTransport)sender!;
-            HandleClientDisconnection(connection.ConnectionId);
+            HandleClientDisconnection(connection.Id);
         }
     }
 
