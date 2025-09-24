@@ -394,7 +394,7 @@ public static class ConfigurationExtensions
         else
         {
             // 如果没有传输配置，使用默认TCP配置
-            var defaultPort = section.GetValue<int>("Port", 5000);
+            var defaultPort = section.GetValue("Port", 5000);
             builder.AddTcp("Default", defaultPort, isDefault: true);
         }
 

@@ -53,8 +53,7 @@ internal sealed class PulseServer : IPulseServer
         _serverOptions = serverOptions?.Value ?? new ServerOptions();
         _logger = _loggerFactory.CreateLogger<PulseServer>();
 
-        _logger.LogInformation("增强服务器管理器已初始化，会话管理器类型：{ManagerType}",
-            _channelManager.GetType().Name);
+        _logger.LogInformation("增强服务器管理器已初始化，会话管理器类型：{ManagerType}", _channelManager.GetType().Name);
     }
 
     /// <summary>
@@ -284,10 +283,7 @@ internal sealed class PulseServer : IPulseServer
         {
             _logger.LogDebug("接受新连接: {ConnectionId} from {RemoteEndPoint} via {TransportType}", e.Transport.ConnectionId, e.Transport.RemoteEndPoint, e.Transport.Type);
 
-            // TODO: 创建客户端会话并添加到会话管理器
-            // 这里需要根据具体的会话实现来创建会话对象
-            // var session = CreateClientSession(e.Transport);
-            // _sessionManager.AddSession(session);
+            _channelManager.AddChannel(e.Transport);
 
             _logger.LogInformation("新连接已接受: {ConnectionId}", e.Transport.Id);
         }
@@ -364,7 +360,7 @@ internal sealed class PulseServer : IPulseServer
         return _channelManager.GetAllChannels()
             .Select(session => new ConnectionInfo
             {
-                ConnectionId = session.ConnectionId,
+                ConnectionId = session.Id,
                 RemoteEndPoint = session.RemoteEndPoint,
                 TransportType = session.Type,
                 IsAuthenticated = session.IsAuthenticated,

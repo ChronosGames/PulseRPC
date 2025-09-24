@@ -87,10 +87,6 @@ public interface IServerTransport : ITransport
 {
     string ConnectionId => Id;
 
-    DateTime ConnectedAt { get; }
-
-    DateTime LastActiveTime { get; }
-
     Task CloseAsync(CancellationToken cancellationToken = default);
 }
 

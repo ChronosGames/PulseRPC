@@ -121,14 +121,14 @@ internal class ServerChannelManager : IServerChannelManager
 
         try
         {
-            var processor = await _processorManager.CreateProcessorAsync(channel.ConnectionId, channel);
+            var processor = await _processorManager.CreateProcessorAsync(channel.Id, channel);
             Interlocked.Increment(ref _totalHighThroughputProcessorsCreated);
 
-            _logger.LogDebug("已为通道创建高吞吐量处理器: {ConnectionId}", channel.ConnectionId);
+            _logger.LogDebug("已为通道创建高吞吐量处理器: {ConnectionId}", channel.Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "为通道创建高吞吐量处理器失败: {ConnectionId}", channel.ConnectionId);
+            _logger.LogError(ex, "为通道创建高吞吐量处理器失败: {ConnectionId}", channel.Id);
         }
     }
 
@@ -251,7 +251,7 @@ internal class ServerChannelManager : IServerChannelManager
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "向通道 {ConnectionId} 发送广播消息失败", channel.ConnectionId);
+                _logger.LogWarning(ex, "向通道 {ConnectionId} 发送广播消息失败", channel.Id);
                 return false;
             }
         });
@@ -300,12 +300,12 @@ internal class ServerChannelManager : IServerChannelManager
         if (sender is not IServerChannel channel)
             return;
 
-        _logger.LogDebug("通道状态变更: {ConnectionId} - {OldState} -> {NewState}", channel.ConnectionId, e.PreviousState, e.CurrentState);
+        _logger.LogDebug("通道状态变更: {ConnectionId} - {OldState} -> {NewState}", channel.Id, e.PreviousState, e.CurrentState);
 
         // 如果连接断开，自动移除通道
         if (e.CurrentState == ConnectionState.Disconnected)
         {
-            RemoveChannel(channel.ConnectionId);
+            RemoveChannel(channel.Id);
         }
     }
 
@@ -327,9 +327,9 @@ internal class ServerChannelManager : IServerChannelManager
             foreach (var channel in expiredChannels)
             {
                 _logger.LogInformation("清理过期通道: {ConnectionId}, 最后活动时间: {LastActiveTime}",
-                    channel.ConnectionId, channel.LastActiveTime);
+                    channel.Id, channel.LastActiveTime);
 
-                RemoveChannel(channel.ConnectionId);
+                RemoveChannel(channel.Id);
             }
 
             if (expiredChannels.Count > 0)
@@ -369,7 +369,7 @@ internal class ServerChannelManager : IServerChannelManager
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "释放通道 {ConnectionId} 时发生异常", channel.ConnectionId);
+                _logger.LogError(ex, "释放通道 {ConnectionId} 时发生异常", channel.Id);
             }
         }
 

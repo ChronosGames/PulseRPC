@@ -95,7 +95,7 @@ internal sealed class HighPerformanceDeserializer : IMessageDeserializer
         for (int i = 0; i < _options.ProcessorThreadCount; i++)
         {
             var processorId = i;
-            _processingTasks[i] = Task.Run(async () => await ProcessDeserializationTasksAsync(processorId, _shutdownCts.Token));
+            _processingTasks[i] = Task.Run(async () => await ProcessDeserializationTasksAsync(processorId, _shutdownCts.Token), cancellationToken);
         }
 
         _logger.LogInformation("反序列化器启动完成");

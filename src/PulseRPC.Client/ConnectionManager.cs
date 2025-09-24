@@ -95,7 +95,7 @@ public sealed class ConnectionManager : IConnectionManager
 
             // 创建传输连接
             var transport = CreateTransport(descriptor);
-            var connectionContext = new OptimizedTransportChannel(transport, _serializerProvider);
+            var connectionContext = new TransportChannel(transport, _serializerProvider);
 
             // 注册连接
             if (!_connections.TryAdd(descriptor.Id, connectionContext))

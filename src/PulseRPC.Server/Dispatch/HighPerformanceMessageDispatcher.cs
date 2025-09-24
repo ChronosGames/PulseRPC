@@ -102,20 +102,22 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         }
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken = default)
+    public Task StartAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("启动高性能消息调度器，调度器线程数: {DispatcherCount}", _options.DispatcherThreadCount);
 
         // 启动多个调度器线程
         _dispatcherTasks = new Task[_options.DispatcherThreadCount];
 
-        for (int i = 0; i < _options.DispatcherThreadCount; i++)
+        for (var i = 0; i < _options.DispatcherThreadCount; i++)
         {
             var dispatcherId = i;
-            _dispatcherTasks[i] = Task.Run(async () => await RunDispatcherAsync(dispatcherId, _shutdownCts.Token));
+            _dispatcherTasks[i] = Task.Run(async () => await RunDispatcherAsync(dispatcherId, _shutdownCts.Token), cancellationToken);
         }
 
         _logger.LogInformation("消息调度器启动完成");
+
+        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken = default)
@@ -129,7 +131,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         }
 
         // 取消所有调度任务
-        _shutdownCts.Cancel();
+        await _shutdownCts.CancelAsync();
 
         // 等待所有调度任务完成
         if (_dispatcherTasks != null)
