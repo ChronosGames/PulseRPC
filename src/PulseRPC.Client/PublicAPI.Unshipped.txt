@@ -17,6 +17,7 @@ PulseRPC.Client.ClientTransportConfiguration.Port.get -> int
 PulseRPC.Client.ClientTransportConfiguration.Port.set -> void
 PulseRPC.Client.ClientTransportConfiguration.Type.get -> PulseRPC.Transport.TransportType
 PulseRPC.Client.ClientTransportConfiguration.Type.set -> void
+PulseRPC.Client.ConnectionManager.DisconnectAsync(string! connectionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
 PulseRPC.Client.ConnectionPool.IConnectionPool
 PulseRPC.Client.ConnectionPool.IConnectionPool.Name.get -> string!
 PulseRPC.Client.ConnectionPool.IConnectionPool.State.get -> PulseRPC.Client.ConnectionPool.ConnectionPoolState
