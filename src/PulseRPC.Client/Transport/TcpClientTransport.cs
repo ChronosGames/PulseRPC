@@ -1,6 +1,5 @@
 ﻿using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Client;
 using PulseRPC.Transport;
 using PulseRPC.Transport.Tcp;
 
@@ -13,20 +12,20 @@ public class TcpClientTransport : TcpTransport, IClientTransport
 {
     private int _reconnectAttempts;
     private Timer? _reconnectTimer;
-    private string _connectionId;
     private DateTime _connectedAt;
     private DateTime _lastActivityAt;
+    private string _id;
 
-    public TcpClientTransport(TcpTransportOptions? options = null, ILogger? logger = null)
+    public TcpClientTransport(string id, TcpTransportOptions? options = null, ILogger? logger = null)
         : base(options, logger)
     {
-        _connectionId = Guid.NewGuid().ToString();
+        _id = id;
         _connectedAt = DateTime.UtcNow;
         _lastActivityAt = DateTime.UtcNow;
     }
 
     // ITransportConnection properties
-    public string ConnectionId => _connectionId;
+    public override string Id => _id;
     public DateTime ConnectedAt => _connectedAt;
     public DateTime LastActivityAt => _lastActivityAt;
     public TransportType TransportType => Type;

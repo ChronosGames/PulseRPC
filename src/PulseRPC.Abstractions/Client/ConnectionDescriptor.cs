@@ -460,7 +460,7 @@ public sealed class ConnectionStatistics
     /// <summary>
     /// 接收的消息数
     /// </summary>
-    public long MessagesReceived { get; set; }
+    public long MessagesRecv { get; set; }
 
     /// <summary>
     /// 发送的字节数
@@ -470,7 +470,7 @@ public sealed class ConnectionStatistics
     /// <summary>
     /// 接收的字节数
     /// </summary>
-    public long BytesReceived { get; set; }
+    public long BytesRecv { get; set; }
 
     /// <summary>
     /// 错误计数

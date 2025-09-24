@@ -46,7 +46,7 @@ internal class OptimizedTransportChannel : IClientChannel
     // 事件回调
     private Action<string, byte[]>? _eventCallback;
 
-    public string Id => _transport.Name;
+    public string Id => Descriptor.Id;
     public bool IsConnected => _transport.IsConnected;
 
     // IClientChannel properties that integrate IConnection functionality
@@ -74,14 +74,14 @@ internal class OptimizedTransportChannel : IClientChannel
         // Initialize IConnection integration properties
         Descriptor = new ConnectionDescriptor
         {
-            Id = transport.Name,
-            Name = transport.Name,
+            Id = transport.Id,
+            Name = transport.Id,
             Transport = transport.Type,
             Strategy = ConnectionStrategy.Session
         };
         Statistics = new ConnectionStatistics
         {
-            ConnectionId = transport.Name,
+            ConnectionId = transport.Id,
             CreatedAt = DateTime.UtcNow
         };
 

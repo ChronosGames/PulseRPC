@@ -91,11 +91,11 @@ internal class ServerChannelManager : IServerChannelManager
         channel.StateChanged += OnChannelStateChanged;
 
         // 添加到管理字典
-        if (_channels.TryAdd(transport.ConnectionId, channel))
+        if (_channels.TryAdd(transport.Id, channel))
         {
             Interlocked.Increment(ref _totalChannelsCreated);
 
-            _logger.LogInformation("已添加传输通道: {ConnectionId}, 总数: {TotalCount}", transport.ConnectionId, _channels.Count);
+            _logger.LogInformation("已添加传输通道: {ConnectionId}, 总数: {TotalCount}", transport.Id, _channels.Count);
 
             // 如果启用了高吞吐量处理器，为此通道创建处理器
             _ = Task.Run(async () => await TryCreateHighThroughputProcessorAsync(channel));

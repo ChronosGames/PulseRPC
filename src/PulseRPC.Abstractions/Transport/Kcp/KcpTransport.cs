@@ -26,13 +26,12 @@ public class KcpTransport : ITransport
     protected IPEndPoint? _remoteEndpoint;
     protected IPEndPoint? _localEndpoint;
     protected Task? _updateTask;
-    protected byte[] _receiveBuffer;
     protected bool _disposed;
 
     // KCP时间戳管理
     protected readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-    public string Name => "KCP";
+    public virtual string Id => throw new NotImplementedException();
     public TransportType Type => TransportType.Kcp;
     public bool IsConnected => _state == ConnectionState.Connected;
     public ConnectionState State => _state;
@@ -40,15 +39,14 @@ public class KcpTransport : ITransport
     public EndPoint LocalEndPoint => _localEndpoint!;
     public EndPoint RemoteEndPoint => _remoteEndpoint!;
 
-    public event System.EventHandler<TransportStateEventArgs>? StateChanged;
-    public event System.EventHandler<TransportDataEventArgs>? DataReceived;
+    public event EventHandler<TransportStateEventArgs>? StateChanged;
+    public event EventHandler<TransportDataEventArgs>? DataReceived;
 
     public KcpTransport(KcpTransportOptions? options = null, ILogger? logger = null)
     {
         _options = options ?? new KcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
 
-        _receiveBuffer = new byte[_options.RecvBufferSize];
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
         // 创建KCP对象
@@ -83,7 +81,7 @@ public class KcpTransport : ITransport
             // 立即更新KCP状态以确保数据及时发送
             if (result == 0)
             {
-                uint currentTime = GetCurrentTimeMs();
+                var currentTime = GetCurrentTimeMs();
                 _kcp.Update(currentTime);
             }
             else
@@ -129,7 +127,7 @@ public class KcpTransport : ITransport
     {
         try
         {
-            byte[] recvBuffer = new byte[4096];
+            var recvBuffer = new byte[_options.RecvBufferSize];
             uint nextUpdateTime = 0;
 
             // 启动UDP接收
@@ -154,7 +152,7 @@ public class KcpTransport : ITransport
                     }
 
                     // 等待下次更新
-                    int sleepTime = (int)(nextUpdateTime - currentTime);
+                    var sleepTime = (int)(nextUpdateTime - currentTime);
                     if (sleepTime > 0)
                     {
                         // 使用更安全的延迟方式，避免 CancellationTokenSource 被释放的问题
@@ -265,12 +263,11 @@ public class KcpTransport : ITransport
     {
         try
         {
-            const int BufferSize = 4096;
-            byte[] buffer = new byte[BufferSize];
+            var buffer = new byte[_options.RecvBufferSize];
 
             while (true)
             {
-                int size = _kcp.Recv(buffer);
+                var size = _kcp.Recv(buffer);
                 if (size <= 0)
                     break;
 
@@ -309,7 +306,7 @@ public class KcpTransport : ITransport
         _logger.LogInformation("KCP传输状态变更: {OldState} -> {NewState} ({Reason})",
             oldState, newState, reason ?? "未指定原因");
 
-        StateChanged?.Invoke(this, new TransportStateEventArgs(Name, oldState, newState, reason, exception));
+        StateChanged?.Invoke(this, new TransportStateEventArgs(this.Id, oldState, newState, reason, exception));
     }
 
     /// <summary>

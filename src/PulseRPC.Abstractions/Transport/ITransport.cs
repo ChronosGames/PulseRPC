@@ -12,9 +12,9 @@ namespace PulseRPC.Transport;
 public interface ITransport : IDisposable
 {
     /// <summary>
-    /// 传输名称
+    /// Connection唯一标识
     /// </summary>
-    string Name { get; }
+    string Id { get; }
 
     /// <summary>
     /// 传输类型
@@ -85,10 +85,7 @@ public interface IClientTransport : ITransport
 /// </summary>
 public interface IServerTransport : ITransport
 {
-    /// <summary>
-    /// 连接唯一标识
-    /// </summary>
-    string ConnectionId => this.Name;
+    string ConnectionId => Id;
 
     DateTime ConnectedAt { get; }
 

@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -91,13 +92,13 @@ public abstract class TcpTransport : ITransport
     protected long _totalBytesReceived;
     protected bool _disposed;
 
-    public string Name => "TCP-Optimized";
+    public virtual string Id => throw new NotImplementedException();
     public TransportType Type => TransportType.Tcp;
     public bool IsConnected => _state == ConnectionState.Connected && _socket?.Connected == true;
     public ConnectionState State => _state;
 
-    public System.Net.EndPoint LocalEndPoint => _socket?.LocalEndPoint!;
-    public System.Net.EndPoint RemoteEndPoint => _socket?.RemoteEndPoint!;
+    public EndPoint LocalEndPoint => _socket?.LocalEndPoint!;
+    public EndPoint RemoteEndPoint => _socket?.RemoteEndPoint!;
 
     public long TotalBytesSent => Interlocked.Read(ref _totalBytesSent);
     public long TotalBytesReceived => Interlocked.Read(ref _totalBytesReceived);
@@ -401,7 +402,7 @@ public abstract class TcpTransport : ITransport
 
         _logger.LogInformation("传输状态变更: {OldState} -> {NewState} ({Reason})", oldState, newState, reason ?? "未指定原因");
 
-        StateChanged?.Invoke(this, new TransportStateEventArgs(this.Name, oldState, newState, reason, exception));
+        StateChanged?.Invoke(this, new TransportStateEventArgs(this.Id, oldState, newState, reason, exception));
     }
 
     /// <summary>

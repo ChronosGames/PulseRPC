@@ -33,7 +33,7 @@ public class ServerTransportChannel : IServerChannel
     private DateTime _lastActiveTime;
     private bool _disposed;
 
-    public string Name => _transport.Name;
+    public string Id => _transport.Id;
     public TransportType Type => _transport.Type;
 
     /// <summary>
@@ -55,7 +55,7 @@ public class ServerTransportChannel : IServerChannel
     }
 
     /// <inheritdoc />
-    public string ConnectionId => _transport.ConnectionId;
+    public string ConnectionId => _transport.Id;
 
     /// <inheritdoc />
     public IServerTransport Transport => _transport;

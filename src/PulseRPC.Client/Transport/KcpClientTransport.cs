@@ -15,20 +15,20 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     private Timer? _reconnectTimer;
     private string? _host;
     private int _port;
-    private string _connectionId;
     private DateTime _connectedAt;
     private DateTime _lastActivityAt;
+    private string _id;
 
-    public KcpClientTransport(KcpTransportOptions? options = null, ILogger? logger = null)
+    public KcpClientTransport(string id, KcpTransportOptions? options = null, ILogger? logger = null)
         : base(options, logger)
     {
-        _connectionId = Guid.NewGuid().ToString();
+        _id = id;
         _connectedAt = DateTime.UtcNow;
         _lastActivityAt = DateTime.UtcNow;
     }
 
     // ITransportConnection properties
-    public string ConnectionId => _connectionId;
+    public override string Id => _id;
     public DateTime ConnectedAt => _connectedAt;
     public DateTime LastActivityAt => _lastActivityAt;
     public TransportType TransportType => Type;
@@ -123,7 +123,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         {
             // 设置接收缓冲区大小
             _socket.ReceiveBufferSize = _options.RecvBufferSize;
-            _socket.SendBufferSize = ((TransportOptions)_options).SendBufferSize;
+            _socket.SendBufferSize = _options.SendBufferSize;
 
             // 设置接收超时
             _socket.ReceiveTimeout = _options.UdpReceiveTimeout;

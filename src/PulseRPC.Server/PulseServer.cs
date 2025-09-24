@@ -289,11 +289,11 @@ internal sealed class PulseServer : IPulseServer
             // var session = CreateClientSession(e.Transport);
             // _sessionManager.AddSession(session);
 
-            _logger.LogInformation("新连接已接受: {ConnectionId}", e.Transport.Name);
+            _logger.LogInformation("新连接已接受: {ConnectionId}", e.Transport.Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "处理新连接时发生异常: {ConnectionId}", e.Transport.Name);
+            _logger.LogError(ex, "处理新连接时发生异常: {ConnectionId}", e.Transport.Id);
 
             // 异步关闭有问题的连接
             _ = Task.Run(async () =>
@@ -305,7 +305,7 @@ internal sealed class PulseServer : IPulseServer
                 catch (Exception closeEx)
                 {
                     _logger.LogDebug(closeEx, "关闭异常连接时发生异常: {ConnectionId}",
-                        e.Transport.Name);
+                        e.Transport.Id);
                 }
             });
         }
