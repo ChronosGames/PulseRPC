@@ -18,7 +18,6 @@ public class TcpServerTransport : TcpTransport, IServerTransport
 
     public string ConnectionId => _connectionId;
     public DateTime ConnectedAt => _connectedAt;
-    public DateTime LastActivityAt => _lastActivityAt;
     public DateTime LastActiveTime => _lastActivityAt;
     public TransportType TransportType => TransportType.Tcp;
 
@@ -47,11 +46,10 @@ public class TcpServerTransport : TcpTransport, IServerTransport
         _receiveTask = ReceiveLoopAsync();
 
         // 订阅基类事件并转发到ITransportConnection事件
-        base.StateChanged += OnBaseStateChanged;
-        base.DataReceived += OnBaseDataReceived;
+        this.StateChanged += OnBaseStateChanged;
+        this.DataReceived += OnBaseDataReceived;
 
-        _logger.LogInformation("接受客户端连接: {ConnectionId} 从 {RemoteEndPoint}",
-            _connectionId, socket.RemoteEndPoint);
+        _logger.LogInformation("接受客户端连接: {ConnectionId} 从 {RemoteEndPoint}", _connectionId, socket.RemoteEndPoint);
     }
 
     /// <summary>

@@ -71,12 +71,12 @@ public class EventPublisher : IEventPublisher
                 {
                     // 发送事件数据到该通道
                     await channel.SendAsync(eventDataBytes, CancellationToken.None);
-                    _logger.LogTrace("事件已发送到连接: {ConnectionId}, 事件: {EventName}", channel.ConnectionId, eventName);
+                    _logger.LogTrace("事件已发送到连接: {ConnectionId}, 事件: {EventName}", channel.Id, eventName);
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "向连接 {ConnectionId} 发送事件 {EventName} 时失败", channel.ConnectionId, eventName);
+                    _logger.LogWarning(ex, "向连接 {ConnectionId} 发送事件 {EventName} 时失败", channel.Id, eventName);
                     return false;
                 }
             });

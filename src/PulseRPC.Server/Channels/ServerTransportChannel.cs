@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using PulseRPC.Authentication;
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
@@ -7,8 +8,30 @@ using PulseRPC.Server.Authentication;
 
 namespace PulseRPC.Server.Transport;
 
-public interface IServerChannel : IServerTransport
+public interface IServerChannel : IDisposable
 {
+    string Id { get; }
+    string ConnectionId => Id;
+
+    DateTime ConnectedAt { get; }
+
+    DateTime LastActiveTime { get; }
+
+    /// <summary>
+    /// 本地端点
+    /// </summary>
+    EndPoint LocalEndPoint { get; }
+
+    /// <summary>
+    /// 远程端点
+    /// </summary>
+    EndPoint RemoteEndPoint { get; }
+
+    /// <summary>
+    /// 传输类型
+    /// </summary>
+    TransportType Type { get; }
+
     bool IsAuthenticated { get; }
 
     IAuthenticationContext? AuthenticationContext { get; set; }
@@ -16,6 +39,16 @@ public interface IServerChannel : IServerTransport
     void SetAuthentication(IAuthenticationContext authContext);
 
     void ClearAuthentication();
+
+    /// <summary>
+    /// 发送数据
+    /// </summary>
+    Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 状态变更事件
+    /// </summary>
+    event EventHandler<TransportStateEventArgs>? StateChanged;
 }
 
 /// <summary>
