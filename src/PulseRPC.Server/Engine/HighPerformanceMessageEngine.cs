@@ -1,15 +1,8 @@
-using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Threading;
 using System.Threading.Channels;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Memory;
 using PulseRPC.Server.Memory;
@@ -39,7 +32,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// </summary>
     public static class Specifications
     {
-        public const int L1_BUFFER_SIZE = 4096;           // L1缓冲区大小 (2^12)
+        public const int L1_BUFFER_SIZE = 4096;          // L1缓冲区大小 (2^12)
         public const int L2_QUEUE_CAPACITY = 256;        // L2队列容量
         public const int L3_QUEUE_CAPACITY = 128;        // L3队列容量
         public const int MIN_BATCH_INTERVAL_MS = 1;      // 最小批处理间隔
@@ -56,7 +49,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         public const int MAX_L1_ENQUEUE_NS = 100;        // L1入队最大100纳秒
         public const int MAX_BATCH_PROCESS_MS = 5;       // 批处理最大5毫秒
         public const double MIN_CACHE_HIT_RATIO = 0.95;  // 最小缓存命中率95%
-        public const int MAX_GC_PRESSURE_MB_PER_SEC = 10; // 最大GC压力10MB/s
+        public const int MAX_GC_PRESSURE_MB_PER_SEC = 10;// 最大GC压力10MB/s
 
         // 性能目标（基于技术规格说明书）
         public const int TARGET_THROUGHPUT = 150_000;    // 目标吞吐量150K msgs/sec
@@ -74,16 +67,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     private readonly MessageEngineConfiguration _options;
     private readonly ILogger<HighPerformanceMessageEngine> _logger;
 
-    // 三级缓冲架构核心组件
-    private ZeroCopyCircularBuffer<MessageEnvelope> _l1Buffer = null!;
-    private AdaptiveBatchScheduler _l2Scheduler = null!;
-    private TieredMemoryPool _l3MemoryPool = null!;
-
-    // 消息处理管道
-    private ChannelReader<MessageBatch> _l2BatchQueue = null!;
-    private ChannelWriter<MessageBatch> _l2BatchWriter = null!;
-    private ChannelReader<ResponseBatch> _l3ResponseQueue = null!;
-    private ChannelWriter<ResponseBatch> _l3ResponseWriter = null!;
+    // 三级缓冲架构核心组件 - 使用TieredMessageProcessor实现
+    private TieredMessageProcessor _tieredProcessor = null!;
 
     // 连接管理和负载均衡
     private ConcurrentDictionary<string, ConnectionContext> _activeConnections = null!;
@@ -99,8 +84,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     private volatile bool _isDisposed;
 
     // 处理任务
-    private Task? _l2ProcessingTask;
-    private Task? _l3ResponseTask;
     private Task? _monitoringTask;
 
     #endregion
@@ -130,31 +113,32 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     {
         _cancellationTokenSource = new CancellationTokenSource();
 
-        // 初始化三级缓冲架构
-        _l1Buffer = new ZeroCopyCircularBuffer<MessageEnvelope>(Specifications.L1_BUFFER_SIZE);
-        _l2Scheduler = new AdaptiveBatchScheduler(NullLogger<AdaptiveBatchScheduler>.Instance);
-        _l3MemoryPool = TieredMemoryPool.Instance;
-
-        // 初始化消息处理管道
-        var l2Channel = Channel.CreateBounded<MessageBatch>(new BoundedChannelOptions(Specifications.L2_QUEUE_CAPACITY)
+        // 创建TieredMessageProcessor配置
+        var processorOptions = new TieredMessageProcessorOptions
         {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
-            SingleWriter = false,
-            AllowSynchronousContinuations = false
-        });
-        _l2BatchQueue = l2Channel.Reader;
-        _l2BatchWriter = l2Channel.Writer;
+            L1BufferSize = Specifications.L1_BUFFER_SIZE,
+            L2QueueCapacity = Specifications.L2_QUEUE_CAPACITY,
+            BatchChannelCapacity = Specifications.L3_QUEUE_CAPACITY,
+            MaxBatchSize = Specifications.ADAPTIVE_BATCH_SIZE_MAX,
+            L2MaxBatchSize = Specifications.ADAPTIVE_BATCH_SIZE_MAX,
+            EnableAdaptiveBatching = true,
+            EnableDetailedLogging = false,
+            NormalMessageDropThreshold = 0.8,
+            CriticalMessageTimeoutUs = PerformanceRequirements.MAX_L1_ENQUEUE_NS / 1000, // 转换为微秒
+            L2BackpressureWaitMs = Specifications.MIN_BATCH_INTERVAL_MS
+        };
 
-        var l3Channel = Channel.CreateBounded<ResponseBatch>(new BoundedChannelOptions(Specifications.L3_QUEUE_CAPACITY)
-        {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
-            SingleWriter = false,
-            AllowSynchronousContinuations = false
-        });
-        _l3ResponseQueue = l3Channel.Reader;
-        _l3ResponseWriter = l3Channel.Writer;
+        // 创建消息处理委托
+        var messageHandler = CreateMessageHandler();
+
+        // 初始化TieredMessageProcessor
+        var tieredLogger = (_serviceProvider.GetService(typeof(ILogger<TieredMessageProcessor>)) as ILogger<TieredMessageProcessor>) ??
+                           new NullLogger<TieredMessageProcessor>();
+        _tieredProcessor = new TieredMessageProcessor(
+            _engineId,
+            processorOptions,
+            messageHandler,
+            tieredLogger);
 
         // 初始化连接管理
         _activeConnections = new ConcurrentDictionary<string, ConnectionContext>();
@@ -164,11 +148,46 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         _metrics = new EngineMetrics();
         _performanceMonitor = new PerformanceMonitor(_metrics, _logger);
 
-        // 注册自适应批处理器
-        _l2Scheduler.RegisterProcessor(this);
-
         _logger.LogInformation("HighPerformanceMessageEngine初始化完成: EngineId={EngineId}, L1Size={L1Size}, 性能目标: {ThroughputTarget} msgs/sec",
             _engineId, Specifications.L1_BUFFER_SIZE, PerformanceRequirements.TARGET_THROUGHPUT);
+    }
+
+    /// <summary>
+    /// 创建消息处理委托
+    /// </summary>
+    private Func<MessageSlot, CancellationToken, ValueTask<ProcessingResult>> CreateMessageHandler()
+    {
+        return async (messageSlot, cancellationToken) =>
+        {
+            var startTime = Stopwatch.GetTimestamp();
+
+            try
+            {
+                // 将MessageSlot转换为MessageEnvelope进行处理
+                var envelope = new MessageEnvelope
+                {
+                    MessageId = messageSlot.MessageId.ToString(),
+                    ConnectionId = messageSlot.MessageId.ToString(), // 临时使用MessageId作为ConnectionId
+                    Data = messageSlot.Data,
+                    Priority = messageSlot.Priority,
+                    EnqueueTime = messageSlot.EnqueueTime,
+                    Status = messageSlot.Status
+                };
+
+                // 使用现有的消息处理逻辑
+                var response = await ProcessSingleMessage(envelope);
+
+                var processingTime = Stopwatch.GetElapsedTime(startTime);
+                _metrics.MessagesProcessed.Add(1);
+
+                return ProcessingResult.SuccessResult();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "处理消息时发生错误: MessageId={MessageId}", messageSlot.MessageId);
+                return ProcessingResult.FailResult(ex.Message);
+            }
+        };
     }
 
     #endregion
@@ -186,12 +205,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
         try
         {
-            // 启动自适应调度器
-            _l2Scheduler.Start();
-
-            // 启动处理管道
-            _l2ProcessingTask = ProcessL2BatchesAsync(_cancellationTokenSource.Token);
-            _l3ResponseTask = ProcessL3ResponsesAsync(_cancellationTokenSource.Token);
+            // TieredMessageProcessor 在构造时自动启动，这里只需要启动性能监控
             _monitoringTask = RunPerformanceMonitoringAsync(_cancellationTokenSource.Token);
 
             _isRunning = true;
@@ -219,39 +233,23 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
         try
         {
-            // 从L3内存池租用缓冲区
-            var bufferArray = _l3MemoryPool.Rent(messageData.Length);
-            messageData.CopyTo(bufferArray.AsMemory());
-
-            // 创建引用计数缓冲区
-            var refCountedBuffer = new ReferenceCountedBuffer(bufferArray, buffer => _l3MemoryPool.Return(buffer));
-
-            // 创建消息信封
-            var envelope = new MessageEnvelope
+            // 更新连接活动时间
+            if (_activeConnections.TryGetValue(connectionId, out var context))
             {
-                MessageId = GenerateMessageId(),
-                ConnectionId = connectionId,
-                Data = refCountedBuffer,
-                Priority = priority,
-                EnqueueTime = startTicks,
-                Status = MessageStatus.Pending
-            };
-
-            // 尝试快速入队到L1缓冲区
-            if (_l1Buffer.TryEnqueue(envelope))
-            {
-                _metrics.L1MessagesEnqueued.Add(1);
-                _metrics.RecordEnqueueLatency(Stopwatch.GetTimestamp() - startTicks);
-
-                // 触发L1到L2的批处理转移
-                TriggerL1ToL2Transfer();
-                return true;
+                context.LastActivity = DateTime.UtcNow;
             }
-            else
+
+            // 直接使用TieredMessageProcessor处理消息
+            var success = _tieredProcessor.TryEnqueueMessage(messageData, priority);
+            if (!success)
             {
-                // L1缓冲区满，执行背压处理
-                return HandleL1Backpressure(envelope, priority);
+                return success;
             }
+
+            _metrics.L1MessagesEnqueued.Add(1);
+            _metrics.RecordEnqueueLatency(Stopwatch.GetTimestamp() - startTicks);
+
+            return success;
         }
         catch (Exception ex)
         {
@@ -297,142 +295,10 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
     #region 核心处理逻辑
 
-    /// <summary>
-    /// L1到L2批处理转移触发器
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void TriggerL1ToL2Transfer()
-    {
-        // 由AdaptiveBatchScheduler控制转移时机
-        // 这里可以添加紧急情况下的强制转移逻辑
-    }
+    // 注意：三层架构（L1→L2→L3）现在由TieredMessageProcessor内部处理
+    // 所有相关的处理逻辑已经被封装在TieredMessageProcessor中
 
-    /// <summary>
-    /// L1背压处理策略
-    /// </summary>
-    private bool HandleL1Backpressure(MessageEnvelope envelope, MessagePriority priority)
-    {
-        _metrics.BackpressureEvents.Add(1);
 
-        switch (priority)
-        {
-            case MessagePriority.Critical:
-                // 关键消息：短暂等待后强制入队
-                return TryForceEnqueue(envelope, TimeSpan.FromMicroseconds(_options.CriticalMessageTimeoutUs));
-
-            case MessagePriority.High:
-            case MessagePriority.Normal:
-                // 普通消息：根据负载决策
-                if (_metrics.GetCurrentL1Utilization() < _options.NormalMessageDropThreshold)
-                {
-                    return TryForceEnqueue(envelope, TimeSpan.FromMicroseconds(50));
-                }
-                break;
-
-            case MessagePriority.Low:
-                // 低优先级消息：直接丢弃
-                _logger.LogDebug("低优先级消息被丢弃: EngineId={EngineId}", _engineId);
-                break;
-        }
-
-        // 释放缓冲区并记录丢弃
-        _l3MemoryPool.Return(envelope.Data.GetBuffer());
-        _metrics.MessagesDropped.Add(1);
-        return false;
-    }
-
-    /// <summary>
-    /// 强制入队（关键消息）
-    /// </summary>
-    private bool TryForceEnqueue(MessageEnvelope envelope, TimeSpan timeout)
-    {
-        using var cts = new CancellationTokenSource(timeout);
-        var spinWait = new SpinWait();
-
-        while (!cts.Token.IsCancellationRequested)
-        {
-            if (_l1Buffer.TryEnqueue(envelope))
-            {
-                _metrics.L1MessagesEnqueued.Add(1);
-                _metrics.ForcedEnqueues.Add(1);
-                return true;
-            }
-
-            spinWait.SpinOnce();
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// L2批处理消息处理循环
-    /// </summary>
-    private async Task ProcessL2BatchesAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogDebug("L2批处理循环启动: EngineId={EngineId}", _engineId);
-
-        try
-        {
-            await foreach (var batch in _l2BatchQueue.ReadAllAsync(cancellationToken))
-            {
-                await ProcessMessageBatch(batch);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogDebug("L2批处理循环已取消: EngineId={EngineId}", _engineId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "L2批处理循环异常: EngineId={EngineId}", _engineId);
-        }
-    }
-
-    /// <summary>
-    /// 处理消息批次
-    /// </summary>
-    private async Task ProcessMessageBatch(MessageBatch batch)
-    {
-        var batchStartTime = Stopwatch.GetTimestamp();
-        var responses = new List<MessageResponse>();
-
-        try
-        {
-            // 并行处理批次中的消息
-            var processingTasks = batch.Messages.ToArray().Select(ProcessSingleMessage);
-            var results = await Task.WhenAll(processingTasks);
-
-            // 收集响应
-            responses.AddRange(results.Where(r => r != null)!);
-
-            // 发送响应批次到L3
-            if (responses.Count > 0)
-            {
-                var responseBatch = new ResponseBatch
-                {
-                    BatchId = batch.BatchId,
-                    Responses = responses.ToArray(),
-                    ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - batchStartTime)
-                };
-
-                await _l3ResponseWriter.WriteAsync(responseBatch);
-            }
-
-            // 更新统计
-            var processingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - batchStartTime);
-            _metrics.BatchesProcessed.Add(1);
-            _metrics.MessagesProcessed.Add(batch.Messages.Length);
-            _metrics.RecordBatchProcessingTime(processingTime);
-
-            _logger.LogTrace("批次处理完成: EngineId={EngineId}, BatchId={BatchId}, Messages={MessageCount}, ProcessingTime={ProcessingTime}ms",
-                _engineId, batch.BatchId, batch.Messages.Length, processingTime.TotalMilliseconds);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "批次处理失败: EngineId={EngineId}, BatchId={BatchId}", _engineId, batch.BatchId);
-            _metrics.BatchesErrored.Add(1);
-        }
-    }
 
     /// <summary>
     /// 处理单个消息
@@ -505,87 +371,11 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         }
         finally
         {
-            // 归还缓冲区到内存池
-            _l3MemoryPool.Return(envelope.Data.GetBuffer());
+            // 注意：内存池的管理现在由TieredMessageProcessor处理
+            // 不需要手动归还缓冲区
         }
     }
 
-    /// <summary>
-    /// L3响应处理循环
-    /// </summary>
-    private async Task ProcessL3ResponsesAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogDebug("L3响应处理循环启动: EngineId={EngineId}", _engineId);
-
-        try
-        {
-            await foreach (var responseBatch in _l3ResponseQueue.ReadAllAsync(cancellationToken))
-            {
-                await ProcessResponseBatch(responseBatch);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogDebug("L3响应处理循环已取消: EngineId={EngineId}", _engineId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "L3响应处理循环异常: EngineId={EngineId}", _engineId);
-        }
-    }
-
-    /// <summary>
-    /// 处理响应批次
-    /// </summary>
-    private async Task ProcessResponseBatch(ResponseBatch responseBatch)
-    {
-        try
-        {
-            // 按连接分组响应
-            var responsesByConnection = responseBatch.Responses.GroupBy(r => r.ConnectionId);
-
-            // 并行发送响应到各连接
-            var sendTasks = responsesByConnection.Select(group => SendResponsesToConnection(group.Key, group.ToArray()));
-            await Task.WhenAll(sendTasks);
-
-            _metrics.ResponseBatchesSent.Add(1);
-            _metrics.ResponsesSent.Add(responseBatch.Responses.Length);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "响应批次发送失败: EngineId={EngineId}, BatchId={BatchId}", _engineId, responseBatch.BatchId);
-            _metrics.ResponseErrors.Add(1);
-        }
-    }
-
-    /// <summary>
-    /// 向连接发送响应
-    /// </summary>
-    private async Task SendResponsesToConnection(string connectionId, MessageResponse[] responses)
-    {
-        if (!_activeConnections.TryGetValue(connectionId, out var context))
-        {
-            _logger.LogWarning("连接不存在，无法发送响应: EngineId={EngineId}, ConnectionId={ConnectionId}", _engineId, connectionId);
-            return;
-        }
-
-        try
-        {
-            // 这里需要根据实际的传输层接口实现响应发送
-            // 暂时记录日志表示响应已处理
-            foreach (var response in responses)
-            {
-                _logger.LogTrace("响应已发送: MessageId={MessageId}, Success={Success}, ProcessingTime={ProcessingTime}ms",
-                    response.MessageId, response.Success, response.ProcessingTime.TotalMilliseconds);
-            }
-
-            context.LastActivity = DateTime.UtcNow;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "向连接发送响应失败: EngineId={EngineId}, ConnectionId={ConnectionId}", _engineId, connectionId);
-        }
-    }
 
     #endregion
 
@@ -682,7 +472,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             ActiveConnections = _activeConnections.Count,
 
             // 内存统计
-            MemoryPoolStatistics = _l3MemoryPool.GetStatistics()
+            MemoryPoolStatistics = null // 内存池统计现在由TieredMessageProcessor管理
         };
     }
 
@@ -720,8 +510,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
         // 等待处理任务完成
         var stopTasks = new List<Task>();
-        if (_l2ProcessingTask != null) stopTasks.Add(_l2ProcessingTask);
-        if (_l3ResponseTask != null) stopTasks.Add(_l3ResponseTask);
         if (_monitoringTask != null) stopTasks.Add(_monitoringTask);
 
         try
@@ -733,8 +521,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             _logger.LogWarning("引擎停止超时: EngineId={EngineId}", _engineId);
         }
 
-        // 停止调度器
-        await _l2Scheduler.StopAsync();
+        // 注意：调度器现在由TieredMessageProcessor管理，不需要手动停止
 
         _logger.LogInformation("HighPerformanceMessageEngine已停止: EngineId={EngineId}", _engineId);
     }
@@ -750,19 +537,9 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
         await StopAsync();
 
-        // 释放管道资源
-        _l2BatchWriter.TryComplete();
-        _l3ResponseWriter.TryComplete();
+        // 释放TieredMessageProcessor
+        await _tieredProcessor.DisposeAsync();
 
-        // 清理剩余的L1缓冲区
-        while (_l1Buffer.TryDequeue(out var envelope))
-        {
-            _l3MemoryPool.Return(envelope.Data.GetBuffer());
-        }
-
-        // 释放核心组件
-        _l1Buffer.Dispose();
-        await _l2Scheduler.DisposeAsync();
         _cancellationTokenSource.Dispose();
 
         _isDisposed = true;
@@ -941,14 +718,9 @@ public class Gauge<T> where T : struct
 /// <summary>
 /// 负载均衡策略
 /// </summary>
-public class LoadBalancingStrategy
+public class LoadBalancingStrategy(LoadBalancingMode mode)
 {
-    private readonly LoadBalancingMode _mode;
-
-    public LoadBalancingStrategy(LoadBalancingMode mode)
-    {
-        _mode = mode;
-    }
+    private readonly LoadBalancingMode _mode = mode;
 }
 
 

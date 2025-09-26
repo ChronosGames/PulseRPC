@@ -175,8 +175,7 @@ public sealed class TieredMemoryPool : IDisposable
     /// <returns>至少为minimumLength大小的缓冲区</returns>
     public byte[] Rent(int minimumLength)
     {
-        if (minimumLength <= 0)
-            throw new ArgumentOutOfRangeException(nameof(minimumLength));
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(minimumLength);
 
         Interlocked.Increment(ref _statistics._totalRents);
 

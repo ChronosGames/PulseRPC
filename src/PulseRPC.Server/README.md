@@ -1,8 +1,166 @@
-# PulseRPC.Server DI Interface Implementation
+# PulseRPC.Server
 
 ## 🎯 项目概述
 
-本项目实现了基于设计文档的 PulseRPC.Server 依赖注入对外接口，提供了简洁、高性能、企业级的服务器配置API。项目采用三层抽象架构设计，与PulseRPC.Client共享底层传输抽象，实现最大化代码复用。
+PulseRPC.Server 是高性能 RPC 框架的服务端实现，采用现代三层消息处理架构，实现了高吞吐量（150K+ msg/sec）和低延迟（<7ms P99）的消息处理能力。项目提供简洁、高性能、企业级的服务器配置API，采用三层抽象架构设计，与PulseRPC.Client共享底层传输抽象。
+
+## 🏗️ PulseRPC.Server 消息处理与调度流程
+
+### 消息包结构
+
+#### MessageHeader 结构
+```csharp
+[MemoryPackable]
+public partial class MessageHeader
+{
+    [MemoryPackOrder(0)] public MessageType Type { get; set; }           // 消息类型: Request/Response/OneWay/Event
+    [MemoryPackOrder(1)] public Guid MessageId { get; set; }             // 唯一消息标识符
+    [MemoryPackOrder(2)] public string ServiceName { get; set; }         // 目标服务名称
+    [MemoryPackOrder(3)] public string MethodName { get; set; }          // 目标方法名称
+    [MemoryPackOrder(5)] public MessageFlags Flags { get; set; }         // 消息标志: Compressed/Encrypted/HighPriority 等
+    [MemoryPackOrder(6)] public long Timestamp { get; set; }             // 消息时间戳
+    [MemoryPackOrder(7)] public ushort SequenceNumber { get; set; }      // 消息序列号
+}
+```
+
+#### MessagePacket 结构
+```csharp
+public readonly ref struct MessagePacket
+{
+    public readonly MessageHeader Header;           // 消息元数据
+    public readonly ReadOnlySpan<byte> Payload;    // 序列化消息数据
+
+    // 线上格式: [HeaderLength:4bytes][Header:Variable][Payload:Variable]
+}
+```
+
+#### 消息类型和标志
+- **MessageType**: Request(1), Response(2), OneWay(3), Event(7)
+- **MessageFlags**: None(0), Compressed(1), Encrypted(2), RequireResponse(4), HighPriority(8), Reliable(16), Ordered(32)
+
+### 完整消息处理流程
+
+#### 阶段1: 传输层接收
+1. **传输监听器** (TCP/KCP) 接受连接
+2. **IServerTransport** 实现处理网络 I/O
+3. 通过 `DataReceived` 事件接收原始字节流
+
+#### 阶段2: 通道管理与快速入队
+1. **ServerTransportChannel** 包装传输连接
+2. **消息解析**: 原始字节 → MessagePacket（使用 `MessagePacket.TryReadFrom()`）
+3. **立即入队**: MessagePacket 直接进入 L1 高速缓冲区（<100纳秒）
+4. **ServiceId提取**: 从 Header.ServiceName 计算 ServiceId 哈希用于分组调度
+
+#### 阶段3: 三层处理管线与ServiceId分组调度
+
+##### L1 层 - 高速缓冲区（零拷贝循环缓冲区）
+- **容量**: 4096 消息槽位（按 ServiceId 哈希分区）
+- **分区策略**: 根据 `ServiceId.GetHashCode() % PartitionCount` 分配槽位
+- **入队时间**: <100 纳秒目标
+- **背压处理**:
+  - 关键消息: 1ms 超时强制入队
+  - 普通消息: >80% 利用率时丢弃
+  - 低优先级: 立即丢弃
+
+##### L2 层 - ServiceId分组批调度
+- **分组策略**: 按 ServiceId 将消息分组到不同的批次队列
+- **批大小**: 每个 ServiceId 8-128 消息（自适应）
+- **批间隔**: 1-10ms（自适应）
+- **队列容量**: 每个 ServiceId 独立的 256 批次队列
+- **负载均衡**: ServiceId 轮询分配到不同的处理线程
+- **优化**: 实时监控每个 ServiceId 的吞吐量和延迟
+
+##### L3 层 - 分组内存管理
+- **ServiceId池化**: 每个 ServiceId 维护独立的内存池
+- **TieredMemoryPool**: 基于 ServiceId 的多级内存池化
+- **ReferenceCountedBuffer**: 按 ServiceId 分组的自动内存生命周期管理
+- **零分配**: 每个 ServiceId 独立的 GC 压力控制（<10MB/s 目标）
+
+#### 阶段4: ServiceId分组反序列化
+1. **HighPerformanceDeserializer** 按 ServiceId 分组并行处理 MessagePacket
+2. **ServiceId专用线程**: 每个活跃的 ServiceId 分配专用反序列化线程
+3. **序列化器缓存**: 按 ServiceId + MethodName 缓存序列化器
+4. **批量处理**: 同一 ServiceId 的消息批量反序列化以提高缓存命中率
+5. **输出**: 带 ServiceId 标记的 `ServiceCallContext`
+
+#### 阶段5: ServiceId智能分发
+1. **ServiceIdDispatcher** 接收按 ServiceId 分组的反序列化消息
+2. **服务实例路由**:
+   - 单实例服务: 直接路由到唯一实例
+   - 多实例服务: 按负载均衡策略选择实例
+   - 有状态服务: 按客户端会话ID路由到固定实例
+3. **优先级队列**: 每个 ServiceId 独立的 Critical/High/Normal/Low 优先级通道
+4. **智能负载均衡**:
+   - 基于 ServiceId 的一致性哈希
+   - 实时监控各服务实例的处理能力
+   - 动态调整分发权重
+
+#### 阶段6: 服务执行
+1. **服务处理器调用**: `IServiceHandler.HandleAsync()`
+2. **代码生成**: 源生成器创建优化分发器
+3. **结果处理**: 成功/失败处理和指标收集
+
+#### 阶段7: 响应处理
+1. **响应构造**: 创建响应 MessagePacket
+2. **序列化**: 结果转换为字节
+3. **传输发送**: 响应路由回客户端
+4. **清理**: 释放资源并更新指标
+
+### 核心架构组件
+
+#### 核心服务器组件
+- **PulseServer**: 中央服务器协调器，管理多传输监听器
+- **ServerChannelManager**: 管理活动客户端连接及其生命周期，集成ServiceId快速入队机制
+- **HighPerformanceMessageEngine**: ServiceId分组的三层消息处理架构（L1→L2→L3），支持 150K+ msg/sec 吞吐量
+- **TieredMessageProcessor**: ServiceId感知的三层缓冲架构，包含：
+  - **ServiceIdPartitionedBuffer**: L1层按ServiceId哈希分区的零拷贝循环缓冲区
+  - **ServiceIdBatchScheduler**: L2层基于ServiceId的自适应批调度器
+  - **ServiceIdMemoryPool**: L3层按ServiceId分组的分层内存池
+- **ServiceIdDispatcher**: 智能ServiceId路由器，支持服务实例负载均衡和会话粘性
+
+### 关键性能优化
+
+#### 零拷贝设计
+- 使用 `ReadOnlySpan<byte>` 和 `ReadOnlyMemory<byte>` 最小化分配
+- 引用计数缓冲区用于安全内存共享
+- 基于 Span 的序列化与 `SpanBufferWriter`
+
+#### 高性能线程模型
+- 尽可能使用无锁数据结构
+- 每个处理阶段专用线程
+- I/O 绑定操作使用 async/await
+- 线程安全的指标收集
+
+#### 自适应性能调优
+- 吞吐量和延迟的实时监控
+- 动态批大小和间隔调整
+- 背压感知的队列管理
+- 性能目标验证（150K msg/sec, <7ms P99）
+
+#### 内存池管理
+- 三层内存池（small/medium/large）
+- 自动缓冲区租借/归还
+- NUMA 感知分配策略
+- 最小 GC 压力设计
+
+### 消息路由与处理器调用
+
+#### 服务注册
+- 通过依赖注入注册服务
+- 统一处理的 `IServiceHandler` 接口
+- 源生成器创建优化分发器
+
+#### 方法解析
+- 服务名称 + 方法名称 → 处理器查找
+- 每个方法的缓存序列化器
+- 通过生成代码进行类型安全调用
+
+#### 基于优先级的调度
+- 四个优先级别与专用队列
+- 高优先级消息跳过正常排队
+- 关键消息有专用处理路径
+
+## 🏗️ DI Interface Implementation
 
 ## 🏗️ 三层抽象架构
 

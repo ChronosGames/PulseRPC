@@ -33,14 +33,21 @@ public static class MessageDispatcherGenerator
         // 生成处理器映射
         GenerateHandlerMapping(code, serviceModels);
 
+        // 生成服务代理映射
+        GenerateServiceProxyMapping(code, serviceModels);
+
         // 生成注册方法
         GenerateRegistrationMethod(code, serviceModels);
 
         // 生成快速分发方法
         GenerateDispatchMethod(code, serviceModels);
 
-        // 生成批量分发方法
-        GenerateBatchDispatchMethod(code, serviceModels);
+        // 生成字节流直接分发方法
+        GenerateDispatchFromBytesMethod(code, serviceModels);
+
+        // 生成服务初始化方法
+        GenerateServiceInitializationMethod(code, serviceModels);
+
 
         // 生成统计和监控方法
         GenerateStatisticsMethod(code, serviceModels);
@@ -74,6 +81,7 @@ public static class MessageDispatcherGenerator
         code.AppendLine("using Microsoft.Extensions.Logging;");
         code.AppendLine("using Microsoft.Extensions.DependencyInjection;");
         code.AppendLine("using PulseRPC.Server.Engine;");
+        code.AppendLine("using PulseRPC.Server.Abstractions;");
 
         // 添加服务命名空间
         var namespaces = serviceModels.Select(s => s.Namespace).Where(ns => !string.IsNullOrEmpty(ns)).Distinct().ToList();
@@ -100,7 +108,7 @@ public static class MessageDispatcherGenerator
         code.AppendLine("/// - 内联优化支持");
         code.AppendLine("/// - AOT编译兼容");
         code.AppendLine("/// </summary>");
-        code.AppendLine("public static partial class CompiledMessageDispatcher");
+        code.AppendLine("public sealed class CompiledMessageDispatcher : PulseRPC.Server.Engine.AbstractCompiledMessageDispatcher");
         code.AppendLine("{");
     }
 
@@ -143,6 +151,29 @@ public static class MessageDispatcherGenerator
     }
 
     /// <summary>
+    /// 生成服务代理映射 - 直接映射到生成的代理类，无需 IServiceProvider
+    /// </summary>
+    private static void GenerateServiceProxyMapping(StringBuilder code, List<ServiceModel> serviceModels)
+    {
+        code.AppendLine("    /// <summary>");
+        code.AppendLine("    /// 服务代理映射 - 运行时初始化");
+        code.AppendLine("    /// </summary>");
+        code.AppendLine("    private readonly Dictionary<string, IGeneratedServiceProxy> ServiceProxyMap = new(StringComparer.Ordinal);");
+        code.AppendLine();
+
+        // 生成服务实例字段 - 通过静态初始化方法设置
+        code.AppendLine("    /// <summary>");
+        code.AppendLine("    /// 静态服务实例 - 由运行时初始化设置");
+        code.AppendLine("    /// </summary>");
+        foreach (var service in serviceModels)
+        {
+            var serviceInstanceField = $"_{service.InterfaceName.TrimStart('I').ToLower()}Instance";
+            code.AppendLine($"    private {service.InterfaceFullName}? {serviceInstanceField};");
+        }
+        code.AppendLine();
+    }
+
+    /// <summary>
     /// 生成处理器映射
     /// </summary>
     private static void GenerateHandlerMapping(StringBuilder code, List<ServiceModel> serviceModels)
@@ -150,8 +181,15 @@ public static class MessageDispatcherGenerator
         code.AppendLine("    /// <summary>");
         code.AppendLine("    /// 预编译的消息处理器映射 - 直接方法调用，无反射开销");
         code.AppendLine("    /// </summary>");
-        code.AppendLine("    private static readonly Dictionary<Type, MessageHandlerInfo> HandlerMap = new()");
+        code.AppendLine("    private readonly Dictionary<Type, MessageHandlerInfo> HandlerMap;");
+        code.AppendLine();
+        code.AppendLine("    /// <summary>");
+        code.AppendLine("    /// 构造函数 - 初始化处理器映射");
+        code.AppendLine("    /// </summary>");
+        code.AppendLine("    public CompiledMessageDispatcher()");
         code.AppendLine("    {");
+        code.AppendLine("        HandlerMap = new Dictionary<Type, MessageHandlerInfo>");
+        code.AppendLine("        {");
 
         foreach (var service in serviceModels)
         {
@@ -168,7 +206,7 @@ public static class MessageDispatcherGenerator
                     code.AppendLine($"            ServiceType = typeof({serviceName}),");
                     code.AppendLine($"            MethodName = \"{method.MethodName}\",");
                     code.AppendLine($"            IsAsync = {isAsync.ToString().ToLower()},");
-                    code.AppendLine($"            Handler = {handlerName},");
+                    code.AppendLine($"            Handler = (message, cancellationToken) => this.{handlerName}(message, cancellationToken),");
                     code.AppendLine($"            Priority = MessagePriority.{GetMessagePriority(method)},");
                     code.AppendLine($"            EstimatedLatencyMs = {GetEstimatedLatency(method)},");
                     code.AppendLine("        },");
@@ -176,7 +214,8 @@ public static class MessageDispatcherGenerator
             }
         }
 
-        code.AppendLine("    };");
+        code.AppendLine("        };");
+        code.AppendLine("    }");
         code.AppendLine();
     }
 
@@ -188,7 +227,7 @@ public static class MessageDispatcherGenerator
         code.AppendLine("    /// <summary>");
         code.AppendLine("    /// 将编译时生成的处理器注册到运行时分发器");
         code.AppendLine("    /// </summary>");
-        code.AppendLine("    public static void RegisterHandlers(IStaticMessageDispatcher dispatcher)");
+        code.AppendLine("    public override void RegisterHandlers(IStaticMessageDispatcher dispatcher)");
         code.AppendLine("    {");
         code.AppendLine("        if (dispatcher == null)");
         code.AppendLine("            throw new ArgumentNullException(nameof(dispatcher));");
@@ -204,7 +243,7 @@ public static class MessageDispatcherGenerator
                     var requestType = method.FirstParameter!.TypeFullName;
 
                     code.AppendLine($"        // 注册 {service.InterfaceName}.{method.MethodName}");
-                    code.AppendLine($"        dispatcher.RegisterHandler<{requestType}>({handlerName});");
+                    code.AppendLine($"        dispatcher.RegisterHandler<{requestType}>(this.{handlerName});");
                 }
             }
         }
@@ -212,31 +251,6 @@ public static class MessageDispatcherGenerator
         code.AppendLine("    }");
         code.AppendLine();
 
-        code.AppendLine("    /// <summary>");
-        code.AppendLine("    /// 通过类型注册所有处理器");
-        code.AppendLine("    /// </summary>");
-        code.AppendLine("    public static void RegisterHandlersByType(IStaticMessageDispatcher dispatcher)");
-        code.AppendLine("    {");
-        code.AppendLine("        if (dispatcher == null)");
-        code.AppendLine("            throw new ArgumentNullException(nameof(dispatcher));");
-        code.AppendLine();
-
-        foreach (var service in serviceModels)
-        {
-            foreach (var method in service.Methods)
-            {
-                if (method.IsSingleParameter)
-                {
-                    var handlerName = $"Handle{service.InterfaceName.TrimStart('I')}{method.MethodName}";
-                    var requestType = method.FirstParameter!.TypeFullName;
-
-                    code.AppendLine($"        dispatcher.RegisterHandler(typeof({requestType}), {handlerName});");
-                }
-            }
-        }
-
-        code.AppendLine("    }");
-        code.AppendLine();
     }
 
     /// <summary>
@@ -248,9 +262,8 @@ public static class MessageDispatcherGenerator
         code.AppendLine("    /// 高性能消息分发 - 编译时优化的快速路径");
         code.AppendLine("    /// </summary>");
         code.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        code.AppendLine("    public static async ValueTask<object?> DispatchAsync(");
+        code.AppendLine("    public override async ValueTask<object?> DispatchAsync(");
         code.AppendLine("        object message, ");
-        code.AppendLine("        IServiceProvider serviceProvider, ");
         code.AppendLine("        CancellationToken cancellationToken = default)");
         code.AppendLine("    {");
         code.AppendLine("        var messageType = message.GetType();");
@@ -262,7 +275,7 @@ public static class MessageDispatcherGenerator
         code.AppendLine("            ");
         code.AppendLine("            try");
         code.AppendLine("            {");
-        code.AppendLine("                var result = await handlerInfo.Handler(message, serviceProvider, cancellationToken);");
+        code.AppendLine("                var result = await handlerInfo.Handler(message, cancellationToken);");
         code.AppendLine("                ");
         code.AppendLine("                // 记录成功指标");
         code.AppendLine("                var elapsedMs = (Stopwatch.GetTimestamp() - startTime) * 1000.0 / Stopwatch.Frequency;");
@@ -287,32 +300,88 @@ public static class MessageDispatcherGenerator
     }
 
     /// <summary>
-    /// 生成批量分发方法
+    /// 生成字节流直接分发方法 - 零反射，高性能路径
     /// </summary>
-    private static void GenerateBatchDispatchMethod(StringBuilder code, List<ServiceModel> serviceModels)
+    private static void GenerateDispatchFromBytesMethod(StringBuilder code, List<ServiceModel> serviceModels)
     {
         code.AppendLine("    /// <summary>");
-        code.AppendLine("    /// 批量消息分发 - 优化的批处理路径");
+        code.AppendLine("    /// 直接从字节流分发到服务代理 - 无需反序列化为中间对象");
         code.AppendLine("    /// </summary>");
-        code.AppendLine("    public static Task<object?[]> DispatchBatchAsync(");
-        code.AppendLine("        ReadOnlyMemory<object> messages, ");
-        code.AppendLine("        IServiceProvider serviceProvider, ");
+        code.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+        code.AppendLine("    public override async ValueTask<object?> DispatchFromBytesAsync(");
+        code.AppendLine("        string serviceName,");
+        code.AppendLine("        string methodName,");
+        code.AppendLine("        ReadOnlyMemory<byte> payloadData,");
         code.AppendLine("        CancellationToken cancellationToken = default)");
         code.AppendLine("    {");
-        code.AppendLine("        var tasks = new Task<object?>[messages.Length];");
-        code.AppendLine("        ");
-        code.AppendLine("        // 并行分发所有消息");
-        code.AppendLine("        var messageSpan = messages.Span;");
-        code.AppendLine("        for (int i = 0; i < messageSpan.Length; i++)");
+        code.AppendLine("        // 快速路径：直接查找服务代理");
+        code.AppendLine("        if (ServiceProxyMap.TryGetValue(serviceName, out var proxy))");
         code.AppendLine("        {");
-        code.AppendLine("            tasks[i] = DispatchAsync(messageSpan[i], serviceProvider, cancellationToken).AsTask();");
+        code.AppendLine("            var startTime = Stopwatch.GetTimestamp();");
+        code.AppendLine("            ");
+        code.AppendLine("            try");
+        code.AppendLine("            {");
+        code.AppendLine("                // 直接调用生成的代理方法");
+        code.AppendLine("                var result = await proxy.InvokeAsync(methodName, payloadData, cancellationToken);");
+        code.AppendLine("                ");
+        code.AppendLine("                // 记录成功指标");
+        code.AppendLine("                var elapsedMs = (Stopwatch.GetTimestamp() - startTime) * 1000.0 / Stopwatch.Frequency;");
+        code.AppendLine("                Metrics.RecordDispatchSuccess($\"{serviceName}.{methodName}\", elapsedMs);");
+        code.AppendLine("                ");
+        code.AppendLine("                return result;");
+        code.AppendLine("            }");
+        code.AppendLine("            catch (Exception ex)");
+        code.AppendLine("            {");
+        code.AppendLine("                // 记录错误指标");
+        code.AppendLine("                var elapsedMs = (Stopwatch.GetTimestamp() - startTime) * 1000.0 / Stopwatch.Frequency;");
+        code.AppendLine("                Metrics.RecordDispatchError($\"{serviceName}.{methodName}\", elapsedMs, ex);");
+        code.AppendLine("                throw;");
+        code.AppendLine("            }");
         code.AppendLine("        }");
         code.AppendLine("        ");
-        code.AppendLine("        // 等待所有任务完成");
-        code.AppendLine("        return Task.WhenAll(tasks);");
+        code.AppendLine("        // 慢速路径：未找到服务");
+        code.AppendLine("        Metrics.RecordUnknownMessageType($\"{serviceName}.{methodName}\");");
+        code.AppendLine("        throw new ServiceNotFoundException($\"服务 '{serviceName}' 未找到或未注册\");");
         code.AppendLine("    }");
         code.AppendLine();
     }
+
+    /// <summary>
+    /// 生成服务初始化方法
+    /// </summary>
+    private static void GenerateServiceInitializationMethod(StringBuilder code, List<ServiceModel> serviceModels)
+    {
+        code.AppendLine("    /// <summary>");
+        code.AppendLine("    /// 初始化服务实例 - 由运行时调用");
+        code.AppendLine("    /// </summary>");
+        code.AppendLine("    public override void InitializeServices(IServiceProvider serviceProvider)");
+        code.AppendLine("    {");
+        code.AppendLine("        if (serviceProvider == null)");
+        code.AppendLine("            throw new ArgumentNullException(nameof(serviceProvider));");
+        code.AppendLine("        ");
+
+        foreach (var service in serviceModels)
+        {
+            var serviceInstanceField = $"_{service.InterfaceName.TrimStart('I').ToLower()}Instance";
+            code.AppendLine($"        {serviceInstanceField} = serviceProvider.GetRequiredService<{service.InterfaceFullName}>();");
+        }
+
+        code.AppendLine("        ");
+        code.AppendLine("        // 注册服务代理");
+        foreach (var service in serviceModels)
+        {
+            var serviceInstanceField = $"_{service.InterfaceName.TrimStart('I').ToLower()}Instance";
+            var proxyClassName = $"{service.InterfaceName.TrimStart('I')}Proxy";
+            code.AppendLine($"        ServiceProxyMap[\"{service.InterfaceFullName}\"] = new {service.Namespace}.Generated.{proxyClassName}({serviceInstanceField}!);");
+        }
+
+        code.AppendLine("        ");
+        code.AppendLine("        // 标记为已初始化");
+        code.AppendLine("        _isInitialized = true;");
+        code.AppendLine("    }");
+        code.AppendLine();
+    }
+
 
     /// <summary>
     /// 生成具体的处理器方法
@@ -335,13 +404,13 @@ public static class MessageDispatcherGenerator
                     code.AppendLine($"    /// 生成的处理器：{serviceName}.{method.MethodName}");
                     code.AppendLine($"    /// </summary>");
                     code.AppendLine($"    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-                    code.AppendLine($"    private static async ValueTask<object?> {handlerName}(");
+                    code.AppendLine($"    private async ValueTask<object?> {handlerName}(");
                     code.AppendLine($"        object message, ");
-                    code.AppendLine($"        IServiceProvider serviceProvider, ");
                     code.AppendLine($"        CancellationToken cancellationToken)");
                     code.AppendLine($"    {{");
                     code.AppendLine($"        var typedMessage = ({requestType})message;");
-                    code.AppendLine($"        var service = serviceProvider.GetRequiredService<{serviceName}>();");
+                    var serviceInstanceField = $"_{service.InterfaceName.TrimStart('I').ToLower()}Instance";
+                    code.AppendLine($"        var service = {serviceInstanceField} ?? throw new InvalidOperationException(\"Service {serviceName} not initialized. Call InitializeServices first.\");");
                     code.AppendLine($"        ");
 
                     if (isAsync)
@@ -386,7 +455,7 @@ public static class MessageDispatcherGenerator
         code.AppendLine("    /// <summary>");
         code.AppendLine("    /// 获取分发器统计信息");
         code.AppendLine("    /// </summary>");
-        code.AppendLine("    public static DispatcherStatistics GetStatistics()");
+        code.AppendLine("    public override object GetStatistics()");
         code.AppendLine("    {");
         code.AppendLine("        return new DispatcherStatistics");
         code.AppendLine("        {");
@@ -399,6 +468,15 @@ public static class MessageDispatcherGenerator
         code.AppendLine("                kvp => kvp.Value)");
         code.AppendLine("        };");
         code.AppendLine("    }");
+        code.AppendLine();
+
+        // 生成 IsInitialized 属性
+        code.AppendLine("    /// <summary>");
+        code.AppendLine("    /// 检查是否已正确初始化");
+        code.AppendLine("    /// </summary>");
+        code.AppendLine("    public override bool IsInitialized => _isInitialized;");
+        code.AppendLine();
+        code.AppendLine("    private bool _isInitialized;");
         code.AppendLine();
 
         // 生成性能指标类
@@ -470,7 +548,7 @@ public static class MessageDispatcherGenerator
         code.AppendLine("        public Type ServiceType { get; set; } = null!;");
         code.AppendLine("        public string MethodName { get; set; } = null!;");
         code.AppendLine("        public bool IsAsync { get; set; }");
-        code.AppendLine("        public Func<object, IServiceProvider, CancellationToken, ValueTask<object?>> Handler { get; set; } = null!;");
+        code.AppendLine("        public Func<object, CancellationToken, ValueTask<object?>> Handler { get; set; } = null!;");
         code.AppendLine("        public MessagePriority Priority { get; set; }");
         code.AppendLine("        public double EstimatedLatencyMs { get; set; }");
         code.AppendLine("    }");

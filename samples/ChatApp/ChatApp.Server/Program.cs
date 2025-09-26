@@ -86,7 +86,8 @@ internal abstract class Program
         });
 
         // 注册 Hub 服务
-        services.AddScoped<IPlayerHub, PlayerHub>();
+        services.AddSingleton<IPlayerHub, PlayerHub>();
+        services.AddSingleton<IChatHub, ChatHub>();
 
         // 添加服务注册
         // services.AddPulseRpcServiceRegistration(context.Configuration);
@@ -121,7 +122,7 @@ internal abstract class Program
             options.ServicesStopConcurrently = false;
         });
 
-        // 使用编译时生成的消息调度器以获得最佳性能
-        services.AddSingleton<IMessageDispatcher, CompiledMessageDispatcher>();
+        // 使用修复后的 GeneratedMessageDispatcher
+        services.AddSingleton<IMessageDispatcher, GeneratedMessageDispatcher>();
     }
 }

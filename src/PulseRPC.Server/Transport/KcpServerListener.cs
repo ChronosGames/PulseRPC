@@ -13,7 +13,7 @@ namespace PulseRPC.Server.Transport;
 /// </summary>
 public class KcpServerTransport : IServerTransport
 {
-    private readonly string _connectionId;
+    private readonly string _id;
     private readonly Socket _sharedSocket;
     private readonly IPEndPoint _remoteEndpoint;
     private readonly KcpCore _kcp;
@@ -28,7 +28,7 @@ public class KcpServerTransport : IServerTransport
     private bool _disposed;
     private readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-    public string Id => _connectionId;
+    public string Id => _id;
     public TransportType Type => TransportType.Kcp;
     public bool IsConnected => _state == ConnectionState.Connected;
     public ConnectionState State => _state;
@@ -43,9 +43,9 @@ public class KcpServerTransport : IServerTransport
     /// <summary>
     /// 创建KCP服务端连接
     /// </summary>
-    public KcpServerTransport(string connectionId, Socket sharedSocket, IPEndPoint remoteEndpoint, uint conv, KcpTransportOptions? options = null, ILogger? logger = null)
+    public KcpServerTransport(string id, Socket sharedSocket, IPEndPoint remoteEndpoint, uint conv, KcpTransportOptions? options = null, ILogger? logger = null)
     {
-        _connectionId = connectionId;
+        _id = id;
         _sharedSocket = sharedSocket;
         _remoteEndpoint = remoteEndpoint;
         _options = options ?? new KcpTransportOptions();
@@ -62,7 +62,7 @@ public class KcpServerTransport : IServerTransport
         _kcp.SetMtu(1400);
 
         _logger.LogInformation("创建KCP服务端连接: {ConnectionId} 从 {RemoteEndPoint}",
-            _connectionId, remoteEndpoint);
+            _id, remoteEndpoint);
     }
 
     /// <summary>
@@ -76,7 +76,7 @@ public class KcpServerTransport : IServerTransport
         // 启动KCP更新循环
         _updateTask = KcpUpdateLoopAsync(_cts.Token);
 
-        _logger.LogInformation("启动KCP连接更新循环: {ConnectionId}", _connectionId);
+        _logger.LogInformation("启动KCP连接更新循环: {ConnectionId}", _id);
     }
 
     /// <summary>
@@ -87,13 +87,13 @@ public class KcpServerTransport : IServerTransport
         if (!IsConnected || _disposed)
         {
             _logger.LogWarning("KCP连接 {ConnectionId} 无法发送数据: IsConnected={IsConnected}, Disposed={Disposed}",
-                _connectionId, IsConnected, _disposed);
+                _id, IsConnected, _disposed);
             return Task.FromResult(false);
         }
 
         try
         {
-            _logger.LogDebug("KCP连接 {ConnectionId} 发送数据: {Size} bytes", _connectionId, data.Length);
+            _logger.LogDebug("KCP连接 {ConnectionId} 发送数据: {Size} bytes", _id, data.Length);
 
             // 直接发送数据到KCP
             var result = _kcp.Send(data.Span);
@@ -104,18 +104,18 @@ public class KcpServerTransport : IServerTransport
                 uint currentTime = GetCurrentTimeMs();
                 _kcp.Update(currentTime);
                 _lastActivityAt = DateTime.UtcNow; // 更新活动时间
-                _logger.LogDebug("KCP连接 {ConnectionId} 数据已发送到KCP协议栈并更新", _connectionId);
+                _logger.LogDebug("KCP连接 {ConnectionId} 数据已发送到KCP协议栈并更新", _id);
             }
             else
             {
-                _logger.LogWarning("KCP连接 {ConnectionId} 发送数据到KCP协议栈失败: result={Result}", _connectionId, result);
+                _logger.LogWarning("KCP连接 {ConnectionId} 发送数据到KCP协议栈失败: result={Result}", _id, result);
             }
 
             return Task.FromResult(result == 0);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "KCP发送数据失败: {ConnectionId}", _connectionId);
+            _logger.LogError(ex, "KCP发送数据失败: {ConnectionId}", _id);
             return Task.FromResult(false);
         }
     }
@@ -134,7 +134,7 @@ public class KcpServerTransport : IServerTransport
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "KCP输出异常: {ConnectionId}", _connectionId);
+            _logger.LogError(ex, "KCP输出异常: {ConnectionId}", _id);
         }
     }
 
@@ -147,7 +147,7 @@ public class KcpServerTransport : IServerTransport
         {
             uint nextUpdateTime = 0;
 
-            _logger.LogDebug("KCP更新循环已启动: {ConnectionId}", _connectionId);
+            _logger.LogDebug("KCP更新循环已启动: {ConnectionId}", _id);
 
             while (!cancellationToken.IsCancellationRequested && _state == ConnectionState.Connected && !_disposed)
             {
@@ -183,7 +183,7 @@ public class KcpServerTransport : IServerTransport
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "KCP更新循环内部异常: {ConnectionId}", _connectionId);
+                    _logger.LogError(ex, "KCP更新循环内部异常: {ConnectionId}", _id);
 
                     // 短暂延迟后继续，避免忙等待
                     try
@@ -200,16 +200,16 @@ public class KcpServerTransport : IServerTransport
         catch (OperationCanceledException)
         {
             // 正常取消
-            _logger.LogDebug("KCP更新循环正常取消: {ConnectionId}", _connectionId);
+            _logger.LogDebug("KCP更新循环正常取消: {ConnectionId}", _id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "KCP更新循环异常: {ConnectionId}", _connectionId);
+            _logger.LogError(ex, "KCP更新循环异常: {ConnectionId}", _id);
             ChangeState(ConnectionState.Disconnected, $"KCP异常: {ex.Message}", ex);
         }
         finally
         {
-            _logger.LogDebug("KCP更新循环已结束: {ConnectionId}", _connectionId);
+            _logger.LogDebug("KCP更新循环已结束: {ConnectionId}", _id);
         }
     }
 
@@ -247,12 +247,12 @@ public class KcpServerTransport : IServerTransport
 
             if (receiveAttempts >= maxReceiveAttempts)
             {
-                _logger.LogWarning("[KCP应用层] {ConnectionId} 达到最大接收尝试次数限制: {MaxAttempts}", _connectionId, maxReceiveAttempts);
+                _logger.LogWarning("[KCP应用层] {ConnectionId} 达到最大接收尝试次数限制: {MaxAttempts}", _id, maxReceiveAttempts);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[KCP应用层] {ConnectionId} 处理KCP接收数据异常", _connectionId);
+            _logger.LogError(ex, "[KCP应用层] {ConnectionId} 处理KCP接收数据异常", _id);
         }
     }
 
@@ -270,12 +270,12 @@ public class KcpServerTransport : IServerTransport
             else
             {
                 _logger.LogWarning("[KCP协议栈] {ConnectionId} 状态异常，忽略UDP数据: Disposed={Disposed}, State={State}",
-                    _connectionId, _disposed, _state);
+                    _id, _disposed, _state);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[KCP协议栈] {ConnectionId} 处理UDP数据异常", _connectionId);
+            _logger.LogError(ex, "[KCP协议栈] {ConnectionId} 处理UDP数据异常", _id);
             ChangeState(ConnectionState.Disconnected, $"处理数据异常: {ex.Message}", ex);
         }
     }
@@ -300,9 +300,9 @@ public class KcpServerTransport : IServerTransport
         _state = newState;
 
         _logger.LogInformation("KCP连接状态变更: {ConnectionId} {OldState} -> {NewState} ({Reason})",
-            _connectionId, oldState, newState, reason ?? "未指定原因");
+            _id, oldState, newState, reason ?? "未指定原因");
 
-        StateChanged?.Invoke(this, new TransportStateEventArgs(_connectionId, oldState, newState, reason, exception));
+        StateChanged?.Invoke(this, new TransportStateEventArgs(_id, oldState, newState, reason, exception));
     }
 
     /// <summary>
@@ -328,7 +328,7 @@ public class KcpServerTransport : IServerTransport
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "发送断开连接包失败: {ConnectionId}", _connectionId);
+                _logger.LogWarning(ex, "发送断开连接包失败: {ConnectionId}", _id);
             }
 
             // 等待更新任务完成
@@ -340,22 +340,22 @@ public class KcpServerTransport : IServerTransport
                 }
                 catch (TimeoutException)
                 {
-                    _logger.LogWarning("等待KCP更新任务完成超时: {ConnectionId}", _connectionId);
+                    _logger.LogWarning("等待KCP更新任务完成超时: {ConnectionId}", _id);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "等待KCP更新任务完成异常: {ConnectionId}", _connectionId);
+                    _logger.LogWarning(ex, "等待KCP更新任务完成异常: {ConnectionId}", _id);
                 }
             }
 
             // 更新状态
             ChangeState(ConnectionState.Disconnected);
 
-            _logger.LogInformation("已关闭KCP客户端连接: {ConnectionId}", _connectionId);
+            _logger.LogInformation("已关闭KCP客户端连接: {ConnectionId}", _id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "关闭KCP客户端连接异常: {ConnectionId}", _connectionId);
+            _logger.LogError(ex, "关闭KCP客户端连接异常: {ConnectionId}", _id);
             ChangeState(ConnectionState.Disconnected, $"关闭异常: {ex.Message}", ex);
             throw;
         }
@@ -383,11 +383,11 @@ public class KcpServerTransport : IServerTransport
             _cts.Dispose();
             _stopwatch.Stop();
 
-            _logger.LogDebug("已释放KCP连接资源: {ConnectionId}", _connectionId);
+            _logger.LogDebug("已释放KCP连接资源: {ConnectionId}", _id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "释放KCP连接资源异常: {ConnectionId}", _connectionId);
+            _logger.LogError(ex, "释放KCP连接资源异常: {ConnectionId}", _id);
         }
     }
 }

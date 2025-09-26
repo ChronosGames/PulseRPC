@@ -223,34 +223,6 @@ public class PulseRPCSourceGenerator : ISourceGenerator
 
 namespace PulseRPC.Abstractions;
 
-/// <summary>
-/// Interface for generated service proxies
-/// </summary>
-public interface IGeneratedServiceProxy
-{
-    /// <summary>
-    /// Invoke a method on the service
-    /// </summary>
-    System.Threading.Tasks.ValueTask<object?> InvokeAsync(string methodName, System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default);
-}
-
-/// <summary>
-/// Exception thrown when a service is not found
-/// </summary>
-public class ServiceNotFoundException : System.Exception
-{
-    public ServiceNotFoundException(string message) : base(message) { }
-    public ServiceNotFoundException(string message, System.Exception innerException) : base(message, innerException) { }
-}
-
-/// <summary>
-/// Exception thrown when a method is not found
-/// </summary>
-public class MethodNotFoundException : System.Exception
-{
-    public MethodNotFoundException(string message) : base(message) { }
-    public MethodNotFoundException(string message, System.Exception innerException) : base(message, innerException) { }
-}
 
 /// <summary>
 /// Marker attribute for PulseRPC services

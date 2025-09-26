@@ -107,18 +107,18 @@ public class PlayerHub(
             if (connection != null)
             {
                 // 通过 ChannelManager 获取传输通道
-                var channel = serverChannelManager.GetChannel(connection.ConnectionId);
+                var channel = serverChannelManager.GetChannel(connection.Id);
                 if (channel != null)
                 {
                     // 创建认证上下文
-                    var authContext = new AuthenticationContext(connection.ConnectionId);
+                    var authContext = new AuthenticationContext(connection.Id);
                     authContext.SetClientAuthentication(player.Id.ToString(), player.Username, token, authResult.User);
 
                     // 设置通道的认证信息
                     channel.SetAuthentication(authContext);
 
                     logger.LogInformation("已为通道设置认证信息: UserId={UserId}, Username={Username}, ConnectionId={ConnectionId}",
-                        player.Id, player.Username, connection.ConnectionId);
+                        player.Id, player.Username, connection.Id);
 
                     // 认证设置完成后，通知其他玩家
                     try
@@ -132,7 +132,7 @@ public class PlayerHub(
                 }
                 else
                 {
-                    logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
+                    logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", connection.Id);
                 }
             }
             else
@@ -176,15 +176,15 @@ public class PlayerHub(
         }
 
         // 通过 ChannelManager 获取传输通道
-        var channel = serverChannelManager.GetChannel(connection.ConnectionId);
+        var channel = serverChannelManager.GetChannel(connection.Id);
         if (channel == null)
         {
-            logger.LogError("找不到连接 {ConnectionId} 的传输通道", connection.ConnectionId);
+            logger.LogError("找不到连接 {ConnectionId} 的传输通道", connection.Id);
             throw new InvalidOperationException("无法获取传输通道");
         }
 
         logger.LogInformation("连接信息: ConnectionId={ConnectionId}, Channel={ChannelType}",
-            connection.ConnectionId, channel.GetType().Name);
+            connection.Id, channel.GetType().Name);
 
         var authContext = channel.AuthenticationContext;
         if (authContext == null || !authContext.IsAuthenticated)
@@ -264,7 +264,7 @@ public class PlayerHub(
 
         // 获取当前连接ID，避免向正在登录的连接发送事件（防止死锁）
         var currentConnection = RequestContext.Current;
-        var currentConnectionId = currentConnection?.ConnectionId;
+        var currentConnectionId = currentConnection?.Id;
 
         // 获取所有已认证的通道，但排除当前连接
         var sessions = serverChannelManager.GetAuthenticatedChannels()

@@ -102,7 +102,7 @@ internal static class AsyncSpanHelper
     /// </summary>
     public static MessageHeader ReadMessageHeaderSync(ReadOnlySpan<byte> buffer)
     {
-        var length = BitConverter.ToInt32(buffer.Slice(0, 4));
+        var length = BitConverter.ToInt32(buffer[..4]);
         var messageId = BitConverter.ToUInt16(buffer.Slice(4, 2));
         var flags = BitConverter.ToUInt16(buffer.Slice(6, 2));
         return new MessageHeader(length, messageId, flags);
@@ -113,7 +113,7 @@ internal static class AsyncSpanHelper
     /// </summary>
     public static ChunkHeader ReadChunkHeaderSync(ReadOnlySpan<byte> buffer)
     {
-        var chunkId = BitConverter.ToInt32(buffer.Slice(0, 4));
+        var chunkId = BitConverter.ToInt32(buffer[..4]);
         var chunkIndex = BitConverter.ToInt32(buffer.Slice(4, 4));
         var totalChunks = BitConverter.ToInt32(buffer.Slice(8, 4));
         var chunkSize = BitConverter.ToInt32(buffer.Slice(12, 4));
@@ -125,16 +125,16 @@ internal static class AsyncSpanHelper
     private static void WriteMessageHeaderSync(Span<byte> buffer, MessageHeader header)
     {
         BitConverter.GetBytes(header.Length).CopyTo(buffer);
-        BitConverter.GetBytes(header.MessageId).CopyTo(buffer.Slice(4));
-        BitConverter.GetBytes(header.Flags).CopyTo(buffer.Slice(6));
+        BitConverter.GetBytes(header.MessageId).CopyTo(buffer[4..]);
+        BitConverter.GetBytes(header.Flags).CopyTo(buffer[6..]);
     }
 
     private static void WriteChunkHeaderSync(Span<byte> buffer, ChunkHeader header)
     {
         BitConverter.GetBytes(header.ChunkId).CopyTo(buffer);
-        BitConverter.GetBytes(header.ChunkIndex).CopyTo(buffer.Slice(4));
-        BitConverter.GetBytes(header.TotalChunks).CopyTo(buffer.Slice(8));
-        BitConverter.GetBytes(header.ChunkSize).CopyTo(buffer.Slice(12));
+        BitConverter.GetBytes(header.ChunkIndex).CopyTo(buffer[4..]);
+        BitConverter.GetBytes(header.TotalChunks).CopyTo(buffer[8..]);
+        BitConverter.GetBytes(header.ChunkSize).CopyTo(buffer[12..]);
     }
 
     #endregion

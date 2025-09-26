@@ -132,8 +132,6 @@ public partial class MessageHeader
 
     [MemoryPackOrder(3)] public string MethodName { get; set; } = string.Empty;
 
-    [MemoryPackOrder(4)] public int PayloadLength { get; set; }
-
     [MemoryPackOrder(5)]
     public MessageFlags Flags { get; set; }
 
@@ -154,7 +152,6 @@ public partial class MessageHeader
         MessageId = Guid.NewGuid();
         ServiceName = serviceName ?? string.Empty;
         MethodName = methodName ?? string.Empty;
-        PayloadLength = 0;
         Flags = MessageFlags.None;
         Timestamp = DateTimeOffset.UtcNow.Ticks;
         SequenceNumber = 0;

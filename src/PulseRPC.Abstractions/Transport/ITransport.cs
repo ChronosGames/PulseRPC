@@ -85,8 +85,6 @@ public interface IClientTransport : ITransport
 /// </summary>
 public interface IServerTransport : ITransport
 {
-    string ConnectionId => Id;
-
     Task CloseAsync(CancellationToken cancellationToken = default);
 }
 

@@ -1,12 +1,90 @@
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using PulseRPC.Authentication;
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using PulseRPC.Server.Authentication;
+using PulseRPC.Messaging;
 
 namespace PulseRPC.Server.Transport;
+
+/// <summary>
+/// 消息解析完成事件参数
+/// </summary>
+public sealed class MessageParsedEventArgs : EventArgs
+{
+    /// <summary>
+    /// 连接ID
+    /// </summary>
+    public string ConnectionId { get; }
+
+    /// <summary>
+    /// 解析的消息包
+    /// </summary>
+    public MessagePacketHolder MessagePacket { get; }
+
+    /// <summary>
+    /// 接收时间
+    /// </summary>
+    public DateTime ReceivedTime { get; }
+
+    /// <summary>
+    /// 处理器ID
+    /// </summary>
+    public int ProcessorId { get; }
+
+    public MessageParsedEventArgs(string connectionId, MessagePacketHolder messagePacket, DateTime receivedTime, int processorId)
+    {
+        ConnectionId = connectionId ?? throw new ArgumentNullException(nameof(connectionId));
+        MessagePacket = messagePacket ?? throw new ArgumentNullException(nameof(messagePacket));
+        ReceivedTime = receivedTime;
+        ProcessorId = processorId;
+    }
+}
+
+/// <summary>
+/// 消息处理完成事件参数
+/// </summary>
+public sealed class MessageProcessedEventArgs : EventArgs
+{
+    /// <summary>
+    /// 连接ID
+    /// </summary>
+    public string ConnectionId { get; }
+
+    /// <summary>
+    /// 消息头
+    /// </summary>
+    public MessageHeader Header { get; }
+
+    /// <summary>
+    /// 处理结果
+    /// </summary>
+    public object? Result { get; }
+
+    /// <summary>
+    /// 处理完成时间
+    /// </summary>
+    public DateTime ProcessedTime { get; }
+
+    /// <summary>
+    /// 是否处理成功
+    /// </summary>
+    public bool IsSuccess => Result != null && !(Result is Exception);
+
+    /// <summary>
+    /// 异常信息（如果有）
+    /// </summary>
+    public Exception? Exception => Result as Exception;
+
+    public MessageProcessedEventArgs(string connectionId, MessageHeader header, object? result, DateTime processedTime)
+    {
+        ConnectionId = connectionId ?? throw new ArgumentNullException(nameof(connectionId));
+        Header = header ?? throw new ArgumentNullException(nameof(header));
+        Result = result;
+        ProcessedTime = processedTime;
+    }
+}
 
 public interface IServerChannel : IDisposable
 {
@@ -49,6 +127,16 @@ public interface IServerChannel : IDisposable
     /// 状态变更事件
     /// </summary>
     event EventHandler<TransportStateEventArgs>? StateChanged;
+
+    /// <summary>
+    /// 消息解析完成事件
+    /// </summary>
+    event EventHandler<MessageParsedEventArgs>? MessageParsed;
+
+    /// <summary>
+    /// 消息处理完成事件
+    /// </summary>
+    event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
 }
 
 /// <summary>
@@ -66,7 +154,7 @@ public class ServerTransportChannel : IServerChannel
     private DateTime _lastActiveTime;
     private bool _disposed;
 
-    public string Id => _transport.Id;
+    public string Id => ((ITransport)_transport).Id;
     public TransportType Type => _transport.Type;
 
     /// <summary>
@@ -74,7 +162,9 @@ public class ServerTransportChannel : IServerChannel
     /// </summary>
     /// <param name="transport">底层传输连接</param>
     /// <param name="logger">日志记录器</param>
-    public ServerTransportChannel(IServerTransport transport, ILogger<ServerTransportChannel>? logger = null)
+    public ServerTransportChannel(
+        IServerTransport transport,
+        ILogger<ServerTransportChannel>? logger = null)
     {
         _transport = transport ?? throw new ArgumentNullException(nameof(transport));
         _properties = new ConcurrentDictionary<string, object>();
@@ -88,7 +178,7 @@ public class ServerTransportChannel : IServerChannel
     }
 
     /// <inheritdoc />
-    public string ConnectionId => _transport.Id;
+    public string ConnectionId => ((ITransport)_transport).Id;
 
     /// <inheritdoc />
     public IServerTransport Transport => _transport;
@@ -246,6 +336,16 @@ public class ServerTransportChannel : IServerChannel
     public event EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
+    /// 消息解析完成事件
+    /// </summary>
+    public event EventHandler<MessageParsedEventArgs>? MessageParsed;
+
+    /// <summary>
+    /// 消息处理完成事件
+    /// </summary>
+    public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
+
+    /// <summary>
     /// 处理传输层状态变更事件
     /// </summary>
     private void OnTransportStateChanged(object? sender, TransportStateEventArgs e)
@@ -269,21 +369,80 @@ public class ServerTransportChannel : IServerChannel
 
         if (sender is IServerTransport connection)
         {
-            _logger?.LogDebug("[通道数据转发] {ConnectionId} 接收到传输数据: Size={Size} bytes, Data=[{DataHex}]",
-                connection.ConnectionId, e.Data.Length, Convert.ToHexString(e.Data.Span[..Math.Min(e.Data.Length, 64)]));
+            _logger?.LogDebug("[通道数据处理] {ConnectionId} 接收到传输数据: Size={Size} bytes", connection.Id, e.Data.Length);
 
-            _logger?.LogDebug("[通道数据转发] {ConnectionId} 转发给订阅者，订阅者数量: {SubscriberCount}",
-                connection.ConnectionId, DataReceived?.GetInvocationList()?.Length ?? 0);
+            // 处理接收到的数据，解析消息包
+            ProcessReceivedData(e.Data);
         }
         else
         {
-            _logger?.LogWarning("[通道数据转发] 发送者不是IServerConnection类型: {SenderType}", sender?.GetType().Name ?? "null");
+            _logger?.LogWarning("[通道数据处理] 发送者不是IServerTransport类型: {SenderType}", sender?.GetType().Name ?? "null");
         }
 
+        // 继续转发原始数据事件，保持向后兼容性
         DataReceived?.Invoke(this, e);
-
-        _logger?.LogTrace("[通道数据转发] DataReceived事件已完成转发");
     }
+
+    /// <summary>
+    /// 处理接收到的数据，解析消息包并触发事件给 ServerChannelManager 路由
+    /// </summary>
+    private void ProcessReceivedData(ReadOnlyMemory<byte> data)
+    {
+        try
+        {
+            // 统一使用消息包解析方式，触发 MessageParsed 事件让 ServerChannelManager 处理路由
+            ParseAndTriggerMessageEvent(data);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[消息处理] {ConnectionId} 处理接收数据时发生异常: Size={Size} bytes",
+                ConnectionId, data.Length);
+        }
+    }
+
+    /// <summary>
+    /// 解析消息包并触发 MessageParsed 事件
+    /// </summary>
+    private void ParseAndTriggerMessageEvent(ReadOnlyMemory<byte> data)
+    {
+        try
+        {
+            // 尝试解析消息包
+            if (MessagePacket.TryReadFrom(data.Span, out var messagePacket))
+            {
+                _logger?.LogTrace("[消息解析] {ConnectionId} 成功解析消息包: 服务={ServiceName}, 方法={MethodName}, 类型={Type}, ID={MessageId}",
+                    ConnectionId, messagePacket.Header.ServiceName, messagePacket.Header.MethodName,
+                    messagePacket.Header.Type, messagePacket.Header.MessageId);
+
+                // 创建消息包持有者（避免 ref struct 的生命周期问题）
+                var messagePacketHolder = new MessagePacketHolder(messagePacket);
+
+                // 触发消息解析完成事件
+                var parsedEventArgs = new MessageParsedEventArgs(
+                    ConnectionId,
+                    messagePacketHolder,
+                    DateTime.UtcNow,
+                    0 // ProcessorId 暂时设为0，可以后续优化
+                );
+
+                MessageParsed?.Invoke(this, parsedEventArgs);
+
+                _logger?.LogTrace("[消息解析] {ConnectionId} 消息解析事件已触发，订阅者数量: {SubscriberCount}",
+                    ConnectionId, MessageParsed?.GetInvocationList()?.Length ?? 0);
+            }
+            else
+            {
+                _logger?.LogWarning("[消息解析] {ConnectionId} 消息包解析失败: Size={Size} bytes, Data=[{DataHex}]",
+                    ConnectionId, data.Length, Convert.ToHexString(data.Span[..Math.Min(data.Length, 128)]));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[消息解析] {ConnectionId} 处理接收数据时发生异常: Size={Size} bytes",
+                ConnectionId, data.Length);
+        }
+    }
+
 
     /// <inheritdoc />
     public void Dispose()

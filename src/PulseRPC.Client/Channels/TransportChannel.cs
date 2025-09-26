@@ -245,15 +245,23 @@ internal class TransportChannel : IClientChannel
         if (payload != null)
         {
             payloadSpan = SerializeToSpan(serializer, payload, tempBuffer.AsSpan(1024));
+            Console.WriteLine(
+                $"[消息封装] {Id} 消息包1: Size={payloadSpan.Length} bytes, Data=[{BitConverter.ToString(payloadSpan[..Math.Min(payloadSpan.Length, 128)].ToArray()).Replace("-", "")}]");
         }
 
         // 计算总大小并一次性写入
         var totalSize = sizeof(int) + headerSpan.Length + payloadSpan.Length;
-        var targetSpan = writer.GetSpan(totalSize);
+        var targetSpan = writer.GetSpan(totalSize); // 只取需要的部分
+
+        Console.WriteLine($"TotalSize={totalSize}, HeaderSize={headerSpan.Length}, PayloadSize={payloadSpan.Length}");
 
         // 直接打包到目标缓冲区
         PackMessageOptimized(targetSpan, headerSpan, payloadSpan);
+        Console.WriteLine(
+            $"[消息封装] {Id} 消息包2: Size={totalSize} bytes, TargetSpanLength={targetSpan.Length}, Data=[{BitConverter.ToString(targetSpan[..Math.Min(totalSize, 128)].ToArray()).Replace("-", "")}]");
         writer.Advance(totalSize);
+
+        Console.WriteLine($"TotalSize={totalSize}, HeaderSize={headerSpan.Length}, PayloadSize={payloadSpan.Length}, TargetSpanLength={targetSpan.Length}");
     }
 
     /// <summary>
@@ -264,7 +272,8 @@ internal class TransportChannel : IClientChannel
     {
         var bufferWriter = new SpanBufferWriterAdapter(buffer);
         serializer.Serialize(bufferWriter, in data);
-        return bufferWriter.WrittenSpan;
+        Console.WriteLine($"Total Serialized Size: {bufferWriter.WrittenCount} bytes, Length of WrittenSpan: {bufferWriter.WrittenSpan.Length} bytes");
+        return bufferWriter.WrittenSpan[..bufferWriter.WrittenCount];
     }
 
     /// <summary>
