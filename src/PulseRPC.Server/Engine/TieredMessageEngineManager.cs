@@ -1,19 +1,15 @@
 using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using PulseRPC.Server.Processing;
 using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Engine;
 
 /// <summary>
-/// 分层消息引擎管理器 - 替代HighThroughputProcessorManager
-/// 管理多个连接的TieredMessageProcessor实例，提供统一的接口
+/// 分层消息引擎管理器 - 统一管理所有连接的高性能消息引擎
+/// 管理多个连接的HighPerformanceMessageEngine实例，提供统一的接口
 /// </summary>
 public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IAsyncDisposable
 {
@@ -46,43 +42,54 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
     /// <summary>
     /// 获取或创建高性能消息引擎实例
     /// </summary>
-    public Task<HighPerformanceMessageEngine> GetOrCreateEngineAsync(
+    public async Task<HighPerformanceMessageEngine> GetOrCreateEngineAsync(
         string connectionId,
         IServerChannel serverChannel,
         IMessageDispatcher messageDispatcher)
     {
         ObjectDisposedException.ThrowIf(_isDisposed, nameof(TieredMessageEngineManager));
 
-        var engine = _engineInstances.GetOrAdd(connectionId, connId =>
+        // 如果引擎已存在，直接返回
+        if (_engineInstances.TryGetValue(connectionId, out var existingEngine))
         {
-            _logger.LogDebug("创建新的HighPerformanceMessageEngine：ConnectionId={ConnectionId}", connId);
+            return existingEngine;
+        }
 
-            var config = new MessageEngineConfiguration();
-            var engine = new HighPerformanceMessageEngine(
-                connId,
-                messageDispatcher,
-                _serviceProvider,
-                config,
-                new NullLogger<HighPerformanceMessageEngine>());
+        // 创建新引擎并确保完全初始化
+        _logger.LogDebug("创建新的HighPerformanceMessageEngine：ConnectionId={ConnectionId}", connectionId);
 
-            // 启动引擎
-            _ = Task.Run(async () =>
+        var config = new MessageEngineConfiguration();
+        var engine = new HighPerformanceMessageEngine(
+            connectionId,
+            messageDispatcher,
+            _serviceProvider,
+            config,
+            new NullLogger<HighPerformanceMessageEngine>());
+
+        try
+        {
+            // 第一阶段：启动引擎 - 确保完全初始化
+            await engine.StartAsync();
+            _logger.LogInformation("HighPerformanceMessageEngine已启动：ConnectionId={ConnectionId}", connectionId);
+
+            // 第二阶段：添加到管理集合
+            var addedEngine = _engineInstances.GetOrAdd(connectionId, engine);
+
+            // 如果添加失败（已存在），释放当前引擎并返回已存在的
+            if (addedEngine != engine)
             {
-                try
-                {
-                    await engine.StartAsync();
-                    _logger.LogInformation("HighPerformanceMessageEngine已启动：ConnectionId={ConnectionId}", connId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "启动HighPerformanceMessageEngine失败：ConnectionId={ConnectionId}", connId);
-                }
-            });
+                await engine.DisposeAsync();
+                return addedEngine;
+            }
 
             return engine;
-        });
-
-        return Task.FromResult(engine);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "启动HighPerformanceMessageEngine失败：ConnectionId={ConnectionId}", connectionId);
+            await engine.DisposeAsync();
+            throw;
+        }
     }
 
     /// <summary>
@@ -171,7 +178,7 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
         {
             try
             {
-                kvp.Value.Dispose();
+                await kvp.Value.DisposeAsync();
             }
             catch (Exception ex)
             {

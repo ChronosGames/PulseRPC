@@ -88,6 +88,7 @@ public class HandshakeException : Exception
     /// <summary>
     /// 序列化
     /// </summary>
+    [Obsolete]
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
         base.GetObjectData(info, context);

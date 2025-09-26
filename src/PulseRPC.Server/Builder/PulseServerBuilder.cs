@@ -133,8 +133,8 @@ public sealed class PulseServerBuilder : IPulseServerBuilder
             configure?.Invoke(options);
         });
 
-        // 注册高性能消息引擎相关服务
-        Services.TryAddSingleton<IHighThroughputProcessorManager, HighThroughputProcessorManager>();
+        // 高性能消息引擎已由 TieredMessageEngineServiceExtensions.AddTieredMessageEngine() 注册
+        Services.AddSingleton<ITieredMessageEngineManager, TieredMessageEngineManager>();
 
         return this;
     }
@@ -255,7 +255,7 @@ public sealed class PulseServerBuilder : IPulseServerBuilder
         Services.TryAddSingleton<IPulseServiceFactory, PulseServiceFactory>();
 
         // 注册消息处理器
-        Services.TryAddSingleton<IMessageDispatcher, CompiledMessageDispatcher>();
+        Services.TryAddSingleton<IMessageDispatcher, GeneratedMessageDispatcher>();
 
         // 确保已注册传输层集成服务
         Services.AddTransportIntegration();

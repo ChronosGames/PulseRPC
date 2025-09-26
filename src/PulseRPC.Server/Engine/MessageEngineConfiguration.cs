@@ -1,9 +1,11 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Transport;
 using PulseRPC.Serialization;
+using PulseRPC.Messaging;
 using MemoryPack;
 
 namespace PulseRPC.Server.Engine;
@@ -143,7 +145,6 @@ public interface IMessageDispatcher
 /// </summary>
 public delegate ValueTask<object?> MessageHandlerDelegate(
     object message,
-    IServiceProvider serviceProvider,
     CancellationToken cancellationToken);
 
 /// <summary>
@@ -166,7 +167,6 @@ public interface IStaticMessageDispatcher
     /// </summary>
     ValueTask<object?> TryDispatchAsync(
         object message,
-        IServiceProvider serviceProvider,
         CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -240,28 +240,50 @@ public class DefaultMessageSerializer : IMessageSerializer
 /// <summary>
 /// 编译时消息分发器
 /// </summary>
-public class CompiledMessageDispatcher : IMessageDispatcher
+public class GeneratedMessageDispatcher : IMessageDispatcher
 {
-    private readonly ILogger<CompiledMessageDispatcher> _logger;
+    private readonly ILogger<GeneratedMessageDispatcher> _logger;
     private readonly IMessageSerializer _messageSerializer;
     private readonly StaticGenericMessageDispatcher _staticDispatcher;
     private readonly bool _isInitialized;
+    private readonly ISerializerProvider _serializerProvider;
+    private AbstractCompiledMessageDispatcher? _compiledDispatcher;
+    private readonly IServiceProvider _serviceProvider;
+    private volatile bool _lazyInitialized;
 
-    public CompiledMessageDispatcher(
+    public GeneratedMessageDispatcher(
         IServiceProvider serviceProvider,
-        ILogger<CompiledMessageDispatcher> logger,
-        IMessageSerializer? messageSerializer = null)
+        ILogger<GeneratedMessageDispatcher> logger,
+        IMessageSerializer? messageSerializer = null,
+        ISerializerProvider? serializerProvider = null)
     {
         _logger = logger;
         _messageSerializer = messageSerializer ?? new DefaultMessageSerializer();
+        _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
+        _serviceProvider = serviceProvider;
 
         // 创建静态泛型分发器
         var staticLogger = (ILogger<StaticGenericMessageDispatcher>?)serviceProvider.GetService(typeof(ILogger<StaticGenericMessageDispatcher>)) ??
                           Microsoft.Extensions.Logging.Abstractions.NullLogger<StaticGenericMessageDispatcher>.Instance;
         _staticDispatcher = new StaticGenericMessageDispatcher(staticLogger);
 
-        // 尝试注册生成的处理器
-        _isInitialized = TryRegisterGeneratedHandlers();
+        // 尝试创建编译的分发器实例（延迟初始化，避免循环依赖）
+        _compiledDispatcher = TryCreateCompiledDispatcher();
+
+        if (_compiledDispatcher != null)
+        {
+            // 延迟初始化：在第一次使用时初始化服务，避免构造函数中的循环依赖
+            // _compiledDispatcher.InitializeServices(serviceProvider); // 移到 LazyInitialize 方法
+            // _compiledDispatcher.RegisterHandlers(_staticDispatcher);  // 移到 LazyInitialize 方法
+
+            _isInitialized = true; // 标记为可用，但尚未完全初始化
+        }
+        else
+        {
+            // 回退到反射方式
+            TryInitializeGeneratedServices(serviceProvider);
+            _isInitialized = TryRegisterGeneratedHandlers();
+        }
 
         if (_isInitialized)
         {
@@ -273,6 +295,37 @@ public class CompiledMessageDispatcher : IMessageDispatcher
         }
     }
 
+    /// <summary>
+    /// 延迟初始化编译的分发器，避免构造函数中的循环依赖
+    /// </summary>
+    private void LazyInitialize()
+    {
+        if (_lazyInitialized || _compiledDispatcher == null)
+            return;
+
+        lock (this)
+        {
+            if (_lazyInitialized)
+                return;
+
+            try
+            {
+                // 初始化服务
+                _compiledDispatcher.InitializeServices(_serviceProvider);
+
+                // 注册处理器
+                _compiledDispatcher.RegisterHandlers(_staticDispatcher);
+
+                _lazyInitialized = true;
+                _logger.LogDebug("编译的分发器延迟初始化完成");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "延迟初始化编译的分发器失败");
+            }
+        }
+    }
+
     public async ValueTask<object?> DispatchAsync(
         object message,
         IServiceProvider serviceProvider,
@@ -280,16 +333,56 @@ public class CompiledMessageDispatcher : IMessageDispatcher
     {
         try
         {
+            // 延迟初始化（仅在第一次调用时执行）
+            LazyInitialize();
+
             // 处理消息反序列化
             var deserializedMessage = await DeserializeMessageIfNeeded(message);
 
             if (_isInitialized)
             {
-                // 使用高性能静态泛型分发器（零反射）
-                var result = await _staticDispatcher.TryDispatchAsync(deserializedMessage, serviceProvider, cancellationToken);
-                if (result != null)
+                // 如果有编译的分发器且原始消息是字节数组，优先使用字节流处理
+                if (_compiledDispatcher != null && _lazyInitialized && message is byte[] messageBytes)
                 {
-                    return result;
+                    try
+                    {
+                        // 尝试解析消息包以获取服务名和方法名
+                        if (MessagePacket.TryReadFrom(messageBytes, out var packet))
+                        {
+                            var serviceName = packet.Header.ServiceName ?? "Unknown";
+                            var methodName = packet.Header.MethodName ?? "Unknown";
+
+                            _logger.LogDebug("解析消息包成功: ServiceName={ServiceName}, MethodName={MethodName}",
+                                serviceName, methodName);
+
+                            // 从字节流直接分发消息，使用解析出的服务名和方法名
+                            var result = await _compiledDispatcher.DispatchFromBytesAsync(
+                                serviceName,
+                                methodName,
+                                packet.Payload.ToArray(),
+                                cancellationToken);
+
+                            if (result != null)
+                            {
+                                return result;
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogDebug("无法解析消息包，回退到传统方式");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "编译分发器字节流处理失败，回退到静态分发器");
+                    }
+                }
+
+                // 使用高性能静态泛型分发器（零反射）
+                var staticResult = await _staticDispatcher.TryDispatchAsync(deserializedMessage, cancellationToken);
+                if (staticResult != null)
+                {
+                    return staticResult;
                 }
 
                 // 如果静态分发器无法处理，回退到传统实现
@@ -311,20 +404,210 @@ public class CompiledMessageDispatcher : IMessageDispatcher
     /// </summary>
     private async ValueTask<object> DeserializeMessageIfNeeded(object message)
     {
-        // 如果是字节数组，尝试反序列化
+        // 如果是字节数组，尝试智能反序列化
         if (message is byte[] messageBytes)
         {
-            return await _messageSerializer.DeserializeAsync(messageBytes);
+            return await TrySmartDeserializeAsync(messageBytes);
         }
 
         // 如果是内存块，转换为字节数组后反序列化
         if (message is Memory<byte> messageMemory)
         {
-            return await _messageSerializer.DeserializeAsync(messageMemory.ToArray());
+            return await TrySmartDeserializeAsync(messageMemory.ToArray());
         }
 
         // 如果已经是对象，直接返回
         return message;
+    }
+
+    /// <summary>
+    /// 智能反序列化 - 尝试从静态分发器已注册的类型中猜测
+    /// </summary>
+    private async ValueTask<object> TrySmartDeserializeAsync(byte[] messageBytes)
+    {
+        try
+        {
+            var readOnlySequence = new ReadOnlySequence<byte>(messageBytes);
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+
+            // 从静态分发器获取已注册的处理器类型
+            var registeredTypes = _staticDispatcher.RegisteredTypes;
+
+            foreach (var type in registeredTypes)
+            {
+                try
+                {
+                    // 使用反射调用泛型 Deserialize<T> 方法
+                    var method = typeof(ISerializer).GetMethod("Deserialize")!.MakeGenericMethod(type);
+                    var result = method.Invoke(serializer, new object[] { readOnlySequence });
+
+                    if (result != null)
+                    {
+                        _logger.LogDebug("成功反序列化为类型: {TypeName}", type.Name);
+                        return result;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogTrace(ex, "反序列化为类型 {TypeName} 失败", type.Name);
+                    // 继续尝试下一个类型
+                }
+            }
+
+            // 如果都失败了，返回原始字节数组
+            _logger.LogDebug("无法反序列化消息到任何已注册类型，返回原始字节数组");
+            return messageBytes;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "智能反序列化失败，返回原始字节数组");
+            return messageBytes;
+        }
+    }
+
+    /// <summary>
+    /// 尝试创建编译的分发器实例
+    /// </summary>
+    private AbstractCompiledMessageDispatcher? TryCreateCompiledDispatcher()
+    {
+        try
+        {
+            var generatedType = FindGeneratedDispatcherType();
+            if (generatedType != null)
+            {
+                var instance = Activator.CreateInstance(generatedType) as AbstractCompiledMessageDispatcher;
+                if (instance != null)
+                {
+                    _logger.LogTrace("成功创建编译的分发器实例: {TypeName}", generatedType.Name);
+                    return instance;
+                }
+            }
+
+            _logger.LogDebug("未找到或无法创建编译的分发器实例");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "创建编译的分发器实例时发生错误: {Error}", ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 查找生成的 CompiledMessageDispatcher 类型
+    /// </summary>
+    private static Type? FindGeneratedDispatcherType()
+    {
+        try
+        {
+            // 方法1：直接通过类型名查找
+            var type = Type.GetType("PulseRPC.Generated.CompiledMessageDispatcher");
+            if (type != null) return type;
+
+            // 方法2：在当前程序集中查找
+            var currentAssembly = System.Reflection.Assembly.GetExecutingAssembly();
+            type = currentAssembly.GetType("PulseRPC.Generated.CompiledMessageDispatcher");
+            if (type != null) return type;
+
+            // 方法3：在调用程序集中查找（生成的代码通常在这里）
+            var callingAssembly = System.Reflection.Assembly.GetCallingAssembly();
+            type = callingAssembly.GetType("PulseRPC.Generated.CompiledMessageDispatcher");
+            if (type != null) return type;
+
+            // 方法4：遍历所有已加载的程序集
+            foreach (var assembly in System.AppDomain.CurrentDomain.GetAssemblies())
+            {
+                try
+                {
+                    type = assembly.GetType("PulseRPC.Generated.CompiledMessageDispatcher");
+                    if (type != null) return type;
+                }
+                catch
+                {
+                    // 忽略无法访问的程序集
+                }
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 尝试初始化生成的分发器服务
+    /// </summary>
+    private void TryInitializeGeneratedServices(IServiceProvider serviceProvider)
+    {
+        try
+        {
+            // 尝试通过反射调用生成的初始化方法
+            var generatedType = FindGeneratedDispatcherType();
+            if (generatedType != null)
+            {
+                var initMethod = generatedType.GetMethod("InitializeServices",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+                    null,
+                    new[] { typeof(IServiceProvider) },
+                    null);
+
+                if (initMethod != null)
+                {
+                    initMethod.Invoke(null, new object[] { serviceProvider });
+                    _logger.LogTrace("成功初始化生成的分发器服务");
+                    return;
+                }
+            }
+
+            _logger.LogDebug("未找到生成的服务初始化方法");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "初始化生成的分发器服务时发生错误: {Error}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// 尝试使用生成的分发器直接处理字节流消息
+    /// </summary>
+    private async ValueTask<(bool Success, object? Result)> TryDispatchWithGeneratedDispatcherAsync(
+        string serviceName,
+        string methodName,
+        ReadOnlyMemory<byte> payloadBytes,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // 尝试通过反射调用生成的直接分发方法
+            var generatedType = FindGeneratedDispatcherType();
+            if (generatedType != null)
+            {
+                var dispatchMethod = generatedType.GetMethod("DispatchFromBytesAsync",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+                    null,
+                    new[] { typeof(string), typeof(string), typeof(ReadOnlyMemory<byte>), typeof(CancellationToken) },
+                    null);
+
+                if (dispatchMethod != null)
+                {
+                    var task = (ValueTask<object?>)dispatchMethod.Invoke(null, new object[] { serviceName, methodName, payloadBytes, cancellationToken })!;
+                    var result = await task;
+                    _logger.LogTrace("生成的分发器成功处理消息: {ServiceName}.{MethodName}", serviceName, methodName);
+                    return (true, result);
+                }
+            }
+
+            _logger.LogDebug("未找到生成的分发方法: {ServiceName}.{MethodName}", serviceName, methodName);
+            return (false, null);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "生成的分发器处理消息时发生错误: {ServiceName}.{MethodName}, 错误: {Error}",
+                serviceName, methodName, ex.Message);
+            return (false, null);
+        }
     }
 
     /// <summary>
@@ -335,7 +618,7 @@ public class CompiledMessageDispatcher : IMessageDispatcher
         try
         {
             // 尝试通过反射调用生成的注册方法
-            var generatedType = Type.GetType("PulseRPC.Generated.CompiledMessageDispatcher");
+            var generatedType = FindGeneratedDispatcherType();
             if (generatedType != null)
             {
                 var registerMethod = generatedType.GetMethod("RegisterHandlers",
@@ -393,6 +676,131 @@ public class CompiledMessageDispatcher : IMessageDispatcher
     {
         return _staticDispatcher.CanHandle(messageType);
     }
+
+    /// <summary>
+    /// 直接从字节流分发消息 - 核心优化方法
+    /// </summary>
+    public async ValueTask<object?> DispatchFromBytesAsync(
+        string serviceName,
+        string methodName,
+        ReadOnlyMemory<byte> payloadBytes,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // 优先使用编译的分发器实例
+            if (_compiledDispatcher != null && _compiledDispatcher.IsInitialized)
+            {
+                var result = await _compiledDispatcher.DispatchFromBytesAsync(serviceName, methodName, payloadBytes, cancellationToken);
+                _logger.LogTrace("编译的分发器成功处理消息: {ServiceName}.{MethodName}", serviceName, methodName);
+                return result;
+            }
+
+            // 回退：尝试使用反射方式的生成分发器
+            var reflectionResult = await TryDispatchWithGeneratedDispatcherAsync(serviceName, methodName, payloadBytes, cancellationToken);
+            if (reflectionResult.Success)
+            {
+                return reflectionResult.Result;
+            }
+
+            // 回退到传统处理方式
+            var messageType = GetMessageTypeForMethod(serviceName, methodName);
+            if (messageType == null)
+            {
+                _logger.LogWarning("未找到消息类型: 服务={ServiceName}, 方法={MethodName}", serviceName, methodName);
+                return new { Success = false, Error = $"未找到消息类型: {serviceName}.{methodName}" };
+            }
+
+            // 直接反序列化为目标类型
+            var deserializedMessage = await DeserializeToTypeAsync(messageType, payloadBytes);
+
+            // 使用静态分发器处理消息
+            if (_isInitialized)
+            {
+                var staticResult = await _staticDispatcher.TryDispatchAsync(deserializedMessage, cancellationToken);
+                if (staticResult != null)
+                {
+                    return staticResult;
+                }
+            }
+
+            // 最终回退处理
+            _logger.LogDebug("静态分发器无法处理消息类型 {MessageType}", messageType.Name);
+            return new { Success = false, Error = "未找到处理器" };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "从字节流分发消息失败: 服务={ServiceName}, 方法={MethodName}", serviceName, methodName);
+            return new { Success = false, Error = ex.Message };
+        }
+    }
+
+    /// <summary>
+    /// 根据服务名和方法名获取消息类型
+    /// </summary>
+    private Type? GetMessageTypeForMethod(string serviceName, string methodName)
+    {
+        try
+        {
+            // 尝试通过反射调用生成的方法
+            var generatedType = Type.GetType("PulseRPC.Generated.CompiledMessageDispatcher");
+            if (generatedType != null)
+            {
+                var getTypeMethod = generatedType.GetMethod("GetMessageType",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+                    null,
+                    new[] { typeof(string), typeof(string) },
+                    null);
+
+                if (getTypeMethod != null)
+                {
+                    return (Type?)getTypeMethod.Invoke(null, new object[] { serviceName, methodName });
+                }
+            }
+
+            _logger.LogDebug("未找到生成的 GetMessageType 方法");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "获取消息类型时发生错误: 服务={ServiceName}, 方法={MethodName}", serviceName, methodName);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 将字节数组反序列化为指定类型
+    /// </summary>
+    private async ValueTask<object> DeserializeToTypeAsync(Type messageType, ReadOnlyMemory<byte> bytes)
+    {
+        // 使用泛型方法进行强类型反序列化
+        var deserializeMethod = typeof(GeneratedMessageDispatcher)
+            .GetMethod(nameof(DeserializeToTypeGeneric), System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .MakeGenericMethod(messageType);
+
+        var task = (ValueTask<object>)deserializeMethod.Invoke(this, new object[] { bytes })!;
+        return await task;
+    }
+
+    /// <summary>
+    /// 泛型反序列化方法
+    /// </summary>
+    private ValueTask<object> DeserializeToTypeGeneric<T>(ReadOnlyMemory<byte> bytes)
+    {
+        try
+        {
+            var sequence = new ReadOnlySequence<byte>(bytes);
+            var serializer = _serializerProvider.Create(MethodType.Unary, null);
+            var result = serializer.Deserialize<T>(sequence);
+            return ValueTask.FromResult<object>(result!);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "反序列化类型 {TypeName} 失败", typeof(T).Name);
+            throw;
+        }
+    }
+
 }
 
 /// <summary>
@@ -432,7 +840,6 @@ public class StaticGenericMessageDispatcher : IStaticMessageDispatcher
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public async ValueTask<object?> TryDispatchAsync(
         object message,
-        IServiceProvider serviceProvider,
         CancellationToken cancellationToken = default)
     {
         var messageType = message.GetType();
@@ -440,7 +847,7 @@ public class StaticGenericMessageDispatcher : IStaticMessageDispatcher
         // 快速路径：直接类型匹配
         if (_handlers.TryGetValue(messageType, out var handler))
         {
-            return await handler(message, serviceProvider, cancellationToken);
+            return await handler(message, cancellationToken);
         }
 
         // 慢速路径：继承类型匹配
@@ -448,7 +855,7 @@ public class StaticGenericMessageDispatcher : IStaticMessageDispatcher
         {
             if (kvp.Key.IsAssignableFrom(messageType))
             {
-                return await kvp.Value(message, serviceProvider, cancellationToken);
+                return await kvp.Value(message, cancellationToken);
             }
         }
 

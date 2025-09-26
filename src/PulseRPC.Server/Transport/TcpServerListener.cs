@@ -12,23 +12,20 @@ namespace PulseRPC.Server.Transport;
 /// </summary>
 public class TcpServerTransport : TcpTransport, IServerTransport
 {
-    private readonly string _connectionId;
+    private readonly string _id;
     private readonly DateTime _connectedAt;
     private DateTime _lastActivityAt;
 
-    public string ConnectionId => _connectionId;
-    public DateTime ConnectedAt => _connectedAt;
-    public DateTime LastActiveTime => _lastActivityAt;
-    public TransportType TransportType => TransportType.Tcp;
+    public override string Id => _id;
 
     /// <summary>
     /// 使用已连接的Socket创建服务端连接
     /// </summary>
-    public TcpServerTransport(string connectionId, Socket socket, TcpTransportOptions? options = null,
+    public TcpServerTransport(string id, Socket socket, TcpTransportOptions? options = null,
         ILogger? logger = null)
         : base(options, logger)
     {
-        _connectionId = connectionId;
+        _id = id;
         _connectedAt = DateTime.UtcNow;
         _lastActivityAt = DateTime.UtcNow;
 
@@ -49,7 +46,7 @@ public class TcpServerTransport : TcpTransport, IServerTransport
         this.StateChanged += OnBaseStateChanged;
         this.DataReceived += OnBaseDataReceived;
 
-        _logger.LogInformation("接受客户端连接: {ConnectionId} 从 {RemoteEndPoint}", _connectionId, socket.RemoteEndPoint);
+        _logger.LogInformation("接受客户端连接: {ConnectionId} 从 {RemoteEndPoint}", _id, socket.RemoteEndPoint);
     }
 
     /// <summary>
@@ -102,11 +99,11 @@ public class TcpServerTransport : TcpTransport, IServerTransport
             }
 
             ChangeState(ConnectionState.Disconnected);
-            _logger.LogInformation("客户端连接已关闭: {ConnectionId}", _connectionId);
+            _logger.LogInformation("客户端连接已关闭: {ConnectionId}", _id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "关闭连接异常: {ConnectionId}", _connectionId);
+            _logger.LogError(ex, "关闭连接异常: {ConnectionId}", _id);
             ChangeState(ConnectionState.Disconnected, $"关闭异常: {ex.Message}", ex);
         }
 
@@ -132,7 +129,7 @@ public class TcpServerListener : IServerListener
     public EndPoint LocalEndPoint => _listener.LocalEndpoint;
     public bool IsListening => _isListening;
 
-    public event System.EventHandler<ServerConnectionEventArgs>? ConnectionAccepted;
+    public event EventHandler<ServerConnectionEventArgs>? ConnectionAccepted;
 
     public TcpServerListener(int port, TcpTransportOptions? options = null, ILogger? logger = null)
     {

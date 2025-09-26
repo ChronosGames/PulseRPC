@@ -281,15 +281,15 @@ internal sealed class PulseServer : IPulseServer
     {
         try
         {
-            _logger.LogDebug("接受新连接: {ConnectionId} from {RemoteEndPoint} via {TransportType}", e.Transport.ConnectionId, e.Transport.RemoteEndPoint, e.Transport.Type);
+            _logger.LogDebug("接受新连接: {ConnectionId} from {RemoteEndPoint} via {TransportType}", e.Transport.Id, e.Transport.RemoteEndPoint, e.Transport.Type);
 
             _channelManager.AddChannel(e.Transport);
 
-            _logger.LogInformation("新连接已接受: {ConnectionId}", e.Transport.Id);
+            _logger.LogInformation("新连接已接受: {ConnectionId}", ((ITransport)e.Transport).Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "处理新连接时发生异常: {ConnectionId}", e.Transport.Id);
+            _logger.LogError(ex, "处理新连接时发生异常: {ConnectionId}", ((ITransport)e.Transport).Id);
 
             // 异步关闭有问题的连接
             _ = Task.Run(async () =>
@@ -301,7 +301,7 @@ internal sealed class PulseServer : IPulseServer
                 catch (Exception closeEx)
                 {
                     _logger.LogDebug(closeEx, "关闭异常连接时发生异常: {ConnectionId}",
-                        e.Transport.Id);
+                        ((ITransport)e.Transport).Id);
                 }
             });
         }

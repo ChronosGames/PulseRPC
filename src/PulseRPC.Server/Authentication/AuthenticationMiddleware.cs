@@ -41,10 +41,10 @@ public class AuthenticationMiddleware
         try
         {
             // 获取传输通道
-            var channel = _channelManager.GetChannel(transport.Id);
+            var channel = _channelManager.GetChannel(((ITransport)transport).Id);
             if (channel == null)
             {
-                _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", transport.Id);
+                _logger.LogWarning("找不到连接 {ConnectionId} 的传输通道", ((ITransport)transport).Id);
                 return false;
             }
 
@@ -71,7 +71,7 @@ public class AuthenticationMiddleware
                 if (authResult.IsAuthenticated && authResult.User != null)
                 {
                     // 创建新的认证上下文
-                    var authContext = new AuthenticationContext(transport.Id);
+                    var authContext = new AuthenticationContext(((ITransport)transport).Id);
                     var userId = authResult.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                     var username = authResult.User.FindFirst(ClaimTypes.Name)?.Value;
 

@@ -247,8 +247,7 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
                 var batchStartTime = Stopwatch.GetTimestamp();
 
                 // 收集批处理
-                while (batchSize < batchBuffer.Length &&
-                       _l1Buffer.TryDequeue(out var slot))
+                while (batchSize < batchBuffer.Length && _l1Buffer.TryDequeue(out var slot))
                 {
                     batchBuffer[batchSize++] = slot;
                     _metrics.L1MessagesDequeued.Add(1);

@@ -46,7 +46,6 @@ public readonly ref struct MessagePacket
     {
         var header = new MessageHeader(MessageType.Request, serviceName, methodName)
         {
-            PayloadLength = payload.Length,
             Flags = MessageFlags.RequireResponse
         };
         return new MessagePacket(header, payload);
@@ -61,7 +60,6 @@ public readonly ref struct MessagePacket
         var header = new MessageHeader(MessageType.Response, string.Empty, string.Empty)
         {
             MessageId = messageId,
-            PayloadLength = payload.Length
         };
         return new MessagePacket(header, payload);
     }
@@ -119,17 +117,18 @@ public readonly ref struct MessagePacket
         // 2. 反序列化头部
         var header = new MessageHeader();
         var deserializeSize = MemoryPackSerializer.Deserialize(headerBuffer, ref header, s_headerOptions);
-        if (header!.PayloadLength != deserializeSize)
+        if (headerLength != deserializeSize)
             return false;
 
         // 3. 验证负载长度
-        if (payloadStart + header.PayloadLength > buffer.Length)
+        int payloadSize = buffer.Length - payloadStart;
+        if (payloadStart + payloadSize > buffer.Length)
             return false;
 
         // 4. 提取负载
-        var payload = buffer.Slice(payloadStart, header.PayloadLength);
+        var payload = buffer.Slice(payloadStart, payloadSize);
 
-        packet = new MessagePacket(header, payload);
+        packet = new MessagePacket(header!, payload);
         return true;
     }
 
@@ -148,8 +147,7 @@ public readonly ref struct MessagePacket
     /// </summary>
     public bool IsValid()
     {
-        return Header.PayloadLength == Payload.Length &&
-               !string.IsNullOrEmpty(Header.ServiceName) &&
+        return !string.IsNullOrEmpty(Header.ServiceName) &&
                !string.IsNullOrEmpty(Header.MethodName);
     }
 }

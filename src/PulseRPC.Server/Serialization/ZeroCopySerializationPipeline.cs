@@ -461,7 +461,7 @@ public sealed class ZeroCopySerializationPipeline : IAsyncDisposable
     /// </summary>
     public sealed class FastPathStatistics
     {
-        public System.Collections.Generic.List<TypeSerializationStats> TypeStats { get; } = new();
+        public List<TypeSerializationStats> TypeStats { get; } = new();
     }
 
     /// <summary>

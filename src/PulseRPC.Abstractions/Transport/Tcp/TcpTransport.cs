@@ -311,14 +311,13 @@ public abstract class TcpTransport : ITransport
             }
 
             // 读取块头
-            var chunkHeader = AsyncSpanHelper.ReadChunkHeaderSync(data.Span.Slice(0, ChunkHeader.Size));
-            var chunkData = data.Slice(ChunkHeader.Size);
+            var chunkHeader = AsyncSpanHelper.ReadChunkHeaderSync(data.Span[..ChunkHeader.Size]);
+            var chunkData = data[ChunkHeader.Size..];
 
             // 验证块大小
             if (chunkData.Length != chunkHeader.ChunkSize)
             {
-                _logger.LogWarning("分块大小不匹配: 期望 {Expected}, 实际 {Actual}",
-                    chunkHeader.ChunkSize, chunkData.Length);
+                _logger.LogWarning("分块大小不匹配: 期望 {Expected}, 实际 {Actual}", chunkHeader.ChunkSize, chunkData.Length);
                 return Task.CompletedTask;
             }
 
