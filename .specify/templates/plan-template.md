@@ -47,7 +47,13 @@
 ## Constitution Check
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-[Gates determined based on constitution file]
+**Performance-First**: Does this feature meet documented performance targets (P95 < 50ms, >100 QPS, >99.5% success rate)?
+**Source Generation Over Reflection**: Are client implementations using Source Generator instead of reflection?
+**Enterprise-Grade Reliability**: Does the design include error handling, retry policies, health checks?
+**Test-Driven Development**: Are tests written before implementation? Is >90% coverage planned?
+**Modern .NET Standards**: Does implementation use async/await, nullable types, dependency injection?
+
+*Mark any violations that require justification in Complexity Tracking section*
 
 ## Project Structure
 
@@ -216,4 +222,4 @@ directories captured above]
 - [ ] Complexity deviations documented
 
 ---
-*Based on Constitution v2.1.1 - See `/memory/constitution.md`*
+*Based on Constitution v1.0.0 - See `/memory/constitution.md`*
