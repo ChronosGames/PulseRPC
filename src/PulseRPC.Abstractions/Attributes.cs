@@ -13,9 +13,25 @@ public class ChannelAttribute : Attribute
     /// </summary>
     public string ChannelName { get; }
 
+    /// <summary>
+    /// 服务名称，用于线程调度（可选）
+    /// 如果未指定，默认使用接口名称
+    /// </summary>
+    public string? ServiceName { get; set; }
+
     public ChannelAttribute(string channelName)
     {
         ChannelName = channelName;
+    }
+
+    /// <summary>
+    /// 初始化通道特性并指定服务名称
+    /// </summary>
+    /// <param name="channelName">通道名称</param>
+    /// <param name="serviceName">服务名称（用于线程调度）</param>
+    public ChannelAttribute(string channelName, string? serviceName) : this(channelName)
+    {
+        ServiceName = serviceName;
     }
 }
 

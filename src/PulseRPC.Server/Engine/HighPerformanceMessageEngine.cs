@@ -5,6 +5,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Memory;
+using PulseRPC.Messaging;
 using PulseRPC.Server.Memory;
 using PulseRPC.Server.Processing;
 using PulseRPC.Transport;
@@ -314,14 +315,33 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
             try
             {
-                // 尝试反序列化消息数据
-                // 这里需要根据实际的消息格式进行反序列化
-                // 目前使用简化的方式：假设消息数据可以直接作为对象传递
-                var messageData = envelope.Data.GetBuffer();
+                // 解析MessagePacket以获取服务名和方法名
+                var messageBytes = envelope.Data.GetBuffer();
 
-                // 使用消息分发器处理消息
+                if (!MessagePacket.TryReadFrom(messageBytes, out var messagePacket))
+                {
+                    _logger.LogWarning("无法解析MessagePacket，消息ID={MessageId}", envelope.MessageId);
+                    envelope.Status = MessageStatus.Failed;
+                    return new MessageResponse
+                    {
+                        MessageId = envelope.MessageId,
+                        ConnectionId = envelope.ConnectionId,
+                        Success = false,
+                        ErrorMessage = "无法解析MessagePacket",
+                        ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)
+                    };
+                }
+
+                var serviceName = messagePacket.Header.ServiceName ?? "Unknown";
+                var methodName = messagePacket.Header.MethodName ?? "Unknown";
+
+                // 尝试反序列化payload为具体的消息对象
+                // 这里需要根据serviceName和methodName确定消息类型
+                var payloadBytes = messagePacket.Payload.ToArray();
+
+                // 使用现有的消息分发器处理
                 result = await _messageDispatcher.DispatchAsync(
-                    messageData,
+                    payloadBytes,
                     _serviceProvider,
                     CancellationToken.None);
             }
