@@ -414,6 +414,7 @@ var apiService = await connection.GetServiceAsync<IApiService>();
 - **[ChatApp.Unity](samples/ChatApp/ChatApp.Unity/)** - Unity 聊天客户端
 - **[PulseRPC.Client.Unity](src/PulseRPC.Client.Unity/)** - Unity 集成包
 
+
 ## 📊 性能特性
 
 基于 BenchmarkApp 的实际测试数据（WSL2 环境，.NET 9.0）：
@@ -423,7 +424,7 @@ var apiService = await connection.GetServiceAsync<IApiService>();
 - **P95 延迟**: ~45ms
 - **P99 延迟**: ~85ms
 
-### 吞吐量性能  
+### 吞吐量性能
 - **峰值 QPS**: 46-68 请求/秒
 - **网络吞吐**: 发送 86.7MB/s，接收 80.8MB/s
 - **成功率**: 99.8%
