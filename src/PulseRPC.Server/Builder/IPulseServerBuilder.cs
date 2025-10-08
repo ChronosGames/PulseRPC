@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using PulseRPC.Server.Scheduling;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Builder;
@@ -104,6 +105,12 @@ public interface IPulseServerBuilder
     /// </summary>
     /// <param name="configure">服务器配置回调</param>
     IPulseServerBuilder ConfigureServer(Action<ServerOptions> configure);
+
+    /// <summary>
+    /// 配置调度器选项
+    /// </summary>
+    /// <param name="configure">调度器配置回调</param>
+    IPulseServerBuilder ConfigureScheduler(Action<SchedulerConfiguration> configure);
 
     // === 构建 ===
     /// <summary>

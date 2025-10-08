@@ -7,6 +7,7 @@ using PulseRPC.Transport;
 using PulseRPC.Serialization;
 using PulseRPC.Messaging;
 using MemoryPack;
+using PulseRPC.Server.Scheduling;
 
 namespace PulseRPC.Server.Engine;
 
@@ -126,7 +127,7 @@ public abstract class ServerMessage : ClientMessage
     /// <summary>
     /// 处理优先级
     /// </summary>
-    public new MessagePriority Priority { get; set; } = MessagePriority.Normal;
+    public MessagePriority Priority { get; set; } = MessagePriority.Normal;
 }
 
 /// <summary>

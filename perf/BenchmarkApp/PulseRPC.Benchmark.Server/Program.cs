@@ -11,6 +11,7 @@ using PulseRPC.Benchmark.Shared;
 using PulseRPC.Server;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Transport;
+using PulseRPC.Transport;
 using CollectorConfiguration = PulseRPC.Benchmark.Metrics.Abstractions.CollectorConfiguration;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
@@ -166,14 +167,12 @@ internal class Program
                 });
 
                 // 3. 配置 PulseRPC 服务端 - 基于指南文档的最佳实践
-                services.AddPulseServer(options =>
+                services.AddPulseServer(ooo =>
                 {
-                    // TCP 监听器配置
-                    options.ListenOn("127.0.0.1", port, TransportType.Tcp);
-
-                    // 基本配置
-                    options.MaxConcurrentConnections = config.MaxConnections;
-                    options.ConnectionTimeout = TimeSpan.FromSeconds(30);
+                    ooo.ConfigureServer(options =>
+                    {
+                        options.MaxConnections = config.MaxConnections;
+                    });
                 });
 
                 // 注册 Hub 服务

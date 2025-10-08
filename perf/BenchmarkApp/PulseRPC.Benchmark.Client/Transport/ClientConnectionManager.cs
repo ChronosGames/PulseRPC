@@ -140,9 +140,6 @@ public class ClientConnectionManager(ILogger<ClientConnectionManager> logger)
 
         return new ConnectionStatistics
         {
-            TotalConnections = totalConnections,
-            ActiveConnections = activeConnections,
-            InactiveConnections = totalConnections - activeConnections
         };
     }
 
@@ -239,10 +236,10 @@ public class ClientConnection : IDisposable
             // 创建 PulseRPC 客户端 - 基于指南文档的最佳实践
             _pulseClient = new PulseClientBuilder()
                 .AddTcpConnection("123", "UnknownServer", Host, Port, ConnectionStrategy.Persistent)
-                .WithTransportOptions(new TransportOptions
+                .WithTransportOptions(TransportType.Tcp, new TcpTransportOptions()
                 {
-                    ConnectionTimeoutMs = 5000,
-                    EnableTcpNoDelay = true,
+                    ConnectionTimeout = 5000,
+                    NoDelay = true,
                     SendBufferSize = 8192,
                     RecvBufferSize = 8192,
                 })

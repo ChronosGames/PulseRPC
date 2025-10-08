@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
+using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Serialization;
 
 namespace PulseRPC.Server.Dispatch;
@@ -394,17 +395,6 @@ internal readonly struct ServiceInvocationTask
         Priority = priority;
         DispatchTime = dispatchTime;
     }
-}
-
-/// <summary>
-/// 消息优先级
-/// </summary>
-public enum MessagePriority
-{
-    Low = 0,
-    Normal = 1,
-    High = 2,
-    Critical = 3
 }
 
 /// <summary>

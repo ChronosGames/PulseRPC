@@ -12,6 +12,7 @@ public sealed class ServiceModel
     public string InterfaceFullName { get; set; } = null!;
     public string Namespace { get; set; } = null!;
     public string ChannelName { get; set; } = null!;
+    public string? ServiceName { get; set; }
     public List<MethodModel> Methods { get; set; } = null!;
     public bool HasAsyncMethods => Methods.Any(m => m.IsAsync);
 }

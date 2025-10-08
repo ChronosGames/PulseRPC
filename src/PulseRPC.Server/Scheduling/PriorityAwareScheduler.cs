@@ -10,9 +10,6 @@ using PulseRPC.Memory;
 using PulseRPC.Server.Threading;
 using PulseRPC.Transport;
 
-// 本地MessagePriority别名，保持兼容性
-using MessagePriority = PulseRPC.Transport.MessagePriority;
-
 namespace PulseRPC.Server.Scheduling;
 
 /// <summary>
