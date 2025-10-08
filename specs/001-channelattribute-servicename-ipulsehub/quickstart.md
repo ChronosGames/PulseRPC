@@ -300,11 +300,45 @@ dotnet run -c Release -- --benchmark SchedulingBenchmarks
 
 **Solution**: Reduce `ChannelCapacity` or `MaxThreadCount` to limit memory usage.
 
+## Implementation Reference
+
+The following files have been implemented:
+
+### Core Abstractions
+- `src/PulseRPC.Abstractions/Scheduling/ServiceSchedulingKey.cs` - Composite key for routing
+- `src/PulseRPC.Abstractions/Scheduling/IServiceScheduler.cs` - Scheduler interface
+- `src/PulseRPC.Abstractions/Scheduling/IServiceContext.cs` - Service context interface
+- `src/PulseRPC.Abstractions/Scheduling/SchedulerMetrics.cs` - Performance metrics
+- `src/PulseRPC.Abstractions/Attributes.cs` - Extended ChannelAttribute with ServiceName
+
+### Server Implementation
+- `src/PulseRPC.Server/Scheduling/ServiceThreadScheduler.cs` - Main scheduler implementation
+- `src/PulseRPC.Server/Scheduling/ServiceThreadPool.cs` - Thread pool manager
+- `src/PulseRPC.Server/Scheduling/WorkerThread.cs` - Individual worker thread
+- `src/PulseRPC.Server/Scheduling/ServiceExecutionContext.cs` - Context implementation
+- `src/PulseRPC.Server/Scheduling/SchedulerConfiguration.cs` - Configuration options
+- `src/PulseRPC.Server/Scheduling/MessagePriority.cs` - Priority enumeration
+- `src/PulseRPC.Server/Scheduling/WorkItem.cs` - Work unit encapsulation
+
+### Integration
+- `src/PulseRPC.Server/Engine/HighPerformanceMessageEngine.cs` - Scheduler integration
+- `src/PulseRPC.Server/Engine/SchedulerIntegrationExtensions.cs` - Helper extensions
+- `src/PulseRPC.Server/Builder/PulseServerBuilder.cs` - DI registration
+
+### Source Generator
+- `src/PulseRPC.Server.SourceGenerator/Models/ServiceModel.cs` - Added ServiceName property
+- `src/PulseRPC.Server.SourceGenerator/Analyzers/ServiceAnalyzer.cs` - ServiceName extraction
+- `src/PulseRPC.Server.SourceGenerator/PulseRPCSourceGenerator.cs` - Generator updates
+
+### Tests
+- `tests/PulseRPC.Server.Tests/ServiceSchedulingIntegrationTests.cs` - Integration tests
+- `tests/PulseRPC.Server.Tests/Scheduling/*` - Unit tests for all components
+
 ## Next Steps
 
 - Read the [Data Model](data-model.md) for detailed entity descriptions
 - Review [Research Report](research.md) for architectural decisions
-- Implement following the [Implementation Plan](plan.md)
+- Review [Implementation Plan](plan.md) for design details
 - Run the full test suite to validate behavior
 
 ## Summary

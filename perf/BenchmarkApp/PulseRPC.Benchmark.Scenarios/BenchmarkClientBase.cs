@@ -69,12 +69,13 @@ public abstract class BenchmarkClientBase : IDisposable
 
         // 创建通道管理器
         var builder = new PulseClientBuilder();
-        builder.AddTransport("TcpChannel", TransportType.Tcp, "localhost", 12345, new TcpTransportOptions
-        {
-            NoDelay = true,
-            KeepAlive = true,
-            ConnectionTimeout = 5000
-        });
+        builder.AddTcpConnection("TcpChannel", "default", config.Host, config.TcpPort);
+        // builder.AddTransport("TcpChannel", TransportType.Tcp, "localhost", 12345, new TcpTransportOptions
+        // {
+        //     NoDelay = true,
+        //     KeepAlive = true,
+        //     ConnectionTimeout = 5000
+        // });
 
         // 如果启用KCP，创建KCP通道
         if (config.EnableKcp)
@@ -89,7 +90,8 @@ public abstract class BenchmarkClientBase : IDisposable
                     RecvWindow = 128
             };
 
-            builder.AddTransport("KcpChannel", TransportType.Kcp, "localhost", 12345, kcpOptions);
+            builder.AddKcpConnection("KcpChannel", "default", config.Host, config.KcpPort);
+            // builder.AddTransport("KcpChannel", TransportType.Kcp, "localhost", 12345, kcpOptions);
         }
 
         PulseClient = builder.Build();

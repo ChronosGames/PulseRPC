@@ -26,6 +26,7 @@ public static class ServiceAnalyzer
         var interfaceFullName = interfaceSymbol.ToDisplayString();
         var namespaceName = interfaceSymbol.ContainingNamespace?.ToDisplayString() ?? string.Empty;
         var channelName = GetChannelName(interfaceSymbol) ?? "DefaultChannel";
+        var serviceName = GetServiceName(interfaceSymbol) ?? interfaceName;
 
         var methods = new List<MethodModel>();
 
@@ -46,6 +47,7 @@ public static class ServiceAnalyzer
             InterfaceFullName = interfaceFullName,
             Namespace = namespaceName,
             ChannelName = channelName,
+            ServiceName = serviceName,
             Methods = methods
         };
     }
@@ -81,6 +83,39 @@ public static class ServiceAnalyzer
         {
             var channelName = channelAttr.ConstructorArguments[0].Value?.ToString();
             return channelName;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 获取服务名称（用于线程调度）
+    /// </summary>
+    private static string? GetServiceName(INamedTypeSymbol interfaceSymbol)
+    {
+        var channelAttr = interfaceSymbol.GetAttributes()
+            .FirstOrDefault(attr => attr.AttributeClass?.Name is "ChannelAttribute" or "Channel");
+
+        if (channelAttr != null)
+        {
+            // 检查命名参数中是否有 ServiceName
+            var serviceNameArg = channelAttr.NamedArguments
+                .FirstOrDefault(na => na.Key == "ServiceName");
+
+            if (!serviceNameArg.Equals(default(KeyValuePair<string, TypedConstant>)))
+            {
+                var serviceName = serviceNameArg.Value.Value?.ToString();
+                if (!string.IsNullOrWhiteSpace(serviceName))
+                    return serviceName;
+            }
+
+            // 检查构造函数的第二个参数（如果存在）
+            if (channelAttr.ConstructorArguments.Length > 1)
+            {
+                var serviceName = channelAttr.ConstructorArguments[1].Value?.ToString();
+                if (!string.IsNullOrWhiteSpace(serviceName))
+                    return serviceName;
+            }
         }
 
         return null;

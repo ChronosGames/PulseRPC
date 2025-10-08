@@ -6,8 +6,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Memory;
 using PulseRPC.Messaging;
+using PulseRPC.Scheduling;
 using PulseRPC.Server.Memory;
 using PulseRPC.Server.Processing;
+using PulseRPC.Server.Scheduling;
 using PulseRPC.Transport;
 using MessageStatus = PulseRPC.Server.Memory.MessageStatus;
 
@@ -67,6 +69,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     private readonly IServiceProvider _serviceProvider;
     private readonly MessageEngineConfiguration _options;
     private readonly ILogger<HighPerformanceMessageEngine> _logger;
+    private readonly IServiceScheduler? _scheduler;
 
     // 三级缓冲架构核心组件 - 使用TieredMessageProcessor实现
     private TieredMessageProcessor _tieredProcessor = null!;
@@ -99,13 +102,15 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         IMessageDispatcher messageDispatcher,
         IServiceProvider serviceProvider,
         MessageEngineConfiguration configuration,
-        ILogger<HighPerformanceMessageEngine>? logger = null)
+        ILogger<HighPerformanceMessageEngine>? logger = null,
+        IServiceScheduler? scheduler = null)
     {
         _engineId = engineId ?? throw new ArgumentNullException(nameof(engineId));
         _messageDispatcher = messageDispatcher ?? throw new ArgumentNullException(nameof(messageDispatcher));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _options = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _logger = logger ?? NullLogger<HighPerformanceMessageEngine>.Instance;
+        _scheduler = scheduler;
 
         InitializeEngine();
     }
@@ -339,10 +344,21 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 // 这里需要根据serviceName和methodName确定消息类型
                 var payloadBytes = messagePacket.Payload.ToArray();
 
-                // 使用现有的消息分发器处理
-                result = await _messageDispatcher.DispatchAsync(
-                    payloadBytes,
-                    _serviceProvider,
+                // 获取服务上下文（用于调度）
+                var serviceContext = GetServiceContextForConnection(envelope.ConnectionId);
+
+                // 使用调度器包装消息分发（如果可用）
+                await _scheduler.InvokeWithSchedulerAsync(
+                    serviceContext,
+                    serviceName,
+                    async () =>
+                    {
+                        // 使用现有的消息分发器处理
+                        result = await _messageDispatcher.DispatchAsync(
+                            payloadBytes,
+                            _serviceProvider,
+                            CancellationToken.None);
+                    },
                     CancellationToken.None);
             }
             catch (Exception dispatchEx)
@@ -396,6 +412,28 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         }
     }
 
+    /// <summary>
+    /// 获取连接的服务上下文（用于调度）
+    /// </summary>
+    private IServiceContext? GetServiceContextForConnection(string connectionId)
+    {
+        if (_activeConnections.TryGetValue(connectionId, out var context))
+        {
+            // 如果尚未创建ServiceContext，创建一个默认的
+            if (context.ServiceContext == null)
+            {
+                // 注意：ServiceName在这里不可用，将在调度器调用时传入
+                context.ServiceContext = new ServiceExecutionContext(
+                    connectionId,
+                    serviceName: "Unknown", // 将在InvokeWithSchedulerAsync中使用传入的serviceName
+                    serviceId: null // 将在认证后设置
+                );
+            }
+            return context.ServiceContext;
+        }
+
+        return null;
+    }
 
     #endregion
 
@@ -648,6 +686,7 @@ public class ConnectionContext
     public object? TransportChannel { get; set; }
     public DateTime ConnectedAt { get; set; }
     public DateTime LastActivity { get; set; }
+    public IServiceContext? ServiceContext { get; set; }
 }
 
 /// <summary>

@@ -9,27 +9,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace PulseRPC.Server.Scheduling;
 
 /// <summary>
-/// 消息优先级枚举
-/// </summary>
-public enum MessagePriority
-{
-    /// <summary>关键消息 - 最高优先级</summary>
-    Critical = 0,
-
-    /// <summary>高优先级消息</summary>
-    High = 1,
-
-    /// <summary>普通优先级消息</summary>
-    Normal = 2,
-
-    /// <summary>低优先级消息</summary>
-    Low = 3,
-
-    /// <summary>批量处理消息 - 最低优先级</summary>
-    Bulk = 4
-}
-
-/// <summary>
 /// 系统负载指标
 /// </summary>
 public record SystemLoadMetrics(double CpuUsage, double MemoryUsage, long PendingRequests, double ResponseTime);

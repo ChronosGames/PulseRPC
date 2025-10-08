@@ -486,12 +486,45 @@ public static class GenerationReport
                 }
             }
 
+            // Extract ChannelName and ServiceName from ChannelAttribute
+            var channelName = "default";
+            string? serviceName = null;
+
+            var channelAttr = typeSymbol.GetAttributes()
+                .FirstOrDefault(attr => attr.AttributeClass?.Name is "ChannelAttribute" or "Channel");
+
+            if (channelAttr != null)
+            {
+                // Get ChannelName from first constructor argument
+                if (channelAttr.ConstructorArguments.Length > 0)
+                {
+                    channelName = channelAttr.ConstructorArguments[0].Value?.ToString() ?? "default";
+                }
+
+                // Get ServiceName from named argument or second constructor argument
+                var serviceNameArg = channelAttr.NamedArguments
+                    .FirstOrDefault(na => na.Key == "ServiceName");
+
+                if (!serviceNameArg.Equals(default(KeyValuePair<string, TypedConstant>)))
+                {
+                    serviceName = serviceNameArg.Value.Value?.ToString();
+                }
+                else if (channelAttr.ConstructorArguments.Length > 1)
+                {
+                    serviceName = channelAttr.ConstructorArguments[1].Value?.ToString();
+                }
+            }
+
+            // If ServiceName is not specified, use interface name as fallback
+            serviceName ??= typeSymbol.Name;
+
             return new ServiceModel
             {
                 InterfaceName = typeSymbol.Name,
                 InterfaceFullName = typeSymbol.ToDisplayString(),
                 Namespace = typeSymbol.ContainingNamespace.ToDisplayString(),
-                ChannelName = "default", // TODO: 从特性中获取
+                ChannelName = channelName,
+                ServiceName = serviceName,
                 Methods = methods
             };
         }

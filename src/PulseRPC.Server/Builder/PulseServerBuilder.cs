@@ -2,12 +2,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PulseRPC.Scheduling;
 using PulseRPC.Serialization;
 using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Engine;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Integration;
 using PulseRPC.Server.Processing;
+using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 
@@ -259,6 +261,46 @@ public sealed class PulseServerBuilder : IPulseServerBuilder
 
         // 确保已注册传输层集成服务
         Services.AddTransportIntegration();
+
+        // 注册调度器配置（默认配置，可通过ConfigureScheduler覆盖）
+        Services.Configure<SchedulerConfiguration>(config =>
+        {
+            config.InitialThreadCount = Environment.ProcessorCount;
+            config.MaxThreadCount = Environment.ProcessorCount * 2;
+            config.ThreadIdleTimeout = TimeSpan.FromSeconds(30);
+            config.ChannelCapacity = 1024;
+            config.EnableMetrics = true;
+        });
+    }
+
+    /// <summary>
+    /// 配置服务线程调度器
+    /// </summary>
+    /// <param name="configure">调度器配置委托</param>
+    /// <returns>构建器实例</returns>
+    public IPulseServerBuilder ConfigureScheduler(Action<SchedulerConfiguration> configure)
+    {
+        if (configure == null)
+            throw new ArgumentNullException(nameof(configure));
+
+        // 重新配置调度器
+        Services.Configure(configure);
+
+        // 注册调度器服务（如果尚未注册）
+        Services.TryAddSingleton<IServiceScheduler>(sp =>
+        {
+            var config = sp.GetRequiredService<IOptions<SchedulerConfiguration>>().Value;
+            var logger = sp.GetService<ILogger<ServiceThreadScheduler>>();
+
+            var scheduler = new ServiceThreadScheduler(config, logger);
+
+            // 自动启动调度器
+            scheduler.StartAsync().GetAwaiter().GetResult();
+
+            return scheduler;
+        });
+
+        return this;
     }
 
     /// <summary>
