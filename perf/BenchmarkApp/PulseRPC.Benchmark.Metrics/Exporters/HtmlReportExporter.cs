@@ -197,6 +197,18 @@ public class HtmlReportExporter : IBenchmarkReportGenerator
             // 错误信息
             ["hasErrors"] = data.Metrics.Errors.TotalErrors > 0,
             ["totalErrors"] = FormatNumber(data.Metrics.Errors.TotalErrors),
+
+            // 基线比较数据
+            ["hasBaselineComparison"] = data.CustomData.ContainsKey("__BaselineComparison"),
+            ["baselineComparisonHtml"] = GenerateBaselineComparisonHtml(data),
+
+            // 阈值验证数据
+            ["hasThresholdResults"] = data.CustomData.ContainsKey("__ThresholdResults"),
+            ["thresholdResultsHtml"] = GenerateThresholdResultsHtml(data),
+
+            // 协议比较数据
+            ["hasProtocolComparison"] = HasProtocolComparisonData(data),
+            ["protocolComparisonHtml"] = GenerateProtocolComparisonHtml(data),
             ["timeoutErrors"] = FormatNumber(data.Metrics.Errors.TimeoutErrors),
             ["connectionErrors"] = FormatNumber(data.Metrics.Errors.ConnectionErrors),
 
@@ -643,6 +655,106 @@ public class HtmlReportExporter : IBenchmarkReportGenerator
         }
 
         return $"{len:F2} {sizes[order]}";
+    }
+
+    /// <summary>
+    /// 生成基线比较HTML
+    /// </summary>
+    private string GenerateBaselineComparisonHtml(BenchmarkReportData data)
+    {
+        if (!data.CustomData.TryGetValue("__BaselineComparison", out var baselineObj))
+            return string.Empty;
+
+        var html = new StringBuilder();
+        html.AppendLine("<div class='baseline-comparison-section'>");
+        html.AppendLine("  <h3>📊 基线比较</h3>");
+        html.AppendLine("  <div class='alert alert-info'>与历史基线进行性能对比分析</div>");
+        html.AppendLine("  <table class='table table-bordered'>");
+        html.AppendLine("    <thead><tr><th>指标</th><th>当前值</th><th>基线值</th><th>变化</th></tr></thead>");
+        html.AppendLine("    <tbody>");
+        html.AppendLine($"      <tr><td colspan='4' class='text-muted'>基线比较数据: {baselineObj?.GetType().Name ?? "N/A"}</td></tr>");
+        html.AppendLine("    </tbody>");
+        html.AppendLine("  </table>");
+        html.AppendLine("</div>");
+        return html.ToString();
+    }
+
+    /// <summary>
+    /// 生成阈值验证结果HTML
+    /// </summary>
+    private string GenerateThresholdResultsHtml(BenchmarkReportData data)
+    {
+        if (!data.CustomData.TryGetValue("__ThresholdResults", out var thresholdObj))
+            return string.Empty;
+
+        var html = new StringBuilder();
+        html.AppendLine("<div class='threshold-results-section'>");
+        html.AppendLine("  <h3>✓ 阈值验证</h3>");
+        html.AppendLine("  <div class='alert alert-success'>性能指标阈值验证结果</div>");
+        html.AppendLine("  <table class='table table-bordered'>");
+        html.AppendLine("    <thead><tr><th>指标</th><th>阈值</th><th>实际值</th><th>状态</th></tr></thead>");
+        html.AppendLine("    <tbody>");
+        html.AppendLine($"      <tr><td colspan='4' class='text-muted'>阈值验证数据: {thresholdObj?.GetType().Name ?? "N/A"}</td></tr>");
+        html.AppendLine("    </tbody>");
+        html.AppendLine("  </table>");
+        html.AppendLine("</div>");
+        return html.ToString();
+    }
+
+    /// <summary>
+    /// 检查是否有协议比较数据
+    /// </summary>
+    private bool HasProtocolComparisonData(BenchmarkReportData data)
+    {
+        // 检查是否有 TCP 和 KCP 的指标数据
+        return data.CustomData.Keys.Any(k => k.Contains("TCP_") || k.Contains("KCP_"));
+    }
+
+    /// <summary>
+    /// 生成协议比较HTML
+    /// </summary>
+    private string GenerateProtocolComparisonHtml(BenchmarkReportData data)
+    {
+        if (!HasProtocolComparisonData(data))
+            return string.Empty;
+
+        var html = new StringBuilder();
+        html.AppendLine("<div class='protocol-comparison-section'>");
+        html.AppendLine("  <h3>⚡ 协议性能比较</h3>");
+        html.AppendLine("  <div class='alert alert-info'>TCP vs KCP 性能对比分析</div>");
+        html.AppendLine("  <table class='table table-bordered'>");
+        html.AppendLine("    <thead><tr><th>指标</th><th>TCP</th><th>KCP</th><th>差异</th></tr></thead>");
+        html.AppendLine("    <tbody>");
+        
+        // 提取并比较指标
+        var metrics = new[] { "AverageLatencyMs", "P95Ms", "P99Ms", "SuccessCount", "ErrorCount" };
+        foreach (var metric in metrics)
+        {
+            var tcpKey = $"TCP_{metric}";
+            var kcpKey = $"KCP_{metric}";
+            
+            if (data.CustomData.TryGetValue(tcpKey, out var tcpValue) && 
+                data.CustomData.TryGetValue(kcpKey, out var kcpValue))
+            {
+                html.AppendLine($"      <tr>");
+                html.AppendLine($"        <td>{metric}</td>");
+                html.AppendLine($"        <td>{tcpValue}</td>");
+                html.AppendLine($"        <td>{kcpValue}</td>");
+                html.AppendLine($"        <td>-</td>");
+                html.AppendLine($"      </tr>");
+            }
+        }
+        
+        // 添加推荐
+        if (data.CustomData.TryGetValue("Recommendation", out var recommendation))
+        {
+            html.AppendLine($"      <tr><td colspan='4'><strong>推荐:</strong> <pre>{recommendation}</pre></td></tr>");
+        }
+        
+        html.AppendLine("    </tbody>");
+        html.AppendLine("  </table>");
+        html.AppendLine("</div>");
+        return html.ToString();
     }
 
     /// <summary>

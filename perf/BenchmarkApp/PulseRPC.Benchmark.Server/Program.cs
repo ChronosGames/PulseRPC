@@ -166,10 +166,32 @@ internal class Program
                     };
                 });
 
-                // 3. 配置 PulseRPC 服务端 - 基于指南文档的最佳实践
-                services.AddPulseServer(ooo =>
+                // 3. 配置 PulseRPC 服务端 - 使用稳定配置
+                services.AddPulseServer(builder =>
                 {
-                    ooo.ConfigureServer(options =>
+                    // 配置 TCP 传输通道（必需）
+                    builder.AddTcp("TcpChannel", config.Port, tcpOptions =>
+                    {
+                        tcpOptions.NoDelay = true;
+                        tcpOptions.RecvBufferSize = config.BufferSize;
+                        tcpOptions.SendBufferSize = config.BufferSize;
+                    }, isDefault: true);
+
+                    // 如果启用 KCP，也添加 KCP 传输
+                    if (config.EnableKcp)
+                    {
+                        builder.AddKcp("KcpChannel", config.Port + 1, kcpOptions =>
+                        {
+                            kcpOptions.NoDelay = true;
+                            kcpOptions.Interval = 10;
+                            kcpOptions.Resend = 2;
+                            kcpOptions.SendWindow = 256;
+                            kcpOptions.RecvWindow = 256;
+                        });
+                    }
+
+                    // 配置服务器选项
+                    builder.ConfigureServer(options =>
                     {
                         options.MaxConnections = config.MaxConnections;
                     });

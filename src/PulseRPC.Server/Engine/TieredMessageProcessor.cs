@@ -186,8 +186,11 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
                 break;
         }
 
-        // 释放租用的内存
-        slot.Data.Dispose();
+        // 释放租用的内存 - 检查null和引用计数避免双重释放
+        if (slot.Data != null && slot.Data.ReferenceCount > 0)
+        {
+            slot.Data.Dispose();
+        }
         _metrics.MessagesDropped.Add(1);
         return false;
     }
@@ -350,10 +353,15 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
             }
         }
 
-        // 清理内存
+        // 清理内存 - 检查null和引用计数避免双重释放
         for (int i = 0; i < messages.Length; i++)
         {
-            messages.Span[i].Data.Dispose();
+            var buffer = messages.Span[i].Data;
+            // 检查buffer不为null且引用计数大于0时才释放
+            if (buffer != null && buffer.ReferenceCount > 0)
+            {
+                buffer.Dispose();
+            }
         }
 
         // 更新指标
@@ -451,10 +459,13 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
             await _l2Scheduler.DisposeAsync();
         }
 
-        // 清理L1缓冲区中剩余的消息
+        // 清理L1缓冲区中剩余的消息 - 检查null和引用计数避免双重释放
         while (_l1Buffer.TryDequeue(out var slot))
         {
-            slot.Data.Dispose();
+            if (slot.Data != null && slot.Data.ReferenceCount > 0)
+            {
+                slot.Data.Dispose();
+            }
         }
 
         // 释放L1缓冲区

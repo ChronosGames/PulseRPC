@@ -172,3 +172,59 @@ public abstract class BenchmarkClientBase : IDisposable
         }
     }
 }
+
+/// <summary>
+/// 场景类别常量
+/// </summary>
+public static class ScenarioCategories
+{
+    /// <summary>
+    /// 延迟测试
+    /// </summary>
+    public const string Latency = "Latency";
+
+    /// <summary>
+    /// 吞吐量测试
+    /// </summary>
+    public const string Throughput = "Throughput";
+
+    /// <summary>
+    /// 并发测试
+    /// </summary>
+    public const string Concurrency = "Concurrency";
+
+    /// <summary>
+    /// 压力测试
+    /// </summary>
+    public const string Stress = "Stress";
+
+    /// <summary>
+    /// 负载测试
+    /// </summary>
+    public const string Load = "Load";
+
+    /// <summary>
+    /// 稳定性测试
+    /// </summary>
+    public const string Stability = "Stability";
+
+    /// <summary>
+    /// 流式测试
+    /// </summary>
+    public const string Streaming = "Streaming";
+
+    /// <summary>
+    /// 功能测试
+    /// </summary>
+    public const string Functional = "Functional";
+
+    /// <summary>
+    /// 性能回归测试
+    /// </summary>
+    public const string Regression = "Regression";
+
+    /// <summary>
+    /// 协议比较
+    /// </summary>
+    public const string ProtocolComparison = "ProtocolComparison";
+}

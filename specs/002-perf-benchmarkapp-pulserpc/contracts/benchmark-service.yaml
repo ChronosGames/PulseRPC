@@ -1,0 +1,238 @@
+openapi: 3.0.3
+info:
+  title: PulseRPC Benchmark Service API
+  description: Test service endpoints for PulseRPC performance benchmarking
+  version: 1.0.0
+  contact:
+    name: PulseRPC Team
+
+servers:
+  - url: tcp://localhost:8080
+    description: Local TCP benchmark server
+  - url: kcp://localhost:9001
+    description: Local KCP benchmark server
+
+paths:
+  /benchmark/echo:
+    post:
+      summary: Echo benchmark endpoint
+      description: Returns the exact payload received, used for latency testing (ping-pong pattern)
+      operationId: echo
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: byte
+              description: Arbitrary binary payload
+              minLength: 0
+              maxLength: 10485760  # 10MB
+      responses:
+        '200':
+          description: Echo response with same payload
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: byte
+                description: Same payload as request
+        '400':
+          description: Invalid request (payload too large)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /benchmark/throughput:
+    post:
+      summary: Throughput test endpoint
+      description: Accepts high-volume requests with minimal processing for maximum throughput testing
+      operationId: throughput
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: byte
+              description: Payload for throughput test
+      responses:
+        '200':
+          description: Acknowledgment response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: byte
+                description: Fixed small acknowledgment
+        '503':
+          description: Server overloaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /benchmark/stream:
+    post:
+      summary: Streaming test endpoint
+      description: Bidirectional streaming endpoint for continuous data flow testing
+      operationId: stream
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: byte
+              description: Stream message payload
+      responses:
+        '200':
+          description: Stream response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: byte
+                description: Stream response payload
+        '400':
+          description: Invalid stream operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /benchmark/delay:
+    post:
+      summary: Delayed response endpoint
+      description: Returns response after specified delay, used for timeout testing
+      operationId: delay
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                delayMs:
+                  type: integer
+                  description: Delay duration in milliseconds
+                  minimum: 0
+                  maximum: 60000
+                payload:
+                  type: string
+                  format: byte
+                  description: Optional payload to echo
+              required:
+                - delayMs
+      responses:
+        '200':
+          description: Delayed response
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: byte
+        '408':
+          description: Request timeout
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /benchmark/metrics:
+    get:
+      summary: Server-side metrics
+      description: Returns current server performance metrics (optional)
+      operationId: getMetrics
+      responses:
+        '200':
+          description: Server metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerMetrics'
+
+  /benchmark/health:
+    get:
+      summary: Health check endpoint
+      description: Simple health check for server availability
+      operationId: health
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [healthy, degraded]
+                  uptime:
+                    type: string
+                    description: Server uptime duration
+                  timestamp:
+                    type: string
+                    format: date-time
+
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code
+        timestamp:
+          type: string
+          format: date-time
+      required:
+        - error
+        - code
+
+    ServerMetrics:
+      type: object
+      properties:
+        cpuUsagePercent:
+          type: number
+          format: double
+          description: Current CPU usage percentage
+        memoryUsageMB:
+          type: number
+          format: double
+          description: Current memory usage in MB
+        activeConnections:
+          type: integer
+          description: Number of active connections
+        totalRequestsProcessed:
+          type: integer
+          format: int64
+          description: Total requests processed since server start
+        requestsPerSecond:
+          type: number
+          format: double
+          description: Current requests per second
+        averageLatencyMs:
+          type: number
+          format: double
+          description: Average request latency in milliseconds
+      required:
+        - cpuUsagePercent
+        - memoryUsageMB
+        - activeConnections
+
+tags:
+  - name: benchmark
+    description: Benchmark test endpoints
+  - name: monitoring
+    description: Server monitoring endpoints

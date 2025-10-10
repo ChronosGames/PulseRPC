@@ -75,6 +75,12 @@ public class ServerConfiguration
     public int HealthCheckIntervalSeconds { get; init; } = 10;
 
     /// <summary>
+    /// 启用 KCP 传输协议
+    /// </summary>
+    [JsonPropertyName("enableKcp")]
+    public bool EnableKcp { get; init; } = false;
+
+    /// <summary>
     /// 验证配置的有效性
     /// </summary>
     public void Validate()

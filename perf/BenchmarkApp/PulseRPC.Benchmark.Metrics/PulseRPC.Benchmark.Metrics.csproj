@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Benchmark.Core\PulseRPC.Benchmark.Core.csproj" />
+    <ProjectReference Include="..\PulseRPC.Benchmark.Configuration\PulseRPC.Benchmark.Configuration.csproj" />
   </ItemGroup>
 
   <ItemGroup>

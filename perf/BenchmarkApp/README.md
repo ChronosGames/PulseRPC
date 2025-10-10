@@ -77,6 +77,11 @@ BenchmarkApp 是专为 PulseRPC 设计的企业级性能测试框架，提供完
 - 压力测试和稳定性验证
 - 自定义测试场景
 - 配置驱动的测试执行
+- **基线比较** - 历史性能跟踪和回归检测
+- **阈值验证** - 自动化性能测试通过/失败判定
+- **协议比较** - TCP vs KCP 性能对比分析
+- **流式测试** - 双向流式传输性能评估
+- **稳定性测试** - 长时间运行和内存泄漏检测
 
 ### 快速开始
 
@@ -181,6 +186,137 @@ dotnet run --project PulseRPC.Benchmark.Client -- generate-report \
     }
   ]
 }
+```
+
+### 🔍 新增功能：基线比较与阈值验证
+
+#### 1. 保存和管理基线
+
+```bash
+# 运行测试并保存为基线
+dotnet run --project PulseRPC.Benchmark.Client -- run \
+  --scenario ping-pong \
+  --duration 30 \
+  --output results/baseline-v1.json
+
+# 保存基线
+dotnet run --project PulseRPC.Benchmark.Client -- baseline save \
+  --name "v1.0-baseline" \
+  --input results/baseline-v1.json
+
+# 列出所有基线
+dotnet run --project PulseRPC.Benchmark.Client -- baseline list
+
+# 查看基线详情
+dotnet run --project PulseRPC.Benchmark.Client -- baseline show --name "v1.0-baseline"
+
+# 删除基线
+dotnet run --project PulseRPC.Benchmark.Client -- baseline delete --name "v1.0-baseline"
+```
+
+#### 2. 性能回归检测
+
+```bash
+# 与基线比较 - 自动检测性能回归
+dotnet run --project PulseRPC.Benchmark.Client -- run \
+  --scenario ping-pong \
+  --duration 30 \
+  --baseline "v1.0-baseline" \
+  --output results/current-test.json
+
+# 生成包含基线比较的报告
+dotnet run --project PulseRPC.Benchmark.Client -- generate-report \
+  --input results/current-test.json \
+  --baseline "v1.0-baseline" \
+  --format html \
+  --output reports/comparison-report.html
+```
+
+#### 3. 阈值验证
+
+```bash
+# 生成阈值配置模板
+dotnet run --project PulseRPC.Benchmark.Client -- threshold config \
+  --template \
+  --output thresholds.json
+
+# 验证测试结果是否满足阈值
+dotnet run --project PulseRPC.Benchmark.Client -- threshold validate \
+  --input results/test-results.json \
+  --config thresholds.json
+
+# 运行测试并自动验证阈值
+dotnet run --project PulseRPC.Benchmark.Client -- run \
+  --scenario ping-pong \
+  --thresholds thresholds.json \
+  --fail-on-threshold-violation
+```
+
+**阈值配置示例 (thresholds.json):**
+```json
+{
+  "thresholds": [
+    {
+      "metricName": "Latency.AverageMs",
+      "operator": "LessThan",
+      "targetValue": 25.0,
+      "severity": "Error"
+    },
+    {
+      "metricName": "Latency.P95Ms",
+      "operator": "LessThan",
+      "targetValue": 50.0,
+      "severity": "Warning"
+    },
+    {
+      "metricName": "Throughput.OperationsPerSecond",
+      "operator": "GreaterThan",
+      "targetValue": 1000.0,
+      "severity": "Error"
+    },
+    {
+      "metricName": "Metrics.Errors.ErrorRate",
+      "operator": "LessThan",
+      "targetValue": 1.0,
+      "severity": "Error"
+    }
+  ]
+}
+```
+
+#### 4. 协议性能比较
+
+```bash
+# 运行协议比较测试（TCP vs KCP）
+dotnet run --project PulseRPC.Benchmark.Client -- run \
+  --scenario protocol-comparison \
+  --duration 60 \
+  --enable-kcp \
+  --output results/protocol-comparison.json
+
+# 生成协议比较报告
+dotnet run --project PulseRPC.Benchmark.Client -- generate-report \
+  --input results/protocol-comparison.json \
+  --format html \
+  --output reports/protocol-comparison.html
+```
+
+#### 5. 流式和稳定性测试
+
+```bash
+# 流式传输测试
+dotnet run --project PulseRPC.Benchmark.Client -- run \
+  --scenario streaming \
+  --duration 120 \
+  --message-size 10240 \
+  --output results/streaming-test.json
+
+# 稳定性测试（长时间运行，内存泄漏检测）
+dotnet run --project PulseRPC.Benchmark.Client -- run \
+  --scenario stability \
+  --duration 3600 \  # 1 hour
+  --interval 100 \
+  --output results/stability-test.json
 ```
 
 ### 性能指标解读
