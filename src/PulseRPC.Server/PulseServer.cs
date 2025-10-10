@@ -13,7 +13,7 @@ namespace PulseRPC.Server;
 /// <summary>
 /// 增强的服务器管理器 - 集成传输层管理，高性能线程安全设计
 /// </summary>
-internal sealed class PulseServer : IPulseServer
+public sealed class PulseServer : IPulseServer
 {
     private readonly ILoggerFactory _loggerFactory;
     private readonly ServerOptions _serverOptions;

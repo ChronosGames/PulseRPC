@@ -1,0 +1,85 @@
+name: IMessageDispatcher API Contract
+version: 1.0.0
+description: Contract for the message dispatcher interface
+
+interface:
+  name: IMessageDispatcher
+  methods:
+    - name: StartAsync
+      parameters:
+        - name: cancellationToken
+          type: CancellationToken
+          default: default
+      returns: Task
+      description: Start the dispatcher and worker threads
+      contracts:
+        - Must be idempotent (multiple calls safe)
+        - Must complete within 5 seconds
+        - Must not throw on already-started state
+
+    - name: StopAsync
+      parameters:
+        - name: cancellationToken
+          type: CancellationToken
+          default: default
+      returns: Task
+      description: Stop the dispatcher gracefully
+      contracts:
+        - Must wait for in-flight requests to complete
+        - Must timeout after 30 seconds
+        - Must reject new requests after called
+
+    - name: DispatchMessageAsync
+      parameters:
+        - name: message
+          type: RpcMessage
+          required: true
+      returns: ValueTask
+      description: Dispatch a parsed message for processing
+      contracts:
+        - Must route to correct service based on message.ServiceName
+        - Must preserve FIFO ordering per connection
+        - Must return immediately (non-blocking)
+        - Must apply backpressure if queues full
+
+    - name: RegisterServiceHandler
+      parameters:
+        - name: serviceName
+          type: string
+          required: true
+        - name: handler
+          type: IServiceHandler
+          required: true
+      returns: void
+      description: Register a service handler
+      contracts:
+        - ServiceName must be unique
+        - Must throw ArgumentException if duplicate
+        - Must be thread-safe (concurrent registration allowed)
+        - Registration must complete synchronously
+
+  events:
+    - name: MessageProcessed
+      parameters:
+        - name: sender
+          type: object
+        - name: args
+          type: MessageProcessedEventArgs
+      description: Fired when a message processing completes
+      contracts:
+        - Must fire exactly once per message
+        - Must include timing information
+        - Must indicate success or error
+
+error_handling:
+  - scenario: Service not found
+    behavior: Return error response immediately, do not throw
+
+  - scenario: Queue full (backpressure)
+    behavior: Block caller until space available OR reject based on policy
+
+  - scenario: Dispatcher not started
+    behavior: Throw InvalidOperationException
+
+  - scenario: Invalid message format
+    behavior: Log error, return protocol error response
