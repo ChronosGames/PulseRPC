@@ -106,6 +106,62 @@ public class BenchmarkResult
     {
         Logs.Add($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}");
     }
+
+    /// <summary>
+    /// 设置基线比较结果
+    /// </summary>
+    /// <param name="baselineComparison">基线比较对象</param>
+    public void SetBaselineComparison(object baselineComparison)
+    {
+        CustomMetrics["__BaselineComparison"] = baselineComparison;
+    }
+
+    /// <summary>
+    /// 获取基线比较结果
+    /// </summary>
+    /// <typeparam name="T">基线比较类型</typeparam>
+    /// <returns>基线比较对象（如果存在）</returns>
+    public T? GetBaselineComparison<T>() where T : class
+    {
+        return GetCustomMetric<T>("__BaselineComparison");
+    }
+
+    /// <summary>
+    /// 检查是否有基线比较结果
+    /// </summary>
+    /// <returns>true if baseline comparison exists</returns>
+    public bool HasBaselineComparison()
+    {
+        return CustomMetrics.ContainsKey("__BaselineComparison");
+    }
+
+    /// <summary>
+    /// 设置阈值验证结果
+    /// </summary>
+    /// <param name="thresholdResults">阈值结果列表</param>
+    public void SetThresholdResults(object thresholdResults)
+    {
+        CustomMetrics["__ThresholdResults"] = thresholdResults;
+    }
+
+    /// <summary>
+    /// 获取阈值验证结果
+    /// </summary>
+    /// <typeparam name="T">阈值结果列表类型</typeparam>
+    /// <returns>阈值结果列表（如果存在）</returns>
+    public T? GetThresholdResults<T>() where T : class
+    {
+        return GetCustomMetric<T>("__ThresholdResults");
+    }
+
+    /// <summary>
+    /// 检查是否有阈值验证结果
+    /// </summary>
+    /// <returns>true if threshold results exist</returns>
+    public bool HasThresholdResults()
+    {
+        return CustomMetrics.ContainsKey("__ThresholdResults");
+    }
 }
 
 /// <summary>

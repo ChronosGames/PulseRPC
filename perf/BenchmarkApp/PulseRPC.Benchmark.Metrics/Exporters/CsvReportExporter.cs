@@ -44,6 +44,12 @@ public class CsvReportExporter : IBenchmarkReportGenerator
             // 生成错误数据部分
             await AppendErrorDataAsync(csvBuilder, data);
 
+            // 生成基线比较数据部分（如果有）
+            await AppendBaselineComparisonAsync(csvBuilder, data);
+
+            // 生成阈值验证数据部分（如果有）
+            await AppendThresholdValidationAsync(csvBuilder, data);
+
             var result = csvBuilder.ToString();
             _logger.LogDebug("CSV报告生成完成，大小: {Size} 字符", result.Length);
 
@@ -224,6 +230,45 @@ public class CsvReportExporter : IBenchmarkReportGenerator
             {
                 csvBuilder.AppendLine($"{error.Key},{error.Value}");
             }
+            csvBuilder.AppendLine();
+        }
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 添加基线比较数据
+    /// </summary>
+    private async Task AppendBaselineComparisonAsync(StringBuilder csvBuilder, BenchmarkReportData data)
+    {
+        // 检查是否有基线比较数据
+        if (data.CustomData.TryGetValue("__BaselineComparison", out var baselineObj))
+        {
+            csvBuilder.AppendLine("# 基线比较");
+            csvBuilder.AppendLine("指标,当前值,基线值,变化（%）");
+            
+            // 尝试提取基线比较数据
+            // 由于类型是 object，我们需要使用反射或者将其作为 JSON 字符串处理
+            csvBuilder.AppendLine($"基线比较数据,{baselineObj},,");
+            csvBuilder.AppendLine();
+        }
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 添加阈值验证数据
+    /// </summary>
+    private async Task AppendThresholdValidationAsync(StringBuilder csvBuilder, BenchmarkReportData data)
+    {
+        // 检查是否有阈值验证数据
+        if (data.CustomData.TryGetValue("__ThresholdResults", out var thresholdObj))
+        {
+            csvBuilder.AppendLine("# 阈值验证");
+            csvBuilder.AppendLine("指标名称,目标值,实际值,通过/失败,严重程度");
+            
+            // 尝试提取阈值验证数据
+            csvBuilder.AppendLine($"阈值验证数据,{thresholdObj},,,");
             csvBuilder.AppendLine();
         }
 

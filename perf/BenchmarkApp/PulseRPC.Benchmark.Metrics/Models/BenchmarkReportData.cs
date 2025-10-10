@@ -42,6 +42,11 @@ public class BenchmarkReportData
     /// 测试摘要
     /// </summary>
     public TestSummary Summary { get; set; } = new();
+
+    /// <summary>
+    /// 自定义扩展数据（用于基线比较、阈值结果等）
+    /// </summary>
+    public Dictionary<string, object> CustomData { get; set; } = new();
 }
 
 /// <summary>
