@@ -6,6 +6,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Memory;
+using PulseRPC.Messaging;
 using PulseRPC.Server.Memory;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Scheduling;
@@ -113,8 +114,9 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
     }
 
     /// <summary>
-    /// 尝试将消息入队到L1缓冲区
+    /// 尝试将消息入队到L1缓冲区（已废弃）
     /// </summary>
+    [Obsolete("请使用 TryEnqueueMessageSlot 方法")]
     public bool TryEnqueueMessage(ReadOnlyMemory<byte> messageData, MessagePriority priority = MessagePriority.Normal)
     {
         var slot = CreateMessageSlot(messageData, priority);
@@ -138,21 +140,41 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
     }
 
     /// <summary>
-    /// 创建消息槽
+    /// 尝试将消息槽入队到L1缓冲区（新方法）
     /// </summary>
+    public bool TryEnqueueMessageSlot(MessageSlot slot)
+    {
+        // 直接入队 MessageSlot，无需再创建
+        if (_l1Buffer.TryEnqueue(slot))
+        {
+            _metrics.L1MessagesEnqueued.Add(1);
+
+            if (_options.EnableDetailedLogging)
+            {
+                _logger.LogTrace("消息入队L1成功: ProcessorId={ProcessorId}, MessageId={MessageId}, Priority={Priority}, ConnectionId={ConnectionId}", 
+                    _processorId, slot.MessageId, slot.Priority, slot.ConnectionId);
+            }
+
+            return true;
+        }
+
+        // L1满了，返回false让调用者处理背压
+        return false;
+    }
+
+    /// <summary>
+    /// 创建消息槽 - 已废弃，现在由 HighPerformanceMessageEngine 创建
+    /// </summary>
+    [Obsolete("此方法已废弃，MessageSlot 现在由 HighPerformanceMessageEngine 创建")]
     private MessageSlot CreateMessageSlot(ReadOnlyMemory<byte> messageData, MessagePriority priority)
     {
-        // 从L3内存池租用缓冲区
-        var bufferArray = _l3MemoryPool.Rent(messageData.Length);
-        messageData.CopyTo(bufferArray.AsMemory());
-
-        // 创建引用计数缓冲区
-        var refCountedBuffer = new ReferenceCountedBuffer(bufferArray, buffer => _l3MemoryPool.Return(buffer));
-
+        // 此方法保留用于向后兼容，但不应被调用
         return new MessageSlot
         {
             MessageId = Guid.NewGuid(),
-            Data = refCountedBuffer,
+            ConnectionId = "unknown",
+            Header = new MessageHeader(),
+            Payload = messageData,
             Priority = priority,
             EnqueueTime = Stopwatch.GetTimestamp(),
             Status = MessageStatus.Pending
@@ -160,8 +182,9 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
     }
 
     /// <summary>
-    /// L1背压处理
+    /// L1背压处理 - 已废弃，背压处理现在由 HighPerformanceMessageEngine 负责
     /// </summary>
+    [Obsolete("此方法已废弃，背压处理移至 HighPerformanceMessageEngine")]
     private bool HandleL1Backpressure(MessageSlot slot)
     {
         _metrics.L1BackpressureEvents.Add(1);
@@ -186,11 +209,7 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
                 break;
         }
 
-        // 释放租用的内存 - 检查null和引用计数避免双重释放
-        if (slot.Data != null && slot.Data.ReferenceCount > 0)
-        {
-            slot.Data.Dispose();
-        }
+        // 使用零拷贝方式，无需手动释放内存
         _metrics.MessagesDropped.Add(1);
         return false;
     }
@@ -353,16 +372,8 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
             }
         }
 
-        // 清理内存 - 检查null和引用计数避免双重释放
-        for (int i = 0; i < messages.Length; i++)
-        {
-            var buffer = messages.Span[i].Data;
-            // 检查buffer不为null且引用计数大于0时才释放
-            if (buffer != null && buffer.ReferenceCount > 0)
-            {
-                buffer.Dispose();
-            }
-        }
+        // 使用零拷贝方式，无需手动清理内存
+        // ReadOnlyMemory<byte> 会自动管理生命周期
 
         // 更新指标
         var batchProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - batchStartTime);
@@ -459,13 +470,11 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
             await _l2Scheduler.DisposeAsync();
         }
 
-        // 清理L1缓冲区中剩余的消息 - 检查null和引用计数避免双重释放
+        // 清理L1缓冲区中剩余的消息
+        // 使用零拷贝方式，ReadOnlyMemory<byte> 会自动管理生命周期
         while (_l1Buffer.TryDequeue(out var slot))
         {
-            if (slot.Data != null && slot.Data.ReferenceCount > 0)
-            {
-                slot.Data.Dispose();
-            }
+            // 无需手动清理
         }
 
         // 释放L1缓冲区
@@ -538,14 +547,43 @@ public class TieredMessageProcessorOptions
 }
 
 /// <summary>
-/// 消息槽
+/// 消息槽 - 包含完整元数据的消息结构
 /// </summary>
 public struct MessageSlot
 {
+    /// <summary>
+    /// 消息唯一标识符
+    /// </summary>
     public Guid MessageId { get; set; }
-    public ReferenceCountedBuffer Data { get; set; }
+    
+    /// <summary>
+    /// 真实连接ID
+    /// </summary>
+    public string ConnectionId { get; set; }
+    
+    /// <summary>
+    /// 完整消息头部
+    /// </summary>
+    public MessageHeader Header { get; set; }
+    
+    /// <summary>
+    /// 消息负载数据（零拷贝）
+    /// </summary>
+    public ReadOnlyMemory<byte> Payload { get; set; }
+    
+    /// <summary>
+    /// 消息优先级
+    /// </summary>
     public MessagePriority Priority { get; set; }
+    
+    /// <summary>
+    /// 入队时间戳
+    /// </summary>
     public long EnqueueTime { get; set; }
+    
+    /// <summary>
+    /// 消息状态
+    /// </summary>
     public MessageStatus Status { get; set; }
 }
 

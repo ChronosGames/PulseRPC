@@ -60,30 +60,30 @@
 **关键**: 这些测试必须编写并且必须失败，然后才能开始任何实现
 
 ### Contract Tests - Message Flow
-- [ ] **T005** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写消息接收阶段契约测试（验证解析、校验、错误处理）
-- [ ] **T006** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写消息分发阶段契约测试（验证服务查找、优先级、队列）
-- [ ] **T007** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写服务调用阶段契约测试（验证委托调用、超时、异常隔离）
-- [ ] **T008** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写响应生成阶段契约测试（验证序列化、错误响应）
-- [ ] **T009** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写响应传输阶段契约测试（验证批处理、重试、清理）
+- [X] **T005** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写消息接收阶段契约测试（验证解析、校验、错误处理）
+- [X] **T006** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写消息分发阶段契约测试（验证服务查找、优先级、队列）
+- [X] **T007** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写服务调用阶段契约测试（验证委托调用、超时、异常隔离）
+- [X] **T008** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写响应生成阶段契约测试（验证序列化、错误响应）
+- [X] **T009** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Contract/MessageFlowContractTests.cs` 中编写响应传输阶段契约测试（验证批处理、重试、清理）
 
 ### Contract Tests - Service Handler API
-- [ ] **T010** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceHandlerContractTests.cs` 中编写 IServiceHandler.InvokeAsync 契约测试（验证参数反序列化、方法调用、结果序列化）
-- [ ] **T011** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceHandlerContractTests.cs` 中编写 IServiceHandler.GetMethodNames 契约测试（验证方法列表返回）
-- [ ] **T012** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceHandlerContractTests.cs` 中编写 IServiceHandler 错误处理测试（方法未找到、反序列化失败、取消）
+- [X] **T010** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceHandlerContractTests.cs` 中编写 IServiceHandler.InvokeAsync 契约测试（验证参数反序列化、方法调用、结果序列化）
+- [X] **T011** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceHandlerContractTests.cs` 中编写 IServiceHandler.GetMethodNames 契约测试（验证方法列表返回）
+- [X] **T012** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceHandlerContractTests.cs` 中编写 IServiceHandler 错误处理测试（方法未找到、反序列化失败、取消）
 
 ### Contract Tests - Dispatcher API
-- [ ] **T013** [P] 在 `tests/PulseRPC.Server.Tests/Unit/DispatcherContractTests.cs` 中编写 IMessageDispatcher.StartAsync/StopAsync 契约测试（验证生命周期管理）
-- [ ] **T014** [P] 在 `tests/PulseRPC.Server.Tests/Unit/DispatcherContractTests.cs` 中编写 IMessageDispatcher.DispatchMessageAsync 契约测试（验证路由、FIFO 顺序、背压）
-- [ ] **T015** [P] 在 `tests/PulseRPC.Server.Tests/Unit/DispatcherContractTests.cs` 中编写 IMessageDispatcher.RegisterServiceHandler 契约测试（验证唯一性、线程安全）
+- [X] **T013** [P] 在 `tests/PulseRPC.Server.Tests/Unit/DispatcherContractTests.cs` 中编写 IMessageDispatcher.StartAsync/StopAsync 契约测试（验证生命周期管理）
+- [X] **T014** [P] 在 `tests/PulseRPC.Server.Tests/Unit/DispatcherContractTests.cs` 中编写 IMessageDispatcher.DispatchMessageAsync 契约测试（验证路由、FIFO 顺序、背压）
+- [X] **T015** [P] 在 `tests/PulseRPC.Server.Tests/Unit/DispatcherContractTests.cs` 中编写 IMessageDispatcher.RegisterServiceHandler 契约测试（验证唯一性、线程安全）
 
 ### Integration Scenario Tests (from quickstart.md)
-- [ ] **T016** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Scenarios/NormalFlowTests.cs` 中编写 Scenario 1 测试（正常请求-响应流程，验证 P95 <5ms）
-- [ ] **T017** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Scenarios/ConcurrencyTests.cs` 中编写 Scenario 2 测试（5000 客户端并发，验证 50K req/s, P99 <10ms）
-- [ ] **T018** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Scenarios/ExceptionHandlingTests.cs` 中编写 Scenario 3 测试（服务方法抛出异常，验证错误响应和服务器继续运行）
-- [ ] **T019** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Scenarios/TimeoutTests.cs` 中编写 Scenario 4 测试（慢服务方法，验证超时和并发不阻塞）
-- [ ] **T020** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Scenarios/ParsingFailureTests.cs` 中编写 Scenario 5 测试（消息解析失败，验证协议错误响应）
-- [ ] **T021** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Scenarios/ConnectionLossTests.cs` 中编写 Scenario 6 测试（处理中连接丢失，验证资源清理）
-- [ ] **T022** [P] 在 `tests/PulseRPC.Server.Tests/Integration/Scenarios/BackpressureTests.cs` 中编写 Scenario 7 测试（极端负载下背压，验证多级策略和恢复）
+- [X] **T016** [P] 在 `tests/PulseRPC.Server.Tests/Integration/NormalRequestResponseTests.cs` 中编写 Scenario 1 测试（正常请求-响应流程，验证 P95 <5ms）
+- [X] **T017** [P] 在 `tests/PulseRPC.Server.Tests/Integration/ConcurrentMultiClientTests.cs` 中编写 Scenario 2 测试（5000 客户端并发，验证 50K req/s, P99 <10ms）
+- [X] **T018** [P] 在 `tests/PulseRPC.Server.Tests/Integration/ServiceExceptionTests.cs` 中编写 Scenario 3 测试（服务方法抛出异常，验证错误响应和服务器继续运行）
+- [X] **T019** [P] 在 `tests/PulseRPC.Server.Tests/Integration/SlowServiceMethodTests.cs` 中编写 Scenario 4 测试（慢服务方法，验证超时和并发不阻塞）
+- [X] **T020** [P] 在 `tests/PulseRPC.Server.Tests/Integration/MessageParsingFailureTests.cs` 中编写 Scenario 5 测试（消息解析失败，验证协议错误响应）
+- [X] **T021** [P] 在 `tests/PulseRPC.Server.Tests/Integration/ConnectionLossTests.cs` 中编写 Scenario 6 测试（处理中连接丢失，验证资源清理）
+- [X] **T022** [P] 在 `tests/PulseRPC.Server.Tests/Integration/BackpressureTests.cs` 中编写 Scenario 7 测试（极端负载下背压，验证多级策略和恢复）
 
 ---
 
@@ -100,42 +100,42 @@
 
 ## Phase 3: Abstractions & Interfaces
 
-- [ ] **T029** [P] 在 `src/PulseRPC.Server/Abstractions/IPulseHub.cs` 中定义用户服务接口（基接口，支持自定义服务实现）
-- [ ] **T030** [P] 在 `src/PulseRPC.Server/Abstractions/IServerTransport.cs` 中定义传输层抽象（基于现有 ITransport, 扩展服务器特定功能）
-- [ ] **T031** [P] 在 `src/PulseRPC.Server/Abstractions/IAuthenticationHandler.cs` 中定义可选认证钩子接口（支持 FR-051 到 FR-054）
-- [ ] **T032** [P] 在 `src/PulseRPC.Server/Abstractions/IRequestContext.cs` 中定义请求上下文接口（暴露 RequestId, Metadata, CancellationToken）
-- [ ] **T033** [P] 在 `src/PulseRPC.Server/Abstractions/IServiceHandler.cs` 中定义服务处理器接口（InvokeAsync, GetMethodNames）
-- [ ] **T034** [P] 在 `src/PulseRPC.Server/Abstractions/IMessageDispatcher.cs` 中定义消息分发器接口（StartAsync, StopAsync, DispatchMessageAsync, RegisterServiceHandler）
+- [X] **T029** [P] 在 `src/PulseRPC.Server/Abstractions/IPulseHub.cs` 中定义用户服务接口（基接口，支持自定义服务实现）
+- [X] **T030** [P] 在 `src/PulseRPC.Server/Abstractions/IServerTransport.cs` 中定义传输层抽象（基于现有 ITransport, 扩展服务器特定功能）
+- [X] **T031** [P] 在 `src/PulseRPC.Server/Abstractions/IAuthenticationHandler.cs` 中定义可选认证钩子接口（支持 FR-051 到 FR-054）
+- [X] **T032** [P] 在 `src/PulseRPC.Server/Abstractions/IRequestContext.cs` 中定义请求上下文接口（暴露 RequestId, Metadata, CancellationToken）
+- [X] **T033** [P] 在 `src/PulseRPC.Server/Abstractions/IServiceHandler.cs` 中定义服务处理器接口（InvokeAsync, GetMethodNames）
+- [X] **T034** [P] 在 `src/PulseRPC.Server/Abstractions/IMessageDispatcher.cs` 中定义消息分发器接口（StartAsync, StopAsync, DispatchMessageAsync, RegisterServiceHandler）
 
 ---
 
 ## Phase 4: Pipeline Components (按阶段顺序实现)
 
 ### Stage 1: Message Reception
-- [ ] **T035** 在 `src/PulseRPC.Server/Pipeline/MessageReceiver.cs` 中实现 MessageReceiver 类（从 ITransportChannel 接收网络字节流，处理 FR-001 到 FR-006）
-- [ ] **T036** 在 `src/PulseRPC.Server/Pipeline/MessageParser.cs` 中实现 MessageParser 类（解析协议头、验证完整性、MemoryPack 反序列化）
-- [ ] **T037** [P] 在 `tests/PulseRPC.Server.Tests/Unit/MessageReceiverTests.cs` 中编写 MessageReceiver 单元测试（缓冲不完整消息、超大消息处理）
-- [ ] **T038** [P] 在 `tests/PulseRPC.Server.Tests/Unit/MessageParserTests.cs` 中编写 MessageParser 单元测试（协议版本不匹配、数据损坏处理）
+- [X] **T035** 在 `src/PulseRPC.Server/Pipeline/MessageReceiver.cs` 中实现 MessageReceiver 类（从 ITransportChannel 接收网络字节流，处理 FR-001 到 FR-006）
+- [X] **T036** 在 `src/PulseRPC.Server/Pipeline/MessageParser.cs` 中实现 MessageParser 类（解析协议头、验证完整性、MemoryPack 反序列化）
+- [X] **T037** [P] 在 `tests/PulseRPC.Server.Tests/Unit/MessageReceiverTests.cs` 中编写 MessageReceiver 单元测试（缓冲不完整消息、超大消息处理）
+- [X] **T038** [P] 在 `tests/PulseRPC.Server.Tests/Unit/MessageParserTests.cs` 中编写 MessageParser 单元测试（协议版本不匹配、数据损坏处理）
 
 ### Stage 2: Message Dispatching
-- [ ] **T039** 在 `src/PulseRPC.Server/Pipeline/MessageDispatcher.cs` 中实现 MessageDispatcher 类（实现 IMessageDispatcher, 服务查找、优先级队列、FIFO 顺序保证，处理 FR-007 到 FR-013）
-- [ ] **T040** [P] 在 `tests/PulseRPC.Server.Tests/Unit/MessageDispatcherTests.cs` 中编写 MessageDispatcher 单元测试（服务未找到、队列满、优先级调度）
+- [X] **T039** 在 `src/PulseRPC.Server/Pipeline/MessageDispatcher.cs` 中实现 MessageDispatcher 类（实现 IMessageDispatcher, 服务查找、优先级队列、FIFO 顺序保证，处理 FR-007 到 FR-013）
+- [X] **T040** [P] 在 `tests/PulseRPC.Server.Tests/Unit/MessageDispatcherTests.cs` 中编写 MessageDispatcher 单元测试（服务未找到、队列满、优先级调度）
 
 ### Stage 3: Service Invocation
-- [ ] **T041** 在 `src/PulseRPC.Server/Pipeline/CompiledServiceInvoker.cs` 中实现编译委托生成器（使用 Expression Trees 编译服务方法，一次性启动成本）
-- [ ] **T042** 在 `src/PulseRPC.Server/Pipeline/ServiceInvoker.cs` 中实现 ServiceInvoker 类（调用编译委托、超时强制、异常捕获，处理 FR-014 到 FR-020）
+- [X] **T041** 在 `src/PulseRPC.Server/Pipeline/CompiledServiceInvoker.cs` 中实现编译委托生成器（使用 Expression Trees 编译服务方法，一次性启动成本）
+- [X] **T042** 在 `src/PulseRPC.Server/Pipeline/ServiceInvoker.cs` 中实现 ServiceInvoker 类（调用编译委托、超时强制、异常捕获，处理 FR-014 到 FR-020）
 - [ ] **T043** [P] 在 `tests/PulseRPC.Server.Tests/Unit/CompiledServiceInvokerTests.cs` 中编写表达式树编译测试（同步/异步方法、泛型参数、性能验证 <10ns）
 - [ ] **T044** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceInvokerTests.cs` 中编写 ServiceInvoker 单元测试（超时取消、异常隔离、上下文传递）
 
 ### Stage 4: Response Generation
-- [ ] **T045** 在 `src/PulseRPC.Server/Pipeline/ResponseBuilder.cs` 中实现 ResponseBuilder 类（序列化成功结果、创建错误响应、处理 FR-021 到 FR-026）
-- [ ] **T046** 在 `src/PulseRPC.Server/Pipeline/ErrorResponseFactory.cs` 中实现结构化错误响应工厂（ExceptionData 序列化、堆栈跟踪清理）
+- [X] **T045** 在 `src/PulseRPC.Server/Pipeline/ResponseBuilder.cs` 中实现 ResponseBuilder 类（序列化成功结果、创建错误响应、处理 FR-021 到 FR-026）
+- [X] **T046** 在 `src/PulseRPC.Server/Pipeline/ErrorResponseFactory.cs` 中实现结构化错误响应工厂（ExceptionData 序列化、堆栈跟踪清理）
 - [ ] **T047** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ResponseBuilderTests.cs` 中编写 ResponseBuilder 单元测试（序列化失败处理、RequestId 保留）
 - [ ] **T048** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ErrorResponseFactoryTests.cs` 中编写 ErrorResponseFactory 单元测试（异常类型保留、内部异常递归）
 
 ### Stage 5: Response Transmission
-- [ ] **T049** 在 `src/PulseRPC.Server/Pipeline/ResponseTransmitter.cs` 中实现 ResponseTransmitter 类（Channel-based I/O 线程池、批处理、处理 FR-027 到 FR-031）
-- [ ] **T050** 在 `src/PulseRPC.Server/Pipeline/ResponseBatcher.cs` 中实现响应批处理器（组合小响应、减少系统调用）
+- [X] **T049** 在 `src/PulseRPC.Server/Pipeline/ResponseTransmitter.cs` 中实现 ResponseTransmitter 类（Channel-based I/O 线程池、批处理、处理 FR-027 到 FR-031）
+- [X] **T050** 在 `src/PulseRPC.Server/Pipeline/ResponseBatcher.cs` 中实现响应批处理器（组合小响应、减少系统调用）
 - [ ] **T051** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ResponseTransmitterTests.cs` 中编写 ResponseTransmitter 单元测试（连接关闭处理、发送重试逻辑）
 - [ ] **T052** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ResponseBatcherTests.cs` 中编写 ResponseBatcher 单元测试（批处理延迟 <1ms、吞吐量改善验证）
 
@@ -143,30 +143,30 @@
 
 ## Phase 5: Core Infrastructure
 
-- [ ] **T053** 在 `src/PulseRPC.Server/Core/ConnectionManager.cs` 中实现 ConnectionManager 类（连接生命周期跟踪、统计收集、清理）
-- [ ] **T054** 在 `src/PulseRPC.Server/Core/ServiceRegistry.cs` 中实现 ServiceRegistry 类（线程安全服务注册、CompiledServiceInvoker 集成）
-- [ ] **T055** 在 `src/PulseRPC.Server/Core/BackpressurePolicy.cs` 中实现多级背压策略（队列监控 → 节流 → 拒绝，处理 FR-039）
-- [ ] **T056** 在 `src/PulseRPC.Server/Core/ServerHost.cs` 中实现 ServerHost 编排器（连接所有管道组件、启动/停止协调、健康检查）
-- [ ] **T057** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ConnectionManagerTests.cs` 中编写 ConnectionManager 单元测试（状态转换、资源泄漏检测）
-- [ ] **T058** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceRegistryTests.cs` 中编写 ServiceRegistry 单元测试（重复服务名、并发注册）
-- [ ] **T059** [P] 在 `tests/PulseRPC.Server.Tests/Unit/BackpressurePolicyTests.cs` 中编写 BackpressurePolicy 单元测试（三级触发、滞后恢复）
+- [X] **T053** 在 `src/PulseRPC.Server/Core/ConnectionManager.cs` 中实现 ConnectionManager 类（连接生命周期跟踪、统计收集、清理）
+- [X] **T054** 在 `src/PulseRPC.Server/Core/ServiceRegistry.cs` 中实现 ServiceRegistry 类（线程安全服务注册、CompiledServiceInvoker 集成）
+- [X] **T055** 在 `src/PulseRPC.Server/Core/BackpressurePolicy.cs` 中实现多级背压策略（队列监控 → 节流 → 拒绝，处理 FR-039）
+- [X] **T056** 在 `src/PulseRPC.Server/Core/ServerHost.cs` 中实现 ServerHost 编排器（连接所有管道组件、启动/停止协调、健康检查）
+- [X] **T057** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ConnectionManagerTests.cs` 中编写 ConnectionManager 单元测试（状态转换、资源泄漏检测）
+- [X] **T058** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServiceRegistryTests.cs` 中编写 ServiceRegistry 单元测试（重复服务名、并发注册）
+- [X] **T059** [P] 在 `tests/PulseRPC.Server.Tests/Unit/BackpressurePolicyTests.cs` 中编写 BackpressurePolicy 单元测试（三级触发、滞后恢复）
 
 ---
 
 ## Phase 6: Observability & Diagnostics
 
-- [ ] **T060** [P] 在 `src/PulseRPC.Server/Observability/PipelineMetricsCollector.cs` 中实现指标收集器（处理 FR-055 到 FR-062：req/s, 错误率, P50/P75/P95/P99 延迟、活动连接、队列深度）
-- [ ] **T061** [P] 在 `src/PulseRPC.Server/Observability/DistributedTracingIntegration.cs` 中实现分布式追踪（System.Diagnostics.Activity, W3C Trace Context 传播）
-- [ ] **T062** [P] 在 `src/PulseRPC.Server/Observability/DiagnosticEndpoints.cs` 中实现诊断端点（/diagnostics/health, /diagnostics/metrics, /diagnostics/connections, /diagnostics/queue-stats）
+- [X] **T060** [P] 在 `src/PulseRPC.Server/Observability/PipelineMetricsCollector.cs` 中实现指标收集器（处理 FR-055 到 FR-062：req/s, 错误率, P50/P75/P95/P99 延迟、活动连接、队列深度）
+- [X] **T061** [P] 在 `src/PulseRPC.Server/Observability/DistributedTracingIntegration.cs` 中实现分布式追踪（System.Diagnostics.Activity, W3C Trace Context 传播）
+- [X] **T062** [P] 在 `src/PulseRPC.Server/Observability/DiagnosticEndpoints.cs` 中实现诊断端点（/diagnostics/health, /diagnostics/metrics, /diagnostics/connections, /diagnostics/queue-stats）
 - [ ] **T063** [P] 在 `tests/PulseRPC.Server.Tests/Unit/MetricsCollectorTests.cs` 中编写指标收集器单元测试（百分位数计算、计数器准确性）
 
 ---
 
 ## Phase 7: Configuration & DI
 
-- [ ] **T064** [P] 在 `src/PulseRPC.Server/Configuration/ServerOptions.cs` 中实现服务器配置模型（处理 FR-063 到 FR-067：线程池大小、队列容量、超时值、传输参数）
+- [X] **T064** [P] 在 `src/PulseRPC.Server/Configuration/ServerOptions.cs` 中实现服务器配置模型（处理 FR-063 到 FR-067：线程池大小、队列容量、超时值、传输参数）
 - [ ] **T065** [P] 在 `src/PulseRPC.Server/Configuration/ServiceOptions.cs` 中实现服务级配置（每服务/每方法超时、速率限制、优先级）
-- [ ] **T066** 在 `src/PulseRPC.Server/Extensions/DependencyInjection/ServerServiceCollectionExtensions.cs` 中实现 DI 扩展方法（AddPulseRpcServer, AddPulseService<T>）
+- [X] **T066** 在 `src/PulseRPC.Server/Extensions/DependencyInjection/ServerServiceCollectionExtensions.cs` 中实现 DI 扩展方法（AddPulseRpcServer, AddPulseService<T>）
 - [ ] **T067** [P] 在 `tests/PulseRPC.Server.Tests/Unit/ServerOptionsTests.cs` 中编写配置验证测试（范围检查、默认值）
 
 ---

@@ -1,3 +1,5 @@
+using PulseRPC.Server.Abstractions;
+
 namespace PulseRPC.Server.Models;
 
 /// <summary>
@@ -26,6 +28,21 @@ public sealed class ServiceRegistration
         = new Dictionary<string, CompiledMethodInvoker>();
 
     /// <summary>
+    /// Service handler for method invocations.
+    /// </summary>
+    public IServiceHandler? Handler { get; init; }
+
+    /// <summary>
+    /// Service-specific options.
+    /// </summary>
+    public ServiceOptions? Options { get; init; }
+
+    /// <summary>
+    /// Registration timestamp.
+    /// </summary>
+    public DateTime RegisteredAt { get; init; } = DateTime.UtcNow;
+
+    /// <summary>
     /// Per-method timeout (default).
     /// </summary>
     public TimeSpan TimeoutPolicy { get; init; } = TimeSpan.FromSeconds(30);
@@ -38,7 +55,7 @@ public sealed class ServiceRegistration
     /// <summary>
     /// Service state.
     /// </summary>
-    public ServiceState State { get; private set; } = ServiceState.Registered;
+    public ServiceState State { get; internal set; } = ServiceState.Registered;
 
     /// <summary>
     /// Cumulative method invocations.
@@ -139,4 +156,30 @@ public sealed class CompiledMethodInvoker
     /// Whether the method is async.
     /// </summary>
     public bool IsAsync { get; init; }
+}
+
+/// <summary>
+/// Per-service configuration options.
+/// </summary>
+public sealed class ServiceOptions
+{
+    /// <summary>
+    /// Timeout for this service's method invocations.
+    /// </summary>
+    public TimeSpan? DefaultTimeout { get; set; }
+
+    /// <summary>
+    /// Priority for this service's messages.
+    /// </summary>
+    public MessagePriority Priority { get; set; } = MessagePriority.Normal;
+
+    /// <summary>
+    /// Maximum concurrent requests for this service (0 = unlimited).
+    /// </summary>
+    public int MaxConcurrentRequests { get; set; } = 0;
+
+    /// <summary>
+    /// Rate limit: maximum requests per second (0 = unlimited).
+    /// </summary>
+    public int MaxRequestsPerSecond { get; set; } = 0;
 }
