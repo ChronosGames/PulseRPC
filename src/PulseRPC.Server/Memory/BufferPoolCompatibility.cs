@@ -1,34 +1,10 @@
-using PulseRPC.Server.Engine;
 using PulseRPC.Server.Scheduling;
-using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Memory;
 
 /// <summary>
-/// 消息信封
-/// </summary>
-public struct MessageEnvelope
-{
-    public ServerMessage Message;
-    public long SequenceId;
-    public long EnqueueTime;
-    public MessageStatus Status;
-    public MessagePriority Priority;
-    public ReadOnlyMemory<byte> Data;
-
-    /// <summary>
-    /// 消息大小（字节）
-    /// </summary>
-    public int Size => Data.Length;
-
-    /// <summary>
-    /// 是否为关键消息
-    /// </summary>
-    public bool IsCritical => Priority == MessagePriority.Critical;
-}
-
-/// <summary>
 /// 消息状态枚举
+/// 注意: MessageEnvelope 已移至 HighPerformanceMessageEngine.cs 中定义
 /// </summary>
 public enum MessageStatus : byte
 {

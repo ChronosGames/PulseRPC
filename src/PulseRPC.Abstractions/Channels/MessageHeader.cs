@@ -186,6 +186,7 @@ public enum MessageFlags : byte
     HighPriority = 8,       // 高优先级
     Reliable = 16,          // 可靠传输
     Ordered = 32,           // 有序传输
+    Error = 64,             // 错误响应
 }
 
 public class NetworkMessage

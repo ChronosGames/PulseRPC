@@ -145,3 +145,7 @@ packages
 
 # Node
 node_modules/
+
+
+# Claude
+.claude/**/*.local.json

@@ -101,6 +101,21 @@ public class MessageEngineConfiguration
     /// 负载均衡模式，默认轮询
     /// </summary>
     public LoadBalancingMode LoadBalancingMode { get; set; } = LoadBalancingMode.RoundRobin;
+
+    /// <summary>
+    /// 启用回退处理路径，默认true
+    /// </summary>
+    public bool EnableFallbackProcessing { get; set; } = true;
+
+    /// <summary>
+    /// 背压阻塞超时（毫秒），默认10ms
+    /// </summary>
+    public int BackpressureBlockTimeoutMs { get; set; } = 10;
+
+    /// <summary>
+    /// 最大重试次数，默认3次
+    /// </summary>
+    public int MaxRetryAttempts { get; set; } = 3;
 }
 
 /// <summary>
