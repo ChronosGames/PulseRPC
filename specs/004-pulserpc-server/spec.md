@@ -38,6 +38,15 @@
 
 ---
 
+## Clarifications
+
+### Session 2025-10-11
+- Q: Should the server enforce authentication and authorization for RPC method calls? → A: Partial - Server must support optional authentication hooks but not enforce by default
+- Q: Must the server support multiple serialization formats (e.g., MemoryPack, JSON, Protobuf)? → A: No - Single format only (MemoryPack required for all clients)
+- Q: What is the assumed deployment environment for production operation? → A: Flexible - Must work in both containerized and traditional environments
+
+---
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### Primary User Story
@@ -134,6 +143,7 @@ The server must handle thousands of concurrent connections, process 100,000+ req
 - **CPU saturation**: System must not deadlock when all CPU cores are busy
 - **Unregistered service**: Client calls a service that doesn't exist - must return clear error
 - **Mismatched protocol versions**: Client uses incompatible protocol version - must reject gracefully
+- **Invalid serialization format**: Client sends non-MemoryPack data - must detect and return format error
 - **Serialization failures**: Service returns a value that cannot be serialized - must handle gracefully
 
 #### Concurrency Edge Cases
@@ -151,7 +161,7 @@ The server must handle thousands of concurrent connections, process 100,000+ req
 - **FR-001**: System MUST accept incoming network messages from multiple concurrent connections
 - **FR-002**: System MUST handle both TCP and KCP transport protocols
 - **FR-003**: System MUST parse message headers to extract service name, method name, request ID, and client identifier
-- **FR-004**: System MUST validate message integrity (checksum, protocol version, format)
+- **FR-004**: System MUST validate message integrity (checksum, protocol version, MemoryPack format compliance)
 - **FR-005**: System MUST buffer incomplete messages and wait for remaining data to arrive
 - **FR-006**: System MUST support messages up to 10MB in size
 
@@ -211,22 +221,33 @@ The server must handle thousands of concurrent connections, process 100,000+ req
 - **FR-049**: System MUST rate-limit requests per client to prevent abuse
 - **FR-050**: System MUST isolate client failures (one bad client must not affect others)
 
-### Observability Requirements (FR-051 to FR-058)
-- **FR-051**: System MUST expose metrics: requests/second, error rate, latency percentiles
-- **FR-052**: System MUST expose metrics: active connections, queue depths, CPU usage
-- **FR-053**: System MUST emit structured logs for all significant events
-- **FR-054**: System MUST provide distributed tracing integration (trace ID propagation)
-- **FR-055**: System MUST track performance metrics per service and per method
-- **FR-056**: System MUST alert when error rate exceeds threshold
-- **FR-057**: System MUST alert when latency exceeds SLA targets
-- **FR-058**: System MUST provide diagnostic endpoints for troubleshooting (thread dumps, memory stats)
+### Security Requirements (FR-051 to FR-054)
+- **FR-051**: System MUST provide authentication hook points that can be optionally registered
+- **FR-052**: System MUST provide authorization hook points for per-method access control when enabled
+- **FR-053**: System MUST pass authentication context to service methods when authentication hooks are configured
+- **FR-054**: System MUST allow services to operate without authentication when hooks are not registered (trusted network mode)
 
-### Configuration Requirements (FR-059 to FR-063)
-- **FR-059**: System MUST allow configuration of worker thread pool size
-- **FR-060**: System MUST allow configuration of queue capacities and back-pressure thresholds
-- **FR-061**: System MUST allow configuration of timeout values per service or method
-- **FR-062**: System MUST allow configuration of transport-specific parameters (TCP buffer sizes, KCP intervals)
-- **FR-063**: System MUST support hot-reload of configuration without restart (where safe)
+### Observability Requirements (FR-055 to FR-062)
+- **FR-055**: System MUST expose metrics: requests/second, error rate, latency percentiles
+- **FR-056**: System MUST expose metrics: active connections, queue depths, CPU usage
+- **FR-057**: System MUST emit structured logs for all significant events
+- **FR-058**: System MUST provide distributed tracing integration (trace ID propagation)
+- **FR-059**: System MUST track performance metrics per service and per method
+- **FR-060**: System MUST alert when error rate exceeds threshold
+- **FR-061**: System MUST alert when latency exceeds SLA targets
+- **FR-062**: System MUST provide diagnostic endpoints for troubleshooting (thread dumps, memory stats)
+
+### Configuration Requirements (FR-063 to FR-067)
+- **FR-063**: System MUST allow configuration of worker thread pool size
+- **FR-064**: System MUST allow configuration of queue capacities and back-pressure thresholds
+- **FR-065**: System MUST allow configuration of timeout values per service or method
+- **FR-066**: System MUST allow configuration of transport-specific parameters (TCP buffer sizes, KCP intervals)
+- **FR-067**: System MUST support hot-reload of configuration without restart (where safe)
+
+### Deployment Requirements (FR-068 to FR-070)
+- **FR-068**: System MUST operate correctly in containerized environments (Docker, Kubernetes)
+- **FR-069**: System MUST operate correctly in traditional VM or bare-metal deployments
+- **FR-070**: System MUST support standard health check protocols for orchestration platforms (HTTP health endpoints)
 
 ### Key Entities *(include if feature involves data)*
 
@@ -238,10 +259,11 @@ The server must handle thousands of concurrent connections, process 100,000+ req
   - Request ID (unique identifier for correlation)
   - Service name (target service identifier)
   - Method name (target method identifier)
-  - Payload (serialized parameters or return value)
+  - Payload (MemoryPack-serialized parameters or return value)
   - Metadata (headers, tracing info, priority)
 - **Lifecycle**: Created when received → parsed → dispatched → processed → response created → sent → disposed
 - **Relationships**: Belongs to a Connection, routed to a Service
+- **Constraints**: All clients must use MemoryPack serialization format
 
 #### Connection
 - **Description**: An active network session with a client
@@ -274,6 +296,7 @@ The server must handle thousands of concurrent connections, process 100,000+ req
   - Client ID (for client-specific logic)
   - Connection ID (for connection-specific logic)
   - Metadata (custom headers, auth info)
+  - Authentication context (populated by authentication hooks when configured, null otherwise)
   - Cancellation token (for timeout and disconnect handling)
   - Start timestamp (for latency tracking)
 - **Lifecycle**: Created when request is dispatched → passed to service → disposed after response sent
@@ -306,9 +329,10 @@ The server must handle thousands of concurrent connections, process 100,000+ req
 - [x] Key concepts extracted (message flow, performance, reliability)
 - [x] Ambiguities marked (none - requirements are concrete and measurable)
 - [x] User scenarios defined (7 scenarios + edge cases)
-- [x] Requirements generated (63 functional requirements across 6 categories)
+- [x] Requirements generated (70 functional requirements across 9 categories)
 - [x] Entities identified (Message, Connection, Service, Request Context)
 - [x] Review checklist passed
+- [x] Clarifications completed (3 questions answered, spec updated)
 
 ---
 
@@ -316,10 +340,10 @@ The server must handle thousands of concurrent connections, process 100,000+ req
 
 The feature is complete when:
 
-1. **Functional Completeness**: All 63 functional requirements are implemented and passing tests
+1. **Functional Completeness**: All 70 functional requirements are implemented and passing tests
 2. **Performance Targets**: System meets all performance requirements (FR-032 to FR-040) under load testing
 3. **Reliability**: System passes 72-hour stress test without memory leaks, crashes, or performance degradation
-4. **Observability**: All metrics (FR-051 to FR-058) are exposed and validated
+4. **Observability**: All metrics (FR-055 to FR-062) are exposed and validated
 5. **Integration**: System successfully handles production-like traffic patterns (burst, sustained, mixed workloads)
 
 **Measurement Approach**:
