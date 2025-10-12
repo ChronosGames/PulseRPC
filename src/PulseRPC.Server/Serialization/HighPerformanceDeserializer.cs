@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Server.Network;
+using MemoryPack;
 
 namespace PulseRPC.Server.Serialization;
 
@@ -38,11 +39,33 @@ public interface IMessageDeserializer : IDisposable
     event EventHandler<MessageDeserializedEventArgs> MessageDeserialized;
 }
 
+public interface IMetadataAwareMessageDeserializer : IMessageDeserializer
+{
+    ValueTask<object?> DeserializeAsync(MetadataDeserializationContext context);
+}
+
+public readonly struct MetadataDeserializationContext
+{
+    public MetadataDeserializationContext(
+        PulseRPC.Server.Engine.HandlerMetadata metadata,
+        ReadOnlyMemory<byte> payload,
+        CancellationToken cancellationToken)
+    {
+        Metadata = metadata;
+        Payload = payload;
+        CancellationToken = cancellationToken;
+    }
+
+    public PulseRPC.Server.Engine.HandlerMetadata Metadata { get; }
+    public ReadOnlyMemory<byte> Payload { get; }
+    public CancellationToken CancellationToken { get; }
+}
+
 /// <summary>
 /// 高性能消息反序列化器实现
 /// 使用类型缓存和零分配设计
 /// </summary>
-internal sealed class HighPerformanceDeserializer : IMessageDeserializer
+internal sealed class HighPerformanceDeserializer : IMetadataAwareMessageDeserializer
 {
     private readonly ISerializerProvider _serializerProvider;
     private readonly ILogger<HighPerformanceDeserializer> _logger;
@@ -238,8 +261,6 @@ internal sealed class HighPerformanceDeserializer : IMessageDeserializer
     {
         return _serializerCache.GetOrAdd(methodKey, static (key, provider) =>
         {
-            // 这里可以根据服务名和方法名选择特定的序列化器
-            // 目前使用默认的 MemoryPack 序列化器
             return provider.Create(MethodType.Unary, null);
         }, _serializerProvider);
     }
@@ -262,6 +283,33 @@ internal sealed class HighPerformanceDeserializer : IMessageDeserializer
         // 为了演示，我们返回原始字节数据
         // 实际实现中应该通过源码生成器生成具体的反序列化逻辑
         return Task.FromResult<object?>(payload.ToArray());
+    }
+
+    public async ValueTask<object?> DeserializeAsync(MetadataDeserializationContext context)
+    {
+        if (context.Metadata.RequestType == null || context.Payload.IsEmpty)
+        {
+            return null;
+        }
+
+        var methodKey = new MethodKey(context.Metadata.ServiceName, context.Metadata.MethodName);
+        var serializer = GetCachedSerializer(methodKey);
+
+        if (context.Metadata.RequestIsMemoryPackable)
+        {
+            // MemoryPack 需要 ReadOnlySpan<byte> - 使用 MemoryPack 2.x API
+            return MemoryPackSerializer.Deserialize(context.Metadata.RequestType, context.Payload.Span);
+        }
+
+        // ISerializer 需要 ReadOnlySequence<byte>
+        using var owner = MemoryPool<byte>.Shared.Rent(context.Payload.Length);
+        context.Payload.Span.CopyTo(owner.Memory.Span);
+        var sequence = new ReadOnlySequence<byte>(owner.Memory.Slice(0, context.Payload.Length));
+        
+        // 使用反射调用泛型方法 Deserialize<T>
+        var deserializeMethod = serializer.GetType().GetMethod(nameof(ISerializer.Deserialize))!
+            .MakeGenericMethod(context.Metadata.RequestType);
+        return deserializeMethod.Invoke(serializer, new object[] { sequence });
     }
 
     public void Dispose()

@@ -12,11 +12,20 @@ public class MessagePacketHolder
 {
     public readonly MessageHeader Header;
     public readonly byte[] Payload;
+    public readonly string? ConnectionId;
 
-    public MessagePacketHolder(MessagePacket packet)
+    public MessagePacketHolder(MessagePacket packet, string? connectionId = null)
     {
         this.Header = packet.Header;
         this.Payload = packet.Payload.ToArray();
+        this.ConnectionId = connectionId;
+    }
+    
+    public MessagePacketHolder(MessageHeader header, byte[] payload, string? connectionId = null)
+    {
+        this.Header = header;
+        this.Payload = payload;
+        this.ConnectionId = connectionId;
     }
 }
 

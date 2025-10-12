@@ -36,6 +36,12 @@ public static class MessageDispatcherGenerator
         // 生成服务代理映射
         GenerateServiceProxyMapping(code, serviceModels);
 
+        // 生成 Hub + Method 元数据映射
+        GenerateHandlerMetadataMap(code, serviceModels);
+
+        // 生成元数据访问辅助方法
+        GenerateHandlerMetadataHelpers(code);
+
         // 生成注册方法
         GenerateRegistrationMethod(code, serviceModels);
 
@@ -171,6 +177,250 @@ public static class MessageDispatcherGenerator
             code.AppendLine($"    private {service.InterfaceFullName}? {serviceInstanceField};");
         }
         code.AppendLine();
+    }
+
+    /// <summary>
+    /// 生成 Hub + Method 元数据映射，用于高性能反序列化
+    /// </summary>
+    private static void GenerateHandlerMetadataMap(StringBuilder code, List<ServiceModel> serviceModels)
+    {
+        code.AppendLine("    /// <summary>");
+        code.AppendLine("    /// 编译时生成的 Hub + Method 元数据映射 - 支持零反射反序列化");
+        code.AppendLine("    /// </summary>");
+        code.AppendLine("    private static readonly Dictionary<string, Dictionary<string, HandlerMetadata>> HandlerMetadataMap = new(StringComparer.Ordinal)");
+        code.AppendLine("    {");
+
+        foreach (var service in serviceModels)
+        {
+            var methodItems = service.Methods;
+            var keys = new List<string> { service.InterfaceFullName };
+            if (!string.IsNullOrEmpty(service.ServiceName) && !keys.Contains(service.ServiceName!))
+            {
+                keys.Add(service.ServiceName!);
+            }
+
+            foreach (var key in keys)
+            {
+                code.AppendLine($"        [\"{key}\"] = new Dictionary<string, HandlerMetadata>(StringComparer.Ordinal)");
+                code.AppendLine("        {");
+
+                foreach (var method in methodItems)
+                {
+                    var metadataInitializer = BuildHandlerMetadataInitializer(service, method, key);
+                    code.Append(metadataInitializer);
+                }
+
+                code.AppendLine("        },");
+            }
+        }
+
+        code.AppendLine("    };");
+        code.AppendLine();
+    }
+
+    /// <summary>
+    /// 生成元数据访问方法
+    /// 注意：HandlerMetadata 类型定义在运行时 PulseRPC.Server.Engine 命名空间
+    /// </summary>
+    private static void GenerateHandlerMetadataHelpers(StringBuilder code)
+    {
+        code.AppendLine("    /// <summary>");
+        code.AppendLine("    /// 尝试获取指定 Hub 与方法的预编译元数据");
+        code.AppendLine("    /// 实现 AbstractCompiledMessageDispatcher.TryGetHandlerMetadata");
+        code.AppendLine("    /// </summary>");
+        code.AppendLine("    public override bool TryGetHandlerMetadata(string serviceName, string methodName, out HandlerMetadata? metadata)");
+        code.AppendLine("    {");
+        code.AppendLine("        if (HandlerMetadataMap.TryGetValue(serviceName, out var methods) && methods.TryGetValue(methodName, out metadata))");
+        code.AppendLine("        {");
+        code.AppendLine("            return true;");
+        code.AppendLine("        }");
+        code.AppendLine("        metadata = null;");
+        code.AppendLine("        return false;");
+        code.AppendLine("    }");
+        code.AppendLine();
+    }
+
+    private static string BuildHandlerMetadataInitializer(ServiceModel service, MethodModel method, string serviceKey)
+    {
+        var indent = "            ";
+        var builder = new StringBuilder();
+
+        // 使用运行时 HandlerMetadata 构造函数
+        builder.Append($"{indent}[\"{method.MethodName}\"] = new HandlerMetadata(");
+        builder.AppendLine();
+        builder.AppendLine($"{indent}    serviceName: \"{service.InterfaceFullName}\",");
+        builder.AppendLine($"{indent}    methodName: \"{method.MethodName}\",");
+        builder.AppendLine($"{indent}    requestType: {GetRequestTypeExpression(method)},");
+        builder.AppendLine($"{indent}    responseType: {GetResponseTypeExpression(method)},");
+        builder.AppendLine($"{indent}    requestIsMemoryPackable: {GetRequestIsMemoryPackable(method)},");
+        builder.AppendLine($"{indent}    responseIsMemoryPackable: {GetResponseIsMemoryPackable(method)},");
+        builder.AppendLine($"{indent}    isOneWay: {IsOneWayMethod(method)},");
+        builder.AppendLine($"{indent}    signature: \"{service.InterfaceFullName}.{method.MethodName}\"),");
+
+        return builder.ToString();
+    }
+
+    private static string GetRequestTypeExpression(MethodModel method)
+    {
+        if (method.FirstParameter == null)
+        {
+            return "null";
+        }
+
+        return $"typeof({method.FirstParameter.TypeFullName})";
+    }
+
+    private static string GetResponseTypeExpression(MethodModel method)
+    {
+        if (string.IsNullOrEmpty(method.ReturnTypeFullName) || method.ReturnTypeFullName == "void" || method.ReturnTypeFullName == "System.Void")
+        {
+            return "null";
+        }
+
+        if (IsTaskTypeWithoutResult(method.ReturnTypeFullName))
+        {
+            return "null";
+        }
+
+        if (method.ReturnTypeFullName.StartsWith("System.Threading.Tasks.Task<", StringComparison.Ordinal))
+        {
+            var payloadType = ExtractGenericType(method.ReturnTypeFullName);
+            return payloadType != null ? $"typeof({payloadType})" : "null";
+        }
+
+        if (method.ReturnTypeFullName.StartsWith("System.Threading.Tasks.ValueTask<", StringComparison.Ordinal))
+        {
+            var payloadType = ExtractGenericType(method.ReturnTypeFullName);
+            return payloadType != null ? $"typeof({payloadType})" : "null";
+        }
+
+        return $"typeof({method.ReturnTypeFullName})";
+    }
+
+    private static string GetReturnTypeExpression(MethodModel method)
+    {
+        if (string.IsNullOrEmpty(method.ReturnTypeFullName) || method.ReturnTypeFullName == "void" || method.ReturnTypeFullName == "System.Void")
+        {
+            return "null";
+        }
+
+        return $"typeof({method.ReturnTypeFullName})";
+    }
+
+    private static string GetRequestTypeFullName(MethodModel method)
+    {
+        if (method.FirstParameter == null)
+        {
+            return "null";
+        }
+
+        return $"\"{method.FirstParameter.TypeFullName}\"";
+    }
+
+    private static string GetResponseTypeFullName(MethodModel method)
+    {
+        if (string.IsNullOrEmpty(method.ReturnTypeFullName) || method.ReturnTypeFullName == "void" || method.ReturnTypeFullName == "System.Void")
+        {
+            return "null";
+        }
+
+        var payloadType = GetResponsePayloadType(method.ReturnTypeFullName);
+        return payloadType != null ? $"\"{payloadType}\"" : "null";
+    }
+
+    private static string GetReturnTypeFullName(MethodModel method)
+    {
+        if (string.IsNullOrEmpty(method.ReturnTypeFullName) || method.ReturnTypeFullName == "void" || method.ReturnTypeFullName == "System.Void")
+        {
+            return "null";
+        }
+
+        return $"\"{method.ReturnTypeFullName}\"";
+    }
+
+    private static string GetRequestIsMemoryPackable(MethodModel method)
+    {
+        return method.FirstParameter?.IsMemoryPackable == true ? "true" : "false";
+    }
+
+    private static string GetResponseIsMemoryPackable(MethodModel method)
+    {
+        var payloadType = GetResponsePayloadType(method.ReturnTypeFullName);
+        if (payloadType == null)
+        {
+            return "false";
+        }
+
+        // TODO: 增强 MemoryPackable 检测（当前生成器尚未标记响应类型）
+        return "false";
+    }
+
+    private static string IsValueTask(MethodModel method)
+    {
+        if (string.IsNullOrEmpty(method.ReturnTypeFullName))
+        {
+            return "false";
+        }
+
+        return method.ReturnTypeFullName.StartsWith("System.Threading.Tasks.ValueTask", StringComparison.Ordinal)
+            ? "true"
+            : "false";
+    }
+
+    private static bool IsTaskTypeWithoutResult(string? typeFullName)
+    {
+        if (string.IsNullOrEmpty(typeFullName))
+        {
+            return false;
+        }
+
+        return string.Equals(typeFullName, "System.Threading.Tasks.Task", StringComparison.Ordinal) ||
+               string.Equals(typeFullName, "System.Threading.Tasks.ValueTask", StringComparison.Ordinal);
+    }
+
+    private static string? GetResponsePayloadType(string? returnTypeFullName)
+    {
+        if (string.IsNullOrEmpty(returnTypeFullName))
+        {
+            return null;
+        }
+
+        if (returnTypeFullName!.StartsWith("System.Threading.Tasks.Task<", StringComparison.Ordinal) ||
+            returnTypeFullName.StartsWith("System.Threading.Tasks.ValueTask<", StringComparison.Ordinal))
+        {
+            return ExtractGenericType(returnTypeFullName);
+        }
+
+        if (returnTypeFullName == "void" || returnTypeFullName == "System.Void")
+        {
+            return null;
+        }
+
+        return returnTypeFullName;
+    }
+
+    private static string? ExtractGenericType(string typeFullName)
+    {
+        var start = typeFullName.IndexOf('<');
+        var end = typeFullName.LastIndexOf('>');
+
+        if (start < 0 || end <= start + 1)
+        {
+            return null;
+        }
+
+        return typeFullName.Substring(start + 1, end - start - 1);
+    }
+
+    private static string IsOneWayMethod(MethodModel method)
+    {
+        // 单向方法：返回类型为 void、Task 或 ValueTask（无结果）
+        bool isOneWay = string.IsNullOrEmpty(method.ReturnTypeFullName) ||
+                        method.ReturnTypeFullName == "void" ||
+                        method.ReturnTypeFullName == "System.Void" ||
+                        method.ReturnTypeFullName == "System.Threading.Tasks.Task" ||
+                        method.ReturnTypeFullName == "System.Threading.Tasks.ValueTask";
+        return isOneWay.ToString().ToLowerInvariant();
     }
 
     /// <summary>

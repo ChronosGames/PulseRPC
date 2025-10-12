@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -145,14 +146,15 @@ public static class ServiceProxyGenerator
     {
         foreach (var method in serviceModel.Methods)
         {
-            GenerateMethodInvoker(sb, method, serviceModel.InterfaceName);
+            var parameterVariableNames = GetSafeParameterVariableNames(method);
+            GenerateMethodInvoker(sb, method, serviceModel.InterfaceName, parameterVariableNames);
         }
     }
 
     /// <summary>
     /// 生成单个方法的调用器
     /// </summary>
-    private static void GenerateMethodInvoker(StringBuilder sb, MethodModel method, string serviceName)
+    private static void GenerateMethodInvoker(StringBuilder sb, MethodModel method, string serviceName, IReadOnlyList<string> parameterVariableNames)
     {
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// Optimized invoker for {method.MethodName}");
@@ -162,10 +164,10 @@ public static class ServiceProxyGenerator
         sb.AppendLine("    {");
 
         // 反序列化参数
-        GenerateParameterDeserialization(sb, method);
+        GenerateParameterDeserialization(sb, method, parameterVariableNames);
 
         // 调用服务方法
-        GenerateServiceMethodCall(sb, method);
+        GenerateServiceMethodCall(sb, method, parameterVariableNames);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -174,7 +176,7 @@ public static class ServiceProxyGenerator
     /// <summary>
     /// 生成参数反序列化代码
     /// </summary>
-    private static void GenerateParameterDeserialization(StringBuilder sb, MethodModel method)
+    private static void GenerateParameterDeserialization(StringBuilder sb, MethodModel method, IReadOnlyList<string> parameterVariableNames)
     {
         if (!method.HasParameters)
         {
@@ -185,13 +187,14 @@ public static class ServiceProxyGenerator
         if (method.IsSingleParameter)
         {
             var param = method.FirstParameter!;
+            var variableName = parameterVariableNames[0];
             if (!param.IsMemoryPackable)
             {
                 sb.AppendLine($"        // Warning: Parameter type {param.TypeName} is not MemoryPackable");
             }
 
             sb.AppendLine($"        // Deserialize single parameter: {param.TypeName}");
-            sb.AppendLine($"        var {param.Name} = MemoryPackSerializer.Deserialize<{param.TypeFullName}>(data.Span)!;");
+            sb.AppendLine($"        var {variableName} = MemoryPackSerializer.Deserialize<{param.TypeFullName}>(data.Span)!;");
         }
         else
         {
@@ -202,7 +205,8 @@ public static class ServiceProxyGenerator
             for (int i = 0; i < method.Parameters.Count; i++)
             {
                 var param = method.Parameters[i];
-                sb.AppendLine($"        var {param.Name} = ({param.TypeFullName})parameters[{i}];");
+                var variableName = parameterVariableNames[i];
+                sb.AppendLine($"        var {variableName} = ({param.TypeFullName})parameters[{i}];");
             }
         }
 
@@ -212,10 +216,10 @@ public static class ServiceProxyGenerator
     /// <summary>
     /// 生成服务方法调用代码
     /// </summary>
-    private static void GenerateServiceMethodCall(StringBuilder sb, MethodModel method)
+    private static void GenerateServiceMethodCall(StringBuilder sb, MethodModel method, IReadOnlyList<string> parameterVariableNames)
     {
         var paramList = method.HasParameters ?
-            string.Join(", ", method.Parameters.Select(p => p.Name)) :
+            string.Join(", ", parameterVariableNames) :
             "";
 
         if (method.IsAsync)
@@ -252,6 +256,56 @@ public static class ServiceProxyGenerator
     /// <summary>
     /// 生成辅助方法
     /// </summary>
+    private static IReadOnlyList<string> GetSafeParameterVariableNames(MethodModel method)
+    {
+        if (!method.HasParameters)
+        {
+            return Array.Empty<string>();
+        }
+
+        var names = new List<string>(method.Parameters.Count);
+
+        foreach (var parameter in method.Parameters)
+        {
+            var rawName = parameter.Name;
+
+            if (string.Equals(rawName, "cancellationToken", StringComparison.Ordinal))
+            {
+                names.Add("_" + rawName);
+                continue;
+            }
+
+            // 避免与 C# 关键字冲突
+            if (IsCSharpKeyword(rawName))
+            {
+                names.Add(rawName + "_");
+                continue;
+            }
+
+            names.Add(rawName);
+        }
+
+        return names;
+    }
+
+    private static bool IsCSharpKeyword(string identifier)
+    {
+        return identifier switch
+        {
+            "abstract" or "as" or "base" or "bool" or "break" or "byte" or "case" or "catch" or "char" or "checked" or
+            "class" or "const" or "continue" or "decimal" or "default" or "delegate" or "do" or "double" or "else" or
+            "enum" or "event" or "explicit" or "extern" or "false" or "finally" or "fixed" or "float" or "for" or
+            "foreach" or "goto" or "if" or "implicit" or "in" or "int" or "interface" or "internal" or "is" or
+            "lock" or "long" or "namespace" or "new" or "null" or "object" or "operator" or "out" or "override" or
+            "params" or "private" or "protected" or "public" or "readonly" or "ref" or "return" or "sbyte" or
+            "sealed" or "short" or "sizeof" or "stackalloc" or "static" or "string" or "struct" or "switch" or
+            "this" or "throw" or "true" or "try" or "typeof" or "uint" or "ulong" or "unchecked" or "unsafe" or
+            "ushort" or "using" or "virtual" or "void" or "volatile" or "while"
+                => true,
+            _ => false
+        };
+    }
+
     private static void GenerateHelperMethods(StringBuilder sb, ServiceModel serviceModel)
     {
         // 多参数反序列化辅助方法

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using System.Net;
 using PulseRPC.Server.Authentication;
 using PulseRPC.Messaging;
+using MessageProcessedEventArgs = PulseRPC.Server.Dispatch.MessageProcessedEventArgs;
 
 namespace PulseRPC.Server.Transport;
 
@@ -42,49 +43,8 @@ public sealed class MessageParsedEventArgs : EventArgs
     }
 }
 
-/// <summary>
-/// 消息处理完成事件参数
-/// </summary>
-public sealed class MessageProcessedEventArgs : EventArgs
-{
-    /// <summary>
-    /// 连接ID
-    /// </summary>
-    public string ConnectionId { get; }
-
-    /// <summary>
-    /// 消息头
-    /// </summary>
-    public MessageHeader Header { get; }
-
-    /// <summary>
-    /// 处理结果
-    /// </summary>
-    public object? Result { get; }
-
-    /// <summary>
-    /// 处理完成时间
-    /// </summary>
-    public DateTime ProcessedTime { get; }
-
-    /// <summary>
-    /// 是否处理成功
-    /// </summary>
-    public bool IsSuccess => Result != null && !(Result is Exception);
-
-    /// <summary>
-    /// 异常信息（如果有）
-    /// </summary>
-    public Exception? Exception => Result as Exception;
-
-    public MessageProcessedEventArgs(string connectionId, MessageHeader header, object? result, DateTime processedTime)
-    {
-        ConnectionId = connectionId ?? throw new ArgumentNullException(nameof(connectionId));
-        Header = header ?? throw new ArgumentNullException(nameof(header));
-        Result = result;
-        ProcessedTime = processedTime;
-    }
-}
+// 旧的 MessageProcessedEventArgs 已移除，统一使用 PulseRPC.Server.Dispatch.MessageProcessedEventArgs
+// 该事件参数已通过 using 别名导入
 
 public interface IServerChannel : IDisposable
 {

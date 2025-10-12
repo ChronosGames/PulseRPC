@@ -10,6 +10,9 @@ using PulseRPC.Server.Memory;
 using PulseRPC.Transport;
 using System.Buffers;
 using PulseRPC.Server.Scheduling;
+using PulseRPC.Server.Dispatch;
+using PulseRPC.Server.Response;
+using MessageProcessedEventArgs = PulseRPC.Server.Dispatch.MessageProcessedEventArgs;
 
 namespace PulseRPC.Server.Processing;
 
@@ -100,10 +103,9 @@ internal class ServerChannelManager : IServerChannelManager
         // 注册事件处理
         channel.StateChanged += OnChannelStateChanged;
         channel.MessageParsed += OnChannelMessageParsed;
-        channel.MessageProcessed += OnChannelMessageProcessed;
 
         // 添加到管理字典
-        if (_channels.TryAdd(((ITransport)transport).Id, channel))
+        if (_channels.TryAdd(transport.Id, channel))
         {
             Interlocked.Increment(ref _totalChannelsCreated);
 
@@ -134,10 +136,6 @@ internal class ServerChannelManager : IServerChannelManager
         try
         {
             var engine = await _engineManager.GetOrCreateEngineAsync(channel.Id, channel, _messageDispatcher);
-            
-            // 订阅引擎的 MessageProcessed 事件
-            engine.MessageProcessed += OnEngineMessageProcessed;
-            
             Interlocked.Increment(ref _totalEnginesCreated);
 
             _logger.LogDebug("已为通道创建消息引擎: {ConnectionId}", channel.Id);
@@ -146,15 +144,6 @@ internal class ServerChannelManager : IServerChannelManager
         {
             _logger.LogError(ex, "为通道创建消息引擎失败: {ConnectionId}", channel.Id);
         }
-    }
-
-    /// <summary>
-    /// 引擎消息处理完成事件处理器
-    /// </summary>
-    private void OnEngineMessageProcessed(object? sender, MessageProcessedEventArgs e)
-    {
-        // 转发到现有的处理逻辑
-        OnChannelMessageProcessed(sender, e);
     }
 
     /// <summary>
@@ -194,7 +183,6 @@ internal class ServerChannelManager : IServerChannelManager
         // 取消订阅事件
         channel.StateChanged -= OnChannelStateChanged;
         channel.MessageParsed -= OnChannelMessageParsed;
-        channel.MessageProcessed -= OnChannelMessageProcessed;
 
         // 触发断开事件
         ChannelDisconnected?.Invoke(this, new ChannelEventArgs(channel));
@@ -359,95 +347,6 @@ internal class ServerChannelManager : IServerChannelManager
     }
 
     /// <summary>
-    /// 处理通道消息处理完成事件
-    /// </summary>
-    private void OnChannelMessageProcessed(object? sender, MessageProcessedEventArgs e)
-    {
-        if (sender is not IServerChannel channel)
-            return;
-
-        if (e.IsSuccess)
-        {
-            _logger.LogTrace("[消息处理] {ConnectionId} 消息处理成功: 服务={ServiceName}, 方法={MethodName}",
-                e.ConnectionId, e.Header.ServiceName, e.Header.MethodName);
-        }
-        else
-        {
-            _logger.LogWarning("[消息处理] {ConnectionId} 消息处理失败: 服务={ServiceName}, 方法={MethodName}, 错误={Error}",
-                e.ConnectionId, e.Header.ServiceName, e.Header.MethodName, e.Exception?.Message ?? e.Result?.ToString());
-        }
-
-        // 这里可以添加响应发送逻辑
-        // 如果是需要响应的消息类型，发送响应回客户端
-        if (e.Header.Type == MessageType.Request && e.Header.Flags.HasFlag(MessageFlags.RequireResponse))
-        {
-            _ = Task.Run(async () => await SendResponseAsync(channel, e));
-        }
-    }
-
-    /// <summary>
-    /// 发送响应给客户端
-    /// </summary>
-    private async Task SendResponseAsync(IServerChannel channel, MessageProcessedEventArgs e)
-    {
-        try
-        {
-            // 构造响应消息头 - 使用原始消息ID确保请求-响应匹配
-            var responseHeader = new MessageHeader(MessageType.Response, e.Header.ServiceName, e.Header.MethodName)
-            {
-                MessageId = e.Header.MessageId, // 保持消息ID一致
-                Timestamp = DateTimeOffset.UtcNow.Ticks
-            };
-
-            // 序列化响应数据
-            byte[] responsePayload = Array.Empty<byte>();
-            if (e.Result != null && e.Exception == null)
-            {
-                // 成功响应：序列化结果对象
-                var serializer = PulseRPCSerializerProvider.Instance.Create(MethodType.Unary, null);
-                var writer = new ArrayBufferWriter<byte>();
-                serializer.Serialize(writer, e.Result);
-                responsePayload = writer.WrittenMemory.ToArray();
-            }
-            else if (e.Exception != null)
-            {
-                // 错误响应：序列化异常信息
-                var errorResponse = new { Error = e.Exception.Message, StackTrace = e.Exception.StackTrace };
-                var serializer = PulseRPCSerializerProvider.Instance.Create(MethodType.Unary, null);
-                var writer = new ArrayBufferWriter<byte>();
-                serializer.Serialize(writer, errorResponse);
-                responsePayload = writer.WrittenMemory.ToArray();
-                
-                // 在消息头中标记错误
-                responseHeader.Flags |= MessageFlags.Error;
-            }
-
-            // 构造完整的响应消息
-            var responsePacket = new MessagePacket(responseHeader, responsePayload);
-            var responseBuffer = new byte[responsePacket.EstimateSize()];
-            var responseSize = responsePacket.WriteTo(responseBuffer);
-
-            // 发送响应 - 确保使用正确的通道
-            var sent = await channel.SendAsync(responseBuffer.AsMemory(0, responseSize));
-            if (sent)
-            {
-                _logger.LogTrace("[响应发送] {ConnectionId} 响应已发送: 服务={ServiceName}, 方法={MethodName}, MessageId={MessageId}, Success={Success}",
-                    e.ConnectionId, e.Header.ServiceName, e.Header.MethodName, e.Header.MessageId, e.IsSuccess);
-            }
-            else
-            {
-                _logger.LogWarning("[响应发送] {ConnectionId} 响应发送失败: 服务={ServiceName}, 方法={MethodName}, MessageId={MessageId}",
-                    e.ConnectionId, e.Header.ServiceName, e.Header.MethodName, e.Header.MessageId);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[响应发送] {ConnectionId} 发送响应时发生异常: 服务={ServiceName}, 方法={MethodName}, MessageId={MessageId}",
-                e.ConnectionId, e.Header.ServiceName, e.Header.MethodName, e.Header.MessageId);
-        }
-    }
-
-    /// <summary>
     /// 将消息路由到消息引擎
     /// </summary>
     private async Task RouteToEngineAsync(MessageParsedEventArgs eventArgs)
@@ -485,7 +384,7 @@ internal class ServerChannelManager : IServerChannelManager
             if (success)
             {
                 _logger.LogTrace("[消息路由] {ConnectionId} 消息已成功路由到引擎: 服务={ServiceName}, 方法={MethodName}, MessageId={MessageId}",
-                    eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName, 
+                    eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName,
                     eventArgs.MessagePacket.Header.MethodName, eventArgs.MessagePacket.Header.MessageId);
             }
             else
@@ -506,101 +405,10 @@ internal class ServerChannelManager : IServerChannelManager
     /// </summary>
     private async Task FallbackProcessMessageAsync(MessageParsedEventArgs eventArgs)
     {
-        try
-        {
-            _logger.LogInformation("[回退处理] {ConnectionId} 使用简化处理路径: Service={ServiceName}, Method={MethodName}", 
-                eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName, eventArgs.MessagePacket.Header.MethodName);
-            
-            // 直接调用分发器处理消息
-            var payloadBytes = eventArgs.MessagePacket.Payload;
-            // TODO: 需要注入 IServiceProvider 来支持回退处理
-            // 暂时跳过实际的调度，只记录错误
-            object? result = null;
-            _logger.LogError("[回退处理] 无法调度消息：缺少 IServiceProvider 支持");
-
-            // 发送响应（如果需要）
-            if (eventArgs.MessagePacket.Header.Type == MessageType.Request &&
-                eventArgs.MessagePacket.Header.Flags.HasFlag(MessageFlags.RequireResponse))
-            {
-                var channel = GetChannel(eventArgs.ConnectionId);
-                if (channel != null)
-                {
-                    await SendResponseAsync(channel, eventArgs.MessagePacket.Header, result);
-                }
-            }
-            
-            _logger.LogDebug("[回退处理] {ConnectionId} 处理完成", eventArgs.ConnectionId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[回退处理] {ConnectionId} 处理失败: Service={ServiceName}, Method={MethodName}", 
-                eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName, eventArgs.MessagePacket.Header.MethodName);
-        }
-    }
-
-    /// <summary>
-    /// 发送响应（回退路径使用）
-    /// </summary>
-    private async Task SendResponseAsync(IServerChannel channel, MessageHeader requestHeader, object? result)
-    {
-        try
-        {
-            // 构造响应消息头
-            var responseHeader = new MessageHeader(MessageType.Response, requestHeader.ServiceName, requestHeader.MethodName)
-            {
-                MessageId = requestHeader.MessageId, // 保持消息ID一致
-                Timestamp = DateTimeOffset.UtcNow.Ticks
-            };
-
-            // 序列化响应数据
-            byte[] responsePayload = Array.Empty<byte>();
-            if (result != null)
-            {
-                if (result is Exception ex)
-                {
-                    // 错误响应：序列化异常信息
-                    var errorResponse = new { Error = ex.Message, StackTrace = ex.StackTrace };
-                    var serializer = PulseRPCSerializerProvider.Instance.Create(MethodType.Unary, null);
-                    var writer = new ArrayBufferWriter<byte>();
-                    serializer.Serialize(writer, errorResponse);
-                    responsePayload = writer.WrittenMemory.ToArray();
-                    
-                    // 在消息头中标记错误
-                    responseHeader.Flags |= MessageFlags.Error;
-                }
-                else
-                {
-                    // 成功响应：序列化结果对象
-                    var serializer = PulseRPCSerializerProvider.Instance.Create(MethodType.Unary, null);
-                    var writer = new ArrayBufferWriter<byte>();
-                    serializer.Serialize(writer, result);
-                    responsePayload = writer.WrittenMemory.ToArray();
-                }
-            }
-
-            // 构造完整的响应消息
-            var responsePacket = new MessagePacket(responseHeader, responsePayload);
-            var responseBuffer = new byte[responsePacket.EstimateSize()];
-            var responseSize = responsePacket.WriteTo(responseBuffer);
-
-            // 发送响应 - 确保使用正确的通道
-            var sent = await channel.SendAsync(responseBuffer.AsMemory(0, responseSize));
-            if (sent)
-            {
-                _logger.LogTrace("[响应发送] {ConnectionId} 响应已发送: MessageId={MessageId}, Service={ServiceName}, Method={MethodName}",
-                    channel.Id, requestHeader.MessageId, requestHeader.ServiceName, requestHeader.MethodName);
-            }
-            else
-            {
-                _logger.LogWarning("[响应发送] {ConnectionId} 响应发送失败: MessageId={MessageId}, Service={ServiceName}, Method={MethodName}",
-                    channel.Id, requestHeader.MessageId, requestHeader.ServiceName, requestHeader.MethodName);
-            }
-        }
-        catch (Exception ex2)
-        {
-            _logger.LogError(ex2, "[响应发送] {ConnectionId} 发送响应时发生异常: MessageId={MessageId}",
-                channel.Id, requestHeader.MessageId);
-        }
+        _logger.LogInformation("[回退处理] {ConnectionId} 使用简化处理路径: Service={ServiceName}, Method={MethodName}",
+            eventArgs.ConnectionId,
+            eventArgs.MessagePacket.Header.ServiceName,
+            eventArgs.MessagePacket.Header.MethodName);
     }
 
     /// <summary>
@@ -675,7 +483,6 @@ internal class ServerChannelManager : IServerChannelManager
             {
                 channel.StateChanged -= OnChannelStateChanged;
                 channel.MessageParsed -= OnChannelMessageParsed;
-                channel.MessageProcessed -= OnChannelMessageProcessed;
                 channel.Dispose();
             }
             catch (Exception ex)

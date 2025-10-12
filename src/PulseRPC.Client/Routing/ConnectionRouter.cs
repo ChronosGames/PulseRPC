@@ -5,7 +5,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
 using PulseRPC.Client;
-using PulseRPC.Client;
 using PulseRPC.Messaging;
 
 namespace PulseRPC.Client.Routing;

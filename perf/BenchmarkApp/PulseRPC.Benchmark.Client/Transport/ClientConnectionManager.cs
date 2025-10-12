@@ -6,9 +6,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Benchmark.Shared;
 using PulseRPC.Client;
 using PulseRPC.Benchmark.Shared.Models;
-using PulseRPC.Client;
 using PulseRPC.Transport;
-using TransportOptions = PulseRPC.Benchmark.Core.Interfaces.TransportOptions;
 
 namespace PulseRPC.Benchmark.Client.Transport;
 
