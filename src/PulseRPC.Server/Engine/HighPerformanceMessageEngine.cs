@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Memory;
@@ -13,7 +14,10 @@ using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Serialization;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
+using PulseRPC.Server.Dispatch;
+using PulseRPC.Server.Response;
 using MessageStatus = PulseRPC.Server.Memory.MessageStatus;
+using MessageProcessedEventArgs = PulseRPC.Server.Dispatch.MessageProcessedEventArgs;
 
 namespace PulseRPC.Server.Engine;
 
@@ -73,6 +77,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     private readonly ILogger<HighPerformanceMessageEngine> _logger;
     private readonly IServiceScheduler? _scheduler;
     private readonly IMessageDeserializer? _deserializer;
+    private readonly IResponseProcessor _responseProcessor;
 
     // 三级缓冲架构核心组件 - 使用TieredMessageProcessor实现
     private TieredMessageProcessor _tieredProcessor = null!;
@@ -92,12 +97,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
     // 处理任务
     private Task? _monitoringTask;
-
-    // 事件
-    /// <summary>
-    /// 消息处理完成事件
-    /// </summary>
-    public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
 
     #endregion
 
@@ -122,6 +121,12 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         _logger = logger ?? NullLogger<HighPerformanceMessageEngine>.Instance;
         _scheduler = scheduler;
         _deserializer = deserializer;
+        _responseProcessor = serviceProvider.GetRequiredService<IResponseProcessor>() ?? throw new ArgumentNullException(nameof(_responseProcessor));
+
+        if (_deserializer is IMetadataAwareMessageDeserializer metadataAware && _messageDispatcher is HighPerformanceMessageDispatcher highPerfDispatcher)
+        {
+            highPerfDispatcher.SetMetadataDeserializer(metadataAware);
+        }
 
         InitializeEngine();
     }
@@ -203,7 +208,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "处理消息时发生错误: MessageId={MessageId}, ConnectionId={ConnectionId}", 
+                _logger.LogError(ex, "处理消息时发生错误: MessageId={MessageId}, ConnectionId={ConnectionId}",
                     messageSlot.MessageId, messageSlot.ConnectionId);
                 return ProcessingResult.FailResult(ex.Message);
             }
@@ -231,6 +236,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             _isRunning = true;
             _metrics.EngineStartTime = DateTime.UtcNow;
 
+            await _responseProcessor.StartAsync(cancellationToken);
+
             _logger.LogInformation("HighPerformanceMessageEngine启动成功: EngineId={EngineId}", _engineId);
         }
         catch (Exception ex)
@@ -245,8 +252,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryEnqueueMessage(
-        string connectionId, 
-        MessagePacketHolder messagePacket, 
+        string connectionId,
+        MessagePacketHolder messagePacket,
         MessagePriority priority = MessagePriority.Normal)
     {
         if (!_isRunning || _isDisposed)
@@ -276,7 +283,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
             // 传递给 TieredMessageProcessor
             var success = _tieredProcessor.TryEnqueueMessageSlot(slot);
-            
+
             if (!success)
             {
                 _metrics.BackpressureEvents.Add(1);
@@ -292,7 +299,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         catch (Exception ex)
         {
             _metrics.EnqueueErrors.Add(1);
-            _logger.LogWarning(ex, "消息入队失败: EngineId={EngineId}, ConnectionId={ConnectionId}", 
+            _logger.LogWarning(ex, "消息入队失败: EngineId={EngineId}, ConnectionId={ConnectionId}",
                 _engineId, connectionId);
             return false;
         }
@@ -308,29 +315,29 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             case MessagePriority.Critical:
                 // 关键消息：阻塞等待直到入队成功或超时
                 return TryEnqueueWithRetry(slot, TimeSpan.FromMilliseconds(10), 3);
-                
+
             case MessagePriority.High:
                 // 高优先级：短暂重试
                 return TryEnqueueWithRetry(slot, TimeSpan.FromMilliseconds(1), 1);
-                
+
             case MessagePriority.Normal:
                 // 普通消息：检查负载，决定是否丢弃
                 var utilization = _metrics.GetCurrentL1Utilization();
                 if (utilization > 0.9)
                 {
-                    _logger.LogWarning("L1利用率过高({Utilization:P}), 丢弃普通消息: MessageId={MessageId}", 
+                    _logger.LogWarning("L1利用率过高({Utilization:P}), 丢弃普通消息: MessageId={MessageId}",
                         utilization, slot.MessageId);
                     _metrics.MessagesDropped.Add(1);
                     return false;
                 }
                 return TryEnqueueWithRetry(slot, TimeSpan.FromMicroseconds(100), 1);
-                
+
             case MessagePriority.Low:
                 // 低优先级：直接丢弃
                 _logger.LogDebug("低优先级消息被丢弃: MessageId={MessageId}", slot.MessageId);
                 _metrics.MessagesDropped.Add(1);
                 return false;
-                
+
             default:
                 _metrics.MessagesDropped.Add(1);
                 return false;
@@ -352,11 +359,11 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 }
                 return true;
             }
-            
+
             Thread.Sleep(delay);
         }
-        
-        _logger.LogWarning("消息入队重试{RetryCount}次后失败: MessageId={MessageId}, ConnectionId={ConnectionId}", 
+
+        _logger.LogWarning("消息入队重试{RetryCount}次后失败: MessageId={MessageId}, ConnectionId={ConnectionId}",
             maxRetries, slot.MessageId, slot.ConnectionId);
         _metrics.MessagesDropped.Add(1);
         return false;
@@ -424,13 +431,16 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 _logger.LogTrace("处理消息: Service={ServiceName}, Method={MethodName}, MessageId={MessageId}, ConnectionId={ConnectionId}",
                     serviceName, methodName, envelope.MessageId, envelope.ConnectionId);
 
-                // Payload 已经是分离的数据，无需再次解析
-                var payloadBytes = envelope.Payload.ToArray();
+                // 🔧 修复：使用 MessagePacketHolder 替代 ref struct MessagePacket
+                // ref struct 不能在 async lambda 中使用，因此需要转换为普通 class
+                var reconstructedPacket = new MessagePacket(envelope.Header, envelope.Payload.Span);
+                var packetHolder = new MessagePacketHolder(reconstructedPacket, envelope.ConnectionId);
 
                 // 获取服务上下文（用于调度）
                 var serviceContext = GetServiceContextForConnection(envelope.ConnectionId);
 
-                // 使用调度器包装消息分发（如果可用）
+                object? dispatchResult = null;
+
                 if (_scheduler != null)
                 {
                     await _scheduler.InvokeWithSchedulerAsync(
@@ -438,9 +448,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                         serviceName,
                         async () =>
                         {
-                            // 使用现有的消息分发器处理
-                            result = await _messageDispatcher.DispatchAsync(
-                                payloadBytes,
+                            dispatchResult = await _messageDispatcher.DispatchAsync(
+                                packetHolder,
                                 _serviceProvider,
                                 CancellationToken.None);
                         },
@@ -448,12 +457,13 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 }
                 else
                 {
-                    // 没有调度器时直接调用分发器
-                    result = await _messageDispatcher.DispatchAsync(
-                        payloadBytes,
+                    dispatchResult = await _messageDispatcher.DispatchAsync(
+                        packetHolder,
                         _serviceProvider,
                         CancellationToken.None);
                 }
+
+                result = dispatchResult;
             }
             catch (Exception dispatchEx)
             {
@@ -493,7 +503,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             envelope.Status = MessageStatus.Failed;
             _metrics.MessagesErrored.Add(1);
 
-            _logger.LogWarning(ex, "消息处理失败: EngineId={EngineId}, MessageId={MessageId}, ConnectionId={ConnectionId}", 
+            _logger.LogWarning(ex, "消息处理失败: EngineId={EngineId}, MessageId={MessageId}, ConnectionId={ConnectionId}",
                 _engineId, envelope.MessageId, envelope.ConnectionId);
 
             var response = new MessageResponse
@@ -524,13 +534,29 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     {
         try
         {
-            var eventArgs = new MessageProcessedEventArgs(
-                envelope.ConnectionId,
-                envelope.Header,
-                exception ?? result,
-                DateTime.UtcNow);
+            // 创建 ServiceCallContext 以匹配新的 MessageProcessedEventArgs 构造函数
+            var callContext = new ServiceCallContext(
+                connectionId: envelope.ConnectionId,
+                messageId: envelope.MessageId,
+                serviceName: envelope.Header.ServiceName ?? string.Empty,
+                methodName: envelope.Header.MethodName ?? string.Empty,
+                requestData: null, // 已处理完成，不需要再传递原始请求数据
+                messageType: envelope.Header.Type,
+                receivedTime: envelope.ReceivedTime,
+                processorId: envelope.ProcessorId,
+                flags: envelope.Header.Flags);
 
-            MessageProcessed?.Invoke(this, eventArgs);
+            var processingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime);
+
+            var eventArgs = new MessageProcessedEventArgs(
+                callContext: callContext,
+                result: result,
+                processingTime: processingTime,
+                dispatcherId: envelope.ProcessorId,
+                success: exception == null,
+                exception: exception);
+
+            _responseProcessor.ProcessMessageResultAsync(eventArgs);
 
             _logger.LogTrace("触发MessageProcessed事件: ConnectionId={ConnectionId}, MessageId={MessageId}, Success={Success}",
                 envelope.ConnectionId, envelope.MessageId, exception == null);
@@ -696,6 +722,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         _isRunning = false;
         await _cancellationTokenSource.CancelAsync();
 
+        await _responseProcessor.StopAsync();
+
         // 等待处理任务完成
         var stopTasks = new List<Task>();
         if (_monitoringTask != null) stopTasks.Add(_monitoringTask);
@@ -770,36 +798,46 @@ public struct MessageEnvelope
     /// 消息唯一标识符
     /// </summary>
     public Guid MessageId { get; set; }
-    
+
     /// <summary>
     /// 真实连接ID
     /// </summary>
     public string ConnectionId { get; set; }
-    
+
     /// <summary>
     /// 完整消息头部
     /// </summary>
     public MessageHeader Header { get; set; }
-    
+
     /// <summary>
     /// 消息负载数据（零拷贝）
     /// </summary>
     public ReadOnlyMemory<byte> Payload { get; set; }
-    
+
     /// <summary>
     /// 消息优先级
     /// </summary>
     public MessagePriority Priority { get; set; }
-    
+
     /// <summary>
     /// 入队时间戳
     /// </summary>
     public long EnqueueTime { get; set; }
-    
+
     /// <summary>
     /// 消息状态
     /// </summary>
     public MessageStatus Status { get; set; }
+
+    /// <summary>
+    /// 接收时间
+    /// </summary>
+    public DateTime ReceivedTime { get; set; }
+
+    /// <summary>
+    /// 处理器ID
+    /// </summary>
+    public int ProcessorId { get; set; }
 }
 
 /// <summary>
@@ -898,7 +936,7 @@ public class EngineMetrics
     public readonly Counter<long> ResponsesSent = new();
     public readonly Counter<long> ResponseErrors = new();
     public readonly Counter<long> EnqueueErrors = new();
-    
+
     // 新增指标
     public readonly Counter<long>? RetrySuccesses = new();
     public readonly Counter<long> BackpressureBlocks = new();

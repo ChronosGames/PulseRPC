@@ -45,4 +45,10 @@ public abstract class AbstractCompiledMessageDispatcher
     /// 检查是否已正确初始化
     /// </summary>
     public abstract bool IsInitialized { get; }
+
+    /// <summary>
+    /// 尝试获取指定方法的处理器元数据
+    /// 由生成的实现提供，用于运行时反序列化和调度
+    /// </summary>
+    public abstract bool TryGetHandlerMetadata(string serviceName, string methodName, out HandlerMetadata? metadata);
 }

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Serialization;
 using PulseRPC.Server.Transport;
+using PulseRPC.Server.Dispatch;
 
 namespace PulseRPC.Server.Engine;
 
@@ -60,13 +61,13 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
         _logger.LogDebug("创建新的HighPerformanceMessageEngine：ConnectionId={ConnectionId}", connectionId);
 
         var config = new MessageEngineConfiguration();
-        
+
         // 创建反序列化器（可选）
         // 注意：当前架构中，反序列化由 messageDispatcher 完成
         // 未来如需独立的反序列化层，可以在此处创建 HighPerformanceDeserializer 实例
         IMessageDeserializer? deserializer = null;
         /*
-        var deserializerLogger = (_serviceProvider.GetService(typeof(ILogger<HighPerformanceDeserializer>)) 
+        var deserializerLogger = (_serviceProvider.GetService(typeof(ILogger<HighPerformanceDeserializer>))
             as ILogger<HighPerformanceDeserializer>) ?? NullLogger<HighPerformanceDeserializer>.Instance;
         deserializer = new HighPerformanceDeserializer(
             PulseRPCSerializerProvider.Instance,
@@ -74,7 +75,7 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
             deserializerLogger);
         await deserializer.StartAsync();
         */
-        
+
         var engine = new HighPerformanceMessageEngine(
             connectionId,
             messageDispatcher,

@@ -8,6 +8,7 @@ using PulseRPC.Serialization;
 using PulseRPC.Messaging;
 using MemoryPack;
 using PulseRPC.Server.Scheduling;
+using PulseRPC.Server.Dispatch;
 
 namespace PulseRPC.Server.Engine;
 
@@ -146,17 +147,6 @@ public abstract class ServerMessage : ClientMessage
 }
 
 /// <summary>
-/// 消息分发器接口
-/// </summary>
-public interface IMessageDispatcher
-{
-    ValueTask<object?> DispatchAsync(
-        object message,
-        IServiceProvider serviceProvider,
-        CancellationToken cancellationToken = default);
-}
-
-/// <summary>
 /// 高性能消息处理委托
 /// </summary>
 public delegate ValueTask<object?> MessageHandlerDelegate(
@@ -289,8 +279,7 @@ public class GeneratedMessageDispatcher : IMessageDispatcher
         if (_compiledDispatcher != null)
         {
             // 延迟初始化：在第一次使用时初始化服务，避免构造函数中的循环依赖
-            // _compiledDispatcher.InitializeServices(serviceProvider); // 移到 LazyInitialize 方法
-            // _compiledDispatcher.RegisterHandlers(_staticDispatcher);  // 移到 LazyInitialize 方法
+            // LazyInitialize();
 
             _isInitialized = true; // 标记为可用，但尚未完全初始化
         }
@@ -432,6 +421,11 @@ public class GeneratedMessageDispatcher : IMessageDispatcher
             return await TrySmartDeserializeAsync(messageMemory.ToArray());
         }
 
+        if (message is MessagePacketHolder packet)
+        {
+            return await TrySmartDeserializeAsync(packet.Payload);
+        }
+
         // 如果已经是对象，直接返回
         return message;
     }
@@ -439,7 +433,7 @@ public class GeneratedMessageDispatcher : IMessageDispatcher
     /// <summary>
     /// 智能反序列化 - 尝试从静态分发器已注册的类型中猜测
     /// </summary>
-    private async ValueTask<object> TrySmartDeserializeAsync(byte[] messageBytes)
+    private ValueTask<object> TrySmartDeserializeAsync(byte[] messageBytes)
     {
         try
         {
@@ -460,7 +454,7 @@ public class GeneratedMessageDispatcher : IMessageDispatcher
                     if (result != null)
                     {
                         _logger.LogDebug("成功反序列化为类型: {TypeName}", type.Name);
-                        return result;
+                        return ValueTask.FromResult(result);
                     }
                 }
                 catch (Exception ex)
@@ -472,12 +466,12 @@ public class GeneratedMessageDispatcher : IMessageDispatcher
 
             // 如果都失败了，返回原始字节数组
             _logger.LogDebug("无法反序列化消息到任何已注册类型，返回原始字节数组");
-            return messageBytes;
+            return ValueTask.FromResult<object>(messageBytes);
         }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "智能反序列化失败，返回原始字节数组");
-            return messageBytes;
+            return ValueTask.FromResult<object>(messageBytes);
         }
     }
 
@@ -817,6 +811,64 @@ public class GeneratedMessageDispatcher : IMessageDispatcher
         }
     }
 
+    #region IMessageDispatcher 接口实现
+
+    /// <summary>
+    /// 启动消息调度器（此实现为无状态，立即返回）
+    /// </summary>
+    public Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("GeneratedMessageDispatcher 启动（无状态实现）");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 停止消息调度器（此实现为无状态，立即返回）
+    /// </summary>
+    public Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("GeneratedMessageDispatcher 停止（无状态实现）");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 注册服务处理器（委托给静态分发器）
+    /// </summary>
+    public void RegisterServiceHandler(string serviceName, IServiceHandler handler)
+    {
+        if (string.IsNullOrEmpty(serviceName))
+            throw new ArgumentException("服务名称不能为空", nameof(serviceName));
+        if (handler == null)
+            throw new ArgumentNullException(nameof(handler));
+
+        _logger.LogInformation("注册服务处理器: {ServiceName}", serviceName);
+        // GeneratedMessageDispatcher 主要使用编译时生成的分发逻辑
+        // 这里可以扩展以支持运行时动态注册
+    }
+
+    /// <summary>
+    /// 消息处理完成事件（此实现暂不支持）
+    /// </summary>
+    public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
+
+    /// <summary>
+    /// 触发消息处理完成事件
+    /// </summary>
+    protected virtual void OnMessageProcessed(MessageProcessedEventArgs e)
+    {
+        MessageProcessed?.Invoke(this, e);
+    }
+
+    /// <summary>
+    /// 释放资源
+    /// </summary>
+    public void Dispose()
+    {
+        // GeneratedMessageDispatcher 是无状态的，无需释放资源
+        _logger.LogDebug("GeneratedMessageDispatcher 释放");
+    }
+
+    #endregion
 }
 
 /// <summary>

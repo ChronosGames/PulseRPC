@@ -5,10 +5,12 @@ using Microsoft.Extensions.Options;
 using PulseRPC.Scheduling;
 using PulseRPC.Serialization;
 using PulseRPC.Server.Authentication;
+using PulseRPC.Server.Dispatch;
 using PulseRPC.Server.Engine;
 using PulseRPC.Server.Events;
 using PulseRPC.Server.Integration;
 using PulseRPC.Server.Processing;
+using PulseRPC.Server.Response;
 using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
@@ -258,6 +260,9 @@ public sealed class PulseServerBuilder : IPulseServerBuilder
 
         // 注册消息处理器
         Services.TryAddSingleton<IMessageDispatcher, GeneratedMessageDispatcher>();
+
+        // 注册答复处理器
+        Services.TryAddSingleton<IResponseProcessor, HighPerformanceResponseProcessor>();
 
         // 确保已注册传输层集成服务
         Services.AddTransportIntegration();

@@ -9,6 +9,8 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
 using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Serialization;
+using PulseRPC.Server.Engine;
+using MemoryPack;
 
 namespace PulseRPC.Server.Dispatch;
 
@@ -30,7 +32,7 @@ public interface IMessageDispatcher : IDisposable
     /// <summary>
     /// 分发反序列化的消息
     /// </summary>
-    ValueTask DispatchMessageAsync(MessageDeserializedEventArgs eventArgs);
+    ValueTask<object?> DispatchAsync(object message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 注册服务处理器
@@ -49,7 +51,6 @@ public interface IMessageDispatcher : IDisposable
 /// </summary>
 internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
 {
-    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<HighPerformanceMessageDispatcher> _logger;
     private readonly DispatcherOptions _options;
 
@@ -70,14 +71,35 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     private long _totalProcessingTime;
     private readonly ConcurrentDictionary<string, ServiceStatistics> _serviceStats = new();
 
+    // 可识别元数据的高性能反序列化器 (可选依赖)
+    private IMetadataAwareMessageDeserializer? _metadataDeserializer;
+
+    // 编译时消息分发器 (可选，由 Source Generator 生成)
+    private AbstractCompiledMessageDispatcher? CompiledMessageDispatcher { get; set; }
+
     public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
 
+    public void SetMetadataDeserializer(IMetadataAwareMessageDeserializer? metadataDeserializer)
+    {
+        _metadataDeserializer = metadataDeserializer;
+    }
+
+    public void SetCompiledDispatcher(AbstractCompiledMessageDispatcher? compiledDispatcher)
+    {
+        CompiledMessageDispatcher = compiledDispatcher;
+    }
+
+    public HighPerformanceMessageDispatcher()
+        : this(null, null, null)
+    {
+    }
+
     public HighPerformanceMessageDispatcher(
-        IServiceProvider serviceProvider,
+        IMetadataAwareMessageDeserializer? metadataDeserializer = null,
         DispatcherOptions? options = null,
         ILogger<HighPerformanceMessageDispatcher>? logger = null)
     {
-        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+        _metadataDeserializer = metadataDeserializer;
         _options = options ?? new DispatcherOptions();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HighPerformanceMessageDispatcher>.Instance;
 
@@ -154,45 +176,35 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     /// 分发消息 - 高性能入口点
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public async ValueTask DispatchMessageAsync(MessageDeserializedEventArgs eventArgs)
+    public async ValueTask<object?> DispatchAsync(object message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
     {
-        var callContext = eventArgs.CallContext;
-
-        // 查找服务处理器
-        if (!_serviceHandlers.TryGetValue(callContext.ServiceName, out var serviceHandler))
+        if (message is MessageDeserializedEventArgs deserialized)
         {
-            _logger.LogWarning("未找到服务处理器: {ServiceName}", callContext.ServiceName);
-            return;
+            return await DispatchCallContextAsync(deserialized.CallContext, cancellationToken).ConfigureAwait(false);
         }
 
-        // 确定消息优先级
-        var priority = DeterminePriority(callContext);
-
-        // 创建服务调用任务
-        var invocationTask = new ServiceInvocationTask(
-            callContext,
-            serviceHandler,
-            priority,
-            DateTime.UtcNow);
-
-        // 根据优先级写入对应通道
-        var priorityIndex = (int)priority;
-        var writer = _priorityWriters[priorityIndex];
-
-        if (!await writer.WaitToWriteAsync(_shutdownCts.Token))
+        // MessagePacket 是 ref struct，不能直接在 async 方法中使用
+        // 需要先转换为 MessagePacketHolder 或 byte[]
+        if (message is MessagePacketHolder holder)
         {
-            _logger.LogWarning("调度通道已关闭，优先级: {Priority}", priority);
-            return;
+            return await DispatchPacketHolderAsync(holder, serviceProvider, cancellationToken).ConfigureAwait(false);
         }
 
-        if (!writer.TryWrite(invocationTask))
+        if (message is byte[] rawBytes && MessagePacket.TryReadFrom(rawBytes, out var parsedPacket))
         {
-            _logger.LogWarning("无法写入调用任务到调度通道，服务: {ServiceName}, 优先级: {Priority}",
-                callContext.ServiceName, priority);
+            // 将 ref struct 转换为 holder
+            var packetHolder = new MessagePacketHolder(parsedPacket);
+            return await DispatchPacketHolderAsync(packetHolder, serviceProvider, cancellationToken).ConfigureAwait(false);
         }
 
-        // 更新统计
-        Interlocked.Increment(ref _totalMessagesDispatched);
+        if (message is ReadOnlyMemory<byte> rom && MessagePacket.TryReadFrom(rom.Span.ToArray(), out var memoryPacket))
+        {
+            // 将 ref struct 转换为 holder
+            var packetHolder = new MessagePacketHolder(memoryPacket);
+            return await DispatchPacketHolderAsync(packetHolder, serviceProvider, cancellationToken).ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException($"不支持的消息类型: {message.GetType().FullName}");
     }
 
     /// <summary>
@@ -230,7 +242,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
 
                     if (reader.TryRead(out var invocationTask))
                     {
-                        await ProcessInvocationTaskAsync(invocationTask, dispatcherId);
+                        await ProcessInvocationTaskAsync(invocationTask, dispatcherId, cancellationToken);
                         taskHandled = true;
                         break; // 处理一个任务后重新检查高优先级
                     }
@@ -268,59 +280,68 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     /// <summary>
     /// 处理服务调用任务
     /// </summary>
-    private async Task ProcessInvocationTaskAsync(ServiceInvocationTask invocationTask, int dispatcherId)
+    private async Task ProcessInvocationTaskAsync(ServiceInvocationTask invocationTask, int dispatcherId, CancellationToken cancellationToken)
+    {
+        var callContext = invocationTask.CallContext;
+
+        try
+        {
+            var result = await ProcessServiceCallAsync(callContext, invocationTask.ServiceHandler, dispatcherId, cancellationToken).ConfigureAwait(false);
+            invocationTask.CompletionSource?.TrySetResult(result);
+        }
+        catch (Exception ex)
+        {
+            invocationTask.CompletionSource?.TrySetException(ex);
+        }
+    }
+
+    /// <summary>
+    /// 执行服务调用并触发事件
+    /// </summary>
+    private async Task<object?> ProcessServiceCallAsync(ServiceCallContext callContext, IServiceHandler serviceHandler, int dispatcherId, CancellationToken cancellationToken)
     {
         var startTime = DateTime.UtcNow;
-        var callContext = invocationTask.CallContext;
 
         try
         {
             _logger.LogTrace("开始处理服务调用: 服务={ServiceName}, 方法={MethodName}, 消息ID={MessageId}, 调度器={DispatcherId}",
                 callContext.ServiceName, callContext.MethodName, callContext.MessageId, dispatcherId);
 
-            // 执行服务调用
-            var result = await invocationTask.ServiceHandler.HandleAsync(callContext);
+            var result = await serviceHandler.HandleAsync(callContext).ConfigureAwait(false);
 
-            var endTime = DateTime.UtcNow;
-            var processingTime = endTime - startTime;
-
-            // 更新统计信息
+            var processingTime = DateTime.UtcNow - startTime;
             UpdateServiceStatistics(callContext.ServiceName, processingTime, true);
+            Interlocked.Increment(ref _totalMessagesDispatched);
 
-            // 触发处理完成事件
-            var eventArgs = new MessageProcessedEventArgs(
+            MessageProcessed?.Invoke(this, new MessageProcessedEventArgs(
                 callContext,
                 result,
                 processingTime,
                 dispatcherId,
-                true);
-
-            MessageProcessed?.Invoke(this, eventArgs);
+                true));
 
             _logger.LogTrace("服务调用完成: 服务={ServiceName}, 方法={MethodName}, 耗时={ProcessingTime}ms",
                 callContext.ServiceName, callContext.MethodName, processingTime.TotalMilliseconds);
+
+            return result;
         }
         catch (Exception ex)
         {
-            var endTime = DateTime.UtcNow;
-            var processingTime = endTime - startTime;
-
-            // 更新错误统计
+            var processingTime = DateTime.UtcNow - startTime;
             UpdateServiceStatistics(callContext.ServiceName, processingTime, false);
 
             _logger.LogError(ex, "服务调用失败: 服务={ServiceName}, 方法={MethodName}, 消息ID={MessageId}",
                 callContext.ServiceName, callContext.MethodName, callContext.MessageId);
 
-            // 触发处理失败事件
-            var eventArgs = new MessageProcessedEventArgs(
+            MessageProcessed?.Invoke(this, new MessageProcessedEventArgs(
                 callContext,
                 null,
                 processingTime,
                 dispatcherId,
                 false,
-                ex);
+                ex));
 
-            MessageProcessed?.Invoke(this, eventArgs);
+            throw;
         }
     }
 
@@ -358,6 +379,147 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         Interlocked.Exchange(ref _totalProcessingTime, totalTime + (long)processingTime.TotalMilliseconds);
     }
 
+    private async ValueTask<object?> DeserializeRequestAsync(ReadOnlyMemory<byte> payload, HandlerMetadata metadata, IServiceProvider serviceProvider, CancellationToken cancellationToken)
+    {
+        if (metadata.RequestType == null || payload.IsEmpty)
+        {
+            return null;
+        }
+
+        // 优先使用可识别元数据的高性能反序列化器
+        if (_metadataDeserializer != null)
+        {
+            var context = new MetadataDeserializationContext(metadata, payload, cancellationToken);
+            return await _metadataDeserializer.DeserializeAsync(context).ConfigureAwait(false);
+        }
+
+        // 回退到 MemoryPack 反序列化 - 使用 MemoryPack 2.x API
+        var requestType = metadata.RequestType;
+        return MemoryPackSerializer.Deserialize(requestType, payload.Span);
+    }
+
+    private async ValueTask<bool> RouteInvocationAsync(
+        ServiceCallContext callContext,
+        IServiceHandler serviceHandler,
+        MessagePriority priority,
+        TaskCompletionSource<object?>? completionSource,
+        CancellationToken cancellationToken)
+    {
+        var invocationTask = new ServiceInvocationTask(
+            callContext,
+            serviceHandler,
+            priority,
+            DateTime.UtcNow,
+            completionSource);
+
+        var priorityIndex = (int)priority;
+        var writer = _priorityWriters[priorityIndex];
+
+        if (!await writer.WaitToWriteAsync(cancellationToken).ConfigureAwait(false))
+        {
+            completionSource?.TrySetException(new InvalidOperationException("Dispatcher queue unavailable"));
+            return false;
+        }
+
+        if (!writer.TryWrite(invocationTask))
+        {
+            completionSource?.TrySetException(new InvalidOperationException("Dispatcher queue full"));
+            return false;
+        }
+
+        return true;
+    }
+
+    private async ValueTask<bool> EnqueueInvocationAsync(ServiceInvocationTask invocationTask, CancellationToken cancellationToken)
+    {
+        var priorityIndex = (int)invocationTask.Priority;
+        var writer = _priorityWriters[priorityIndex];
+
+        if (!await writer.WaitToWriteAsync(cancellationToken).ConfigureAwait(false))
+        {
+            return false;
+        }
+
+        return writer.TryWrite(invocationTask);
+    }
+
+    private async ValueTask<object?> DispatchPacketHolderAsync(MessagePacketHolder holder, IServiceProvider serviceProvider, CancellationToken cancellationToken)
+    {
+        var header = holder.Header;
+        if (header == null)
+        {
+            _logger.LogWarning("消息头为空，无法分发");
+            return new { Success = false, Error = "Missing header" };
+        }
+
+        var serviceName = header.ServiceName ?? string.Empty;
+        var methodName = header.MethodName ?? string.Empty;
+
+        if (string.IsNullOrEmpty(serviceName) || string.IsNullOrEmpty(methodName))
+        {
+            _logger.LogWarning("消息缺少 ServiceName 或 MethodName，无法分发");
+            return new { Success = false, Error = "Missing service or method" };
+        }
+
+        if (CompiledMessageDispatcher == null || !CompiledMessageDispatcher.TryGetHandlerMetadata(serviceName, methodName, out var metadata) || metadata == null)
+        {
+            _logger.LogWarning("未找到服务元数据: Service={Service}, Method={Method}", serviceName, methodName);
+            return new { Success = false, Error = "Missing handler metadata" };
+        }
+
+        object? requestModel = null;
+        if (holder.Payload.Length > 0)
+        {
+            try
+            {
+                requestModel = await DeserializeRequestAsync(holder.Payload, metadata!, serviceProvider, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "消息反序列化失败: Service={Service}, Method={Method}", serviceName, methodName);
+                return new { Success = false, Error = ex.Message };
+            }
+        }
+
+        var callContext = new ServiceCallContext(
+            connectionId: holder.ConnectionId ?? string.Empty,
+            messageId: header.MessageId != Guid.Empty ? header.MessageId : Guid.NewGuid(),
+            serviceName: serviceName,
+            methodName: methodName,
+            requestData: requestModel,
+            messageType: header.Type,
+            receivedTime: DateTime.UtcNow,
+            processorId: Environment.CurrentManagedThreadId,
+            flags: header.Flags);
+
+        return await DispatchCallContextAsync(callContext, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<object?> DispatchCallContextAsync(ServiceCallContext callContext, CancellationToken cancellationToken)
+    {
+        if (!_serviceHandlers.TryGetValue(callContext.ServiceName, out var serviceHandler))
+        {
+            _logger.LogWarning("未找到服务处理器: {ServiceName}", callContext.ServiceName);
+            return new { Success = false, Error = "Handler not found" };
+        }
+
+        var completionSource = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var priority = DeterminePriority(callContext);
+        var routed = await RouteInvocationAsync(
+            callContext,
+            serviceHandler,
+            priority,
+            completionSource,
+            cancellationToken).ConfigureAwait(false);
+
+        if (!routed)
+        {
+            return new { Success = false, Error = "Dispatcher queue full" };
+        }
+
+        return await completionSource.Task.ConfigureAwait(false);
+    }
+
     public void Dispose()
     {
         if (!_shutdownCts.IsCancellationRequested)
@@ -383,17 +545,20 @@ internal readonly struct ServiceInvocationTask
     public readonly IServiceHandler ServiceHandler;
     public readonly MessagePriority Priority;
     public readonly DateTime DispatchTime;
+    public readonly TaskCompletionSource<object?>? CompletionSource;
 
     public ServiceInvocationTask(
         ServiceCallContext callContext,
         IServiceHandler serviceHandler,
         MessagePriority priority,
-        DateTime dispatchTime)
+        DateTime dispatchTime,
+        TaskCompletionSource<object?>? completionSource = null)
     {
         CallContext = callContext;
         ServiceHandler = serviceHandler;
         Priority = priority;
         DispatchTime = dispatchTime;
+        CompletionSource = completionSource;
     }
 }
 
