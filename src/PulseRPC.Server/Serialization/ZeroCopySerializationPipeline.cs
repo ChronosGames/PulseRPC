@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using MemoryPack;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using MemoryPack.Compression;
 
 namespace PulseRPC.Server.Serialization;
 
@@ -125,10 +126,10 @@ public sealed class ZeroCopySerializationPipeline : IAsyncDisposable
     /// <summary>
     /// 序列化对象到管道 - 主要API
     /// </summary>
-    public async ValueTask<bool> SerializeAsync<T>(T value, CancellationToken cancellationToken = default)
+    public ValueTask<bool> SerializeAsync<T>(T value, CancellationToken cancellationToken = default)
     {
         if (value == null)
-            return await WriteNullAsync(cancellationToken);
+            return WriteNullAsync(cancellationToken);
 
         Interlocked.Increment(ref _totalSerializations);
 
@@ -138,11 +139,11 @@ public sealed class ZeroCopySerializationPipeline : IAsyncDisposable
         if (TryFastPathSerialize(value, type))
         {
             Interlocked.Increment(ref _fastPathCount);
-            return true;
+            return ValueTask.FromResult(true);
         }
 
         // 使用标准路径
-        return await StandardPathSerializeAsync(value, type, cancellationToken);
+        return StandardPathSerializeAsync(value, type, cancellationToken);
     }
 
     /// <summary>
@@ -275,33 +276,16 @@ public sealed class ZeroCopySerializationPipeline : IAsyncDisposable
     /// </summary>
     private async ValueTask<bool> SerializeWithCompressionAsync<T>(T value, CancellationToken cancellationToken)
     {
-        // 注意：这里只是示例实现，实际压缩逻辑需要根据具体需求实现
         try
         {
-            // 先序列化到临时缓冲区
-            var tempBuffer = new ArrayBufferWriter<byte>();
-            MemoryPackSerializer.Serialize(tempBuffer, value, _serializerOptions);
+            // Compression(require using)
+            using var compressor = new BrotliCompressor();
+            MemoryPackSerializer.Serialize(compressor, value, _serializerOptions);
 
-            if (tempBuffer.WrittenCount < _options.CompressionThreshold)
-            {
-                // 太小不值得压缩，直接写入
-                var memory = _writer.GetMemory(tempBuffer.WrittenCount);
-                tempBuffer.WrittenSpan.CopyTo(memory.Span);
-                _writer.Advance(tempBuffer.WrittenCount);
+            // Or write to other IBufferWriter<byte>(for example PipeWriter)
+            compressor.CopyTo(_writer);
 
-                Interlocked.Add(ref _totalBytesWritten, tempBuffer.WrittenCount);
-                return true;
-            }
-
-            // TODO: 实现实际的压缩逻辑
-            // 这里可以集成LZ4、Gzip等压缩算法
-            _logger.LogTrace("压缩序列化暂未实现，回退到标准序列化");
-
-            var memory2 = _writer.GetMemory(tempBuffer.WrittenCount);
-            tempBuffer.WrittenSpan.CopyTo(memory2.Span);
-            _writer.Advance(tempBuffer.WrittenCount);
-
-            Interlocked.Add(ref _totalBytesWritten, tempBuffer.WrittenCount);
+            Interlocked.Add(ref _totalBytesWritten, _writer.UnflushedBytes);
             await _writer.FlushAsync(cancellationToken);
 
             return true;
