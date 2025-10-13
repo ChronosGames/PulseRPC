@@ -77,7 +77,7 @@ As a developer with existing PulseRPC applications, I need a clear migration pat
 - How are dependency injection configurations migrated when the service registration changes?
 - What occurs when hosted service patterns differ between old and new implementations?
 - How are error messages and logging maintained during migration to avoid breaking monitoring?
-- What happens to custom extension methods built on top of the old API?
+- Custom extension methods targeting specific implementation types will break and require rewriting to target the new unified PulseServer implementation
 - How do we handle configuration objects that may have been specific to one implementation?
 
 ## Requirements *(mandatory)*
@@ -93,20 +93,22 @@ As a developer with existing PulseRPC applications, I need a clear migration pat
 - **FR-007**: Server MUST support hosted service pattern for ASP.NET Core integration
 - **FR-008**: Server MUST maintain backward compatibility for service registration patterns
 - **FR-009**: Server MUST provide consistent error handling and logging across all operations
-- **FR-010**: Server MUST support graceful shutdown with configurable timeout
+- **FR-010**: Server MUST support graceful shutdown with configurable timeout (default: 30 seconds, aligning with Kubernetes pod termination grace period)
 - **FR-011**: Unified implementation MUST pass all existing integration tests without modification
 - **FR-012**: Server MUST provide clear separation between high-level orchestration and low-level pipeline management
 - **FR-013**: Server MUST support observable metrics and health checks
 - **FR-014**: Migration path MUST be documented with clear before/after code examples
-- **FR-015**: PulseServer and ServerHost MUST remain as deprecated facades with ObsoleteAttribute warnings
-- **FR-016**: Deprecated facades MUST delegate all operations to unified implementation with zero behavior changes
+- **FR-015**: ServerHost MUST remain as deprecated facade with ObsoleteAttribute warnings; PulseServer becomes the unified implementation
+- **FR-016**: ServerHost facade MUST delegate all operations to unified PulseServer implementation with zero behavior changes
 - **FR-017**: Unified server MUST use transport-focused architecture (managing transports, listeners, channels as primary concern)
 - **FR-018**: All existing public APIs MUST maintain 100% binary compatibility (no breaking changes)
 - **FR-019**: Deprecation warnings MUST include clear migration guidance pointing to unified API
+- **FR-020**: Migration documentation MUST explicitly note that custom extension methods targeting old implementation types need rewriting for the unified PulseServer
 
 ### Key Entities
 
-- **UnifiedServer**: The single public server class that orchestrates all server functionality
+- **PulseServer**: The single public server class that orchestrates all server functionality (unified implementation)
+- **ServerHost**: Deprecated facade class that delegates to PulseServer (marked with ObsoleteAttribute)
 - **ServerConfiguration**: Consolidated configuration object containing all server settings
 - **TransportManager**: Internal component managing transport layer integrations
 - **PipelineOrchestrator**: Internal component coordinating message processing pipeline
@@ -124,7 +126,7 @@ As a developer with existing PulseRPC applications, I need a clear migration pat
 - **SC-006**: GitHub issues and Stack Overflow questions about "which server class to use" decrease to zero
 - **SC-007**: Code maintainability score improves by at least 25% (measured by static analysis tools like NDepend or SonarQube)
 - **SC-008**: Server initialization code reduces by at least 30% in common use cases (lines of code comparison)
-- **SC-009**: Facade delegation overhead is under 5% compared to direct unified implementation usage (measured via BenchmarkDotNet)
+- **SC-009**: ServerHost facade delegation overhead is under 5% compared to direct PulseServer usage, measured by message throughput (messages/second) across representative workload using BenchmarkDotNet
 - **SC-010**: Existing applications can upgrade without any code changes (100% binary compatibility validated)
 
 ## Scope & Boundaries *(mandatory)*
@@ -222,13 +224,23 @@ As a developer with existing PulseRPC applications, I need a clear migration pat
 - **Low Risk**: Documentation may not cover all migration scenarios initially
 - **Low Risk**: Third-party extensions depending on internal APIs may need guidance for migration
 
+## Clarifications
+
+### Session 2025-10-13
+
+- Q: What should the public unified server class be named? → A: Keep PulseServer name for the unified implementation
+- Q: ServerHost Facade Implementation Strategy - what happens to the current PulseServer implementation? → A: Delete current PulseServer entirely, rewrite as unified implementation from scratch
+- Q: What should the default graceful shutdown timeout be? → A: 30 seconds
+- Q: How should custom extension methods built on top of the old API be handled? → A: Break compatibility, require users to rewrite all custom extensions
+- Q: What performance metric should be used to measure facade delegation overhead? → A: Message throughput (messages/second) across representative workload
+
 ## Design Decisions *(clarified)*
 
 ### Deprecation Strategy
 
-**Decision**: Keep both PulseServer and ServerHost as deprecated facades that internally delegate to the unified implementation.
+**Decision**: PulseServer becomes the unified implementation (rewritten from scratch); ServerHost becomes a deprecated facade that delegates to PulseServer.
 
-**Rationale**: This provides a gradual migration path with zero breaking changes immediately. Users will receive compiler warnings but their code will continue to work without modifications. This approach is best for a library with existing downstream consumers, allowing them to migrate at their own pace. The facade pattern maintains binary compatibility while encouraging migration to the new unified API through deprecation warnings.
+**Rationale**: This provides a clean break for the implementation while maintaining 100% binary compatibility. Users of PulseServer continue using the same class name but get the unified implementation. Users of ServerHost receive deprecation warnings but their code continues to work without modifications through facade delegation. This approach minimizes API confusion (only one recommended class: PulseServer) while protecting existing ServerHost users during transition.
 
 ### Internal Architecture
 

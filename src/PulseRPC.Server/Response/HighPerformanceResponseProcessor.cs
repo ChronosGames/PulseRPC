@@ -41,18 +41,21 @@ public interface IResponseProcessor : IDisposable
 /// </summary>
 internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
 {
-     private readonly IServerChannelManager _sessionManager;
-     private readonly ISerializerProvider _serializerProvider;
-     private readonly ILogger<HighPerformanceResponseProcessor> _logger;
-     private readonly ResponseProcessorOptions _options;
+    private readonly IServerChannelManager _sessionManager;
+    private readonly ISerializerProvider _serializerProvider;
+    private readonly ILogger<HighPerformanceResponseProcessor> _logger;
+    private readonly ResponseProcessorOptions _options;
 
-     // 高性能通道用于响应处理
-     private readonly Channel<ResponseTask> _responseChannel;
-     private readonly ChannelWriter<ResponseTask> _responseWriter;
-     private readonly ChannelReader<ResponseTask> _responseReader;
+    // 高性能通道用于响应处理
+    private readonly Channel<ResponseTask> _responseChannel;
+    private readonly ChannelWriter<ResponseTask> _responseWriter;
+    private readonly ChannelReader<ResponseTask> _responseReader;
 
-     // 序列化器缓存
-     private readonly ConcurrentDictionary<string, ISerializer> _serializerCache = new();
+    // 序列化器缓存
+    private readonly ConcurrentDictionary<string, ISerializer> _serializerCache = new();
+
+    // 生成的响应序列化器注册表（优先使用，零拷贝路径）
+    private readonly IResponseSerializerRegistry? _responseSerializerRegistry;
 
      // 处理任务
      private Task[]? _processingTasks;
@@ -63,16 +66,18 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
      private long _totalResponseErrors;
      private long _totalSerializationTime;
 
-     public HighPerformanceResponseProcessor(
-         IServerChannelManager sessionManager,
-         ISerializerProvider? serializerProvider = null,
-         ResponseProcessorOptions? options = null,
-         ILogger<HighPerformanceResponseProcessor>? logger = null)
-     {
-         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
-         _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
-         _options = options ?? new ResponseProcessorOptions();
-         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HighPerformanceResponseProcessor>.Instance;
+    public HighPerformanceResponseProcessor(
+        IServerChannelManager sessionManager,
+        ISerializerProvider? serializerProvider = null,
+        ResponseProcessorOptions? options = null,
+        ILogger<HighPerformanceResponseProcessor>? logger = null,
+        IResponseSerializerRegistry? responseSerializerRegistry = null)
+    {
+        _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
+        _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
+        _options = options ?? new ResponseProcessorOptions();
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HighPerformanceResponseProcessor>.Instance;
+        _responseSerializerRegistry = responseSerializerRegistry;
 
          // 创建有界响应通道
          var channelOptions = new BoundedChannelOptions(_options.ChannelCapacity)
@@ -284,29 +289,54 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
          }
      }
 
-     /// <summary>
-     /// 序列化成功响应
-     /// </summary>
-     private Task<ReadOnlyMemory<byte>> SerializeResponseAsync(object? result, string serviceName, string methodName)
-     {
-         if (result == null)
-         {
-             return Task.FromResult(ReadOnlyMemory<byte>.Empty);
-         }
+    /// <summary>
+    /// 序列化成功响应
+    /// </summary>
+    private Task<ReadOnlyMemory<byte>> SerializeResponseAsync(object? result, string serviceName, string methodName)
+    {
+        if (result == null)
+        {
+            return Task.FromResult(ReadOnlyMemory<byte>.Empty);
+        }
 
-         // 获取缓存的序列化器
-         var cacheKey = $"{serviceName}.{methodName}";
-         var serializer = GetCachedSerializer(cacheKey);
+        // 优先尝试使用生成的零拷贝序列化器
+        if (_responseSerializerRegistry != null &&
+            _responseSerializerRegistry.TryGetSerializer(serviceName, methodName, out var responseSerializer))
+        {
+            try
+            {
+                var buffer = new ArrayBufferWriter<byte>();
+                responseSerializer.Serialize(result, buffer);
+                return Task.FromResult(buffer.WrittenMemory);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "生成的响应序列化器失败，降级到反射路径: {ServiceName}.{MethodName}", serviceName, methodName);
+            }
+        }
 
-         // 序列化响应数据
-         var buffer = new ArrayBufferWriter<byte>();
+        // 降级：使用传统反射序列化路径
+        return SerializeResponseFallbackAsync(result, serviceName, methodName);
+    }
 
-         // 使用泛型方法序列化 (这里需要运行时类型信息)
-         var serializeMethod = serializer.GetType().GetMethod("Serialize")?.MakeGenericMethod(result.GetType());
-         serializeMethod?.Invoke(serializer, [buffer, result]);
+    /// <summary>
+    /// 降级序列化路径（使用反射，性能较低）
+    /// </summary>
+    private Task<ReadOnlyMemory<byte>> SerializeResponseFallbackAsync(object result, string serviceName, string methodName)
+    {
+        // 获取缓存的序列化器
+        var cacheKey = $"{serviceName}.{methodName}";
+        var serializer = GetCachedSerializer(cacheKey);
 
-         return Task.FromResult(buffer.WrittenMemory);
-     }
+        // 序列化响应数据
+        var buffer = new ArrayBufferWriter<byte>();
+
+        // 使用泛型方法序列化 (这里需要运行时类型信息)
+        var serializeMethod = serializer.GetType().GetMethod("Serialize")?.MakeGenericMethod(result.GetType());
+        serializeMethod?.Invoke(serializer, [buffer, result]);
+
+        return Task.FromResult(buffer.WrittenMemory);
+    }
 
      /// <summary>
      /// 序列化错误响应

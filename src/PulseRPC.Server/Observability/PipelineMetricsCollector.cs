@@ -27,7 +27,7 @@ public sealed class PipelineMetricsCollector
     // Throughput calculation
     private long _lastRequestCount;
     private DateTime _lastResetTime = DateTime.UtcNow;
-    private readonly object _throughputLock = new();
+    private readonly Lock _throughputLock = new();
 
     /// <summary>
     /// Records a request start.
@@ -86,7 +86,7 @@ public sealed class PipelineMetricsCollector
 
         // Calculate throughput
         double requestsPerSecond;
-        lock (_throughputLock)
+        using (_throughputLock.EnterScope())
         {
             var now = DateTime.UtcNow;
             var elapsed = (now - _lastResetTime).TotalSeconds;

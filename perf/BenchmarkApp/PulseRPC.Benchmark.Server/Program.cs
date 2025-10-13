@@ -8,6 +8,8 @@ using PulseRPC.Benchmark.Metrics.Core;
 using PulseRPC.Benchmark.Server.Configuration;
 using PulseRPC.Benchmark.Server.Services;
 using PulseRPC.Benchmark.Shared;
+using PulseRPC.Generated;
+using PulseRPC.Serialization;
 using PulseRPC.Server;
 using CollectorConfiguration = PulseRPC.Benchmark.Metrics.Abstractions.CollectorConfiguration;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
@@ -162,6 +164,8 @@ internal class Program
                         SnapshotIntervalMs = Math.Max(5000, serverConfig.HealthCheckIntervalSeconds * 500)
                     };
                 });
+
+                services.AddSingleton(GeneratedResponseSerializers.Registry);
 
                 // 3. 配置 PulseRPC 服务端 - 使用手动构建模式避免服务注册被覆盖
                 var builder = services.AddPulseServer();  // 使用无参版本，不自动启用高级特性
