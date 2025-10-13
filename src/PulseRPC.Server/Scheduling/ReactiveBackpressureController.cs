@@ -96,7 +96,7 @@ public sealed class ReactiveBackpressureController : IAsyncDisposable
         private readonly double _refillRate;
         private double _tokens;
         private long _lastRefillTime;
-        private readonly object _lock = new object();
+        private readonly Lock _lock = new();
 
         public TokenBucket(double capacity, double refillRate)
         {
@@ -108,7 +108,7 @@ public sealed class ReactiveBackpressureController : IAsyncDisposable
 
         public bool TryConsume(int tokens = 1)
         {
-            lock (_lock)
+            using (_lock.EnterScope())
             {
                 RefillTokens();
 
@@ -141,27 +141,20 @@ public sealed class ReactiveBackpressureController : IAsyncDisposable
     /// <summary>
     /// 循环缓冲区用于历史指标
     /// </summary>
-    private sealed class CircularBuffer<T>
+    private sealed class CircularBuffer<T>(int capacity)
     {
-        private readonly T[] _buffer;
-        private readonly int _capacity;
+        private readonly T[] _buffer = new T[capacity];
         private volatile int _head;
         private volatile int _count;
-
-        public CircularBuffer(int capacity)
-        {
-            _capacity = capacity;
-            _buffer = new T[capacity];
-        }
 
         public void Add(T item)
         {
             lock (_buffer)
             {
                 _buffer[_head] = item;
-                _head = (_head + 1) % _capacity;
+                _head = (_head + 1) % capacity;
 
-                if (_count < _capacity)
+                if (_count < capacity)
                     _count++;
             }
         }
@@ -175,11 +168,11 @@ public sealed class ReactiveBackpressureController : IAsyncDisposable
                 if (_count == 0)
                     return snapshot;
 
-                var start = (_head - _count + _capacity) % _capacity;
+                var start = (_head - _count + capacity) % capacity;
 
                 for (var i = 0; i < _count; i++)
                 {
-                    snapshot[i] = _buffer[(start + i) % _capacity];
+                    snapshot[i] = _buffer[(start + i) % capacity];
                 }
 
                 return snapshot;

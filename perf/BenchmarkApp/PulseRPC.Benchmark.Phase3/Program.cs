@@ -148,8 +148,8 @@ public class Program
         }
         await serializationPipeline.FlushAsync();
 
-        pipe.Writer.Complete();
-        pipe.Reader.Complete();
+        await pipe.Writer.CompleteAsync();
+        await pipe.Reader.CompleteAsync();
 
         // 预热调度器
         await using var scheduler = new AffinityAwareScheduler();
@@ -290,11 +290,11 @@ public class Program
         await pipeline.FlushAsync();
         sw.Stop();
 
-        pipe.Writer.Complete();
+        await pipe.Writer.CompleteAsync();
         var readResult = await pipe.Reader.ReadAsync();
         var totalBytes = readResult.Buffer.Length;
         pipe.Reader.AdvanceTo(readResult.Buffer.End);
-        pipe.Reader.Complete();
+        await pipe.Reader.CompleteAsync();
 
         var successCount = results.Count(r => r);
         var stats = pipeline.Statistics;
