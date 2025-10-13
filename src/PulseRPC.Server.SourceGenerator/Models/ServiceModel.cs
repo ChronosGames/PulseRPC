@@ -30,6 +30,16 @@ public sealed class MethodModel
     public bool IsGenericTask { get; set; }
     public string? ChannelName { get; set; }
 
+    /// <summary>
+    /// 当方法返回 Task&lt;T&gt;/ValueTask&lt;T&gt; 时，该属性为泛型参数的完全限定名；否则为 null。
+    /// </summary>
+    public string? ResponseTypeFullName { get; set; }
+
+    /// <summary>
+    /// 响应类型是否标记为 MemoryPackable，用于生成序列化优化路径。
+    /// </summary>
+    public bool IsResponseMemoryPackable { get; set; }
+
     public bool HasParameters => Parameters.Count > 0;
     public bool IsSingleParameter => Parameters.Count == 1;
     public ParameterModel? FirstParameter => Parameters.FirstOrDefault();

@@ -47,7 +47,7 @@ public interface IMetadataAwareMessageDeserializer : IMessageDeserializer
 public readonly struct MetadataDeserializationContext
 {
     public MetadataDeserializationContext(
-        PulseRPC.Server.Engine.HandlerMetadata metadata,
+        Engine.HandlerMetadata metadata,
         ReadOnlyMemory<byte> payload,
         CancellationToken cancellationToken)
     {
@@ -305,7 +305,7 @@ internal sealed class HighPerformanceDeserializer : IMetadataAwareMessageDeseria
         using var owner = MemoryPool<byte>.Shared.Rent(context.Payload.Length);
         context.Payload.Span.CopyTo(owner.Memory.Span);
         var sequence = new ReadOnlySequence<byte>(owner.Memory.Slice(0, context.Payload.Length));
-        
+
         // 使用反射调用泛型方法 Deserialize<T>
         var deserializeMethod = serializer.GetType().GetMethod(nameof(ISerializer.Deserialize))!
             .MakeGenericMethod(context.Metadata.RequestType);

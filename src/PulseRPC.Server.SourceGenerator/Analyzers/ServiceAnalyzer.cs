@@ -132,6 +132,8 @@ public static class ServiceAnalyzer
 
         var isAsync = IsAsyncMethod(returnType);
         var isGenericTask = IsGenericTaskType(returnType);
+        var responseTypeFullName = GetResponseTypeFullName(returnType);
+        var isResponseMemoryPackable = responseTypeFullName != null && IsMemoryPackable(returnType, responseTypeFullName);
 
         var parameters = new List<ParameterModel>();
 
@@ -157,7 +159,9 @@ public static class ServiceAnalyzer
             Parameters = parameters,
             IsAsync = isAsync,
             IsGenericTask = isGenericTask,
-            ChannelName = methodChannelName
+            ChannelName = methodChannelName,
+            ResponseTypeFullName = responseTypeFullName,
+            IsResponseMemoryPackable = isResponseMemoryPackable
         };
     }
 
@@ -231,6 +235,40 @@ public static class ServiceAnalyzer
     {
         return typeSymbol.GetAttributes()
             .Any(attr => attr.AttributeClass?.Name is "MemoryPackableAttribute" or "MemoryPackable");
+    }
+
+    private static bool IsMemoryPackable(ITypeSymbol returnType, string responseTypeFullName)
+    {
+        if (returnType is INamedTypeSymbol namedType && namedType.IsGenericType && namedType.TypeArguments.Length > 0)
+        {
+            var typeArg = namedType.TypeArguments[0];
+            return IsMemoryPackable(typeArg);
+        }
+
+        if (returnType.ToDisplayString() == responseTypeFullName)
+        {
+            return IsMemoryPackable(returnType);
+        }
+
+        return false;
+    }
+
+    private static string? GetResponseTypeFullName(ITypeSymbol returnType)
+    {
+        if (returnType is INamedTypeSymbol namedType)
+        {
+            if (namedType.IsGenericType && namedType.ConstructedFrom.Name is "Task" or "ValueTask")
+            {
+                return namedType.TypeArguments.Length > 0 ? namedType.TypeArguments[0].ToDisplayString() : null;
+            }
+
+            if (!namedType.IsGenericType)
+            {
+                return returnType.SpecialType == SpecialType.System_Void ? null : returnType.ToDisplayString();
+            }
+        }
+
+        return returnType.ToDisplayString() == "void" ? null : returnType.ToDisplayString();
     }
 
     /// <summary>
