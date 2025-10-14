@@ -441,6 +441,32 @@ var apiService = await connection.GetServiceAsync<IApiService>();
 - **Visual Studio 2022** 或 **JetBrains Rider**（推荐）
 - **Unity 2022.3 LTS**（用于 Unity 集成）
 
+## 🔧 Source Generator 调试
+
+如需调试和排查 `PulseRPC.Server.SourceGenerator`，请参考：
+
+- **[快速开始](docs/Debug-SourceGenerator-QuickStart.md)** - 5 分钟快速上手
+- **[文档汇总](docs/Debug-SourceGenerator-README.md)** - 所有调试资源的入口
+- **[Rider 调试指南](docs/Debug-SourceGenerator-Rider.md)** - 完整的 Rider 调试指南
+- **[内存分析示例](docs/SourceGenerator-Memory-Profiling-Example.md)** - 内存监控和优化
+- **[快速参考](docs/Debug-SourceGenerator-QuickRef.md)** - 命令和技巧速查
+
+### 快速调试命令
+
+```bash
+# 使用调试脚本（推荐）
+.\scripts\debug-sourcegenerator.ps1 -CleanFirst -Verbose -ViewReport
+
+# 或手动构建并查看诊断
+dotnet build -bl:msbuild.binlog
+dotnet build 2>&1 | Select-String "PULSE"
+
+# 查看生成的文件
+ls perf/BenchmarkApp/PulseRPC.Benchmark.Server/obj/Generated/
+```
+
+---
+
 ### 常用命令
 
 ```bash

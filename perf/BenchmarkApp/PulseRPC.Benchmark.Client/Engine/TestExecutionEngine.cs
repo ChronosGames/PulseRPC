@@ -313,7 +313,7 @@ public class TestExecutionEngine
             }
 
             // 控制请求速率
-            // await Task.Delay(requestInterval, cancellationToken);
+            await Task.Delay(requestInterval, cancellationToken);
         }
 
         // 等待所有请求完成

@@ -36,6 +36,7 @@ public static class ServiceAnalyzer
             if (member is IMethodSymbol methodSymbol && methodSymbol.MethodKind == MethodKind.Ordinary)
             {
                 var methodModel = AnalyzeMethod(methodSymbol);
+
                 if (methodModel != null)
                     methods.Add(methodModel);
             }
@@ -161,7 +162,7 @@ public static class ServiceAnalyzer
             IsGenericTask = isGenericTask,
             ChannelName = methodChannelName,
             ResponseTypeFullName = responseTypeFullName,
-            IsResponseMemoryPackable = isResponseMemoryPackable
+            IsResponseMemoryPackable = responseTypeFullName != null,
         };
     }
 
@@ -257,18 +258,37 @@ public static class ServiceAnalyzer
     {
         if (returnType is INamedTypeSymbol namedType)
         {
+            // 处理 Task<T> 和 ValueTask<T>
             if (namedType.IsGenericType && namedType.ConstructedFrom.Name is "Task" or "ValueTask")
             {
                 return namedType.TypeArguments.Length > 0 ? namedType.TypeArguments[0].ToDisplayString() : null;
             }
 
-            if (!namedType.IsGenericType)
+            // 处理非泛型 Task 和 ValueTask
+            if (namedType.Name is "Task" or "ValueTask" && !namedType.IsGenericType)
             {
-                return returnType.SpecialType == SpecialType.System_Void ? null : returnType.ToDisplayString();
+                return null;
             }
         }
 
-        return returnType.ToDisplayString() == "void" ? null : returnType.ToDisplayString();
+        // 其他同步返回类型
+        return returnType.ToDisplayString();
+
+
+        // if (returnType is INamedTypeSymbol namedType)
+        // {
+        //     if (namedType.IsGenericType && namedType.ConstructedFrom.Name is "Task" or "ValueTask")
+        //     {
+        //         return namedType.TypeArguments.Length > 0 ? namedType.TypeArguments[0].ToDisplayString() : null;
+        //     }
+        //
+        //     if (!namedType.IsGenericType)
+        //     {
+        //         return returnType.SpecialType == SpecialType.System_Void ? null : returnType.ToDisplayString();
+        //     }
+        // }
+        //
+        // return returnType.ToDisplayString() == "void" ? null : returnType.ToDisplayString();
     }
 
     /// <summary>

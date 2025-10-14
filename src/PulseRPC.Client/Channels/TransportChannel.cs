@@ -268,12 +268,23 @@ internal class TransportChannel : IClientChannel
     /// 序列化到指定的Span，避免额外分配
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ReadOnlySpan<byte> SerializeToSpan<T>(ISerializer serializer, T data, Span<byte> buffer)
+    private static ReadOnlySpan<byte> SerializeToSpan<T>(ISerializer serializer, T data, Span<byte> targetBuffer)
     {
-        var bufferWriter = new SpanBufferWriterAdapter(buffer);
+        // 使用临时的ArrayBufferWriter进行序列化
+        var bufferWriter = new SpanBufferWriterAdapter(targetBuffer.Length);
         serializer.Serialize(bufferWriter, in data);
+
+        // 将序列化的数据复制到目标Span
+        var serializedData = bufferWriter.WrittenSpan;
+        if (serializedData.Length > targetBuffer.Length)
+        {
+            throw new InvalidOperationException($"Serialized data ({serializedData.Length} bytes) exceeds target buffer size ({targetBuffer.Length} bytes)");
+        }
+
+        serializedData.CopyTo(targetBuffer);
         Console.WriteLine($"Total Serialized Size: {bufferWriter.WrittenCount} bytes, Length of WrittenSpan: {bufferWriter.WrittenSpan.Length} bytes");
-        return bufferWriter.WrittenSpan[..bufferWriter.WrittenCount];
+
+        return targetBuffer[..serializedData.Length];
     }
 
     /// <summary>
@@ -800,14 +811,15 @@ public ref struct SpanBufferWriter
 
 /// <summary>
 /// 适配器类，使用ArrayBufferWriter来兼容IBufferWriter<byte>
+/// 注意：此类创建自己的缓冲区，序列化完成后需要将数据复制到目标Span
 /// </summary>
 public class SpanBufferWriterAdapter : IBufferWriter<byte>
 {
     private readonly ArrayBufferWriter<byte> _writer;
 
-    public SpanBufferWriterAdapter(Span<byte> buffer)
+    public SpanBufferWriterAdapter(int initialCapacity)
     {
-        _writer = new ArrayBufferWriter<byte>(buffer.Length);
+        _writer = new ArrayBufferWriter<byte>(initialCapacity);
     }
 
     public int WrittenCount => _writer.WrittenCount;
@@ -828,6 +840,11 @@ public class SpanBufferWriterAdapter : IBufferWriter<byte>
     }
 
     public ReadOnlySpan<byte> WrittenSpan => _writer.WrittenSpan;
+
+    public void Clear()
+    {
+        _writer.Clear();
+    }
 }
 
 /// <summary>
