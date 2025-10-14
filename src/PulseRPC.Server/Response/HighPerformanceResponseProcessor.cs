@@ -256,7 +256,10 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
 
              if (session != null)
              {
+                 // 发送完整的消息包（包括头长度、头数据和payload数据）
                  sent = await session.SendAsync(packetBuffer.Memory[..bytesWritten], _shutdownCts.Token);
+                 _logger.LogDebug("[响应发送] 连接={ConnectionId}, 消息ID={MessageId}, 数据大小={BytesWritten} bytes",
+                     responseTask.ConnectionId, responseTask.MessageId, bytesWritten);
              }
              else
              {

@@ -276,12 +276,12 @@ public class ServerTransportChannel : IServerChannel
     }
 
     /// <inheritdoc />
-    public async Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    public Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
-        if (_disposed) return false;
+        if (_disposed) return Task.FromResult(false);
 
         LastActiveTime = DateTime.UtcNow;
-        return await _transport.SendAsync(data, cancellationToken);
+        return _transport.SendAsync(data, cancellationToken);
     }
 
     /// <inheritdoc />

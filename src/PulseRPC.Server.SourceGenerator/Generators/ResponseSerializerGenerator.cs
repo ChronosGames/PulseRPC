@@ -148,8 +148,8 @@ public static class ResponseSerializerGenerator
 
     private static void GenerateSerializerContainer(StringBuilder sb, List<ServiceModel> services)
     {
-        var serializerInfos = CollectSerializerInfos(services);
-        if (serializerInfos.Count == 0)
+        var serializerInfos1 = CollectSerializerInfos(services);
+        if (serializerInfos1.Count == 0)
         {
             return;
         }
@@ -160,7 +160,7 @@ public static class ResponseSerializerGenerator
         sb.AppendLine("    public static class Serializers");
         sb.AppendLine("    {");
 
-        foreach (var info in serializerInfos)
+        foreach (var info in serializerInfos1)
         {
             GenerateSerializerClass(sb, info);
             sb.AppendLine();
@@ -181,7 +181,9 @@ public static class ResponseSerializerGenerator
         sb.AppendLine($"            public string MethodName => \"{info.MethodName}\";");
         sb.AppendLine();
 
-        if (info.ResponseTypeName != null)
+        sb.AppendLine($"            // A {info.ResponseTypeName}");
+
+        if (! string.IsNullOrWhiteSpace(info.ResponseTypeName))
         {
             sb.AppendLine("            public void Serialize(object response, IBufferWriter<byte> writer)");
             sb.AppendLine("            {");
@@ -258,7 +260,17 @@ public static class ResponseSerializerGenerator
         {
             foreach (var method in service.Methods)
             {
+                // 跳过非 MemoryPackable 类型（让它们使用反射路径）
+                // 但为 void 返回和 MemoryPackable 类型生成序列化器
+                if (!string.IsNullOrWhiteSpace(method.ResponseTypeFullName) && !method.IsResponseMemoryPackable)
+                {
+                    // 有返回值但不是 MemoryPackable，跳过生成，使用反射降级路径
+                    continue;
+                }
+
                 var className = $"{GetSafeIdentifier(service.ServiceName ?? service.InterfaceName)}_{GetSafeIdentifier(method.MethodName)}_ResponseSerializer";
+
+                // responseType 为 null 表示 void 返回，否则为 MemoryPackable 类型
                 var responseType = string.IsNullOrWhiteSpace(method.ResponseTypeFullName) ? null : method.ResponseTypeFullName;
 
                 list.Add(new ResponseSerializerInfo(
@@ -290,7 +302,7 @@ public static class ResponseSerializerGenerator
                     var lastDot = method.ResponseTypeFullName!.LastIndexOf('.');
                     if (lastDot > 0)
                     {
-                        var ns = method.ResponseTypeFullName.Substring(0, lastDot);
+                        var ns = method.ResponseTypeFullName[..lastDot];
                         if (!string.IsNullOrWhiteSpace(ns))
                         {
                             set.Add(ns);

@@ -136,7 +136,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             // 报告成功信息
             ReportGenerationSuccess(context, serviceModels);
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
             // 报告生成错误
             var descriptor = new DiagnosticDescriptor(
@@ -477,7 +477,7 @@ public static class GenerationReport
                 {
                     var returnType = methodSymbol.ReturnType.ToDisplayString();
                     var isAsync = IsAsyncMethod(methodSymbol);
-
+                    var responseTypeFullName = GetResponseTypeFullName(returnType);
                     var method = new MethodModel
                     {
                         MethodName = methodSymbol.Name,
@@ -491,7 +491,9 @@ public static class GenerationReport
                             TypeName = p.Type.Name,
                             TypeFullName = p.Type.ToDisplayString(),
                             IsMemoryPackable = false // TODO: 检查是否可序列化
-                        }).ToList()
+                        }).ToList(),
+                        ResponseTypeFullName = responseTypeFullName,
+                        IsResponseMemoryPackable = responseTypeFullName != null,
                     };
 
                     methods.Add(method);
@@ -557,6 +559,46 @@ public static class GenerationReport
                returnTypeName.StartsWith("Task") ||
                returnTypeName.StartsWith("System.Threading.Tasks.ValueTask") ||
                returnTypeName.StartsWith("ValueTask");
+    }
+
+    private static string? GetResponseTypeFullName(string returnType)
+    {
+        // 处理非泛型 Task 和 ValueTask
+        if (returnType is "Task" or "ValueTask")
+        {
+            return null;
+        }
+
+        if (returnType.StartsWith("Task<") && returnType.EndsWith(">"))
+        {
+            return returnType[5..^1].Trim();
+        }
+
+        if (returnType.StartsWith("ValueTask<") && returnType.EndsWith(">"))
+        {
+            return returnType[10..^1].Trim();
+        }
+
+        if (returnType.StartsWith("System.Threading.Tasks.Task<") && returnType.EndsWith(">"))
+        {
+            return returnType[28..^1].Trim();
+        }
+
+        if (returnType.StartsWith("System.Threading.Tasks.ValueTask<") && returnType.EndsWith(">"))
+        {
+            return returnType[33..^1].Trim();
+        }
+
+        throw new InvalidOperationException();
+    }
+
+    /// <summary>
+    /// 检查类型是否标记为MemoryPackable
+    /// </summary>
+    private static bool IsMemoryPackable(ITypeSymbol typeSymbol)
+    {
+        return typeSymbol.GetAttributes()
+            .Any(attr => attr.AttributeClass?.Name is "MemoryPackableAttribute" or "MemoryPackable");
     }
 }
 
