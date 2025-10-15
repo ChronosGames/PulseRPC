@@ -493,7 +493,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)
             };
 
-            // 触发消息处理完成事件
+            // 触发消息处理完成事件（fire-and-forget）
             TriggerMessageProcessedEvent(envelope, result, null);
 
             return response;
@@ -515,7 +515,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)
             };
 
-            // 触发消息处理失败事件
+            // 触发消息处理失败事件（fire-and-forget）
             TriggerMessageProcessedEvent(envelope, null, ex);
 
             return response;
@@ -528,7 +528,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     }
 
     /// <summary>
-    /// 触发消息处理完成事件
+    /// 触发消息处理完成事件（fire-and-forget 以避免阻塞消息处理流程）
     /// </summary>
     private void TriggerMessageProcessedEvent(MessageEnvelope envelope, object? result, Exception? exception)
     {
@@ -538,8 +538,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             var callContext = new ServiceCallContext(
                 connectionId: envelope.ConnectionId,
                 messageId: envelope.MessageId,
-                serviceName: envelope.Header.ServiceName ?? string.Empty,
-                methodName: envelope.Header.MethodName ?? string.Empty,
+                serviceName: envelope.Header.ServiceName,
+                methodName: envelope.Header.MethodName,
                 requestData: null, // 已处理完成，不需要再传递原始请求数据
                 messageType: envelope.Header.Type,
                 receivedTime: envelope.ReceivedTime,
@@ -556,7 +556,9 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 success: exception == null,
                 exception: exception);
 
-            _responseProcessor.ProcessMessageResultAsync(eventArgs);
+            // Fire-and-forget: 异步提交到 ResponseProcessor 队列，不等待完成
+            // 这避免阻塞消息处理流程，ResponseProcessor 会通过内部队列处理背压
+            _= _responseProcessor.ProcessMessageResultAsync(eventArgs);
 
             _logger.LogTrace("触发MessageProcessed事件: ConnectionId={ConnectionId}, MessageId={MessageId}, Success={Success}",
                 envelope.ConnectionId, envelope.MessageId, exception == null);

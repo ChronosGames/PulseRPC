@@ -114,8 +114,16 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
      {
          _logger.LogInformation("停止响应处理器");
 
-         // 标记写入完成
-         _responseWriter.Complete();
+         // 标记写入完成（安全关闭通道）
+         try
+         {
+             _responseWriter.Complete();
+         }
+         catch (ChannelClosedException)
+         {
+             // 通道已经关闭，忽略此异常
+             _logger.LogDebug("响应通道已经关闭");
+         }
 
          // 取消所有处理任务
          await _shutdownCts.CancelAsync();
@@ -223,9 +231,12 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
 
              ReadOnlyMemory<byte> responsePayload;
 
-             if (responseTask.Success && responseTask.Result != null)
+             // 特殊处理：系统消息（如 Ping/Pong）ServiceName 和 MethodName 都为空
+             bool isSystemMessage = string.IsNullOrEmpty(responseTask.ServiceName) && string.IsNullOrEmpty(responseTask.MethodName);
+
+             if (responseTask.Success && responseTask.Result != null && !isSystemMessage)
              {
-                 // 序列化成功响应
+                 // 序列化成功响应（普通业务消息）
                  responsePayload = await SerializeResponseAsync(responseTask.Result, responseTask.ServiceName, responseTask.MethodName);
              }
              else if (!responseTask.Success && responseTask.Exception != null)
@@ -236,7 +247,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
              }
              else
              {
-                 // 空响应 (void 方法)
+                 // 空响应 (void 方法、系统消息或 null 结果)
                  responsePayload = ReadOnlyMemory<byte>.Empty;
              }
 
@@ -290,7 +301,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
              _logger.LogError(ex, "响应处理失败: 连接={ConnectionId}, 消息ID={MessageId}, 处理器={ProcessorId}",
                  responseTask.ConnectionId, responseTask.MessageId, processorId);
          }
-     }
+    }
 
     /// <summary>
     /// 序列化成功响应
@@ -318,27 +329,8 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
             }
         }
 
-        // 降级：使用传统反射序列化路径
-        return SerializeResponseFallbackAsync(result, serviceName, methodName);
-    }
-
-    /// <summary>
-    /// 降级序列化路径（使用反射，性能较低）
-    /// </summary>
-    private Task<ReadOnlyMemory<byte>> SerializeResponseFallbackAsync(object result, string serviceName, string methodName)
-    {
-        // 获取缓存的序列化器
-        var cacheKey = $"{serviceName}.{methodName}";
-        var serializer = GetCachedSerializer(cacheKey);
-
-        // 序列化响应数据
-        var buffer = new ArrayBufferWriter<byte>();
-
-        // 使用泛型方法序列化 (这里需要运行时类型信息)
-        var serializeMethod = serializer.GetType().GetMethod("Serialize")?.MakeGenericMethod(result.GetType());
-        serializeMethod?.Invoke(serializer, [buffer, result]);
-
-        return Task.FromResult(buffer.WrittenMemory);
+        // 降级：记录错误日志
+        throw new ArgumentException($"未找到响应序列化器: {serviceName}.{methodName}");
     }
 
      /// <summary>
@@ -472,9 +464,9 @@ public sealed class ResponseProcessorOptions
     public int ProcessorThreadCount { get; set; } = Math.Max(1, Environment.ProcessorCount / 2);
 
     /// <summary>
-    /// 响应通道容量
+    /// 响应通道容量（增大到50000以应对高并发场景）
     /// </summary>
-    public int ChannelCapacity { get; set; } = 10000;
+    public int ChannelCapacity { get; set; } = 50000;
 
     /// <summary>
     /// 是否在错误响应中包含堆栈跟踪

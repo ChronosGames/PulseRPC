@@ -268,10 +268,11 @@ public class TestExecutionEngine
         TestResults results,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("开始主测试阶段，持续 {Duration} 秒", config.DurationSeconds);
+        _logger.LogInformation("开始主测试阶段，持续 {Duration} 秒 (最大并发模式)", config.DurationSeconds);
 
         var endTime = DateTime.UtcNow.AddSeconds(config.DurationSeconds);
-        var requestInterval = TimeSpan.FromMilliseconds(1000.0 / config.RequestRate);
+        var maxConcurrentRequests = config.ConcurrentConnections * 50; // 每个连接50个并发请求
+        var semaphore = new SemaphoreSlim(maxConcurrentRequests);
         var connectionIndex = 0;
 
         var testTasks = new List<Task>();
@@ -279,12 +280,27 @@ public class TestExecutionEngine
 
         while (DateTime.UtcNow < endTime && !cancellationToken.IsCancellationRequested)
         {
+            // 等待有空闲槽位
+            await semaphore.WaitAsync(cancellationToken);
+
             // 选择连接
             var connectionId = $"client_{connectionIndex % config.ConcurrentConnections}";
             connectionIndex++;
 
-            // 执行请求
-            var requestTask = ExecuteRequestAsync(scenario, connectionId, ++requestCount, results, cancellationToken);
+            // 启动请求（不等待完成）
+            var currentRequestId = ++requestCount;
+            var requestTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await ExecuteRequestAsync(scenario, connectionId, currentRequestId, results, cancellationToken);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }, cancellationToken);
+
             testTasks.Add(requestTask);
 
             // 更新进度
@@ -312,8 +328,7 @@ public class TestExecutionEngine
                 ProgressUpdated?.Invoke(progress);
             }
 
-            // 控制请求速率
-            await Task.Delay(requestInterval, cancellationToken);
+            // 不再使用Task.Delay限流 - 尽可能快地发送请求
         }
 
         // 等待所有请求完成
