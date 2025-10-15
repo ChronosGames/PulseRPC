@@ -344,26 +344,9 @@ public class ServerTransportChannel : IServerChannel
     }
 
     /// <summary>
-    /// 处理接收到的数据，解析消息包并触发事件给 ServerChannelManager 路由
+    /// 处理接收到的数据，解析消息包并触发 MessageParsed 事件
     /// </summary>
     private void ProcessReceivedData(ReadOnlyMemory<byte> data)
-    {
-        try
-        {
-            // 统一使用消息包解析方式，触发 MessageParsed 事件让 ServerChannelManager 处理路由
-            ParseAndTriggerMessageEvent(data);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogError(ex, "[消息处理] {ConnectionId} 处理接收数据时发生异常: Size={Size} bytes",
-                ConnectionId, data.Length);
-        }
-    }
-
-    /// <summary>
-    /// 解析消息包并触发 MessageParsed 事件
-    /// </summary>
-    private void ParseAndTriggerMessageEvent(ReadOnlyMemory<byte> data)
     {
         try
         {
@@ -374,10 +357,18 @@ public class ServerTransportChannel : IServerChannel
                     ConnectionId, messagePacket.Header.ServiceName, messagePacket.Header.MethodName,
                     messagePacket.Header.Type, messagePacket.Header.MessageId);
 
+                // 特殊处理：系统消息（Ping）直接在这里处理，不进入消息处理管道
+                if (messagePacket.Header.Type == MessageType.Ping)
+                {
+                    _logger?.LogTrace("[系统消息] {ConnectionId} 收到Ping消息，直接回复Pong", ConnectionId);
+                    _ = HandlePingMessageAsync(messagePacket.Header.MessageId);
+                    return; // 不触发 MessageParsed 事件
+                }
+
                 // 创建消息包持有者（避免 ref struct 的生命周期问题）
                 var messagePacketHolder = new MessagePacketHolder(messagePacket);
 
-                // 触发消息解析完成事件
+                // 触发消息解析完成事件（仅处理业务消息）
                 var parsedEventArgs = new MessageParsedEventArgs(
                     ConnectionId,
                     messagePacketHolder,
@@ -400,6 +391,37 @@ public class ServerTransportChannel : IServerChannel
         {
             _logger?.LogError(ex, "[消息解析] {ConnectionId} 处理接收数据时发生异常: Size={Size} bytes",
                 ConnectionId, data.Length);
+        }
+    }
+
+    /// <summary>
+    /// 处理 Ping 消息并回复 Pong
+    /// </summary>
+    private async Task HandlePingMessageAsync(Guid messageId)
+    {
+        try
+        {
+            // 创建 Pong 响应消息头
+            var pongHeader = new MessageHeader(MessageType.Pong, string.Empty, string.Empty)
+            {
+                MessageId = messageId,
+                Flags = MessageFlags.None
+            };
+
+            // 创建空的 Pong 消息包
+            var pongPacket = new MessagePacket(pongHeader, ReadOnlySpan<byte>.Empty);
+
+            // 序列化并发送
+            using var buffer = System.Buffers.MemoryPool<byte>.Shared.Rent(pongPacket.EstimateSize());
+            var bytesWritten = pongPacket.WriteTo(buffer.Memory.Span);
+
+            await SendAsync(buffer.Memory[..bytesWritten], CancellationToken.None);
+
+            _logger?.LogTrace("[系统消息] {ConnectionId} Pong响应已发送，消息ID={MessageId}", ConnectionId, messageId);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "[系统消息] {ConnectionId} 处理Ping消息失败，消息ID={MessageId}", ConnectionId, messageId);
         }
     }
 

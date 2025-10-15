@@ -114,32 +114,6 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
     }
 
     /// <summary>
-    /// 尝试将消息入队到L1缓冲区（已废弃）
-    /// </summary>
-    [Obsolete("请使用 TryEnqueueMessageSlot 方法")]
-    public bool TryEnqueueMessage(ReadOnlyMemory<byte> messageData, MessagePriority priority = MessagePriority.Normal)
-    {
-        var slot = CreateMessageSlot(messageData, priority);
-
-        // 尝试快速入队到L1
-        if (_l1Buffer.TryEnqueue(slot))
-        {
-            _metrics.L1MessagesEnqueued.Add(1);
-
-            if (_options.EnableDetailedLogging)
-            {
-                _logger.LogTrace("消息入队L1成功: ProcessorId={ProcessorId}, Priority={Priority}, Size={Size}",
-                    _processorId, priority, messageData.Length);
-            }
-
-            return true;
-        }
-
-        // L1满了，执行背压策略
-        return HandleL1Backpressure(slot);
-    }
-
-    /// <summary>
     /// 尝试将消息槽入队到L1缓冲区（新方法）
     /// </summary>
     public bool TryEnqueueMessageSlot(MessageSlot slot)
@@ -151,7 +125,7 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
 
             if (_options.EnableDetailedLogging)
             {
-                _logger.LogTrace("消息入队L1成功: ProcessorId={ProcessorId}, MessageId={MessageId}, Priority={Priority}, ConnectionId={ConnectionId}", 
+                _logger.LogTrace("消息入队L1成功: ProcessorId={ProcessorId}, MessageId={MessageId}, Priority={Priority}, ConnectionId={ConnectionId}",
                     _processorId, slot.MessageId, slot.Priority, slot.ConnectionId);
             }
 
@@ -159,81 +133,6 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
         }
 
         // L1满了，返回false让调用者处理背压
-        return false;
-    }
-
-    /// <summary>
-    /// 创建消息槽 - 已废弃，现在由 HighPerformanceMessageEngine 创建
-    /// </summary>
-    [Obsolete("此方法已废弃，MessageSlot 现在由 HighPerformanceMessageEngine 创建")]
-    private MessageSlot CreateMessageSlot(ReadOnlyMemory<byte> messageData, MessagePriority priority)
-    {
-        // 此方法保留用于向后兼容，但不应被调用
-        return new MessageSlot
-        {
-            MessageId = Guid.NewGuid(),
-            ConnectionId = "unknown",
-            Header = new MessageHeader(),
-            Payload = messageData,
-            Priority = priority,
-            EnqueueTime = Stopwatch.GetTimestamp(),
-            Status = MessageStatus.Pending
-        };
-    }
-
-    /// <summary>
-    /// L1背压处理 - 已废弃，背压处理现在由 HighPerformanceMessageEngine 负责
-    /// </summary>
-    [Obsolete("此方法已废弃，背压处理移至 HighPerformanceMessageEngine")]
-    private bool HandleL1Backpressure(MessageSlot slot)
-    {
-        _metrics.L1BackpressureEvents.Add(1);
-
-        switch (slot.Priority)
-        {
-            case MessagePriority.Critical:
-                // 关键消息：等待短时间后强制入队
-                return TryForceEnqueue(slot, TimeSpan.FromMicroseconds(_options.CriticalMessageTimeoutUs));
-
-            case MessagePriority.Normal:
-                // 普通消息：根据负载进行自适应处理
-                if (_metrics.CurrentL1Utilization < _options.NormalMessageDropThreshold)
-                {
-                    return TryForceEnqueue(slot, TimeSpan.FromMicroseconds(100));
-                }
-                break;
-
-            case MessagePriority.Low:
-                // 低优先级消息：直接丢弃
-                _logger.LogDebug("低优先级消息被丢弃: ProcessorId={ProcessorId}", _processorId);
-                break;
-        }
-
-        // 使用零拷贝方式，无需手动释放内存
-        _metrics.MessagesDropped.Add(1);
-        return false;
-    }
-
-    /// <summary>
-    /// 强制入队（用于关键消息）
-    /// </summary>
-    private bool TryForceEnqueue(MessageSlot slot, TimeSpan timeout)
-    {
-        using var cts = new CancellationTokenSource(timeout);
-
-        while (!cts.Token.IsCancellationRequested)
-        {
-            if (_l1Buffer.TryEnqueue(slot))
-            {
-                _metrics.L1MessagesEnqueued.Add(1);
-                _metrics.ForcedEnqueues.Add(1);
-                return true;
-            }
-
-            // 短暂yield
-            Thread.Yield();
-        }
-
         return false;
     }
 
@@ -555,32 +454,32 @@ public struct MessageSlot
     /// 消息唯一标识符
     /// </summary>
     public Guid MessageId { get; set; }
-    
+
     /// <summary>
     /// 真实连接ID
     /// </summary>
     public string ConnectionId { get; set; }
-    
+
     /// <summary>
     /// 完整消息头部
     /// </summary>
     public MessageHeader Header { get; set; }
-    
+
     /// <summary>
     /// 消息负载数据（零拷贝）
     /// </summary>
     public ReadOnlyMemory<byte> Payload { get; set; }
-    
+
     /// <summary>
     /// 消息优先级
     /// </summary>
     public MessagePriority Priority { get; set; }
-    
+
     /// <summary>
     /// 入队时间戳
     /// </summary>
     public long EnqueueTime { get; set; }
-    
+
     /// <summary>
     /// 消息状态
     /// </summary>
