@@ -1,667 +1,1145 @@
 # Implementation Tasks: Unified Server Implementation
 
-**Feature Branch**: `006-unify-dual-server`
-**Date**: 2025-10-13
-**Total Tasks**: 28
-**Estimated Effort**: 10-15 days
+**Feature**: 006-unify-dual-server
+**Branch**: `006-unify-dual-server`
+**Generated**: 2025-10-16
+**Test Strategy**: Test-First Development (TDD) - Red-Green-Refactor
 
 ---
 
-## Task Organization by User Story
+## Overview
 
-This implementation is organized to deliver value incrementally:
+This document provides dependency-ordered implementation tasks for the unified server feature. Tasks are organized by user story (US1-US4) to enable independent, incremental delivery. Each user story is independently testable and delivers specific value.
 
-- **Phase 1**: Setup (shared infrastructure)
-- **Phase 2**: Foundational (blocking prerequisites - core architecture)
-- **Phase 3**: User Story 1 (P1) - Clear API Surface
-- **Phase 4**: User Story 2 (P1) - Consistent Behavior
-- **Phase 5**: User Story 3 (P2) - Simplified Maintenance
-- **Phase 6**: User Story 4 (P2) - Migration Path
-- **Phase 7**: Polish & Integration
-
-**[P]** = Parallelizable (different files, can be implemented concurrently)
+**Key Principles**:
+- ✅ Test-First Development (NON-NEGOTIABLE per constitution)
+- ✅ 100% Binary Compatibility (no breaking changes)
+- ✅ Incremental Progress (each task compiles and passes tests)
+- ✅ Red-Green-Refactor cycle strictly followed
 
 ---
 
-## Phase 1: Setup (Shared Infrastructure)
-
-**Objective**: Prepare project structure and shared components needed by all user stories
-
-### T001: Create configuration classes [P]
-**File**: `src/PulseRPC.Server/Configuration/ServerConfiguration.cs`
-**Story**: Setup
-**Description**: Create unified `ServerConfiguration` class that merges `ServerOptions` (PulseServer) and `ServerHostOptions` (ServerHost)
-**Acceptance Criteria**:
-- Class contains all transport configurations (List<TransportChannelConfiguration>)
-- Includes pipeline options (MessageReceiverOptions, MessageDispatcherOptions, ResponseTransmitterOptions)
-- Includes connection/service/backpressure options
-- Has `ShutdownTimeout` property (TimeSpan, default 30s)
-- Properly documented with XML comments
-
-### T002: Create shutdown options class [P]
-**File**: `src/PulseRPC.Server/Configuration/ShutdownOptions.cs`
-**Story**: Setup
-**Description**: Create `ShutdownOptions` class for graceful shutdown configuration
-**Acceptance Criteria**:
-- `Timeout` property (TimeSpan, default 30s)
-- `DrainTimeout` property (TimeSpan, default 20s)
-- `ConnectionCloseTimeout` property (TimeSpan, default 5s)
-- `TransportStopTimeout` property (TimeSpan, default 5s)
-- `ForceShutdownOnTimeout` property (bool, default true)
-- Properly documented with XML comments
-
----
-
-## Phase 2: Foundational (Blocking Prerequisites)
-
-**Objective**: Implement core architecture components that ALL user stories depend on
-
-**Checkpoint**: These tasks MUST complete before any user story implementation begins
-
-### T003: Implement ServerLifecycleCoordinator
-**File**: `src/PulseRPC.Server/Core/ServerLifecycleCoordinator.cs`
-**Story**: Foundational
-**Description**: Implement server state machine coordinator (Stopped → Starting → Running → Stopping → Stopped)
-**Dependencies**: T001, T002
-**Acceptance Criteria**:
-- Implements state machine with 4 states (Stopped, Starting, Running, Stopping)
-- Thread-safe state transitions using `Lock` (C# 13)
-- `StateChanged` event (EventHandler<ServerStateChangedEventArgs>)
-- Methods: `TransitionToStartingAsync()`, `TransitionToRunningAsync()`, `TransitionToStoppingAsync()`, `TransitionToStoppedAsync()`
-- `CurrentState` property (ServerState enum)
-- Validates illegal transitions (e.g., Starting → Stopping)
-- Logs state changes
-
-### T004: Implement TransportOrchestrator
-**File**: `src/PulseRPC.Server/Core/TransportOrchestrator.cs`
-**Story**: Foundational
-**Description**: Implement multi-transport lifecycle coordinator (manages TCP/KCP listeners)
-**Dependencies**: T001
-**Acceptance Criteria**:
-- Uses `ITransportIntegrationManager` to create listeners
-- Stores listeners in `ConcurrentDictionary<string, IServerListener>`
-- `AddTransport(TransportChannelConfiguration)` method
-- `StartAllTransportsAsync(CancellationToken)` - parallel startup using Task.WhenAll
-- `StopAcceptingAsync(CancellationToken)` - stop accepting new connections (Phase 1 shutdown)
-- `StopAllTransportsAsync(CancellationToken)` - close all listeners (Phase 2 shutdown)
-- `GetTransports()` returns IReadOnlyDictionary<string, TransportInfo>
-- `GetDefaultTransport()` returns first transport marked as default
-- Wires `ConnectionAccepted` events to IServerChannelManager
-- Handles listener failures during startup (cleanup started listeners)
-
-### T005: Implement PipelineCoordinator
-**File**: `src/PulseRPC.Server/Pipeline/PipelineCoordinator.cs`
-**Story**: Foundational
-**Description**: Implement pipeline component coordinator (integrates MessageReceiver/Dispatcher/Transmitter)
-**Dependencies**: T001
-**Acceptance Criteria**:
-- Owns `MessageReceiver`, `MessageDispatcher`, `ResponseTransmitter` instances
-- Owns `ServiceRegistry`, `BackpressurePolicy`, `ConnectionManager` instances
-- `StartPipelineAsync(CancellationToken)` - starts all components sequentially
-- `DrainPipelinesAsync(CancellationToken)` - waits for in-flight messages to complete (graceful shutdown)
-- `StopPipelineAsync(CancellationToken)` - stops all components in reverse order
-- Wires up events: MessageReceiver.MessageReceived → backpressure check → MessageDispatcher
-- Wires up events: MessageDispatcher.InvocationCompleted → ResponseTransmitter
-- `RegisterService<T>(name, instance, options)` - delegates to ServiceRegistry + MessageDispatcher
-- `UnregisterService(name)` - delegates to ServiceRegistry + MessageDispatcher
-- `GetHealthStatus()` returns ServerHealthStatus (aggregates from all components)
-- Properties: `ConnectionManager`, `ServiceRegistry`, `BackpressurePolicy` (expose for advanced scenarios)
-
----
-
-## Phase 3: User Story 1 (P1) - Clear API Surface
-
-**Goal**: Single, clear entry point for creating servers (eliminate "which class to use" confusion)
-
-**Independent Test Criteria**:
-- Can examine public API surface - exactly one public server class (PulseServer)
-- IntelliSense shows one primary server class
-- Documentation references only one server class
-- New developer can create working server in <5 minutes
-
-### T006: Rewrite PulseServer with unified implementation
-**File**: `src/PulseRPC.Server/PulseServer.cs`
-**Story**: US1 - Clear API Surface
-**Description**: Completely rewrite PulseServer.cs as unified implementation (delete existing, start fresh)
-**Dependencies**: T003, T004, T005
-**Acceptance Criteria**:
-- Implements `IPulseServer` interface completely
-- Constructor takes: `ILoggerFactory`, `IOptions<ServerConfiguration>`, `IServerChannelManager`, `ITransportIntegrationManager`, `PipelineCoordinator`
-- Owns instances: `ServerLifecycleCoordinator`, `TransportOrchestrator`, `PipelineCoordinator`
-- Lifecycle methods: `StartAsync(ct)` delegates to coordinators in order (Lifecycle → Transport → Pipeline)
-- Lifecycle methods: `StopAsync(ct)` implements graceful shutdown with timeout (30s default)
-  - Phase 1: TransportOrchestrator.StopAcceptingAsync()
-  - Phase 2: PipelineCoordinator.DrainPipelinesAsync() (with timeout)
-  - Phase 3: IServerChannelManager.CloseAllChannelsAsync()
-  - Phase 4: TransportOrchestrator.StopAllTransportsAsync()
-  - Catch OperationCanceledException on timeout → log warning → ForceShutdownAsync()
-- Transport management: `AddTransport(config)` delegates to TransportOrchestrator
-- Transport queries: `GetTransports()`, `GetDefaultTransport()` delegate to TransportOrchestrator
-- Connection management: `ActiveConnectionCount`, `GetActiveConnections()`, `BroadcastAsync()`, `SendAsync()` delegate to IServerChannelManager
-- Service management: `RegisterService<T>()`, `UnregisterService()` delegate to PipelineCoordinator
-- Observability: `GetPerformanceMetrics()` aggregates from all coordinators
-- Observability: `GetHealthStatus()` delegates to PipelineCoordinator + adds transport stats
-- Events: `StateChanged`, `ClientConnected`, `ClientDisconnected` (wire from coordinators)
-- Implements `IDisposable` and `IAsyncDisposable`
-- Thread-safe (uses coordinators' thread-safety)
-- Properly logged (ILogger<PulseServer>)
-
-**Checkpoint**: After T006, PulseServer exists as single unified implementation ✅
-
-### T007: Update PulseServerBuilder to construct unified server [P]
-**File**: `src/PulseRPC.Server/Builder/PulseServerBuilder.cs`
-**Story**: US1 - Clear API Surface
-**Description**: Update builder to construct new unified PulseServer
-**Dependencies**: T006
-**Acceptance Criteria**:
-- Collects transport configurations via `.AddTcpTransport()`, `.AddKcpTransport()`
-- Collects shutdown timeout via `.WithShutdownTimeout(TimeSpan)`
-- `.Build()` constructs `ServerConfiguration` from collected settings
-- `.Build()` resolves dependencies from DI or creates defaults
-- `.Build()` constructs `ServerLifecycleCoordinator`, `TransportOrchestrator`, `PipelineCoordinator`
-- `.Build()` constructs unified `PulseServer` and passes all coordinators
-- `.Build()` calls `AddTransport()` for each collected transport config
-- Maintains fluent API ergonomics (all methods return `IPulseServerBuilder`)
-- Binary compatible with existing builder API (no breaking changes)
-
-### T008: Update ServiceCollectionExtensions for DI registration [P]
-**File**: `src/PulseRPC.Server/Extensions/ServiceCollectionExtensions.cs`
-**Story**: US1 - Clear API Surface
-**Description**: Update DI registration to construct unified PulseServer
-**Dependencies**: T006
-**Acceptance Criteria**:
-- `.AddPulseServer(builder => ...)` extension method registers unified implementation
-- Registers `IPulseServer` singleton factory
-- Factory resolves: `ILoggerFactory`, `IOptions<ServerConfiguration>`, `IServerChannelManager`, `ITransportIntegrationManager`
-- Factory constructs `PipelineCoordinator` with resolved dependencies
-- Factory constructs `ServerLifecycleCoordinator`, `TransportOrchestrator`
-- Factory constructs unified `PulseServer`
-- Factory applies builder configuration (transports, options)
-- Maintains backward compatibility with existing DI registration patterns
-- Properly documented
-
-**User Story 1 Deliverable**: Single public API entry point (PulseServer) via builder and DI ✅
-
----
-
-## Phase 4: User Story 2 (P1) - Consistent Behavior
-
-**Goal**: Unified implementation ensures consistent behavior regardless of configuration path
-
-**Independent Test Criteria**:
-- DI-configured server behaves identically to builder-configured server
-- Performance metrics are consistent across multiple runs
-- All existing integration tests pass without modification (100%)
-
-### T009: Validate unified behavior with integration tests
-**File**: `tests/PulseRPC.Server.Tests/Integration/UnifiedServerIntegrationTests.cs`
-**Story**: US2 - Consistent Behavior
-**Description**: Create end-to-end integration tests for unified server
-**Dependencies**: T006, T007, T008
-**Acceptance Criteria**:
-- Test: Start/stop server via builder API → succeeds
-- Test: Start/stop server via DI API → succeeds
-- Test: Register service → invoke RPC → receive response (builder-configured server)
-- Test: Register service → invoke RPC → receive response (DI-configured server)
-- Test: Multi-transport server (TCP + KCP) → both transports accept connections
-- Test: Graceful shutdown → in-flight messages complete within timeout
-- Test: Graceful shutdown timeout → force shutdown after 30s
-- Test: GetHealthStatus() returns accurate stats (message counts, backpressure level, etc.)
-- Test: GetPerformanceMetrics() returns accurate stats (connection counts, throughput, etc.)
-- All tests use xUnit + FluentAssertions
-- Properly documented
-
-### T010: Run existing integration tests against unified implementation
-**Story**: US2 - Consistent Behavior
-**Description**: Validate 100% compatibility by running all existing PulseServer/ServerHost integration tests
-**Dependencies**: T006
-**Acceptance Criteria**:
-- Identify all existing integration tests in `tests/PulseRPC.Server.Tests/Integration/`
-- Run tests against unified PulseServer implementation
-- **Expected**: 100% pass rate (no test modifications required)
-- Document any test failures with root cause analysis
-- If failures occur: fix unified implementation (not tests)
-- Update test documentation to reference unified implementation
-
-**User Story 2 Deliverable**: Consistent behavior validated via integration tests ✅
-
----
-
-## Phase 5: User Story 3 (P2) - Simplified Maintenance
-
-**Goal**: Eliminate duplicate server orchestration logic (maintain only one implementation)
-
-**Independent Test Criteria**:
-- Code coverage shows zero duplication in server lifecycle logic
-- Bug fixes require changes in only one location
-- Code maintainability score improves by 25%
-
-### T011: Remove old PulseServer implementation artifacts
-**Story**: US3 - Simplified Maintenance
-**Description**: Clean up old PulseServer implementation (already rewritten in T006)
-**Dependencies**: T006, T010
-**Acceptance Criteria**:
-- Verify no references to old PulseServer internal components remain
-- Remove any obsolete internal classes no longer used by unified implementation
-- Update internal documentation references
-- Verify build succeeds with zero warnings
-
-### T012: Add unified server metrics and observability
-**File**: `src/PulseRPC.Server/Observability/UnifiedServerMetrics.cs`
-**Story**: US3 - Simplified Maintenance
-**Description**: Create unified metrics aggregation (consolidates PulseServer + ServerHost metrics)
-**Dependencies**: T006
-**Acceptance Criteria**:
-- Aggregates metrics from: TransportOrchestrator, PipelineCoordinator, IServerChannelManager
-- `ServerPerformanceMetrics` includes:
-  - ActiveConnections, TotalConnectionsAccepted (from channel manager)
-  - TotalMessagesReceived, TotalMessagesDispatched, TotalResponsesSent (from pipeline)
-  - QueueDepth, BackpressureLevel (from pipeline)
-  - AverageLatencyMs, ThroughputMsgsPerSec (calculated from pipeline stats)
-  - MemoryUsageMB (GC.GetTotalMemory), CpuUsagePercent (if available)
-  - LastResetTime
-- `ResetMetrics()` method resets all counters
-- Thread-safe (uses Interlocked for counters)
-- Properly documented
-
-**User Story 3 Deliverable**: Single, maintainable implementation with no duplication ✅
-
----
-
-## Phase 6: User Story 4 (P2) - Migration Path
-
-**Goal**: Provide clear migration path for existing ServerHost users (binary compatibility + deprecation warnings)
-
-**Independent Test Criteria**:
-- Migration documentation completable in <30 minutes
-- Existing applications upgrade without code changes (100% binary compat)
-- Deprecation warnings guide users to unified API
-
-### T013: Implement ServerHost facade with deprecation
-**File**: `src/PulseRPC.Server/Core/ServerHost.cs`
-**Story**: US4 - Migration Path
-**Description**: Convert ServerHost to thin facade that delegates to unified PulseServer
-**Dependencies**: T006
-**Acceptance Criteria**:
-- Mark class with `[Obsolete("ServerHost is deprecated. Use PulseServer instead. See migration guide at docs/quickstart.md", false)]`
-- Constructor: `ServerHost(IPulseServerTransport transport, ServerHostOptions? options)`
-- Constructor converts `ServerHostOptions` → `ServerConfiguration`
-  - Maps transport parameter to TransportChannelConfiguration
-  - Maps MessageReceiverOptions, MessageDispatcherOptions, etc.
-  - Sets ShutdownTimeout to 30s
-- Constructor constructs unified `PulseServer` internally (stores as private field)
-- All public methods delegate to internal `_unifiedServer` field:
-  - `StartAsync(ct)` → `_unifiedServer.StartAsync(ct)`
-  - `StopAsync(ct)` → `_unifiedServer.StopAsync(ct)`
-  - `IsRunning` → `_unifiedServer.IsRunning`
-  - `RegisterService<T>(name, instance, options)` → `_unifiedServer.RegisterService(...)`
-  - `UnregisterService(name)` → `_unifiedServer.UnregisterService(name)`
-  - `GetHealthStatus()` → `_unifiedServer.GetHealthStatus()`
-- Expose pipeline component properties (ServerHost-exclusive API):
-  - `ConnectionManager` → `_unifiedServer.GetPipelineCoordinator().ConnectionManager`
-  - `ServiceRegistry` → `_unifiedServer.GetPipelineCoordinator().ServiceRegistry`
-  - `BackpressurePolicy` → `_unifiedServer.GetPipelineCoordinator().BackpressurePolicy`
-- `Dispose()` → `_unifiedServer.Dispose()`
-- Zero-overhead delegation (inline-candidate methods, no allocations)
-- Properly documented with migration guidance
-
-### T014: Create ServerHost facade unit tests [P]
-**File**: `tests/PulseRPC.Server.Tests/Unit/ServerHostFacadeTests.cs`
-**Story**: US4 - Migration Path
-**Description**: Unit tests verifying ServerHost correctly delegates to PulseServer
-**Dependencies**: T013
-**Acceptance Criteria**:
-- Test: Constructor converts ServerHostOptions correctly
-- Test: StartAsync() delegates to unified server
-- Test: StopAsync() delegates to unified server
-- Test: RegisterService() delegates correctly
-- Test: GetHealthStatus() returns accurate data
-- Test: Pipeline component properties return correct instances
-- Test: Dispose() disposes unified server
-- All tests use xUnit + NSubstitute (mock dependencies)
-- Properly documented
-
-### T015: Create binary compatibility validation tests [P]
-**File**: `tests/PulseRPC.Server.Tests/Integration/BinaryCompatibilityTests.cs`
-**Story**: US4 - Migration Path
-**Description**: Integration tests validating 100% binary compatibility
-**Dependencies**: T013
-**Acceptance Criteria**:
-- Test: ServerHost facade (old API) → start/stop → succeeds
-- Test: ServerHost facade → register service → invoke RPC → response received
-- Test: ServerHost facade exposes ConnectionManager property
-- Test: ServerHost facade exposes ServiceRegistry property
-- Test: ServerHost facade exposes BackpressurePolicy property
-- Test: ServerHost facade deprecation warning appears in build output
-- Test: Existing ServerHost-based code compiles and runs without modifications
-- All tests use xUnit + FluentAssertions
-- Properly documented
-
-### T016: Update migration documentation (quickstart.md)
-**File**: `specs/006-unify-dual-server/quickstart.md` (already exists, enhance if needed)
-**Story**: US4 - Migration Path
-**Description**: Validate and enhance migration guide for completeness
-**Dependencies**: T013
-**Acceptance Criteria**:
-- Scenario 1: PulseServer user (no changes) - documented ✅
-- Scenario 2: ServerHost user (facade, zero changes) - documented ✅
-- Scenario 3: ServerHost user (migrate to PulseServer) - step-by-step guide
-- Scenario 4: Multi-transport migration - example code
-- Scenario 5: DI registration - example code
-- Scenario 6: Pipeline component access - before/after patterns
-- Scenario 7: Custom extension methods - rewrite guidance ✅
-- Each scenario has: before code, after code, explanation
-- Estimated migration time: <30 minutes (validated)
-- Clear deprecation warning explanation
-- Troubleshooting section for common issues
-
-**User Story 4 Deliverable**: Binary-compatible migration path with clear documentation ✅
-
----
-
-## Phase 7: Polish & Integration
-
-**Objective**: Cross-cutting concerns, performance validation, final documentation
-
-### T017: Implement IHostedService adapter for ASP.NET Core [P]
-**File**: `src/PulseRPC.Server/Extensions/HostedServiceAdapter.cs`
-**Story**: Polish
-**Description**: Create IHostedService wrapper for unified PulseServer (ASP.NET Core integration)
-**Dependencies**: T006
-**Acceptance Criteria**:
-- Implements `IHostedService` interface
-- Constructor takes `IPulseServer` dependency
-- `StartAsync(ct)` → `_server.StartAsync(ct)`
-- `StopAsync(ct)` → `_server.StopAsync(ct)` (uses host shutdown timeout)
-- Extension method: `.AddPulseServerHostedService()` registers adapter
-- Properly documented with usage examples
-
-### T018: Create performance benchmark for facade delegation [P]
-**File**: `tests/PulseRPC.Server.Tests/Performance/FacadeDelegationBenchmark.cs`
-**Story**: Polish
-**Description**: BenchmarkDotNet test measuring ServerHost facade overhead
-**Dependencies**: T013
-**Acceptance Criteria**:
-- Benchmark: Direct unified PulseServer usage (baseline)
-- Benchmark: ServerHost facade usage (measure overhead)
-- Metrics: Message throughput (messages/second)
-- Test scenario: 10,000 messages, measure QPS
-- **Expected**: Facade overhead <5% (spec requirement)
-- Results documented in benchmark report
-- Uses BenchmarkDotNet with proper configuration
-- Properly documented
-
-### T019: Run full performance regression suite
-**Story**: Polish
-**Description**: Validate no performance regression in existing benchmarks
-**Dependencies**: T006, T010
-**Acceptance Criteria**:
-- Run existing benchmarks in `perf/BenchmarkApp/` against unified implementation
-- Compare results against baseline (from research.md):
-  - Average latency: 19.5ms (expect similar)
-  - P95: ~45ms, P99: ~85ms (expect similar or better)
-  - QPS: 46-68 (expect similar or better)
-- Document any performance regressions with root cause
-- If regressions occur: optimize unified implementation
-- Generate performance report
-
-### T020: Update public API documentation [P]
-**File**: `src/PulseRPC.Server/PulseServer.cs` (XML comments)
-**Story**: Polish
-**Description**: Ensure unified PulseServer has complete XML documentation
-**Dependencies**: T006
-**Acceptance Criteria**:
-- All public methods have `<summary>` tags
-- All public properties have `<summary>` tags
-- All parameters have `<param>` tags
-- All events have `<summary>` tags
-- Complex methods have `<remarks>` with usage examples
-- Thread-safety guarantees documented where applicable
-- Async method cancellation behavior documented
-- Properly formatted for IntelliSense
-
-### T021: Update builder API documentation [P]
-**File**: `src/PulseRPC.Server/Builder/PulseServerBuilder.cs` (XML comments)
-**Story**: Polish
-**Description**: Ensure builder API has complete documentation
-**Dependencies**: T007
-**Acceptance Criteria**:
-- All public methods have `<summary>` tags
-- Usage examples in `<example>` tags
-- Fluent API chain documented
-- Default values documented
-- Properly formatted for IntelliSense
-
-### T022: Update project README with unified server info
-**File**: `README.md` (repository root)
-**Story**: Polish
-**Description**: Update main README to reference unified PulseServer (remove confusion)
-**Dependencies**: T006
-**Acceptance Criteria**:
-- Quick start section uses unified PulseServer (not ServerHost)
-- Example code shows builder API
-- Remove references to "which server class to use"
-- Add note about ServerHost deprecation
-- Link to migration guide
-- Updated code examples
-
-### T023: Create changelog entry for unified server release
-**File**: `CHANGELOG.md` (repository root)
-**Story**: Polish
-**Description**: Document unified server changes in changelog
-**Dependencies**: All implementation tasks
-**Acceptance Criteria**:
-- Version entry (e.g., v2.0.0)
-- Section: "Breaking Changes" (note: NONE due to facade)
-- Section: "Added"
-  - Unified PulseServer implementation
-  - Graceful shutdown with 30s default timeout
-  - Comprehensive health monitoring API
-- Section: "Deprecated"
-  - ServerHost class (use PulseServer instead)
-- Section: "Fixed"
-  - Incomplete service registration in old PulseServer
-- Migration guide link
-- Performance improvements noted
-
-### T024: Verify PublicAPI analyzer compliance [P]
-**Story**: Polish
-**Description**: Ensure PublicAPI.Shipped.txt and PublicAPI.Unshipped.txt are updated
-**Dependencies**: T006, T013
-**Acceptance Criteria**:
-- Run `dotnet build` with PublicAPI analyzers enabled
-- Zero API analyzer warnings
-- `PublicAPI.Unshipped.txt` contains new unified PulseServer APIs
-- `PublicAPI.Shipped.txt` remains unchanged (no breaking changes)
-- ServerHost deprecation recorded in Unshipped.txt
-
-### T025: Run full test suite and verify coverage
-**Story**: Polish
-**Description**: Final validation - all tests pass, coverage targets met
-**Dependencies**: All test tasks
-**Acceptance Criteria**:
-- Run `dotnet test` → 100% pass rate
-- Unit tests: pass
-- Integration tests: pass
-- Binary compatibility tests: pass
-- Performance benchmarks: <5% overhead validated
-- Code coverage: >80% for new code (unified implementation)
-- Coverage report generated
-
-### T026: Final code review and cleanup
-**Story**: Polish
-**Description**: Manual code review of all changes
-**Dependencies**: All implementation tasks
-**Acceptance Criteria**:
-- No commented-out code
-- No TODO comments without tracking issues
-- Consistent code style (follows project conventions)
-- No compiler warnings
-- No ReSharper/Rider warnings
-- Nullable reference types handled correctly
-- Async/await patterns correct (no blocking calls)
-- Thread-safety verified
-
-### T027: Update NuGet package metadata
-**File**: `Directory.Build.props`
-**Story**: Polish
-**Description**: Update package metadata for unified server release
-**Dependencies**: T023
-**Acceptance Criteria**:
-- Version bumped (e.g., 1.x.x → 2.0.0)
-- Release notes reference unified server
-- Deprecation notice for ServerHost in package description
-- Migration guide link in package README
-- Tags updated if needed
-
-### T028: Create release branch and prepare for merge
-**Story**: Polish
-**Description**: Final preparation for merging to main
-**Dependencies**: T025, T026, T027
-**Acceptance Criteria**:
-- All tasks complete
-- All tests passing
-- Documentation complete
-- Changelog updated
-- Branch ready for pull request
-- Pull request description references:
-  - Feature spec: `specs/006-unify-dual-server/spec.md`
-  - Implementation plan: `specs/006-unify-dual-server/plan.md`
-  - Research: `specs/006-unify-dual-server/research.md`
-  - Migration guide: `specs/006-unify-dual-server/quickstart.md`
-- Pull request checklist complete
-
----
-
-## Task Dependencies Graph
-
-```
-Setup Phase (T001-T002)
-    │
-    ▼
-Foundational Phase (T003-T005)
-    │
-    ├──────────────────────────────┐
-    │                              │
-    ▼                              ▼
-US1: Clear API                 US2: Consistent
-T006 → T007, T008 [P]          T009, T010
-    │                              │
-    └──────────────┬───────────────┘
-                   │
-                   ▼
-              US3: Simplified
-              T011, T012 [P]
-                   │
-                   ▼
-              US4: Migration
-              T013 → T014, T015, T016 [P]
-                   │
-                   ▼
-              Polish Phase
-              T017-T028 (many [P])
-```
-
----
-
-## Parallel Execution Opportunities
-
-### Phase 1 (Setup)
-- **Parallel**: T001, T002 (different files)
-
-### Phase 2 (Foundational)
-- **Sequential**: T003 → T004, T005 (T004/T005 depend on T003 for state coordination)
-- **Parallel**: T004, T005 (different files, different concerns)
-
-### Phase 3 (US1)
-- **Sequential**: T006 first (core implementation)
-- **Parallel after T006**: T007, T008 (builder and DI registration)
-
-### Phase 4 (US2)
-- **Sequential**: T009, T010 (test validation)
-
-### Phase 5 (US3)
-- **Parallel**: T011, T012 (cleanup and metrics - independent)
-
-### Phase 6 (US4)
-- **Sequential**: T013 first (facade implementation)
-- **Parallel after T013**: T014, T015, T016 (tests and docs)
-
-### Phase 7 (Polish)
-- **Parallel**: T017, T018, T020, T021, T022, T024 (independent concerns)
-- **Sequential**: T019 (needs T006), T023 (needs all), T025 (needs tests), T026 (needs all), T027 (needs T023), T028 (needs all)
+## Task Summary
+
+| Phase | Description | Task Count | Parallelizable |
+|-------|-------------|------------|----------------|
+| Phase 1 | Setup & Infrastructure | 3 | 2 tasks [P] |
+| Phase 2 | Foundational Prerequisites | 5 | 3 tasks [P] |
+| Phase 3 | US1 - Clear API Surface (P1) | 12 | 6 tasks [P] |
+| Phase 4 | US2 - Consistent Behavior (P1) | 8 | 4 tasks [P] |
+| Phase 5 | US3 - Simplified Maintenance (P2) | 6 | 3 tasks [P] |
+| Phase 6 | US4 - Migration Path (P2) | 9 | 4 tasks [P] |
+| Phase 7 | Polish & Integration | 5 | 3 tasks [P] |
+| **Total** | | **48** | **25 [P]** |
 
 ---
 
 ## Implementation Strategy
 
-### Recommended Approach: Incremental Delivery
+**MVP**: User Story 1 (Clear API Surface) provides immediate value with a working unified server.
 
-1. **MVP Scope** (Minimum Viable Product):
-   - Complete through User Story 1 (T001-T008)
-   - Deliverable: Single unified PulseServer API that works
-   - Validation: Can create and start server via builder/DI
-   - Estimated: 3-5 days
+**Incremental Delivery**:
+1. **US1 (P1)**: Unified server with clear API → Deploy for new projects
+2. **US2 (P1)**: Consistent behavior validation → Deploy for production use
+3. **US3 (P2)**: Code consolidation → Internal improvement
+4. **US4 (P2)**: Migration support → Enable existing user upgrades
 
-2. **Production-Ready** (Add behavioral validation):
-   - Complete through User Story 2 (T009-T010)
-   - Deliverable: Validated unified implementation (100% test pass)
-   - Validation: Existing integration tests pass unchanged
-   - Estimated: +2 days (5-7 days total)
-
-3. **Maintainability** (Eliminate duplication):
-   - Complete User Story 3 (T011-T012)
-   - Deliverable: Zero duplication, unified metrics
-   - Validation: Code coverage analysis shows consolidation
-   - Estimated: +1 day (6-8 days total)
-
-4. **Migration Support** (Binary compatibility):
-   - Complete User Story 4 (T013-T016)
-   - Deliverable: ServerHost facade + migration docs
-   - Validation: Existing apps upgrade without code changes
-   - Estimated: +2 days (8-10 days total)
-
-5. **Production Polish** (Final hardening):
-   - Complete Phase 7 (T017-T028)
-   - Deliverable: Performance validated, docs complete, ready for release
-   - Validation: All quality gates pass
-   - Estimated: +2-3 days (10-13 days total)
-
-**Total Estimated Effort**: 10-15 days (matches plan.md estimate)
+**Dependencies**: US1 must complete before US2-US4. US3 and US4 are independent of each other.
 
 ---
 
-## Success Metrics (Per User Story)
+## Phase 1: Setup & Infrastructure
 
-### User Story 1: Clear API Surface
-- ✅ Exactly one public server class (PulseServer) in API docs
-- ✅ IntelliSense shows single primary entry point
-- ✅ New developer creates working server in <5 minutes
+**Goal**: Prepare development environment and shared infrastructure
 
-### User Story 2: Consistent Behavior
-- ✅ DI-configured server behaves identically to builder-configured
-- ✅ Performance metrics consistent across runs
-- ✅ 100% existing integration tests pass unchanged (SC-004)
+**Duration**: ~30 minutes
 
-### User Story 3: Simplified Maintenance
-- ✅ Zero duplicated server orchestration logic (SC-003)
-- ✅ Bug fixes require changes in single location
-- ✅ Code maintainability score improves 25% (SC-007)
+### T001: Create feature branch and verify build [P]
+**File**: N/A (Git operation)
+**Dependencies**: None
+**Story**: Setup
 
-### User Story 4: Migration Path
-- ✅ Migration documentation completable in <30 minutes (SC-005)
-- ✅ 100% binary compatibility validated (SC-010)
-- ✅ Clear deprecation warnings guide users
+```bash
+git checkout -b 006-unify-dual-server
+dotnet build
+dotnet test
+```
+
+**Acceptance**: Branch created, solution builds, all existing tests pass
 
 ---
 
-## Notes
+### T002: Review existing implementations [P]
+**Files**:
+- `src/PulseRPC.Server/PulseServer.cs`
+- `src/PulseRPC.Server/Core/ServerHost.cs`
+**Dependencies**: None
+**Story**: Setup
 
-- **Test Philosophy**: Integration tests validate behavior, unit tests validate components. Focus on integration coverage for acceptance criteria.
-- **Performance Validation**: SC-009 requires <5% facade overhead (validated in T018)
-- **Binary Compatibility**: SC-010 requires zero breaking changes (validated in T015)
-- **Documentation**: SC-002 requires 40% onboarding time reduction (validated through migration time <30 min in SC-005)
+**Tasks**:
+1. Read PulseServer.cs - understand transport-focused architecture
+2. Read ServerHost.cs - understand pipeline-focused architecture
+3. Identify reusable components (TransportIntegrationManager, ServerChannelManager, etc.)
+4. Document integration points and event wiring patterns
+
+**Acceptance**: Understanding documented in notes, ready to implement unified design
 
 ---
 
-**Next Step**: Begin implementation starting with Phase 1 (T001-T002), then Phase 2 (T003-T005), then User Story 1 (T006-T008).
+### T003: Set up test infrastructure
+**Files**:
+- `tests/PulseRPC.Server.Tests/TestHelpers/ServerTestFixture.cs` [NEW]
+- `tests/PulseRPC.Server.Tests/TestHelpers/MockTransportProvider.cs` [NEW]
+**Dependencies**: T001
+**Story**: Setup
+
+**Tasks**:
+1. Create ServerTestFixture base class for test setup/teardown
+2. Create MockTransportProvider for testing without real network
+3. Create test data builders for configuration objects
+4. Add helper methods for common assertions
+
+**Acceptance**: Test infrastructure compiles, can be used in test classes
+
+---
+
+## Phase 2: Foundational Prerequisites
+
+**Goal**: Implement core components required by ALL user stories
+
+**Duration**: ~2 hours
+
+**CHECKPOINT**: These tasks MUST complete before any user story implementation can begin.
+
+---
+
+### T004: Define UnifiedServerOptions configuration model [P]
+**File**: `src/PulseRPC.Server/Models/UnifiedServerOptions.cs` [NEW]
+**Dependencies**: T003
+**Story**: Foundation
+
+**Tasks (TDD)**:
+1. **RED**: Write test for UnifiedServerOptions validation
+   - Test: At least one transport configured
+   - Test: Exactly one default transport
+   - Test: Unique transport names
+   - Test: Valid timeout values
+2. **GREEN**: Implement UnifiedServerOptions class
+   - Properties: Transports, MessageReceiver, MessageDispatcher, etc.
+   - Method: Validate() with exception messages
+3. **REFACTOR**: Extract validation logic into separate validator class if needed
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedServerOptionsTests.cs` [NEW]
+
+**Acceptance**: All validation tests pass, configuration model compiles
+
+---
+
+### T005: Implement IUnifiedPulseServer interface [P]
+**File**: `src/PulseRPC.Server/IUnifiedPulseServer.cs` [NEW]
+**Dependencies**: T004
+**Story**: Foundation
+
+**Tasks**:
+1. Define interface extending IPulseServer
+2. Add lifecycle methods (StartAsync, StopAsync)
+3. Add service registration methods
+4. Add query methods (GetTransports, GetActiveConnections, etc.)
+5. Add broadcasting methods
+6. Document all members with XML comments
+
+**Acceptance**: Interface compiles, inherits from IPulseServer correctly
+
+---
+
+### T006: Create event args models [P]
+**File**: `src/PulseRPC.Server/Models/ServerEventArgs.cs` [NEW]
+**Dependencies**: T005
+**Story**: Foundation
+
+**Tasks**:
+1. Implement ServerStateChangedEventArgs
+2. Implement ClientConnectedEventArgs
+3. Implement ClientDisconnectedEventArgs
+4. Add immutable properties with init-only setters
+
+**Acceptance**: Event models compile, used by interface
+
+---
+
+### T007: Implement core UnifiedPulseServer class skeleton
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs` [NEW]
+**Dependencies**: T004, T005, T006
+**Story**: Foundation
+
+**Tasks (TDD)**:
+1. **RED**: Write tests for basic instantiation
+   - Test: Constructor accepts required dependencies
+   - Test: Constructor validates options
+   - Test: Initial state is Stopped
+2. **GREEN**: Implement class skeleton
+   - Constructor with DI parameters
+   - Private fields for dependencies
+   - State management (volatile + lock)
+   - Event declarations
+3. **REFACTOR**: Organize code sections (lifecycle, registration, queries, etc.)
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs` [NEW]
+
+**Acceptance**: Class instantiates, constructor tests pass
+
+---
+
+### T008: Wire up existing component dependencies
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T007
+**Story**: Foundation
+
+**Tasks**:
+1. Add ITransportIntegrationManager as constructor parameter
+2. Add IServerChannelManager as constructor parameter
+3. Store dependencies in private readonly fields
+4. Initialize internal dictionaries (_listeners, _transports)
+
+**Acceptance**: Dependencies injected, class ready for implementation
+
+---
+
+## Phase 3: User Story 1 - Clear API Surface (Priority P1)
+
+**Goal**: Provide exactly one public server class as the primary API entry point
+
+**Value**: Eliminates confusion, enables developers to create servers in under 5 minutes
+
+**Independent Test**: API documentation shows one primary server class, IntelliSense shows clear entry point
+
+---
+
+### T009: [US1] Implement server lifecycle - StartAsync() [TDD]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T008
+**Story**: US1
+
+**Tasks (TDD - Red-Green-Refactor)**:
+1. **RED**: Write failing tests
+   - Test: StartAsync validates transports configured
+   - Test: StartAsync throws if already running
+   - Test: StartAsync transitions state Stopped → Starting → Running
+   - Test: StartAsync creates listeners for all transports
+   - Test: StartAsync subscribes to ConnectionAccepted events
+2. **GREEN**: Implement StartAsync method
+   - Validate not already running
+   - Validate transports configured
+   - Change state to Starting
+   - Create listeners via TransportIntegrationManager (parallel with Task.WhenAll)
+   - Subscribe to events
+   - Change state to Running
+3. **REFACTOR**: Extract StartTransportAsync private method
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: All StartAsync tests pass, state transitions correctly
+
+---
+
+### T010: [US1] Implement server lifecycle - StopAsync() [TDD]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T009
+**Story**: US1
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: StopAsync does nothing if already stopped
+   - Test: StopAsync transitions Running → Stopping → Stopped
+   - Test: StopAsync stops all listeners in parallel
+   - Test: StopAsync unsubscribes from events
+   - Test: StopAsync disposes listeners
+2. **GREEN**: Implement StopAsync method
+   - Check if already stopped
+   - Change state to Stopping
+   - Stop all listeners (parallel with Task.WhenAll)
+   - Unsubscribe events
+   - Clear dictionaries
+   - Change state to Stopped
+3. **REFACTOR**: Extract StopAllListenersAsync private method
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: All StopAsync tests pass, clean shutdown verified
+
+---
+
+### T011: [US1] Implement connection acceptance flow [TDD]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T010
+**Story**: US1
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: OnConnectionAccepted adds channel to manager
+   - Test: OnConnectionAccepted raises ClientConnected event
+   - Test: OnConnectionAccepted handles errors gracefully
+   - Test: OnConnectionAccepted is non-blocking
+2. **GREEN**: Implement connection handling
+   - OnConnectionAccepted event handler
+   - ProcessNewConnectionAsync method (Task.Run for non-blocking)
+   - Call ServerChannelManager.AddChannel
+   - Raise ClientConnected event
+   - Error handling with connection cleanup
+3. **REFACTOR**: Ensure async/await best practices
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: Connection tests pass, non-blocking verified
+
+---
+
+### T012: [US1] Implement service registration API [TDD] [P]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T008
+**Story**: US1
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: RegisterService stores service in registry
+   - Test: RegisterService rejects duplicate names
+   - Test: UnregisterService removes service
+   - Test: UnregisterService returns false for non-existent
+2. **GREEN**: Implement service registration
+   - Store IServiceRegistry as dependency
+   - Implement RegisterService<TService>
+   - Implement UnregisterService
+   - Integrate with MessageDispatcher
+3. **REFACTOR**: Validate service registration patterns
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: Service registration tests pass
+
+---
+
+### T013: [US1] Implement transport query methods [TDD] [P]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T008
+**Story**: US1
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: GetTransports returns all configured transports
+   - Test: GetDefaultTransport returns default transport
+   - Test: GetTransports shows listening status correctly
+2. **GREEN**: Implement query methods
+   - GetTransports() - map _transports to TransportInfo
+   - GetDefaultTransport() - find IsDefault transport
+3. **REFACTOR**: Ensure immutable return types (IReadOnlyDictionary)
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: Query method tests pass
+
+---
+
+### T014: [US1] Implement connection query methods [TDD] [P]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T011
+**Story**: US1
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: GetActiveConnections returns all connections
+   - Test: GetRegisteredServices returns all services
+   - Test: Queries return read-only collections
+2. **GREEN**: Implement query methods
+   - GetActiveConnections() - delegate to ChannelManager
+   - GetRegisteredServices() - delegate to ServiceRegistry
+3. **REFACTOR**: Ensure no defensive copying overhead
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: Connection query tests pass
+
+---
+
+### T015: [US1] Implement broadcasting methods [TDD] [P]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T011
+**Story**: US1
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: BroadcastAsync sends to all connections
+   - Test: BroadcastAsync respects filter
+   - Test: BroadcastAsync returns sent count
+   - Test: SendAsync sends to specific connection
+2. **GREEN**: Implement broadcasting
+   - BroadcastAsync - delegate to ChannelManager
+   - SendAsync - look up channel, send data
+3. **REFACTOR**: Validate error handling for disconnected clients
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: Broadcasting tests pass
+
+---
+
+### T016: [US1] Implement performance metrics [TDD] [P]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T011
+**Story**: US1
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: GetPerformanceMetrics returns current metrics
+   - Test: ResetPerformanceMetrics clears counters
+   - Test: Metrics aggregate from all components
+2. **GREEN**: Implement metrics methods
+   - GetPerformanceMetrics() - aggregate from components
+   - ResetPerformanceMetrics() - reset all counters
+3. **REFACTOR**: Consider caching metrics to avoid repeated aggregation
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: Metrics tests pass
+
+---
+
+### T017: [US1] Implement IDisposable and IAsyncDisposable [P]
+**File**: `src/PulseRPC.Server/UnifiedPulseServer.cs`
+**Dependencies**: T010
+**Story**: US1
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: Dispose stops server if running
+   - Test: DisposeAsync stops server gracefully
+   - Test: Multiple Dispose calls safe (idempotent)
+2. **GREEN**: Implement disposal
+   - Dispose() - synchronous disposal with timeout
+   - DisposeAsync() - async disposal
+   - GC.SuppressFinalize()
+3. **REFACTOR**: Ensure no resource leaks
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/UnifiedPulseServerTests.cs`
+
+**Acceptance**: Disposal tests pass, no leaks in test runs
+
+---
+
+### T018: [US1] Integration test - Basic server lifecycle
+**File**: `tests/PulseRPC.Server.Tests/Integration/UnifiedServerIntegrationTests.cs` [NEW]
+**Dependencies**: T009, T010, T011
+**Story**: US1
+
+**Tasks**:
+1. Test: Create server → Start → Stop → Dispose (full lifecycle)
+2. Test: Start server, accept connection, process message, stop
+3. Test: Multiple start/stop cycles work correctly
+4. Use real TcpTransport (not mocks) for realistic testing
+
+**Acceptance**: Integration tests pass, server works end-to-end
+
+---
+
+### T019: [US1] Update BasicServerDI example
+**File**: `examples/BasicServerDI/Program.cs`
+**Dependencies**: T017
+**Story**: US1
+
+**Tasks**:
+1. Replace existing server instantiation with UnifiedPulseServer
+2. Configure via UnifiedServerOptions
+3. Add comments explaining new API
+4. Test example runs successfully
+
+**Acceptance**: Example compiles and runs, demonstrates clear API
+
+---
+
+### T020: [US1] Update API documentation
+**Files**:
+- `src/PulseRPC.Server/UnifiedPulseServer.cs` (XML comments)
+- `docs/api-reference.md` [UPDATE]
+**Dependencies**: T019
+**Story**: US1
+
+**Tasks**:
+1. Complete all XML documentation comments
+2. Update API reference docs
+3. Add quickstart section referencing UnifiedPulseServer
+4. Mark old classes as deprecated in docs
+
+**Acceptance**: Documentation complete, one primary server class documented
+
+---
+
+**CHECKPOINT US1**: At this point, UnifiedPulseServer is fully functional and tested. Users can create servers using the new unified API.
+
+---
+
+## Phase 4: User Story 2 - Consistent Behavior (Priority P1)
+
+**Goal**: Ensure unified server behaves consistently regardless of configuration method
+
+**Value**: Prevents production issues from behavioral differences
+
+**Independent Test**: Same integration test suite passes against unified implementation with identical results
+
+---
+
+### T021: [US2] Test DI container configuration [TDD]
+**File**: `tests/PulseRPC.Server.Tests/Integration/UnifiedServerDITests.cs` [NEW]
+**Dependencies**: T020
+**Story**: US2
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: Server configured via IServiceCollection works
+   - Test: Server configured via builder pattern works
+   - Test: Both configurations produce identical behavior
+   - Test: Performance metrics match across configurations
+2. **GREEN**: Implement DI extension methods
+   - File: `src/PulseRPC.Server/Extensions/ServiceCollectionExtensions.cs` [UPDATE]
+   - AddUnifiedPulseServer(IServiceCollection, Action<UnifiedServerOptions>)
+   - Register all required services
+3. **REFACTOR**: Validate DI lifetimes (Singleton for server)
+
+**Acceptance**: DI configuration tests pass, behavior is identical
+
+---
+
+### T022: [US2] Run existing integration tests against unified server [TDD]
+**File**: `tests/PulseRPC.Server.Tests/Integration/UnifiedServerCompatibilityTests.cs` [NEW]
+**Dependencies**: T021
+**Story**: US2
+
+**Tasks**:
+1. Copy existing PulseServer integration tests
+2. Adapt tests to use UnifiedPulseServer instead
+3. Verify 100% of tests pass without behavior modification
+4. Compare performance metrics (latency, throughput)
+
+**Acceptance**: All existing tests pass, FR-011 satisfied
+
+---
+
+### T023: [US2] Test message processing consistency [TDD] [P]
+**File**: `tests/PulseRPC.Server.Tests/Integration/MessageProcessingTests.cs` [NEW]
+**Dependencies**: T020
+**Story**: US2
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: Messages processed in priority order
+   - Test: Backpressure triggers at correct thresholds
+   - Test: Timeout enforcement works consistently
+   - Test: Error responses match expected format
+2. **GREEN**: Integrate pipeline components
+   - Wire MessageReceiver to channel events
+   - Wire MessageDispatcher to service invocation
+   - Wire ResponseTransmitter to response delivery
+3. **REFACTOR**: Validate event flow correctness
+
+**Acceptance**: Message processing tests pass
+
+---
+
+### T024: [US2] Test multi-transport consistency [TDD] [P]
+**File**: `tests/PulseRPC.Server.Tests/Integration/MultiTransportTests.cs` [NEW]
+**Dependencies**: T020
+**Story**: US2
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: TCP and KCP transports behave identically
+   - Test: Messages processed consistently regardless of transport
+   - Test: Connection lifecycle identical across transports
+2. **GREEN**: Verify transport integration
+   - Test with TcpServerListener
+   - Test with KcpServerListener
+   - Compare behavior
+3. **REFACTOR**: Abstract common test patterns
+
+**Acceptance**: Multi-transport tests pass
+
+---
+
+### T025: [US2] Test concurrent operation consistency [TDD] [P]
+**File**: `tests/PulseRPC.Server.Tests/Integration/ConcurrencyTests.cs` [NEW]
+**Dependencies**: T020
+**Story**: US2
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: Concurrent StartAsync calls are safe
+   - Test: Concurrent service registration is thread-safe
+   - Test: Concurrent message processing is correct
+   - Test: Concurrent connections handled correctly (50+ connections)
+2. **GREEN**: Verify thread-safety
+   - Use lock-based state transitions
+   - Use ConcurrentDictionary for registries
+   - Test with ThreadSafetyAnalyzer
+3. **REFACTOR**: Validate no race conditions
+
+**Acceptance**: Concurrency tests pass, no race conditions detected
+
+---
+
+### T026: [US2] Test graceful shutdown consistency [TDD]
+**File**: `tests/PulseRPC.Server.Tests/Integration/ShutdownTests.cs` [NEW]
+**Dependencies**: T020
+**Story**: US2
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests
+   - Test: In-flight messages complete during shutdown
+   - Test: New connections rejected during shutdown
+   - Test: Shutdown timeout respected
+   - Test: Resources cleaned up properly
+2. **GREEN**: Verify shutdown behavior
+   - Test StopAsync with active connections
+   - Test StopAsync with queued messages
+   - Test cancellation token handling
+3. **REFACTOR**: Validate no resource leaks
+
+**Acceptance**: Shutdown tests pass, FR-010 satisfied
+
+---
+
+### T027: [US2] Performance benchmark - Unified vs. facades
+**File**: `tests/PulseRPC.Server.Tests/Performance/UnifiedServerBenchmarks.cs` [NEW]
+**Dependencies**: T026
+**Story**: US2
+
+**Tasks**:
+1. Create BenchmarkDotNet test class
+2. Benchmark: UnifiedPulseServer message processing (baseline)
+3. Benchmark: Configuration overhead (DI vs. direct)
+4. Compare results: <5ms difference acceptable
+5. Generate performance report
+
+**Acceptance**: Benchmarks run, performance within acceptable range
+
+---
+
+### T028: [US2] Integration test - Hosted service pattern
+**File**: `tests/PulseRPC.Server.Tests/Integration/HostedServiceTests.cs` [NEW]
+**Dependencies**: T021
+**Story**: US2
+
+**Tasks**:
+1. Test: Server as IHostedService in ASP.NET Core host
+2. Test: Startup order (server starts with host)
+3. Test: Shutdown order (server stops with host)
+4. Test: Cancellation token propagation
+
+**Acceptance**: Hosted service tests pass, FR-007 satisfied
+
+---
+
+**CHECKPOINT US2**: Unified server behavior is validated as consistent across all configuration methods and usage patterns.
+
+---
+
+## Phase 5: User Story 3 - Simplified Maintenance (Priority P2)
+
+**Goal**: Consolidate to single implementation, eliminate code duplication
+
+**Value**: Faster bug fixes, reduced maintenance burden, no implementation drift
+
+**Independent Test**: Code coverage shows zero duplicate server orchestration logic
+
+---
+
+### T029: [US3] Refactor PulseServer to facade [TDD]
+**File**: `src/PulseRPC.Server/PulseServer.cs`
+**Dependencies**: T028
+**Story**: US3
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests for facade
+   - Test: PulseServer delegates to UnifiedPulseServer
+   - Test: PulseServer maps old options to new options
+   - Test: PulseServer maintains same public API
+2. **GREEN**: Implement facade
+   - Add [Obsolete] attribute with message
+   - Create _implementation field (UnifiedPulseServer)
+   - Delegate all methods with AggressiveInlining
+   - Map old ServerOptions → UnifiedServerOptions
+3. **REFACTOR**: Extract mapping logic to helper class
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/PulseServerFacadeTests.cs` [NEW]
+
+**Acceptance**: Facade tests pass, zero behavior changes
+
+---
+
+### T030: [US3] Refactor ServerHost to facade [TDD]
+**File**: `src/PulseRPC.Server/Core/ServerHost.cs`
+**Dependencies**: T028
+**Story**: US3
+
+**Tasks (TDD)**:
+1. **RED**: Write failing tests for facade
+   - Test: ServerHost delegates to UnifiedPulseServer
+   - Test: ServerHost maps old options to new options
+   - Test: ServerHost exposes ConnectionManager/ServiceRegistry properties
+2. **GREEN**: Implement facade
+   - Add [Obsolete] attribute with message
+   - Create _implementation field (UnifiedPulseServer)
+   - Delegate all methods with AggressiveInlining
+   - Map IPulseServerTransport → TransportChannelConfiguration
+3. **REFACTOR**: Validate property exposure patterns
+
+**Test File**: `tests/PulseRPC.Server.Tests/Unit/ServerHostFacadeTests.cs` [NEW]
+
+**Acceptance**: Facade tests pass, zero behavior changes
+
+---
+
+### T031: [US3] Test facade delegation overhead [P]
+**File**: `tests/PulseRPC.Server.Tests/Performance/FacadeBenchmarks.cs` [NEW]
+**Dependencies**: T029, T030
+**Story**: US3
+
+**Tasks**:
+1. Create BenchmarkDotNet test class
+2. Benchmark: UnifiedPulseServer direct usage (baseline)
+3. Benchmark: PulseServer facade delegation
+4. Benchmark: ServerHost facade delegation
+5. Validate: Overhead <5% (SC-009)
+
+**Acceptance**: Benchmarks pass, overhead within spec
+
+---
+
+### T032: [US3] Run existing tests through facades [P]
+**File**: `tests/PulseRPC.Server.Tests/Integration/FacadeCompatibilityTests.cs` [NEW]
+**Dependencies**: T029, T030
+**Story**: US3
+
+**Tasks**:
+1. Run all existing PulseServer tests against facade
+2. Run all existing ServerHost tests against facade
+3. Verify 100% pass rate
+4. Verify identical behavior (no regressions)
+
+**Acceptance**: All tests pass, FR-016 satisfied
+
+---
+
+### T033: [US3] Code coverage analysis
+**File**: N/A (analysis task)
+**Dependencies**: T032
+**Story**: US3
+
+**Tasks**:
+1. Run code coverage tool (dotnet-coverage or Coverlet)
+2. Analyze: No duplicate server orchestration logic
+3. Analyze: Old PulseServer.cs is thin facade only
+4. Analyze: Old ServerHost.cs is thin facade only
+5. Generate coverage report
+
+**Acceptance**: Coverage report shows zero duplication, SC-003 satisfied
+
+---
+
+### T034: [US3] Static analysis - maintainability improvement
+**File**: N/A (analysis task)
+**Dependencies**: T033
+**Story**: US3
+
+**Tasks**:
+1. Run static analysis (SonarQube or NDepend)
+2. Measure: Cyclomatic complexity reduction
+3. Measure: Code duplication metrics
+4. Measure: Maintainability index improvement
+5. Validate: ≥25% improvement (SC-007)
+
+**Acceptance**: Analysis shows maintainability improvement
+
+---
+
+**CHECKPOINT US3**: Codebase consolidated, duplication eliminated, maintenance burden reduced.
+
+---
+
+## Phase 6: User Story 4 - Migration Path (Priority P2)
+
+**Goal**: Provide clear migration path with comprehensive documentation
+
+**Value**: Existing users can upgrade safely without breaking changes
+
+**Independent Test**: Sample application migrates in under 30 minutes following documentation
+
+---
+
+### T035: [US4] Create migration guide - PulseServer [P]
+**File**: `docs/migration-pulseserver.md` [NEW]
+**Dependencies**: T029
+**Story**: US4
+
+**Tasks**:
+1. Document before/after code examples
+2. Document configuration mapping (ServerOptions → UnifiedServerOptions)
+3. Document breaking changes (none - 100% compatible)
+4. Document deprecation timeline (v2.x → v3.0 → v4.0)
+5. Add troubleshooting section
+
+**Acceptance**: Migration guide complete, clear examples
+
+---
+
+### T036: [US4] Create migration guide - ServerHost [P]
+**File**: `docs/migration-serverhost.md` [NEW]
+**Dependencies**: T030
+**Story**: US4
+
+**Tasks**:
+1. Document before/after code examples
+2. Document configuration mapping (ServerHostOptions → UnifiedServerOptions)
+3. Document transport parameter migration
+4. Document deprecation timeline
+5. Add troubleshooting section
+
+**Acceptance**: Migration guide complete, clear examples
+
+---
+
+### T037: [US4] Update ObsoleteAttribute messages [P]
+**Files**:
+- `src/PulseRPC.Server/PulseServer.cs`
+- `src/PulseRPC.Server/Core/ServerHost.cs`
+**Dependencies**: T035, T036
+**Story**: US4
+
+**Tasks**:
+1. Add complete deprecation messages to [Obsolete] attributes
+2. Include migration guide URLs in messages
+3. Include timeline in messages
+4. Set error: false (warning mode for v2.x)
+
+**Acceptance**: Compiler warnings show clear migration guidance, FR-019 satisfied
+
+---
+
+### T038: [US4] Create sample migration projects [P]
+**Files**:
+- `examples/MigrationSample-PulseServer/` [NEW]
+- `examples/MigrationSample-ServerHost/` [NEW]
+**Dependencies**: T035, T036
+**Story**: US4
+
+**Tasks**:
+1. Create "before" project using old PulseServer API
+2. Create "after" project using UnifiedPulseServer
+3. Create "before" project using old ServerHost API
+4. Create "after" project using UnifiedPulseServer
+5. Add side-by-side comparison README
+
+**Acceptance**: Sample projects compile and run
+
+---
+
+### T039: [US4] Test migration path - PulseServer [TDD]
+**File**: `tests/PulseRPC.Server.Tests/Migration/PulseServerMigrationTests.cs` [NEW]
+**Dependencies**: T038
+**Story**: US4
+
+**Tasks (TDD)**:
+1. **RED**: Write tests simulating migration
+   - Test: Old PulseServer code compiles with warnings
+   - Test: Migrated code works identically
+   - Test: Configuration mapping preserves all settings
+2. **GREEN**: Validate migration guide accuracy
+   - Follow guide step-by-step
+   - Measure migration time
+3. **REFACTOR**: Update guide based on test findings
+
+**Acceptance**: Migration tests pass, time <30 minutes
+
+---
+
+### T040: [US4] Test migration path - ServerHost [TDD]
+**File**: `tests/PulseRPC.Server.Tests/Migration/ServerHostMigrationTests.cs` [NEW]
+**Dependencies**: T038
+**Story**: US4
+
+**Tasks (TDD)**:
+1. **RED**: Write tests simulating migration
+   - Test: Old ServerHost code compiles with warnings
+   - Test: Migrated code works identically
+   - Test: Configuration mapping preserves all settings
+2. **GREEN**: Validate migration guide accuracy
+   - Follow guide step-by-step
+   - Measure migration time
+3. **REFACTOR**: Update guide based on test findings
+
+**Acceptance**: Migration tests pass, time <30 minutes
+
+---
+
+### T041: [US4] Test edge cases - custom middleware [P]
+**File**: `tests/PulseRPC.Server.Tests/Migration/EdgeCaseTests.cs` [NEW]
+**Dependencies**: T039, T040
+**Story**: US4
+
+**Tasks**:
+1. Test: Custom middleware registered with old API still works
+2. Test: Custom interceptors still function
+3. Test: Custom extension methods still callable
+4. Test: DI configurations migrate correctly
+
+**Acceptance**: Edge case tests pass
+
+---
+
+### T042: [US4] Validate binary compatibility
+**File**: N/A (validation task)
+**Dependencies**: T029, T030
+**Story**: US4
+
+**Tasks**:
+1. Build existing application against old PulseRPC version
+2. Replace PulseRPC DLL with new version (with facades)
+3. Run application WITHOUT recompilation
+4. Verify: Application runs without errors
+5. Verify: All functionality works (SC-010)
+
+**Acceptance**: Binary compatibility validated, FR-018 satisfied
+
+---
+
+### T043: [US4] User testing - migration validation
+**File**: N/A (user testing task)
+**Dependencies**: T035, T036, T038
+**Story**: US4
+
+**Tasks**:
+1. Recruit 3 external developers
+2. Provide migration guides and sample projects
+3. Ask them to migrate sample applications
+4. Measure: Time to complete migration
+5. Collect: Feedback on clarity and completeness
+
+**Acceptance**: 3/3 developers complete migration in <30 minutes, SC-005 satisfied
+
+---
+
+**CHECKPOINT US4**: Migration path validated, existing users can upgrade safely.
+
+---
+
+## Phase 7: Polish & Integration
+
+**Goal**: Final integration, documentation, and release preparation
+
+**Duration**: ~2 hours
+
+---
+
+### T044: Comprehensive integration test suite [P]
+**File**: `tests/PulseRPC.Server.Tests/Integration/ComprehensiveTests.cs` [NEW]
+**Dependencies**: T043
+**Story**: Polish
+
+**Tasks**:
+1. Test: Full server lifecycle (start → process → stop)
+2. Test: All transports (TCP, KCP)
+3. Test: All configuration methods (DI, builder, direct)
+4. Test: Error scenarios (network failures, timeouts, exceptions)
+5. Test: Performance under load (50+ concurrent connections)
+
+**Acceptance**: Comprehensive tests pass
+
+---
+
+### T045: Update README and main documentation [P]
+**Files**:
+- `README.md` [UPDATE]
+- `docs/getting-started.md` [UPDATE]
+- `docs/api-reference.md` [UPDATE]
+**Dependencies**: T044
+**Story**: Polish
+
+**Tasks**:
+1. Update README quickstart to use UnifiedPulseServer
+2. Update getting started guide
+3. Update API reference
+4. Add deprecation notices for old classes
+5. Link to migration guides
+
+**Acceptance**: Documentation updated, unified server is primary
+
+---
+
+### T046: Update NuGet package metadata [P]
+**File**: `Directory.Build.props`
+**Dependencies**: T045
+**Story**: Polish
+
+**Tasks**:
+1. Update package release notes
+2. Document new UnifiedPulseServer API
+3. Document deprecations
+4. Update version number (minor increment per SemVer)
+
+**Acceptance**: Package metadata ready for release
+
+---
+
+### T047: Final regression test - all existing tests
+**File**: N/A (test run task)
+**Dependencies**: T044, T045, T046
+**Story**: Polish
+
+**Tasks**:
+1. Run ALL existing tests (unit + integration + performance)
+2. Verify: 100% pass rate
+3. Verify: No regressions introduced
+4. Verify: Performance metrics maintained or improved
+5. Generate test report
+
+**Acceptance**: All tests pass, FR-011 validated
+
+---
+
+### T048: Create release checklist and validation
+**File**: `RELEASE-CHECKLIST.md` [NEW]
+**Dependencies**: T047
+**Story**: Polish
+
+**Tasks**:
+1. Checklist: All user stories completed
+2. Checklist: All tests passing
+3. Checklist: Documentation updated
+4. Checklist: Migration guides reviewed
+5. Checklist: Performance benchmarks met
+6. Checklist: Binary compatibility validated
+
+**Acceptance**: Release checklist complete, ready for release
+
+---
+
+## Dependencies & Execution Order
+
+### Critical Path (Sequential)
+```
+T001 → T003 → T004 → T007 → T008 → T009 → T010 → T011 → T020
+     → T028 → T029/T030 → T043 → T047 → T048
+```
+
+### User Story Dependencies
+```
+Setup (Phase 1) → Foundation (Phase 2)
+     ↓
+     US1 (Phase 3) → US2 (Phase 4)
+                   ↓
+                   US3 (Phase 5) [P]
+                   US4 (Phase 6) [P]
+                   ↓
+                   Polish (Phase 7)
+```
+
+**Note**: US3 and US4 can run in parallel after US2 completes.
+
+---
+
+## Parallel Execution Opportunities
+
+### Phase 2 (Foundation)
+```
+T004 [P], T005 [P], T006 [P] → can run concurrently
+T007 depends on T004, T005, T006
+```
+
+### Phase 3 (US1)
+```
+After T008:
+  T012 [P], T013 [P], T014 [P], T015 [P], T016 [P], T017 [P]
+  can all run in parallel
+
+T009, T010, T011 must be sequential (lifecycle dependencies)
+```
+
+### Phase 4 (US2)
+```
+After T020:
+  T023 [P], T024 [P], T025 [P]
+  can run in parallel
+
+T021, T022, T026, T027, T028 are sequential
+```
+
+### Phase 5 & 6 (US3 & US4)
+```
+After T028:
+  Entire Phase 5 [P]
+  Entire Phase 6 [P]
+  can run in parallel with each other
+```
+
+---
+
+## Testing Strategy Summary
+
+**Test-First Development**: All implementation tasks follow Red-Green-Refactor cycle
+
+**Test Coverage**:
+- Unit Tests: 27 test files
+- Integration Tests: 11 test files
+- Performance Benchmarks: 3 test files
+- Migration Tests: 3 test files
+
+**Total Tests**: 44 test tasks out of 48 total tasks (92% test coverage)
+
+---
+
+## Success Criteria Validation
+
+| Criteria | Task | Validation Method |
+|----------|------|-------------------|
+| SC-001: One primary server class | T020 | API documentation review |
+| SC-002: 40% faster onboarding | T019, T020 | Time-to-first-working-server measurement |
+| SC-003: Zero duplication | T033 | Code coverage analysis |
+| SC-004: All tests pass | T022, T047 | Test suite execution |
+| SC-005: Migration <30min | T043 | User testing validation |
+| SC-006: Zero "which class" questions | T045 | Documentation clarity |
+| SC-007: 25% maintainability improvement | T034 | Static analysis |
+| SC-008: 30% less initialization code | T019, T045 | LOC comparison |
+| SC-009: <5% facade overhead | T031 | Performance benchmarking |
+| SC-010: Binary compatibility | T042 | Compatibility validation |
+
+---
+
+## Implementation Timeline Estimate
+
+| Phase | Duration | Can Start After |
+|-------|----------|-----------------|
+| Phase 1: Setup | 30 minutes | Immediate |
+| Phase 2: Foundation | 2 hours | Phase 1 |
+| Phase 3: US1 | 4-6 hours | Phase 2 |
+| Phase 4: US2 | 3-4 hours | Phase 3 |
+| Phase 5: US3 | 2-3 hours | Phase 4 |
+| Phase 6: US4 | 3-4 hours | Phase 4 |
+| Phase 7: Polish | 2 hours | Phases 5 & 6 |
+| **Total** | **17-22 hours** | |
+
+**With Parallel Execution**: ~14-18 hours
+
+---
+
+## Next Steps
+
+1. Review this tasks.md with the team
+2. Assign tasks to developers
+3. Set up feature branch (T001)
+4. Begin TDD implementation starting with Phase 1
+5. Complete each user story checkpoint before moving to next
+6. Validate success criteria at each checkpoint
+
+---
+
+**End of Tasks Document**
+
+Generated by `/speckit.tasks` command
+Ready for immediate execution following TDD principles

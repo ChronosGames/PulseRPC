@@ -260,108 +260,19 @@ private async Task<object?> ProcessSingleMessage(ServerMessage message)
 - [ ] 兼容性验证
 - [ ] 生产环境集成
 
-## 8. 响应序列化器生成（已实现）
-
-### 8.1 架构概述
-
-为了消除响应序列化中的反射开销，Source Generator 现在为每个服务方法生成专用的零拷贝响应序列化器：
-
-```csharp
-// 生成文件: ResponseSerializers.g.cs
-namespace PulseRPC.Generated;
-
-public static partial class GeneratedResponseSerializers
-{
-    public static readonly IResponseSerializerRegistry Registry = new RegistryImpl();
-    
-    public static class Serializers
-    {
-        public sealed class ChatService_SendMessage_ResponseSerializer : IResponseSerializer
-        {
-            public void Serialize(object response, IBufferWriter<byte> writer)
-            {
-                if (response is SendMessageResponse typed)
-                {
-                    MemoryPackSerializer.Serialize(writer, typed);
-                    return;
-                }
-                throw new InvalidCastException(...);
-            }
-        }
-    }
-}
-```
-
-### 8.2 集成方式
-
-服务器端 `HighPerformanceResponseProcessor` 优先使用生成的序列化器，失败时降级到反射路径：
-
-```csharp
-// 优先尝试使用生成的零拷贝序列化器
-if (_responseSerializerRegistry != null &&
-    _responseSerializerRegistry.TryGetSerializer(serviceName, methodName, out var responseSerializer))
-{
-    var buffer = new ArrayBufferWriter<byte>();
-    responseSerializer.Serialize(result, buffer);
-    return Task.FromResult(buffer.WrittenMemory);
-}
-
-// 降级：使用传统反射序列化路径
-return SerializeResponseFallbackAsync(result, serviceName, methodName);
-```
-
-### 8.3 性能优势
-
-- **零反射开销**：编译期确定类型，运行时直接调用
-- **类型安全**：编译期验证响应类型匹配
-- **零拷贝路径**：直接写入 `IBufferWriter<byte>`，避免中间缓冲
-- **降级兼容**：未生成序列化器时自动回退到反射路径
-
-### 8.4 使用示例
-
-```csharp
-// 服务定义
-[PulseService]
-public interface IChatService : IPulseHub
-{
-    ValueTask<SendMessageResponse> SendMessage(SendMessageRequest request);
-}
-
-// 生成器自动产出:
-// 1. ChatService_SendMessage_ResponseSerializer 类
-// 2. 注册到 GeneratedResponseSerializers.Registry
-// 3. HighPerformanceResponseProcessor 自动使用
-
-// 应用程序启动时注入
-services.AddSingleton<IResponseSerializerRegistry>(
-    PulseRPC.Generated.GeneratedResponseSerializers.Registry);
-```
-
-## 9. 预期性能提升
+## 8. 预期性能提升
 
 基于第一阶段基准测试结果，预期通过Source Generator优化实现：
 
 - **方法调用延迟降低 80%** - 消除反射开销
-- **序列化吞吐量提升 150%** - 特化代码生成与零拷贝路径
-- **响应序列化延迟降低 90%** - 零反射 + 零拷贝序列化器
+- **序列化吞吐量提升 150%** - 特化代码生成
 - **消息路由性能提升 200%** - 静态分发表
 - **整体端到端延迟降低 50-70%** - 综合优化效果
 
-## 10. 实施状态
+## 9. 下一步行动
 
-### 已完成
-- [x] 服务接口语法分析器
-- [x] 基础服务代理生成模板
-- [x] 响应序列化器生成
-- [x] IResponseSerializer 接口及注册表
-- [x] HighPerformanceResponseProcessor 集成
-- [x] 单元测试验证
-
-### 进行中
-- [ ] 性能基准测试
-- [ ] 生产环境验证
-
-### 计划中
-- [ ] ZeroCopySerializationPipeline 深度整合
-- [ ] 基于内存池的缓冲管理优化
-- [ ] 批量序列化优化
+1. 实现服务接口语法分析器
+2. 创建基础服务代理生成模板
+3. 集成到现有PulseRPC项目
+4. 编写单元测试验证生成代码
+5. 执行性能基准测试

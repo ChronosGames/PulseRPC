@@ -1,450 +1,600 @@
-# Unified Server Internal Model
+# Data Model: Unified Server Implementation
 
-**Feature**: `006-unify-dual-server`
-**Date**: 2025-10-13
-
----
-
-## Architecture Overview
-
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                          PulseServer (Unified)                             │
-│  - Public API: IPulseServer interface                                      │
-│  - State: ServerState (via ServerLifecycleCoordinator)                    │
-│  - Configuration: ServerConfiguration                                       │
-└────────────────────────────────────────────────────────────────────────────┘
-         │                          │                          │
-         ▼                          ▼                          ▼
-┌────────────────────┐   ┌──────────────────────┐   ┌────────────────────────┐
-│ Lifecycle          │   │ TransportOrchestrator│   │ PipelineCoordinator    │
-│ Coordinator        │   │ - Multi-transport    │   │ - MessageReceiver      │
-│ - State machine    │   │   management         │   │ - MessageDispatcher    │
-│ - Event emission   │   │ - Connection routing │   │ - ResponseTransmitter  │
-└────────────────────┘   └──────────────────────┘   └────────────────────────┘
-         │                          │                          │
-         └──────────────────────────┼──────────────────────────┘
-                                    ▼
-                     ┌──────────────────────────────┐
-                     │   IServerChannelManager      │
-                     │   - Active connections       │
-                     │   - Channel lifecycle        │
-                     └──────────────────────────────┘
-```
+**Date**: 2025-10-16
+**Feature**: 006-unify-dual-server
+**Purpose**: Define the data structures, entities, and their relationships for the unified server implementation
 
 ---
 
-## Core Components
+## Overview
 
-### 1. PulseServer (Unified Public API)
-
-**Responsibility**: Single public entry point, implements IPulseServer interface, delegates to internal coordinators
-
-**Fields**:
-```csharp
-private readonly ServerConfiguration _configuration;
-private readonly ServerLifecycleCoordinator _lifecycle;
-private readonly TransportOrchestrator _transportOrchestrator;
-private readonly PipelineCoordinator _pipelineCoordinator;
-private readonly IServerChannelManager _channelManager;
-private readonly ILoggerFactory _loggerFactory;
-```
-
-**Public API** (implements IPulseServer):
-```csharp
-// Lifecycle
-Task StartAsync(CancellationToken ct = default)
-Task StopAsync(CancellationToken ct = default)
-ServerState State { get; }
-bool IsRunning { get; }
-
-// Transport Management
-void AddTransport(TransportChannelConfiguration config)
-IReadOnlyDictionary<string, TransportInfo> GetTransports()
-TransportInfo? GetDefaultTransport()
-
-// Connection Management
-int ActiveConnectionCount { get; }
-IReadOnlyList<ConnectionInfo> GetActiveConnections()
-Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, ...)
-Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, ...)
-
-// Service Management (NEW - from ServerHost)
-void RegisterService<T>(string name, T instance, ServiceOptions? options = null)
-bool UnregisterService(string name)
-
-// Observability (MERGED from both implementations)
-ServerPerformanceMetrics GetPerformanceMetrics()
-ServerHealthStatus GetHealthStatus()
-void ResetPerformanceMetrics()
-
-// Events
-event EventHandler<ServerStateChangedEventArgs> StateChanged
-event EventHandler<ClientConnectedEventArgs> ClientConnected
-event EventHandler<ClientDisconnectedEventArgs> ClientDisconnected
-
-// Dispose
-void Dispose()
-ValueTask DisposeAsync()
-```
-
-**Delegation Pattern**:
-- Lifecycle → `_lifecycle.StartAsync()`, `_lifecycle.StopAsync()`
-- Transport → `_transportOrchestrator.AddTransport()`, `_transportOrchestrator.GetTransports()`
-- Pipeline → `_pipelineCoordinator.RegisterService()`, `_pipelineCoordinator.GetHealthStatus()`
-- Channel → `_channelManager.GetAllChannels()`, `_channelManager.BroadcastAsync()`
+The unified server implementation consolidates PulseServer and ServerHost into a single `UnifiedPulseServer` class. This document defines the core entities, configuration objects, state models, and their relationships.
 
 ---
 
-### 2. ServerLifecycleCoordinator
+## 1. Core Entities
 
-**Responsibility**: Manages server state machine (Stopped → Starting → Running → Stopping → Stopped)
+### 1.1 UnifiedPulseServer
 
-**State Machine**:
-```
-    ┌──────────┐
-    │ Stopped  │ ◄──────────────────────────────┐
-    └──────────┘                                │
-         │ StartAsync()                         │
-         ▼                                      │
-    ┌──────────┐                                │
-    │ Starting │                                │
-    └──────────┘                                │
-         │ All transports started              │
-         ▼                                      │
-    ┌──────────┐                                │
-    │ Running  │                                │
-    └──────────┘                                │
-         │ StopAsync()                          │
-         ▼                                      │
-    ┌──────────┐                                │
-    │ Stopping │ ───────────────────────────────┘
-    └──────────┘  All transports stopped + cleanup
-```
+**Purpose**: Primary server class orchestrating transport management and message processing pipeline
 
-**Methods**:
+**Namespace**: `PulseRPC.Server`
+
+**Properties**:
 ```csharp
-Task TransitionToStartingAsync()
-Task TransitionToRunningAsync()
-Task TransitionToStoppingAsync()
-Task TransitionToStoppedAsync()
-ServerState CurrentState { get; }
-event EventHandler<ServerStateChangedEventArgs> StateChanged
-```
-
-**Thread Safety**: Uses `Lock` (C# 13) for state transitions
-
----
-
-### 3. TransportOrchestrator
-
-**Responsibility**: Manages multiple transport listeners (TCP, KCP), coordinates parallel start/stop, routes connections
-
-**Fields**:
-```csharp
-private readonly ITransportIntegrationManager _transportManager;
-private readonly ConcurrentDictionary<string, IServerListener> _listeners;
-private readonly ConcurrentDictionary<string, TransportChannelConfiguration> _configurations;
-private readonly IServerChannelManager _channelManager;
-```
-
-**Methods**:
-```csharp
-void AddTransport(TransportChannelConfiguration config)
-Task StartAllTransportsAsync(CancellationToken ct)
-Task StopAcceptingAsync(CancellationToken ct) // Phase 1 of shutdown
-Task StopAllTransportsAsync(CancellationToken ct) // Phase 2 of shutdown
-IReadOnlyDictionary<string, TransportInfo> GetTransports()
-TransportInfo? GetDefaultTransport()
-```
-
-**Workflow**:
-1. **AddTransport**: Validate config, store in `_configurations`
-2. **StartAllTransportsAsync**: Parallel startup using `Task.WhenAll`
-   - For each config: `_transportManager.CreateListener(config)`
-   - Wire up `ConnectionAccepted` event → route to `_channelManager`
-   - Call `listener.StartAsync()`
-   - Store in `_listeners`
-3. **StopAcceptingAsync**: Stop accepting new connections (keep existing alive)
-4. **StopAllTransportsAsync**: Close all listeners, cleanup
-
----
-
-### 4. PipelineCoordinator
-
-**Responsibility**: Coordinates ServerHost's pipeline components (MessageReceiver/Dispatcher/Transmitter), integrates with transport layer
-
-**Fields**:
-```csharp
-private readonly MessageReceiver _receiver;
-private readonly MessageDispatcher _dispatcher;
-private readonly ResponseTransmitter _transmitter;
-private readonly ServiceRegistry _serviceRegistry;
-private readonly BackpressurePolicy _backpressurePolicy;
-private readonly ConnectionManager _connectionManager;
-```
-
-**Methods**:
-```csharp
-Task StartPipelineAsync(CancellationToken ct)
-Task DrainPipelinesAsync(CancellationToken ct) // Graceful shutdown: wait for in-flight messages
-Task StopPipelineAsync(CancellationToken ct)
-
-// Service Registration (from ServerHost)
-void RegisterService<T>(string name, T instance, ServiceOptions? options)
-bool UnregisterService(string name)
-
-// Health Monitoring (from ServerHost)
-ServerHealthStatus GetHealthStatus()
-
-// Pipeline Component Access (for advanced scenarios)
-ConnectionManager ConnectionManager { get; }
-ServiceRegistry ServiceRegistry { get; }
-BackpressurePolicy BackpressurePolicy { get; }
-```
-
-**Pipeline Wiring**:
-```csharp
-// Constructor wires up events:
-_receiver.MessageReceived += async (sender, e) =>
+public sealed class UnifiedPulseServer : IPulseServer, IAsyncDisposable, IDisposable
 {
-    // Check backpressure
-    if (!_backpressurePolicy.ShouldAcceptRequest().Accept)
-    {
-        await SendErrorResponseAsync(e.ConnectionId, "ServiceOverloaded");
-        return;
-    }
+    // State
+    public ServerState State { get; }
+    public bool IsRunning { get; }
+    public int ActiveConnectionCount { get; }
 
-    // Dispatch message
-    await _dispatcher.DispatchMessageAsync(e.Message);
-};
-
-_dispatcher.InvocationCompleted += async (sender, e) =>
-{
-    // Send response
-    await _transmitter.SendResponseAsync(e.ConnectionId, e.Response);
-};
-```
-
----
-
-## ServerHost Facade Model
-
-**Pattern**: Thin wrapper with direct delegation to unified PulseServer
-
-**Implementation**:
-```csharp
-[Obsolete("ServerHost is deprecated. Use PulseServer instead. See migration guide at docs/quickstart.md", false)]
-public sealed class ServerHost : IDisposable
-{
-    private readonly PulseServer _unifiedServer;
-    private readonly string _transportName; // For pipeline access
-
-    public ServerHost(IPulseServerTransport transport, ServerHostOptions? options = null)
-    {
-        // Convert ServerHostOptions → ServerConfiguration
-        var config = new ServerConfiguration
-        {
-            Transports = new List<TransportChannelConfiguration>
-            {
-                new TransportChannelConfiguration
-                {
-                    Name = "default",
-                    Type = transport.Type,
-                    Port = transport.LocalEndPoint.Port,
-                    // Map ServerHostOptions to transport options
-                    ReceiverOptions = options?.MessageReceiverOptions,
-                    DispatcherOptions = options?.MessageDispatcherOptions,
-                    TransmitterOptions = options?.ResponseTransmitterOptions
-                }
-            },
-            ShutdownTimeout = TimeSpan.FromSeconds(30)
-        };
-
-        _unifiedServer = new PulseServer(config);
-        _transportName = "default";
-    }
-
-    // Direct delegation (zero-overhead)
-    public async Task StartAsync(CancellationToken ct = default)
-        => await _unifiedServer.StartAsync(ct);
-
-    public async Task StopAsync(CancellationToken ct = default)
-        => await _unifiedServer.StopAsync(ct);
-
-    public bool IsRunning => _unifiedServer.IsRunning;
-
-    // Pipeline component access (ServerHost-exclusive API)
-    public ConnectionManager ConnectionManager
-        => _unifiedServer.GetPipelineCoordinator().ConnectionManager;
-
-    public ServiceRegistry ServiceRegistry
-        => _unifiedServer.GetPipelineCoordinator().ServiceRegistry;
-
-    public BackpressurePolicy BackpressurePolicy
-        => _unifiedServer.GetPipelineCoordinator().BackpressurePolicy;
-
-    // Service registration delegation
-    public void RegisterService<T>(string name, T instance, ServiceOptions? options = null)
-        => _unifiedServer.RegisterService(name, instance, options);
-
-    public bool UnregisterService(string name)
-        => _unifiedServer.UnregisterService(name);
-
-    // Health status delegation
-    public ServerHealthStatus GetHealthStatus()
-        => _unifiedServer.GetHealthStatus();
-
-    public void Dispose()
-        => _unifiedServer.Dispose();
+    // Events
+    public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
+    public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
+    public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 }
 ```
 
-**Deprecation Strategy**:
-- `[Obsolete]` attribute with clear message pointing to migration guide
-- Warning level: `false` (compiler warning, not error)
-- No removal timeline (maintain indefinitely for maximum compatibility)
+**Relationships**:
+- Owns: ITransportIntegrationManager
+- Owns: IServerChannelManager
+- Owns: IMessageReceiver (internal)
+- Owns: IMessageDispatcher (internal)
+- Owns: IServiceRegistry (internal)
+- Owns: IResponseTransmitter (internal)
+- Owns: IBackpressurePolicy (internal)
+- Manages: Multiple IServerListener instances (via dictionary)
+
+**Lifecycle States**: See Section 3.1
 
 ---
 
-## Configuration Model
+### 1.2 ServerState (Enum)
 
-### ServerConfiguration (Unified)
-
-**Merges**: `ServerOptions` (PulseServer) + `ServerHostOptions` (ServerHost)
+**Purpose**: Represents server lifecycle states
 
 ```csharp
-public sealed class ServerConfiguration
+public enum ServerState
+{
+    Stopped = 0,
+    Starting = 1,
+    Running = 2,
+    Stopping = 3
+}
+```
+
+**State Transitions**:
+```
+Stopped → Starting → Running → Stopping → Stopped
+         ↑__________________________|
+```
+
+**Validation Rules**:
+- Cannot start from Running or Starting
+- Cannot stop from Stopped or Stopping
+- Thread-safe transitions via lock
+
+---
+
+### 1.3 UnifiedServerOptions
+
+**Purpose**: Consolidated configuration for unified server
+
+**Namespace**: `PulseRPC.Server`
+
+```csharp
+public sealed class UnifiedServerOptions
 {
     // Transport Configuration (from PulseServer)
     public List<TransportChannelConfiguration> Transports { get; set; } = new();
 
-    // Pipeline Options (from ServerHost)
-    public MessageReceiverOptions? ReceiverOptions { get; set; }
-    public MessageDispatcherOptions? DispatcherOptions { get; set; }
-    public ResponseTransmitterOptions? TransmitterOptions { get; set; }
+    // Pipeline Configuration (from ServerHost)
+    public MessageReceiverOptions MessageReceiver { get; set; } = new();
+    public MessageDispatcherOptions MessageDispatcher { get; set; } = new();
+    public ResponseTransmitterOptions ResponseTransmitter { get; set; } = new();
+    public ConnectionManagerOptions ConnectionManager { get; set; } = new();
+    public ServiceRegistryOptions ServiceRegistry { get; set; } = new();
+    public BackpressurePolicyOptions BackpressurePolicy { get; set; } = new();
 
-    // Connection Management (from ServerHost)
-    public ConnectionManagerOptions? ConnectionOptions { get; set; }
-    public ServiceRegistryOptions? ServiceRegistryOptions { get; set; }
-    public BackpressurePolicyOptions? BackpressureOptions { get; set; }
-
-    // Graceful Shutdown (NEW)
-    public TimeSpan ShutdownTimeout { get; set; } = TimeSpan.FromSeconds(30);
-
-    // Logging (from PulseServer)
-    public LogLevel MinimumLogLevel { get; set; } = LogLevel.Information;
+    // General Server Options
+    public TimeSpan? DefaultOperationTimeout { get; set; } = TimeSpan.FromSeconds(30);
+    public int MaxConcurrentOperations { get; set; } = 1000;
+    public bool EnableDetailedLogging { get; set; } = false;
 }
 ```
 
-### ShutdownOptions (NEW)
+**Validation Rules**:
+- At least one transport must be configured
+- Exactly one transport must be marked as default
+- Timeouts must be positive
+- Max concurrent operations must be > 0
+
+---
+
+### 1.4 TransportChannelConfiguration
+
+**Purpose**: Configuration for a single transport channel
+
+**Namespace**: `PulseRPC.Server`
 
 ```csharp
-public sealed class ShutdownOptions
+public sealed class TransportChannelConfiguration
 {
-    // Total timeout for graceful shutdown
-    public TimeSpan Timeout { get; set; } = TimeSpan.FromSeconds(30);
+    public string Name { get; set; }
+    public TransportType Type { get; set; }
+    public int Port { get; set; }
+    public bool IsDefault { get; set; }
+    public TransportOptions? Options { get; set; }
 
-    // Timeout for draining in-flight messages
-    public TimeSpan DrainTimeout { get; set; } = TimeSpan.FromSeconds(20);
+    // Factory methods
+    public static TransportChannelConfiguration Tcp(string name, int port,
+        TcpTransportOptions? options = null, bool isDefault = false);
 
-    // Timeout for closing connections
-    public TimeSpan ConnectionCloseTimeout { get; set; } = TimeSpan.FromSeconds(5);
+    public static TransportChannelConfiguration Kcp(string name, int port,
+        KcpTransportOptions? options = null, bool isDefault = false);
+}
+```
 
-    // Timeout for stopping transports
-    public TimeSpan TransportStopTimeout { get; set; } = TimeSpan.FromSeconds(5);
+**Validation Rules**:
+- Name must be unique within server
+- Port must be in range 1-65535
+- Type must be supported by TransportIntegrationManager
 
-    // Force shutdown if timeout exceeded
-    public bool ForceShutdownOnTimeout { get; set; } = true;
+---
+
+## 2. Facade Entities
+
+### 2.1 PulseServer (Deprecated Facade)
+
+**Purpose**: Backward compatibility facade for existing PulseServer users
+
+**Namespace**: `PulseRPC.Server`
+
+```csharp
+[Obsolete(
+    "PulseServer has been unified into UnifiedPulseServer. " +
+    "Use UnifiedPulseServer instead. This class will be removed in v3.0.",
+    error: false)]
+public sealed class PulseServer : IPulseServer, IAsyncDisposable, IDisposable
+{
+    // Delegation target
+    private readonly UnifiedPulseServer _implementation;
+
+    // Same public API as before
+    public ServerState State => _implementation.State;
+    public bool IsRunning => _implementation.IsRunning;
+    // ... all properties/methods delegate to _implementation
+}
+```
+
+**Mapping**:
+- Constructor parameters → UnifiedServerOptions mapping
+- AddTransport() calls → Transports collection
+- All method calls → AggressiveInlining delegation
+
+---
+
+### 2.2 ServerHost (Deprecated Facade)
+
+**Purpose**: Backward compatibility facade for existing ServerHost users
+
+**Namespace**: `PulseRPC.Server.Core`
+
+```csharp
+[Obsolete(
+    "ServerHost has been unified into UnifiedPulseServer. " +
+    "Use UnifiedPulseServer instead. This class will be removed in v3.0.",
+    error: false)]
+public sealed class ServerHost : IDisposable
+{
+    // Delegation target
+    private readonly UnifiedPulseServer _implementation;
+
+    // Same public API as before
+    public bool IsRunning => _implementation.IsRunning;
+    public ConnectionManager ConnectionManager { get; }
+    public ServiceRegistry ServiceRegistry { get; }
+    // ... all properties/methods delegate to _implementation
+}
+```
+
+**Mapping**:
+- ServerHostOptions → UnifiedServerOptions
+- IPulseServerTransport parameter → TransportChannel configuration
+- RegisterService() → Delegates to _implementation.RegisterService()
+
+---
+
+## 3. State Models
+
+### 3.1 Server State Machine
+
+```
+┌─────────┐
+│ Stopped │ (Initial state, post-shutdown)
+└────┬────┘
+     │ StartAsync()
+     ↓
+┌──────────┐
+│ Starting │ (Initializing transports, starting pipeline)
+└────┬─────┘
+     │ All transports started successfully
+     ↓
+┌─────────┐
+│ Running │ (Accepting connections, processing messages)
+└────┬────┘
+     │ StopAsync()
+     ↓
+┌──────────┐
+│ Stopping │ (Gracefully shutting down)
+└────┬─────┘
+     │ All components stopped
+     ↓
+┌─────────┐
+│ Stopped │
+└─────────┘
+```
+
+**Concurrent Transition Protection**:
+- Uses `volatile ServerState` field + `object _stateLock`
+- StartAsync() checks: not Running or Starting
+- StopAsync() checks: not Stopped or Stopping
+
+---
+
+### 3.2 Connection Lifecycle
+
+```
+Transport Accepts Connection
+     ↓
+IServerTransport Created
+     ↓
+ServerChannelManager.AddChannel()
+     ↓
+ServerTransportChannel Wrapper Created
+     ↓
+Event Subscriptions:
+  - StateChanged
+  - MessageParsed
+  - Authenticated
+     ↓
+ChannelConnected Event Raised
+     ↓
+Active Connection (message processing)
+     ↓
+Connection Closed / Timeout
+     ↓
+ChannelDisconnected Event Raised
+     ↓
+Auto-Cleanup (60s timer)
+```
+
+---
+
+### 3.3 Message Processing Pipeline State
+
+```
+Transport Receives Bytes
+     ↓
+ServerChannelManager.OnMessageParsed() Event
+     ↓
+BackpressurePolicy.ShouldAcceptRequest()
+     ├─ Reject → SendErrorResponseAsync("ServiceOverloaded")
+     └─ Accept ↓
+MessageDispatcher.DispatchMessageAsync()
+     ↓
+Enqueue to Priority Channel (Critical/High/Normal/Low)
+     ↓
+Worker Thread Dequeues
+     ↓
+ServiceInvoker.InvokeAsync()
+     ├─ Success → InvocationResult
+     ├─ Timeout → InvocationResult.Failure("TimeoutException")
+     └─ Exception → InvocationResult.Failure(exception)
+     ↓
+ResponseTransmitter.SendResponseAsync()
+     ↓
+Serialize + Frame Response
+     ↓
+Transport.SendAsync()
+```
+
+---
+
+## 4. Configuration Mapping
+
+### 4.1 PulseServer → UnifiedPulseServer
+
+| PulseServer API | UnifiedPulseServer API |
+|-----------------|------------------------|
+| `new PulseServer(loggerFactory, options, channelManager, transportManager)` | `new UnifiedPulseServer(unifiedOptions)` with DI injection |
+| `server.AddTransport(config)` | `options.Transports.Add(config)` before construction |
+| `ServerOptions.MaxConnections` | `UnifiedServerOptions.ConnectionManager.MaxConnections` |
+
+**Facade Mapping Logic**:
+```csharp
+public PulseServer(ILoggerFactory? loggerFactory = null,
+    IOptions<ServerOptions>? serverOptions = null,
+    IServerChannelManager? channelManager = null,
+    ITransportIntegrationManager? transportIntegrationManager = null)
+{
+    var unifiedOptions = new UnifiedServerOptions
+    {
+        // Map server options
+        DefaultOperationTimeout = serverOptions?.Value.DefaultTimeout,
+        ConnectionManager = new ConnectionManagerOptions
+        {
+            MaxConnections = serverOptions?.Value.MaxConnections ?? 1000
+        }
+    };
+
+    _implementation = new UnifiedPulseServer(
+        loggerFactory,
+        Options.Create(unifiedOptions),
+        channelManager,
+        transportIntegrationManager);
 }
 ```
 
 ---
 
-## Lifecycle Workflows
+### 4.2 ServerHost → UnifiedPulseServer
 
-### Startup Sequence
+| ServerHost API | UnifiedPulseServer API |
+|----------------|------------------------|
+| `new ServerHost(transport, options)` | `new UnifiedPulseServer(options)` with transport in options |
+| `ServerHostOptions.MessageReceiverOptions` | `UnifiedServerOptions.MessageReceiver` (direct) |
+| `ServerHostOptions.MessageDispatcherOptions` | `UnifiedServerOptions.MessageDispatcher` (direct) |
+| `host.RegisterService<T>(name, instance)` | `server.RegisterService<T>(name, instance)` (same API) |
 
-```
-StartAsync() invoked
-    │
-    ├─> ServerLifecycleCoordinator.TransitionToStartingAsync()
-    │   └─> State: Stopped → Starting
-    │   └─> Emit StateChanged event
-    │
-    ├─> TransportOrchestrator.StartAllTransportsAsync()
-    │   ├─> For each transport config:
-    │   │   ├─> ITransportIntegrationManager.CreateListener(config)
-    │   │   ├─> Wire ConnectionAccepted → route to IServerChannelManager
-    │   │   └─> listener.StartAsync()
-    │   └─> Task.WhenAll (parallel)
-    │
-    ├─> PipelineCoordinator.StartPipelineAsync()
-    │   ├─> MessageReceiver.StartAsync()
-    │   ├─> MessageDispatcher.StartAsync() (spawn workers)
-    │   └─> ResponseTransmitter.StartAsync() (spawn sender)
-    │
-    ├─> ServerLifecycleCoordinator.TransitionToRunningAsync()
-    │   └─> State: Starting → Running
-    │   └─> Emit StateChanged event
-    │
-    └─> StartAsync() returns
-```
+**Facade Mapping Logic**:
+```csharp
+public ServerHost(IPulseServerTransport transport, ServerHostOptions? options = null)
+{
+    var unifiedOptions = new UnifiedServerOptions
+    {
+        // Create transport configuration from IPulseServerTransport
+        Transports = new List<TransportChannelConfiguration>
+        {
+            TransportChannelConfiguration.FromTransport(transport)
+        },
 
-### Shutdown Sequence (Graceful)
+        // Direct mapping of pipeline options
+        MessageReceiver = options?.MessageReceiverOptions ?? new(),
+        MessageDispatcher = options?.MessageDispatcherOptions ?? new(),
+        ResponseTransmitter = options?.ResponseTransmitterOptions ?? new(),
+        ConnectionManager = options?.ConnectionManagerOptions ?? new(),
+        ServiceRegistry = options?.ServiceRegistryOptions ?? new(),
+        BackpressurePolicy = options?.BackpressurePolicyOptions ?? new()
+    };
 
-```
-StopAsync(timeout=30s) invoked
-    │
-    ├─> ServerLifecycleCoordinator.TransitionToStoppingAsync()
-    │   └─> State: Running → Stopping
-    │   └─> Emit StateChanged event
-    │
-    ├─> CancellationTokenSource.CancelAfter(30s)
-    │
-    ├─> TransportOrchestrator.StopAcceptingAsync(ct)
-    │   └─> Stop accepting new connections (listeners remain open)
-    │
-    ├─> PipelineCoordinator.DrainPipelinesAsync(ct)
-    │   ├─> Wait for MessageDispatcher queue to drain
-    │   ├─> Wait for ResponseTransmitter queue to flush
-    │   └─> Timeout: 20s (or throw OperationCanceledException)
-    │
-    ├─> IServerChannelManager.CloseAllChannelsAsync(ct)
-    │   └─> Close all active connections gracefully
-    │   └─> Timeout: 5s
-    │
-    ├─> TransportOrchestrator.StopAllTransportsAsync(ct)
-    │   └─> Stop and dispose all listeners
-    │   └─> Timeout: 5s
-    │
-    ├─> ServerLifecycleCoordinator.TransitionToStoppedAsync()
-    │   └─> State: Stopping → Stopped
-    │   └─> Emit StateChanged event
-    │
-    └─> StopAsync() returns
-
-    [If timeout exceeded]:
-    └─> Catch OperationCanceledException
-        └─> Log warning: "Graceful shutdown timed out"
-        └─> ForceShutdownAsync() (best-effort cleanup)
+    _implementation = new UnifiedPulseServer(Options.Create(unifiedOptions));
+}
 ```
 
 ---
 
-## Performance Considerations
+## 5. Event Models
 
-1. **Zero-Allocation Delegation**: Facade methods create no heap objects (direct field access, no closures)
-2. **Parallel Transport Operations**: Use `Task.WhenAll` for concurrent start/stop
-3. **Async Throughout**: No blocking calls (all I/O is async)
-4. **Lock-Free Where Possible**: Use `ConcurrentDictionary` for listeners/transports
-5. **Pipeline Efficiency**: Reuse ServerHost's optimized components (pooled buffers, channels-based queues)
-6. **Graceful Shutdown**: Coordinated phases prevent hung servers while allowing in-flight completion
+### 5.1 ServerStateChangedEventArgs
+
+```csharp
+public sealed class ServerStateChangedEventArgs : EventArgs
+{
+    public ServerState OldState { get; init; }
+    public ServerState NewState { get; init; }
+    public DateTime Timestamp { get; init; }
+}
+```
 
 ---
 
-## Next Steps
+### 5.2 ClientConnectedEventArgs
 
-- Generate public API contracts (`contracts/IPulseServer.cs`, `contracts/ServerConfiguration.cs`)
-- Write migration guide (`quickstart.md`)
-- Update agent context with unified architecture
+```csharp
+public sealed class ClientConnectedEventArgs : EventArgs
+{
+    public string ConnectionId { get; init; }
+    public EndPoint? RemoteEndPoint { get; init; }
+    public TransportType TransportType { get; init; }
+    public DateTime ConnectedTime { get; init; }
+}
+```
+
+---
+
+### 5.3 ClientDisconnectedEventArgs
+
+```csharp
+public sealed class ClientDisconnectedEventArgs : EventArgs
+{
+    public string ConnectionId { get; init; }
+    public DisconnectReason Reason { get; init; }
+    public TimeSpan ConnectionDuration { get; init; }
+    public DateTime DisconnectedTime { get; init; }
+}
+```
+
+---
+
+## 6. Performance Metrics Model
+
+### 6.1 ServerPerformanceMetrics
+
+```csharp
+public sealed class ServerPerformanceMetrics
+{
+    public int ActiveConnections { get; init; }
+    public long TotalConnectionsAccepted { get; init; }
+    public long TotalMessagesProcessed { get; init; }
+    public long TotalMessagesDropped { get; init; }
+    public double AverageLatencyMs { get; init; }
+    public double ThroughputMsgsPerSec { get; init; }
+    public double MemoryUsageMB { get; init; }
+    public double CpuUsagePercent { get; init; }
+    public DateTime LastResetTime { get; init; }
+}
+```
+
+**Collection Strategy**:
+- Aggregated from all pipeline components
+- Updated on-demand (GetPerformanceMetrics() call)
+- Can be reset via ResetPerformanceMetrics()
+
+---
+
+## 7. Dependency Injection Model
+
+### 7.1 Service Registration
+
+```csharp
+// Extension method
+public static class UnifiedServerServiceCollectionExtensions
+{
+    public static IServiceCollection AddUnifiedPulseServer(
+        this IServiceCollection services,
+        Action<UnifiedServerOptions> configureOptions)
+    {
+        services.Configure(configureOptions);
+        services.AddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
+        services.AddSingleton<IServerChannelManager, ServerChannelManager>();
+        services.AddSingleton<IPulseServer, UnifiedPulseServer>();
+        services.AddHostedService<UnifiedPulseServerHostedService>();
+        return services;
+    }
+}
+```
+
+---
+
+### 7.2 Hosted Service Wrapper
+
+```csharp
+public sealed class UnifiedPulseServerHostedService : IHostedService
+{
+    private readonly UnifiedPulseServer _server;
+
+    public UnifiedPulseServerHostedService(UnifiedPulseServer server)
+    {
+        _server = server;
+    }
+
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        await _server.StartAsync(cancellationToken);
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await _server.StopAsync(cancellationToken);
+    }
+}
+```
+
+---
+
+## 8. Validation Rules Summary
+
+### 8.1 Configuration Validation
+
+| Rule | Validation | Error Message |
+|------|------------|---------------|
+| At least one transport | `Transports.Count > 0` | "At least one transport must be configured" |
+| One default transport | `Transports.Count(t => t.IsDefault) == 1` | "Exactly one transport must be marked as default" |
+| Unique transport names | `Transports.Select(t => t.Name).Distinct().Count() == Transports.Count` | "Transport names must be unique" |
+| Valid port range | `Port >= 1 && Port <= 65535` | "Port must be between 1 and 65535" |
+| Positive timeout | `DefaultOperationTimeout > TimeSpan.Zero` | "Timeout must be positive" |
+
+---
+
+### 8.2 Runtime Validation
+
+| Rule | Validation | Action |
+|------|------------|--------|
+| Cannot start when running | `State != Running && State != Starting` | Throw InvalidOperationException |
+| Cannot stop when stopped | `State != Stopped && State != Stopping` | Return immediately (no-op) |
+| Transport supported | `TransportIntegrationManager.IsSupported(type)` | Throw NotSupportedException |
+| Duplicate service name | `ServiceRegistry.Contains(name)` | Throw ArgumentException |
+
+---
+
+## 9. Key Relationships Diagram
+
+```
+┌─────────────────────────┐
+│  UnifiedPulseServer     │
+│  (Main Orchestrator)    │
+└───────────┬─────────────┘
+            │
+    ┌───────┼───────┬──────────┬──────────────┐
+    │       │       │          │              │
+    ↓       ↓       ↓          ↓              ↓
+┌──────┐ ┌─────┐ ┌────┐  ┌──────────┐  ┌──────────┐
+│Trans-│ │Chan-│ │Msg │  │Service   │  │Response  │
+│port  │ │nel  │ │Disp│  │Registry  │  │Transmit  │
+│Integ.│ │Mgr  │ │atch│  │          │  │          │
+└──┬───┘ └──┬──┘ └─┬──┘  └────┬─────┘  └────┬─────┘
+   │        │      │          │             │
+   │        │      │          │             │
+   │  ┌─────┴──────┴──────────┴─────────────┘
+   │  │ Event-Driven Coordination
+   │  └────────────────────────────────────┐
+   │                                       │
+   ↓                                       ↓
+┌─────────────┐                    ┌──────────────┐
+│IServerListen│ (multiple)         │Backpressure  │
+│             │                    │Policy        │
+└─────────────┘                    └──────────────┘
+```
+
+---
+
+## 10. Migration Data Flow
+
+### 10.1 PulseServer Facade Data Flow
+
+```
+User Code → PulseServer (Facade)
+                ↓ [AggressiveInlining]
+           UnifiedPulseServer
+                ↓
+           Actual Implementation
+```
+
+**Data Transformation**:
+- Configuration: ServerOptions → UnifiedServerOptions
+- Method calls: Direct delegation (no data transformation)
+- Events: Re-raised from implementation
+
+---
+
+### 10.2 ServerHost Facade Data Flow
+
+```
+User Code → ServerHost (Facade)
+                ↓ [AggressiveInlining]
+           UnifiedPulseServer
+                ↓
+           Actual Implementation
+```
+
+**Data Transformation**:
+- Configuration: ServerHostOptions → UnifiedServerOptions
+- Transport: IPulseServerTransport → TransportChannelConfiguration
+- Method calls: Direct delegation with parameter mapping
+
+---
+
+## Conclusion
+
+This data model provides:
+
+1. **Clear Entity Hierarchy**: UnifiedPulseServer as the central orchestrator with well-defined dependencies
+2. **Configuration Consolidation**: UnifiedServerOptions merges PulseServer and ServerHost configurations
+3. **Facade Compatibility**: PulseServer and ServerHost facades map to unified model with minimal overhead
+4. **State Management**: Explicit state machines for server lifecycle and message processing
+5. **Validation Rules**: Comprehensive validation at configuration and runtime levels
+6. **Event-Driven Integration**: Clear event models for component coordination
+
+This model supports all functional requirements (FR-001 through FR-019) and enables the implementation of the unified server architecture.
