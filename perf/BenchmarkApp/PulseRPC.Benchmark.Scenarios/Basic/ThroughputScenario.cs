@@ -109,12 +109,7 @@ public class ThroughputScenario(ILoggerFactory loggerFactory) : BenchmarkClientB
     {
         try
         {
-            Logger.LogDebug("连接 {ConnectionId} 开始执行 {Iterations} 次操作 (并发管道模式)", connectionId, iterations);
-
-            // 使用 SemaphoreSlim 来控制并发度 - 每个连接可以同时发起多个请求
-            var maxConcurrentRequestsPerConnection = 50; // 每个连接最多50个并发请求
-            var semaphore = new SemaphoreSlim(maxConcurrentRequestsPerConnection);
-            var tasks = new List<Task>();
+            Logger.LogDebug("连接 {ConnectionId} 开始执行 {Iterations} 次操作", connectionId, iterations);
 
             for (int i = 0; i < iterations; i++)
             {
@@ -124,44 +119,28 @@ public class ThroughputScenario(ILoggerFactory loggerFactory) : BenchmarkClientB
                     break;
                 }
 
-                // 等待有空闲并发槽位
-                await semaphore.WaitAsync(cancellationToken);
-
-                // 启动异步任务但不等待它完成
-                var task = Task.Run(async () =>
+                try
                 {
-                    try
-                    {
-                        var operationTime = await ExecuteSingleThroughputOperation(messageSize, cancellationToken);
+                    var operationTime = await ExecuteSingleThroughputOperation(messageSize, cancellationToken);
 
-                        lock (_lock)
-                        {
+                    lock (_lock)
+                    {
                         _operationTimes.Add(operationTime);
-                            _completedOperations++;
-                        }
+                        _completedOperations++;
                     }
-                    catch (Exception ex)
-                    {
-                        Logger.LogDebug("连接 {ConnectionId} 操作失败: {Error}", connectionId, ex.Message);
-                        Interlocked.Increment(ref _failedOperations);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                }, cancellationToken);
-
-                tasks.Add(task);
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogDebug("连接 {ConnectionId} 操作失败: {Error}", connectionId, ex.Message);
+                    Interlocked.Increment(ref _failedOperations);
+                }
 
                 // 每1000次记录一次进度
                 if ((i + 1) % 1000 == 0)
                 {
-                    Logger.LogDebug("连接 {ConnectionId} 已提交 {Current}/{Total} 次操作", connectionId, i + 1, iterations);
+                    Logger.LogDebug("连接 {ConnectionId} 已完成 {Current}/{Total} 次操作", connectionId, i + 1, iterations);
                 }
             }
-
-            // 等待所有请求完成
-            await Task.WhenAll(tasks);
 
             Logger.LogDebug("连接 {ConnectionId} 完成所有操作", connectionId);
         }

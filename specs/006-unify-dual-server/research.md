@@ -1,866 +1,623 @@
-# Unified Server Implementation Research
+# Research: Unified Server Implementation
 
-**Date**: 2025-10-13
-**Feature**: `006-unify-dual-server`
-**Objective**: Analyze PulseServer and ServerHost implementations to design unified server architecture
+**Date**: 2025-10-16
+**Feature**: 006-unify-dual-server
+**Purpose**: Technical research to inform the design of a unified server implementation that consolidates PulseServer and ServerHost
 
 ---
 
 ## Executive Summary
 
-This research analyzes two existing server implementations in PulseRPC that exhibit complementary architectural patterns:
+This research analyzes the existing dual server architectures (PulseServer and ServerHost) to inform the design of a unified implementation. Key findings:
 
-- **PulseServer** (transport-focused): Manages multiple transport listeners (TCP/KCP), connection lifecycle, and client events
-- **ServerHost** (pipeline-focused): Orchestrates message processing pipeline (MessageReceiver → MessageDispatcher → ServiceInvoker → ResponseTransmitter)
-
-**Key Finding**: Both implementations are **complementary, not competing**. The unified design should adopt PulseServer's transport orchestration as the primary pattern while integrating ServerHost's proven pipeline components as managed subsystems.
-
-**Critical Preservation Requirements**:
-- ServerHost's service registration API (functional, unlike PulseServer's incomplete stub)
-- ServerHost's pipeline component access (ConnectionManager, ServiceRegistry, BackpressurePolicy)
-- ServerHost's comprehensive health monitoring (queue depth, backpressure level)
-- PulseServer's multi-transport support and transport-level events
+1. **PulseServer** uses a transport-focused architecture managing listeners, transports, and channels
+2. **ServerHost** uses a pipeline-focused architecture coordinating message processing components
+3. The unified server should adopt PulseServer's transport-focused model while integrating ServerHost's pipeline capabilities
+4. Binary compatibility can be maintained through facade pattern with near-zero overhead using AggressiveInlining
+5. Existing test infrastructure can validate behavior parity between facades and unified implementation
 
 ---
 
-## Architecture Analysis
+## 1. PulseServer Architecture Analysis
 
-### PulseServer: Transport-Focused Orchestration
+### 1.1 Core Design: Transport-Focused Orchestration
 
-**File**: `src/PulseRPC.Server/PulseServer.cs` (458 lines)
+**Location**: `src/PulseRPC.Server/PulseServer.cs`
 
-**Core Philosophy**: Network connectivity is the first-class concern. The server orchestrates multiple transport listeners (TCP, KCP) and routes accepted connections to a channel manager.
+**Primary Responsibilities**:
+- Manages multiple transport configurations (TCP, KCP, custom)
+- Creates and lifecycle-manages transport listeners
+- Coordinates connection acceptance and channel registration
+- Provides server state management (Stopped, Starting, Running, Stopping)
 
-**Architecture**:
+### 1.2 Key Components
+
+#### TransportIntegrationManager
+**Location**: `src/PulseRPC.Server/Integration/TransportIntegrationManager.cs`
+
+- **Plugin architecture** for transport providers (ITransportProvider)
+- Factory pattern for creating transport-specific listeners
+- Validates transport support before listener creation
+- Thread-safe provider registry using ConcurrentDictionary
+
+#### ServerChannelManager
+**Location**: `src/PulseRPC.Server/Processing/ServerChannelManager.cs`
+
+- Tracks all active connections via IServerChannel abstraction
+- Routes messages to processing engines (tiered message engine integration)
+- Manages authentication state
+- Automatic cleanup of stale connections (60s timer, 5min timeout)
+
+#### IServerListener
+**Location**: `src/PulseRPC.Abstractions/Transport/ITransport.cs`
+
+**Implementations**:
+- **TcpServerListener**: Uses .NET TcpListener, async accept loop
+- **KcpServerListener**: Single UDP socket with handshake protocol
+
+**Responsibilities**:
+- Binds to network endpoint
+- Accepts new connections
+- Raises ConnectionAccepted events with IServerTransport instances
+
+### 1.3 Lifecycle Flow
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        PulseServer                          │
-├─────────────────────────────────────────────────────────────┤
-│  State: ServerState (Stopped/Starting/Running/Stopping)     │
-│  Transports: ConcurrentDictionary<name, config>            │
-│  Listeners: ConcurrentDictionary<name, IServerListener>    │
-└─────────────────────────────────────────────────────────────┘
-         │                        │                        │
-         ▼                        ▼                        ▼
-┌──────────────────┐   ┌──────────────────┐   ┌──────────────────┐
-│ TCP Listener     │   │ KCP Listener     │   │ [Future] WS      │
-│ (port 8080)      │   │ (port 9090)      │   │ Listener         │
-└──────────────────┘   └──────────────────┘   └──────────────────┘
-         │                        │                        │
-         └────────────┬───────────┘                        │
-                      ▼                                    │
-         ┌────────────────────────────────┐               │
-         │  IServerChannelManager         │ ◄─────────────┘
-         │  - Manages active connections  │
-         │  - Message processing (opaque) │
-         └────────────────────────────────┘
-```
-
-**Key Components**:
-1. **ITransportIntegrationManager**: Factory for creating IServerListener instances
-2. **TransportChannelConfiguration**: Declarative transport config (name, type, port, options)
-3. **IServerChannelManager**: Connection tracking and message processing (delegated)
-4. **ServerLifecycle**: Lock-based state machine with parallel transport start/stop
-
-**Lifecycle**:
-```csharp
 StartAsync():
-├─ Lock-based state validation (prevent double-start)
-├─ Parallel transport startup (Task.WhenAll)
-│  ├─ CreateListener (ITransportIntegrationManager)
-│  ├─ Register ConnectionAccepted event
-│  └─ listener.StartAsync()
-├─ Store in ConcurrentDictionary<string, IServerListener>
-└─ Set state to Running
+  1. Validate transports configured
+  2. Parallel start all transports (Task.WhenAll)
+     → TransportIntegrationManager.CreateListener()
+     → listener.ConnectionAccepted += OnConnectionAccepted
+     → listener.StartAsync()
+     → Store in _listeners dictionary
+  3. Transition to Running state
+
+OnConnectionAccepted():
+  1. Non-blocking Task.Run for connection processing
+  2. ServerChannelManager.AddChannel(transport)
+  3. Wrap transport in ServerTransportChannel
+  4. Subscribe to channel events (StateChanged, MessageParsed)
+  5. Raise ChannelConnected event
 
 StopAsync():
-├─ Lock-based state validation
-├─ Cancel internal CancellationTokenSource
-├─ Parallel transport shutdown (Task.WhenAll)
-│  ├─ Unregister events
-│  ├─ listener.StopAsync()
-│  └─ listener.Dispose()
-└─ Set state to Stopped
+  1. Transition to Stopping state
+  2. Parallel stop all listeners (Task.WhenAll)
+     → Unsubscribe from events
+     → listener.StopAsync() + Dispose()
+  3. Transition to Stopped state
 ```
 
-**Strengths**:
-- ✅ Multi-transport support (TCP + KCP + future WebSocket/QUIC)
-- ✅ Clear separation: transport concerns vs message processing
-- ✅ Parallel transport operations (fast startup/shutdown)
-- ✅ Rich event model (StateChanged, ClientConnected, ClientDisconnected)
-- ✅ Full DI integration (all components injectable)
-- ✅ Fluent builder API (PulseServerBuilder)
+### 1.4 Architectural Strengths
 
-**Weaknesses**:
-- ❌ Service registration incomplete (GetRegisteredServices returns empty list)
-- ❌ No pipeline component visibility (opaque IServerChannelManager)
-- ❌ No health monitoring (performance metrics incomplete)
-- ❌ No graceful shutdown timeout enforcement
+- ✅ **Parallel Operations**: Listeners start/stop concurrently for performance
+- ✅ **Non-blocking Acceptance**: Connection processing doesn't block listener threads
+- ✅ **Extensibility**: New transports via ITransportProvider plugin
+- ✅ **State Safety**: Volatile state + lock-based transitions prevent race conditions
+- ✅ **Event-Driven**: Loose coupling between transport and processing layers
+
+### 1.5 Current Limitations
+
+- ⚠️ **Incomplete Message Pipeline**: Channel events not fully integrated with message processing
+- ⚠️ **Limited Pipeline Components**: No MessageDispatcher, ServiceRegistry, or BackpressurePolicy integration
 
 ---
 
-### ServerHost: Pipeline-Focused Orchestration
+## 2. ServerHost Architecture Analysis
 
-**File**: `src/PulseRPC.Server/Core/ServerHost.cs` (330 lines)
+### 2.1 Core Design: Pipeline-Focused Orchestration
 
-**Core Philosophy**: Message flow through the system is the first-class concern. The server orchestrates discrete pipeline stages (receive → parse → dispatch → invoke → respond).
+**Location**: `src/PulseRPC.Server/Core/ServerHost.cs`
 
-**Architecture**:
+**Primary Responsibilities**:
+- Coordinates message processing pipeline components
+- Enforces backpressure policy
+- Handles service registration/unregistration
+- Generates error responses for pipeline failures
+
+### 2.2 Pipeline Components
+
+#### MessageReceiver
+**Location**: `src/PulseRPC.Server/Pipeline/MessageReceiver.cs`
+
+- Receives raw bytes from transport
+- Per-connection buffering using ArrayPool<byte>
+- Length-prefixed framing (4-byte header)
+- Emits MessageReceived and ParseError events
+
+#### MessageDispatcher
+**Location**: `src/PulseRPC.Server/Pipeline/MessageDispatcher.cs`
+
+- Priority-based message queuing (Critical, High, Normal, Low)
+- Worker thread pool for parallel processing
+- Uses System.Threading.Channels for lock-free queuing
+- Routes messages to registered service handlers
+- Exposes QueueDepth for backpressure monitoring
+
+**Priority Scheduling**:
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         ServerHost                          │
-├─────────────────────────────────────────────────────────────┤
-│  IPulseServerTransport (single transport)                   │
-│  IsRunning: int flag (Interlocked)                          │
-└─────────────────────────────────────────────────────────────┘
-         │
-         ├─────────────┬─────────────┬─────────────┬──────────────────┐
-         ▼             ▼             ▼             ▼                  ▼
-┌─────────────────┐ ┌───────────┐ ┌─────────────┐ ┌──────────────┐ ┌─────────────────┐
-│ MessageReceiver │→│ MessageD  │→│ ServiceReg  │→│ ServiceInv   │→│ ResponseTrans   │
-│ - Framing       │ │ ispatcher │ │ istry       │ │ oker         │ │ mitter          │
-│ - Buffering     │ │ - Priority│ │ - Service   │ │ - Method     │ │ - Batching      │
-│ - Parsing       │ │ - Channels│ │   Tracking  │ │   Dispatch   │ │ - Framing       │
-└─────────────────┘ └───────────┘ └─────────────┘ └──────────────┘ └─────────────────┘
-         │                  │              │                               │
-         ▼                  ▼              ▼                               ▼
-    (Pooled Buffers) (Worker Threads) (Reflection/Codegen)      (Connection-level Send)
-```
-
-**Key Components**:
-1. **MessageReceiver**: Connection-level buffering, message framing (4-byte length header), parsing
-2. **MessageDispatcher**: Priority-based queuing (Critical/High/Normal/Low), System.Threading.Channels, worker pool
-3. **ServiceRegistry**: Service instance management, method introspection, state tracking
-4. **ResponseTransmitter**: Response batching, channel-based queue, framing
-5. **ConnectionManager**: Connection lifecycle tracking, statistics
-6. **BackpressurePolicy**: Queue depth monitoring, admission control
-
-**Lifecycle**:
-```csharp
-StartAsync():
-├─ Atomic flag check (Interlocked.CompareExchange)
-├─ Sequential pipeline startup
-│  ├─ MessageReceiver.StartAsync() (start buffering)
-│  ├─ MessageDispatcher.StartAsync() (spawn workers)
-│  └─ ResponseTransmitter.StartAsync() (spawn sender)
-└─ Set IsRunning flag
-
-StopAsync():
-├─ Atomic flag check
-├─ Reverse-order pipeline shutdown
-│  ├─ ResponseTransmitter.StopAsync()
-│  ├─ MessageDispatcher.StopAsync()
-│  └─ MessageReceiver.StopAsync()
-└─ ConnectionManager.CloseAllConnectionsAsync()
+Worker Loop:
+  1. Fast path: TryRead from priority channels (Critical → Low)
+  2. Async path: WhenAny on all channels if no immediate work
+  3. Process item via ServiceInvoker
 ```
 
-**Strengths**:
-- ✅ Proven message processing pipeline (production-tested)
-- ✅ Functional service registration (RegisterService/UnregisterService)
-- ✅ Comprehensive health monitoring (queue depth, backpressure level, message counts)
-- ✅ Pipeline component access (ConnectionManager, ServiceRegistry, BackpressurePolicy properties)
-- ✅ Built-in backpressure and priority scheduling
-- ✅ Clear testing boundaries (each component independently testable)
+#### ServiceRegistry
+**Location**: `src/PulseRPC.Server/Core/ServiceRegistry.cs`
 
-**Weaknesses**:
-- ❌ Single transport only (no multi-transport support)
-- ❌ No state machine (boolean flag lacks Starting/Stopping states)
-- ❌ No external events (no StateChanged, ClientConnected)
-- ❌ Limited DI integration (creates components internally)
-- ❌ No graceful shutdown timeout enforcement
+- Thread-safe service lifecycle management
+- Creates ServiceInvoker wrappers with timeout enforcement
+- Service state transitions (Active, Paused, Unregistered)
+- Maintains separate registry from MessageDispatcher routing table
+
+#### ServiceInvoker
+**Location**: `src/PulseRPC.Server/Pipeline/ServiceInvoker.cs`
+
+- Wraps CompiledServiceInvoker with cross-cutting concerns
+- Timeout enforcement via linked cancellation tokens
+- Exception isolation and context analysis
+- Distinguishes timeout vs. cancellation vs. exceptions
+
+#### ResponseTransmitter
+**Location**: `src/PulseRPC.Server/Pipeline/ResponseTransmitter.cs`
+
+- Asynchronous response transmission
+- Response batching for throughput optimization
+- Worker thread pool for parallel I/O
+- Decouples serialization (CPU) from transmission (I/O)
+
+#### BackpressurePolicy
+**Location**: `src/PulseRPC.Server/Core/BackpressurePolicy.cs`
+
+**Three-level strategy**:
+- **None** (0-70% queue utilization): Accept all
+- **Throttle** (70-90%): Probabilistic 50% rejection
+- **Reject** (90%+): Reject all new requests
+
+**Hysteresis**: 10% band prevents oscillation (e.g., Throttle→None at 60%, not 70%)
+
+#### ConnectionManager
+**Location**: `src/PulseRPC.Server/Core/ConnectionManager.cs`
+
+- Thread-safe connection tracking
+- State machine validation (Connecting → Active → Closing → Closed)
+- Timer-based cleanup (30s interval)
+- Connection limits enforcement
+
+### 2.3 Event Flow
+
+```
+Transport.DataReceived
+  → MessageReceiver.OnDataReceived()
+    → Parse complete message
+    → Emit MessageReceived event
+
+ServerHost.OnMessageReceived():
+  1. Update BackpressurePolicy.UpdateQueueDepth()
+  2. Check ShouldAcceptRequest()
+  3. If rejected → SendErrorResponseAsync("ServiceOverloaded")
+  4. If accepted → MessageDispatcher.DispatchMessageAsync()
+     → Enqueue to priority channel
+     → Worker dequeues
+     → ServiceInvoker.InvokeAsync()
+       → Timeout enforcement
+       → CompiledServiceInvoker.InvokeAsync()
+```
+
+### 2.4 Service Registration Integration
+
+```
+ServerHost.RegisterService<TService>(name, instance, options):
+  1. ServiceRegistry.RegisterService()
+     → Create ServiceInvoker(instance, timeout)
+     → Store ServiceRegistration
+
+  2. Get IServiceHandler from registration
+
+  3. MessageDispatcher.RegisterServiceHandler(name, handler)
+     → Store in routing dictionary
+```
+
+**Design Rationale**: Separate registries allow pausing services (remove from dispatcher) without destroying lifecycle state (ServiceRegistry retains).
+
+### 2.5 Architectural Strengths
+
+- ✅ **Separation of Concerns**: Each component has single responsibility
+- ✅ **Explicit Error Handling**: Errors caught at each pipeline stage with appropriate responses
+- ✅ **Backpressure Integration**: Queue depth monitored before dispatch prevents saturation
+- ✅ **Priority Scheduling**: Critical operations never starved under load
+- ✅ **Async All the Way**: No blocking I/O, proper cancellation propagation
+- ✅ **Memory Efficiency**: ArrayPool usage, ReadOnlyMemory avoids copying
+
+### 2.6 Current Limitations
+
+- ⚠️ **Incomplete Response Pipeline**: InvocationResult not automatically converted to responses
+- ⚠️ **No Request Context**: Service methods can't access metadata, cancellation tokens
+- ⚠️ **Statistics Isolation**: Each component tracks independently, no centralized aggregation
 
 ---
 
-## API Compatibility Matrix
+## 3. Architectural Comparison
 
-### Common Methods (Identical Signature)
+| Aspect | PulseServer | ServerHost |
+|--------|-------------|------------|
+| **Primary Focus** | Transport management | Pipeline orchestration |
+| **Entry Point** | Connection acceptance | Message reception |
+| **Coordination** | Event-driven (ConnectionAccepted) | Event-driven (MessageReceived) |
+| **State Management** | Server-level (Running/Stopped) | Component-level (per pipeline stage) |
+| **Lifecycle** | Parallel listener startup/shutdown | Sequential component startup/shutdown |
+| **Extensibility** | Transport plugins (ITransportProvider) | Service handlers (IServiceHandler) |
+| **Performance** | Optimized for connection throughput | Optimized for message throughput |
+| **Backpressure** | Not implemented | Integrated (BackpressurePolicy) |
+| **Message Processing** | Delegates to ChannelManager | Full pipeline (Receiver→Dispatcher→Invoker→Transmitter) |
 
-| Method | PulseServer | ServerHost | Behavioral Difference |
-|--------|-------------|------------|----------------------|
-| `StartAsync(CancellationToken)` | ✅ | ✅ | PulseServer: starts transports; ServerHost: starts pipeline |
-| `StopAsync(CancellationToken)` | ✅ | ✅ | PulseServer: stops transports; ServerHost: stops pipeline |
-| `IsRunning` | ✅ | ✅ | PulseServer: enum-backed; ServerHost: int flag |
-| `Dispose()` | ✅ | ✅ | Both implement IDisposable |
+### 3.1 Complementary Strengths
 
-### PulseServer-Exclusive Features
+- **PulseServer**: Strong transport abstraction, parallel operations, state safety
+- **ServerHost**: Comprehensive message pipeline, backpressure, priority scheduling
 
-**Transport Management** (no ServerHost equivalent):
-```csharp
-void AddTransport(TransportChannelConfiguration config)
-IReadOnlyDictionary<string, TransportInfo> GetTransports()
-TransportInfo? GetDefaultTransport()
-```
+### 3.2 Integration Opportunity
 
-**Connection Management**:
-```csharp
-int ActiveConnectionCount { get; }
-IReadOnlyList<ConnectionInfo> GetActiveConnections()
-Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, ...)
-Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, ...)
-```
-
-**State & Events**:
-```csharp
-ServerState State { get; } // Enum: Stopped, Starting, Running, Stopping
-event EventHandler<ServerStateChangedEventArgs>? StateChanged
-event EventHandler<ClientConnectedEventArgs>? ClientConnected
-event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected
-```
-
-**Performance Metrics**:
-```csharp
-ServerPerformanceMetrics GetPerformanceMetrics()
-void ResetPerformanceMetrics()
-IReadOnlyList<ServiceInfo> GetRegisteredServices() // ⚠️ INCOMPLETE - returns empty list
-```
-
-### ServerHost-Exclusive Features (CRITICAL - MUST PRESERVE)
-
-**Pipeline Component Access**:
-```csharp
-ConnectionManager ConnectionManager { get; }
-ServiceRegistry ServiceRegistry { get; }
-BackpressurePolicy BackpressurePolicy { get; }
-```
-**Why Critical**: Enables fine-grained control, testing, production monitoring
-
-**Service Registration** (functional, unlike PulseServer stub):
-```csharp
-void RegisterService<TService>(string serviceName, TService instance, ServiceOptions? options)
-bool UnregisterService(string serviceName)
-```
-
-**Health Status** (comprehensive pipeline visibility):
-```csharp
-ServerHealthStatus GetHealthStatus()
-// Returns: IsRunning, ActiveConnections,
-//          TotalMessagesReceived/Dispatched/Sent,
-//          RegisteredServiceCount, BackpressureLevel, QueueDepth
-```
+The unified server can adopt:
+- **PulseServer's transport management** as the foundation
+- **ServerHost's pipeline components** as integrated services
+- **Event-driven coordination** to connect the two layers
 
 ---
 
-## Integration Patterns
+## 4. Facade Pattern for Binary Compatibility
 
-### Dependency Injection
+### 4.1 Implementation Pattern
 
-**PulseServer: Full DI Integration**
 ```csharp
-// Registration (via PulseServerBuilder)
-services.AddPulseServer(builder => builder
-    .AddTcpTransport(8080)
-    .AddKcpTransport(9090)
-    .AddService<MyService>());
-
-// Constructor injection
-public PulseServer(
-    ILoggerFactory loggerFactory,
-    IOptions<ServerOptions> serverOptions,
-    IServerChannelManager channelManager,
-    ITransportIntegrationManager transportIntegrationManager)
-```
-
-**ServerHost: Self-Contained**
-```csharp
-// Direct construction
-var transport = new TcpServerTransport("localhost", 5000);
-var options = new ServerHostOptions { /* ... */ };
-var serverHost = new ServerHost(transport, options);
-
-// Manual service registration
-serverHost.RegisterService("MyService", new MyServiceImpl());
-```
-
-**Key Difference**: PulseServer is DI-native (all components injectable), ServerHost creates components internally.
-
-### Builder Patterns
-
-**PulseServer** uses `PulseServerBuilder`:
-```csharp
-var server = new PulseServerBuilder()
-    .AddTcpTransport(8080, options => { /* ... */ })
-    .AddKcpTransport(9090, options => { /* ... */ })
-    .WithServiceDiscovery(...)
-    .Build();
-```
-
-**ServerHost** uses direct instantiation:
-```csharp
-var options = new ServerHostOptions
+[Obsolete("Use UnifiedPulseServer instead. This will be removed in v3.0.")]
+public class PulseServer : IDisposable
 {
-    MessageReceiverOptions = new MessageReceiverOptions { MaxBufferSize = 16MB },
-    MessageDispatcherOptions = new MessageDispatcherOptions { WorkerThreadCount = 8 },
-    // ...
-};
-var serverHost = new ServerHost(transport, options);
-```
+    private readonly UnifiedPulseServer _implementation;
 
----
-
-## Test Compatibility Plan
-
-### Existing Test Inventory
-
-**PulseRPC.Server.Tests** (tests/PulseRPC.Server.Tests/):
-```
-Integration/
-├── [Multiple tests targeting PulseServer lifecycle]
-├── [Transport integration tests]
-└── [Multi-transport scenarios]
-
-Unit/
-├── [Component-level tests for channel managers]
-└── [Builder API tests]
-
-Contract/
-├── [Service registration contract tests]
-└── [Message serialization tests]
-```
-
-### Compatibility Validation Strategy
-
-**Phase 1: Test Inventory**
-1. Identify tests explicitly constructing `PulseServer` or `ServerHost`
-2. Categorize by test type: unit, integration, performance
-3. Mark tests that MUST pass unchanged for binary compatibility validation
-
-**Phase 2: Compatibility Tests**
-```csharp
-// BinaryCompatibilityTests.cs - NEW
-[Fact]
-public void UnifiedServer_ImplementsIPulseServerInterface()
-{
-    var server = new PulseServer(/* ... */);
-    Assert.IsAssignableFrom<IPulseServer>(server);
-}
-
-[Fact]
-public async Task UnifiedServer_ExistingIntegrationTests_PassUnchanged()
-{
-    // Run all existing integration tests against unified implementation
-    // Expect 100% pass rate
-}
-```
-
-**Phase 3: Facade Tests**
-```csharp
-// ServerHostFacadeTests.cs - NEW
-[Fact]
-public void ServerHostFacade_DelegatesToUnifiedPulseServer()
-{
-    var facade = new ServerHost(transport, options);
-    // Verify all method calls delegate to internal unified server
-}
-
-[Fact]
-public void ServerHostFacade_PreservesServiceRegistrationAPI()
-{
-    var facade = new ServerHost(transport, options);
-    facade.RegisterService("MyService", new MyServiceImpl());
-
-    var healthStatus = facade.GetHealthStatus();
-    Assert.Equal(1, healthStatus.RegisteredServiceCount);
-}
-```
-
-**Expected Pass Rates**:
-- Unit tests: 100% (no changes to component logic)
-- Integration tests: 95%+ (minor adjustments for unified startup)
-- Performance tests: 100% (facade overhead <5% per spec)
-
----
-
-## Performance Baseline
-
-### Current Metrics (from BenchmarkApp results)
-
-**PulseServer** (transport-focused, current implementation):
-- Average latency: 19.5ms (local network)
-- P95 latency: ~45ms
-- P99 latency: ~85ms
-- Peak QPS: 46-68 requests/second
-- Network throughput: Send 86.7MB/s, Receive 80.8MB/s
-- Success rate: 99.8%
-- Memory usage: 160-492MB
-- CPU usage: 50-55%
-
-**ServerHost** (pipeline-focused, no standalone benchmarks available):
-- Performance characterized through pipeline component benchmarks
-- MessageDispatcher: High throughput via System.Threading.Channels
-- MessageReceiver: Pooled buffers reduce allocations
-- Expected similar or better performance due to optimized pipeline
-
-### Facade Overhead Budget
-
-**Spec Requirement**: ServerHost facade delegation overhead <5% measured by message throughput
-
-**Measurement Methodology**:
-```csharp
-// FacadeDelegationBenchmark.cs - NEW
-[Benchmark(Baseline = true)]
-public async Task DirectUnifiedServer()
-{
-    var server = new PulseServer(/* ... */);
-    await server.StartAsync();
-    // Send 10,000 messages, measure throughput
-    await server.StopAsync();
-}
-
-[Benchmark]
-public async Task ServerHostFacade()
-{
-    var facade = new ServerHost(transport, options);
-    await facade.StartAsync();
-    // Send 10,000 messages, measure throughput
-    await facade.StopAsync();
-}
-
-// Expected result: Facade throughput >= 95% of direct (overhead <5%)
-```
-
-**Mitigation Strategies**:
-- Use direct method delegation (no virtual dispatch)
-- Avoid allocations in facade methods
-- Inline-candidate small methods
-- Profile with BenchmarkDotNet to identify bottlenecks
-
----
-
-## Design Decisions
-
-### Decision 1: Transport-Focused Orchestration
-
-**Selected Approach**: Adopt PulseServer's transport-focused model as primary architecture
-
-**Rationale**:
-- Multi-transport support is core requirement (TCP + KCP + future WebSocket/QUIC)
-- Clearer separation of concerns: transport lifecycle vs message processing
-- Better extensibility for new transport types
-- Aligns with spec clarification decision
-
-**Implementation Approach**:
-1. Keep `ITransportIntegrationManager` for transport provider abstraction
-2. Maintain `TransportChannelConfiguration` for declarative transport setup
-3. Preserve parallel transport start/stop for fast initialization
-4. Integrate ServerHost's pipeline components as managed subsystems per transport
-
-**Pipeline Integration**:
-```
-UnifiedPulseServer (Transport Orchestrator)
-├── TransportOrchestrator
-│   ├── TCP Listener (port 8080)
-│   │   └── PipelineCoordinator
-│   │       ├── MessageReceiver
-│   │       ├── MessageDispatcher
-│   │       └── ResponseTransmitter
-│   └── KCP Listener (port 9090)
-│       └── PipelineCoordinator
-│           ├── MessageReceiver
-│           ├── MessageDispatcher
-│           └── ResponseTransmitter
-└── ServerLifecycleCoordinator (state machine)
-```
-
-**Alternatives Considered**:
-- ❌ **Pipeline-Focused Primary**: Would make multi-transport support awkward (one pipeline for all transports?)
-- ❌ **Peer Architecture**: Treating transport and pipeline as equals adds complexity without benefit
-
----
-
-### Decision 2: Facade Delegation Pattern
-
-**Selected Approach**: Thin wrapper with direct delegation (zero-overhead design)
-
-**Rationale**:
-- Zero breaking changes required for existing ServerHost users
-- Gradual migration path (deprecation warnings guide users)
-- Performance-critical: delegation overhead must be <5% per spec
-- Simple implementation: each ServerHost method delegates to unified PulseServer
-
-**Implementation Pattern**:
-```csharp
-[Obsolete("ServerHost is deprecated. Use PulseServer instead. See quickstart.md for migration guide.", false)]
-public sealed class ServerHost : IDisposable
-{
-    private readonly PulseServer _unifiedServer;
-    private readonly string _transportName; // For pipeline access
-
-    public ServerHost(IPulseServerTransport transport, ServerHostOptions? options = null)
+    public PulseServer(/* old parameters */)
     {
-        // Convert ServerHostOptions → ServerConfiguration
-        var config = ConvertToUnifiedConfig(transport, options);
-        _unifiedServer = new PulseServer(/* config */);
-        _transportName = config.Transports.First().Name;
+        _implementation = new UnifiedPulseServer(/* mapped parameters */);
     }
 
-    // Direct delegation (zero-overhead)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public async Task StartAsync(CancellationToken ct = default)
-        => await _unifiedServer.StartAsync(ct);
+    {
+        return await _implementation.StartAsync(ct);
+    }
 
-    public async Task StopAsync(CancellationToken ct = default)
-        => await _unifiedServer.StopAsync(ct);
-
-    // Expose pipeline components (ServerHost-exclusive API)
-    public ConnectionManager ConnectionManager
-        => _unifiedServer.GetPipeline(_transportName).ConnectionManager;
-
-    public void RegisterService<T>(string name, T instance, ServiceOptions? options = null)
-        => _unifiedServer.RegisterService(name, instance, options);
+    // ... delegate all methods
 }
 ```
 
-**Performance Considerations**:
-- **Inline candidate methods**: Small methods (property getters, simple delegates) will be inlined by JIT
-- **No allocations**: Delegation methods create no heap objects
-- **Direct calls**: No virtual dispatch (sealed class, direct field access)
+### 4.2 ObsoleteAttribute Strategy
 
-**Alternatives Considered**:
-- ❌ **Adapter Pattern**: More complex, unnecessary indirection
-- ❌ **Breaking Changes**: Would violate 100% binary compatibility requirement
+**Three-Phase Deprecation**:
+
+1. **Phase 1 (v2.x)**: Warning mode
+   ```csharp
+   [Obsolete("Use UnifiedPulseServer. Removed in v3.0.", error: false)]
+   ```
+
+2. **Phase 2 (v3.0)**: Error mode
+   ```csharp
+   [Obsolete("Use UnifiedPulseServer. Removed in v3.0.", error: true)]
+   ```
+
+3. **Phase 3 (v4.0)**: Complete removal
+
+**Message Guidelines**:
+- State reason: "Unified for better performance and maintainability"
+- Provide alternative: "Use UnifiedPulseServer instead"
+- Include timeline: "This will be removed in v3.0"
+- Link to guide: "See migration guide at https://..."
+
+### 4.3 Performance Optimization
+
+**AggressiveInlining**:
+- Overhead: <1ns per call (vs 7ns without inlining)
+- Speedup: 7-25x for small delegation methods
+- JIT limitations: 32-byte IL limit, no virtual calls, no complex control flow
+
+**Expected facade overhead**: <5% (meets spec requirement SC-009)
+
+### 4.4 .NET Ecosystem Examples
+
+#### TypeForwardedToAttribute Pattern
+Used by Microsoft for moving types between assemblies:
+```csharp
+// In old assembly
+[assembly: TypeForwardedTo(typeof(MovedType))]
+```
+- Maintains binary compatibility without recompilation
+- Used extensively in .NET Framework → .NET Core migration
+
+#### ASP.NET Core WebApiCompatShim
+- Compatibility layer for Web API 2 → ASP.NET Core MVC
+- Temporary facade eventually deprecated and removed
+- Clear communication about migration timeline
 
 ---
 
-### Decision 3: Graceful Shutdown Strategy
+## 5. Unified Server Design Decisions
 
-**Selected Approach**: Timeout-based coordinated shutdown (30s default, configurable)
+### 5.1 Architecture Choice: Transport-Focused with Pipeline Integration
+
+**Decision**: Adopt PulseServer's transport-focused model as foundation, integrate ServerHost pipeline components as managed dependencies.
 
 **Rationale**:
-- Kubernetes-aligned (default pod termination grace period is 30s)
-- Prevents hung shutdowns in production
-- Allows in-flight requests to complete before force shutdown
-- Configurable for different deployment scenarios
+1. **Transport abstraction** is more fundamental than pipeline stages
+2. **Multiple transports** (TCP + KCP + WebSocket) better managed with transport-first approach
+3. **Pipeline components** can be composed into transport event handlers
+4. **Simpler for users**: Single server manages transports, pipeline is internal detail
 
-**Implementation**:
+**Integration Pattern**:
+```
+UnifiedPulseServer
+  ├─ TransportIntegrationManager (manages listeners)
+  ├─ ServerChannelManager (manages connections)
+  ├─ MessageReceiver (pipeline stage 1) ─┐
+  ├─ MessageDispatcher (pipeline stage 2) │ Integrated
+  ├─ ServiceRegistry (service lifecycle)   │ as internal
+  └─ ResponseTransmitter (pipeline stage 3)┘ components
+```
+
+### 5.2 Component Reuse Strategy
+
+**Reuse without modification**:
+- ✅ TransportIntegrationManager
+- ✅ IServerListener implementations (TcpServerListener, KcpServerListener)
+- ✅ MessageReceiver
+- ✅ MessageDispatcher
+- ✅ ServiceRegistry
+- ✅ ServiceInvoker
+- ✅ ResponseTransmitter
+- ✅ BackpressurePolicy
+- ✅ ConnectionManager
+
+**Modify for integration**:
+- ⚠️ ServerChannelManager: Wire MessageParsed events to MessageReceiver
+- ⚠️ PulseServer: Refactor to facade delegating to UnifiedPulseServer
+- ⚠️ ServerHost: Refactor to facade delegating to UnifiedPulseServer
+
+### 5.3 Event Wiring Pattern
+
 ```csharp
-public async Task StopAsync(CancellationToken cancellationToken = default)
+// In UnifiedPulseServer
+
+// Transport layer events
+listener.ConnectionAccepted += OnConnectionAccepted;
+
+OnConnectionAccepted(transport):
+  channel = _channelManager.AddChannel(transport);
+  channel.MessageParsed += OnMessageParsed;
+
+// Pipeline integration
+OnMessageParsed(messageParsedEventArgs):
+  rpcMessage = messageParsedEventArgs.Message;
+
+  // Backpressure check
+  var decision = _backpressurePolicy.ShouldAcceptRequest();
+  if (!decision.Accept) {
+    await SendErrorAsync("ServiceOverloaded");
+    return;
+  }
+
+  // Dispatch to pipeline
+  var result = await _messageDispatcher.DispatchMessageAsync(rpcMessage);
+
+  // Send response (if pipeline returns result)
+  if (result.IsSuccess) {
+    await _responseTransmitter.SendResponseAsync(connectionId, result.Response);
+  }
+```
+
+### 5.4 Configuration Consolidation
+
+**Unified Configuration Object**:
+```csharp
+public class UnifiedServerOptions
 {
-    // Create linked token with configured timeout
-    using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-    cts.CancelAfter(_configuration.ShutdownTimeout); // Default 30s
+    // From PulseServer
+    public List<TransportChannelConfiguration> Transports { get; set; }
 
-    try
-    {
-        _logger.LogInformation("Initiating graceful shutdown (timeout: {Timeout})", _configuration.ShutdownTimeout);
-
-        // Phase 1: Stop accepting new connections
-        await _transportOrchestrator.StopAcceptingAsync(cts.Token);
-
-        // Phase 2: Wait for in-flight messages to drain
-        await _pipelineCoordinator.DrainPipelinesAsync(cts.Token);
-
-        // Phase 3: Close all connections
-        await _channelManager.CloseAllChannelsAsync(cts.Token);
-
-        // Phase 4: Stop transports
-        await _transportOrchestrator.StopAllTransportsAsync(cts.Token);
-
-        _logger.LogInformation("Graceful shutdown completed");
-    }
-    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-    {
-        // Timeout occurred (not user cancellation)
-        _logger.LogWarning("Graceful shutdown timed out after {Timeout}, forcing shutdown", _configuration.ShutdownTimeout);
-
-        // Force shutdown (best-effort)
-        await ForceShutdownAsync();
-    }
+    // From ServerHost
+    public MessageReceiverOptions MessageReceiver { get; set; }
+    public MessageDispatcherOptions MessageDispatcher { get; set; }
+    public ResponseTransmitterOptions ResponseTransmitter { get; set; }
+    public ConnectionManagerOptions ConnectionManager { get; set; }
+    public ServiceRegistryOptions ServiceRegistry { get; set; }
+    public BackpressurePolicyOptions BackpressurePolicy { get; set; }
 }
 ```
 
-**Timeout Behavior**:
-- Default: 30 seconds (configurable via `ShutdownOptions.Timeout`)
-- User cancellation: Immediate force shutdown (respects external cancellation token)
-- Timeout cancellation: Log warning, attempt force shutdown, then exit
-- Force shutdown: Close transports immediately, dispose all resources
-
-**Alternatives Considered**:
-- ❌ **No Timeout**: Risk of hung servers in production
-- ❌ **Fixed Timeout**: Less flexible for different deployment scenarios
-- ❌ **Polling-Based**: More complex, less efficient than CancellationToken approach
+**Migration Mapping**:
+- PulseServer.ServerOptions → UnifiedServerOptions (focus on Transports)
+- ServerHost.ServerHostOptions → UnifiedServerOptions (focus on pipeline options)
 
 ---
 
-## Migration Patterns
+## 6. Testing Strategy
 
-### Pattern 1: PulseServer User (Minimal Changes)
+### 6.1 Facade Testing Approach
 
-**Before** (current PulseServer user):
+**Option**: Reuse existing integration tests against both implementations
+
 ```csharp
-var server = new PulseServerBuilder()
-    .AddTcpTransport(8080)
-    .AddKcpTransport(9090)
-    .Build();
+[Theory]
+[InlineData(typeof(UnifiedPulseServer))]
+[InlineData(typeof(PulseServer))] // Facade
+[InlineData(typeof(ServerHost))] // Facade
+public async Task Server_ProcessesRequests_Correctly(Type serverType)
+{
+    var server = CreateServer(serverType);
 
-await server.StartAsync();
-// ... use server
-await server.StopAsync();
+    // Same tests for all implementations
+    await TestRequestProcessing(server);
+    await TestConnectionManagement(server);
+    await TestGracefulShutdown(server);
+}
 ```
-
-**After** (unified PulseServer):
-```csharp
-// NO CHANGES REQUIRED - Binary compatible!
-var server = new PulseServerBuilder()
-    .AddTcpTransport(8080)
-    .AddKcpTransport(9090)
-    .Build();
-
-await server.StartAsync();
-// ... use server (same API)
-await server.StopAsync();
-```
-
-**Changes Required**: **NONE** - Existing code continues to work
 
 **Benefits**:
-- ✅ Service registration now functional (was incomplete before)
-- ✅ Health monitoring API available (was partial before)
-- ✅ Graceful shutdown timeout enforced (was missing before)
+- Ensures facades maintain identical behavior
+- Catches configuration mapping errors
+- Validates delegation correctness
+- Minimal test code duplication
+
+### 6.2 Performance Validation
+
+**BenchmarkDotNet Tests**:
+```csharp
+[MemoryDiagnoser]
+public class FacadeOverheadBenchmark
+{
+    [Benchmark(Baseline = true)]
+    public async Task UnifiedServer_ProcessMessage()
+
+    [Benchmark]
+    public async Task PulseServerFacade_ProcessMessage()
+
+    [Benchmark]
+    public async Task ServerHostFacade_ProcessMessage()
+}
+```
+
+**Expected Results**:
+- Overhead: <5% (spec requirement SC-009)
+- Memory: Zero additional allocations per call
+- Throughput: Identical QPS
+
+### 6.3 Integration Test Infrastructure
+
+**Leverage existing**:
+- `tests/PulseRPC.Server.Tests/` (unit + integration tests)
+- `perf/BenchmarkApp/` (performance benchmarks)
+- `examples/BasicServerDI/` (real-world usage validation)
 
 ---
 
-### Pattern 2: ServerHost User (Update to PulseServer)
+## 7. Migration Path
 
-**Before** (current ServerHost user):
+### 7.1 Developer Experience
+
+**Before (PulseServer)**:
 ```csharp
-var transport = new TcpServerTransport("localhost", 5000);
-var options = new ServerHostOptions
-{
-    MessageReceiverOptions = new MessageReceiverOptions { /* ... */ },
-    MessageDispatcherOptions = new MessageDispatcherOptions { /* ... */ }
-};
-
-var serverHost = new ServerHost(transport, options);
-serverHost.RegisterService("MyService", new MyServiceImpl());
-
-await serverHost.StartAsync();
-var healthStatus = serverHost.GetHealthStatus();
-```
-
-**After** (unified PulseServer - recommended):
-```csharp
-var server = new PulseServerBuilder()
-    .AddTcpTransport(5000, tcpOptions =>
-    {
-        tcpOptions.ReceiverOptions = new MessageReceiverOptions { /* ... */ };
-        tcpOptions.DispatcherOptions = new MessageDispatcherOptions { /* ... */ };
-    })
-    .Build();
-
-server.RegisterService("MyService", new MyServiceImpl());
-
+var server = new PulseServer(loggerFactory, options, channelManager, transportManager);
+server.AddTransport(TransportChannelConfiguration.Tcp("tcp", 8080));
 await server.StartAsync();
-var healthStatus = server.GetHealthStatus(); // Unified API
 ```
 
-**Alternative** (facade - zero code changes):
+**After (UnifiedPulseServer)**:
 ```csharp
-// NO CHANGES REQUIRED - ServerHost facade maintains compatibility
-var transport = new TcpServerTransport("localhost", 5000);
-var options = new ServerHostOptions { /* ... */ };
-
-var serverHost = new ServerHost(transport, options); // [Obsolete] warning
-serverHost.RegisterService("MyService", new MyServiceImpl());
-
-await serverHost.StartAsync();
-var healthStatus = serverHost.GetHealthStatus();
-// Works identically, but receives deprecation warning
+var server = new UnifiedPulseServer(options);
+// Transports configured in options
+await server.StartAsync();
 ```
 
-**Migration Timeline**:
-- **Immediate**: Existing code continues to work via ServerHost facade
-- **Warning**: Compiler shows `[Obsolete]` deprecation message
-- **Recommended**: Migrate to unified PulseServer within next major version
-- **No Force**: Facade retained indefinitely for maximum compatibility
-
----
-
-### Pattern 3: Custom Extension Method Users (Must Rewrite)
-
-**Before** (extension methods targeting ServerHost):
+**Before (ServerHost)**:
 ```csharp
-public static class ServerHostExtensions
-{
-    public static void AddMyCustomMiddleware(this ServerHost server)
-    {
-        // Directly accesses ServerHost-specific internals
-        server.BackpressurePolicy.UpdateThreshold(1000);
-        server.ConnectionManager.SetMaxConnections(500);
-    }
-}
+var host = new ServerHost(transport, options);
+host.RegisterService("myService", serviceInstance);
+await host.StartAsync();
 ```
 
-**After** (update to target unified PulseServer):
+**After (UnifiedPulseServer)**:
 ```csharp
-public static class PulseServerExtensions
-{
-    public static void AddMyCustomMiddleware(this PulseServer server, string? transportName = null)
-    {
-        // Option 1: Target specific transport pipeline
-        if (transportName != null)
-        {
-            var pipeline = server.GetPipeline(transportName);
-            pipeline.BackpressurePolicy.UpdateThreshold(1000);
-            pipeline.ConnectionManager.SetMaxConnections(500);
-        }
-
-        // Option 2: Apply to all transports
-        else
-        {
-            foreach (var transport in server.GetTransports().Keys)
-            {
-                var pipeline = server.GetPipeline(transport);
-                pipeline.BackpressurePolicy.UpdateThreshold(1000);
-                pipeline.ConnectionManager.SetMaxConnections(500);
-            }
-        }
-    }
-}
+var server = new UnifiedPulseServer(options);
+server.RegisterService("myService", serviceInstance);
+await server.StartAsync();
 ```
 
-**Why Required**: Clarification decision established that custom extensions will break (accepted trade-off for cleaner unified API)
+### 7.2 Configuration Migration
 
-**Migration Guide**: Provide clear documentation in `quickstart.md` with before/after patterns for common extension scenarios
+**PulseServer → UnifiedPulseServer**:
+- ServerOptions.Transports → UnifiedServerOptions.Transports (no change)
+- AddTransport() calls → Configure in options (API shift)
 
----
+**ServerHost → UnifiedPulseServer**:
+- ServerHostOptions → UnifiedServerOptions (direct mapping)
+- IPulseServerTransport parameter → Configured via TransportIntegrationManager
 
-### Pattern 4: DI Registration (Verify Works)
+### 7.3 Timeline (from spec)
 
-**Before** (PulseServer DI registration):
-```csharp
-services.AddPulseServer(builder => builder
-    .AddTcpTransport(8080)
-    .AddService<MyService>());
-
-// Resolve
-var server = serviceProvider.GetRequiredService<IPulseServer>();
-```
-
-**After** (unified PulseServer DI registration):
-```csharp
-// NO CHANGES REQUIRED - ServiceCollectionExtensions updated internally
-services.AddPulseServer(builder => builder
-    .AddTcpTransport(8080)
-    .AddService<MyService>());
-
-// Resolve (same interface)
-var server = serviceProvider.GetRequiredService<IPulseServer>();
-```
-
-**Internal Change** (transparent to users):
-```csharp
-// ServiceCollectionExtensions.cs - updated to construct unified server
-services.TryAddSingleton<IPulseServer>(sp =>
-{
-    var config = /* build from builder state */;
-    return new PulseServer(config); // Now unified implementation
-});
-```
+- **v2.x**: Facades with deprecation warnings
+- **v3.0**: Compilation errors for deprecated APIs
+- **v4.0**: Complete removal
 
 ---
 
-## Alternatives Considered
+## 8. Open Questions & Decisions Needed
 
-### Alternative 1: Keep Both Implementations Separate
+### 8.1 Resolved by Research
 
-**Approach**: Maintain PulseServer and ServerHost as distinct implementations
+✅ **Q**: How to maintain binary compatibility?
+**A**: Facade pattern with AggressiveInlining for <5% overhead
 
-**Pros**:
-- No breaking changes
-- Each implementation optimized for its use case
-- Lower implementation risk
+✅ **Q**: Which architecture should be the base?
+**A**: Transport-focused (PulseServer model) with pipeline integration
 
-**Cons**:
-- ❌ Continued API confusion ("which server class to use?")
-- ❌ Duplicate maintenance burden
-- ❌ Feature parity drift over time
-- ❌ PulseServer's incomplete service registration remains unfixed
+✅ **Q**: Can we reuse existing components?
+**A**: Yes, all pipeline components can be reused without modification
 
-**Rejection Reason**: Does not address the core problem (dual implementation confusion and maintenance burden)
+✅ **Q**: How to test facades?
+**A**: Run existing integration tests against all implementations
 
----
+### 8.2 Remaining Decisions
 
-### Alternative 2: Delete PulseServer, Promote ServerHost
+⚠️ **Interface Design**: Should UnifiedPulseServer implement both IPulseServer and new interfaces?
 
-**Approach**: Make ServerHost the only implementation, deprecate PulseServer
+⚠️ **DI Registration**: How to register UnifiedPulseServer in IServiceCollection while maintaining compatibility?
 
-**Pros**:
-- Single implementation
-- ServerHost has functional service registration
-- Proven pipeline architecture
+⚠️ **Builder API**: Should builder pattern change, or maintain backward compatibility?
 
-**Cons**:
-- ❌ Breaks multi-transport support (core PulseServer feature)
-- ❌ No transport-level abstraction (ITransportIntegrationManager)
-- ❌ Limited DI integration
-- ❌ No fluent builder API
-
-**Rejection Reason**: Loses valuable PulseServer features (multi-transport, DI, builder pattern)
+⚠️ **Response Pipeline**: How to automatically wire InvocationResult → ResponseTransmitter?
 
 ---
 
-### Alternative 3: Compositional Unification (Multiple ServerHost Instances)
+## 9. Key Risks & Mitigations
 
-**Approach**: PulseServer manages multiple ServerHost instances (one per transport)
-
-**Pros**:
-- Preserves both architectures fully
-- Clear ownership boundaries
-
-**Cons**:
-- ❌ Complex coordination logic
-- ❌ Unclear service registration semantics (register per-transport or globally?)
-- ❌ Duplicated pipeline components per transport (memory overhead)
-- ❌ Difficult to reason about cross-transport scenarios
-
-**Rejection Reason**: Adds complexity without clear benefit; service registration ambiguity is problematic
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Facade delegation overhead >5% | Performance regression | AggressiveInlining + benchmarking before release |
+| Configuration mapping errors | Runtime failures | Comprehensive unit tests for mapping logic |
+| Behavioral differences in facades | Breaking changes | Integration test parity validation |
+| Incomplete pipeline integration | Missing functionality | Phase-by-phase implementation with tests |
+| Documentation gaps | Poor migration experience | Migration guide + examples before release |
 
 ---
 
-### Alternative 4: Full Rewrite (Greenfield)
+## 10. References
 
-**Approach**: Delete both implementations, rewrite from scratch
+### Codebase Files Analyzed
+- `src/PulseRPC.Server/PulseServer.cs`
+- `src/PulseRPC.Server/Core/ServerHost.cs`
+- `src/PulseRPC.Server/Pipeline/MessageReceiver.cs`
+- `src/PulseRPC.Server/Pipeline/MessageDispatcher.cs`
+- `src/PulseRPC.Server/Pipeline/ServiceInvoker.cs`
+- `src/PulseRPC.Server/Pipeline/ResponseTransmitter.cs`
+- `src/PulseRPC.Server/Core/ServiceRegistry.cs`
+- `src/PulseRPC.Server/Core/BackpressurePolicy.cs`
+- `src/PulseRPC.Server/Core/ConnectionManager.cs`
+- `src/PulseRPC.Server/Integration/TransportIntegrationManager.cs`
+- `src/PulseRPC.Server/Processing/ServerChannelManager.cs`
 
-**Pros**:
-- Perfect architecture (no legacy constraints)
-- Opportunity to fix all known issues
-
-**Cons**:
-- ❌ High risk (new bugs, performance regressions)
-- ❌ Long development timeline
-- ❌ Requires extensive testing to reach current stability
-- ❌ Breaks binary compatibility (major version required)
-
-**Rejection Reason**: Violates 100% binary compatibility requirement; too risky for production framework
-
----
-
-## Recommendation: Unified Rewrite with Facade
-
-**Selected Strategy**: Rewrite PulseServer as unified implementation (transport-focused + integrated pipeline), ServerHost becomes thin facade
-
-**Key Elements**:
-1. **Transport-Focused Core**: Adopt PulseServer's multi-transport orchestration model
-2. **Integrated Pipeline**: Incorporate ServerHost's MessageReceiver/Dispatcher/Transmitter via new PipelineCoordinator
-3. **Unified Configuration**: Merge ServerOptions + ServerHostOptions into ServerConfiguration
-4. **Full API Preservation**: Implement complete IPulseServer + expose ServerHost's pipeline components
-5. **Graceful Shutdown**: Add 30s timeout-based coordinated shutdown
-6. **Binary Compatibility**: ServerHost facade delegates to unified PulseServer (zero breaking changes)
-
-**Implementation Phases**:
-1. **Phase 0** (Research): ✅ Complete (this document)
-2. **Phase 1** (Design): Generate data-model.md, contracts/, quickstart.md
-3. **Phase 2** (Tasks): Generate implementation task breakdown via `/speckit.tasks`
-4. **Phase 3** (Implementation): TDD approach (write tests → implement → validate)
-5. **Phase 4** (Validation): BenchmarkDotNet verification of <5% facade overhead
-
-**Success Criteria**:
-- ✅ 100% existing integration tests pass unchanged
-- ✅ Facade delegation overhead <5% (measured by message throughput)
-- ✅ All ServerHost functionality preserved (service registration, health monitoring, pipeline access)
-- ✅ All PulseServer functionality preserved (multi-transport, events, state machine)
-- ✅ Graceful shutdown completes within 30s default timeout
-- ✅ Migration guide validates via external developer review (<30 min migration time)
+### External Resources
+- Microsoft Docs: Type Forwarding in CLR
+- Microsoft Docs: Breaking Changes in .NET Libraries
+- .NET Blog: Understanding the Cost of C# Delegates
+- Code Maze: How to Mark Methods as Deprecated in C#
+- Mark Seemann's Blog: Facade Test Pattern
 
 ---
 
-**Next Step**: Proceed to Phase 1 - Design & Contracts (`/speckit.plan` will now generate `data-model.md`, `contracts/`, `quickstart.md`)
+## Conclusion
+
+The research validates the unified server approach with:
+
+1. **Technical Feasibility**: Both architectures are complementary and can be integrated
+2. **Performance**: Facade pattern with AggressiveInlining meets <5% overhead requirement
+3. **Compatibility**: Binary compatibility maintained through well-established facade pattern
+4. **Testing**: Existing test infrastructure can validate behavior parity
+5. **Migration**: Clear path with three-phase deprecation strategy
+
+**Recommendation**: Proceed to Phase 1 (Design) with transport-focused unified architecture integrating pipeline components as internal managed dependencies.

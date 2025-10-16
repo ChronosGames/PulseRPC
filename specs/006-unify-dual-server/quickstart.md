@@ -1,404 +1,474 @@
-# Unified Server Migration Guide
+# Quickstart: Unified Server Implementation
 
-**Feature**: `006-unify-dual-server`
-**Date**: 2025-10-13
-**Estimated Migration Time**: <30 minutes for typical applications
-
----
-
-## Quick Start: What Changed?
-
-### For PulseServer Users
-
-**Good News**: Your code continues to work without changes! The unified PulseServer is binary compatible.
-
-**New Features Available**:
-- ✅ Functional service registration (was incomplete before)
-- ✅ Comprehensive health monitoring (`GetHealthStatus()`)
-- ✅ Graceful shutdown timeout enforcement (30s default)
-
-### For ServerHost Users
-
-**Options**:
-1. **No Code Changes** (use facade): Existing code works, receives deprecation warning
-2. **Migrate to PulseServer** (recommended): Update to unified API, remove warning
+**Date**: 2025-10-16
+**Feature**: 006-unify-dual-server
+**Purpose**: Quick reference guide for using the unified server implementation
 
 ---
 
-## Migration Scenarios
+## Overview
 
-### Scenario 1: PulseServer User (No Changes Required)
+The UnifiedPulseServer consolidates the functionality of both PulseServer and ServerHost into a single, cohesive implementation. This guide shows how to get started with the new unified API and migrate from existing implementations.
 
-**Before**:
+---
+
+## Basic Usage
+
+### 1. Simple TCP Server
+
 ```csharp
-var server = new PulseServerBuilder()
-    .AddTcpTransport(8080)
-    .AddKcpTransport(9090)
-    .Build();
+using PulseRPC.Server;
+using Microsoft.Extensions.Logging;
 
-await server.StartAsync();
-var connections = server.GetActiveConnections();
-await server.StopAsync();
-```
+// Create logger factory
+var loggerFactory = LoggerFactory.Create(builder =>
+{
+    builder.AddConsole();
+    builder.SetMinimumLevel(LogLevel.Information);
+});
 
-**After**:
-```csharp
-// NO CHANGES REQUIRED - Binary compatible!
-var server = new PulseServerBuilder()
-    .AddTcpTransport(8080)
-    .AddKcpTransport(9090)
-    .Build();
+// Configure server options
+var options = new UnifiedServerOptions
+{
+    Transports = new List<TransportChannelConfiguration>
+    {
+        TransportChannelConfiguration.Tcp("tcp", 8080, isDefault: true)
+    }
+};
 
-await server.StartAsync();
-var connections = server.GetActiveConnections();
-await server.StopAsync();
+// Create and start server
+var server = new UnifiedPulseServer(
+    loggerFactory,
+    Options.Create(options));
 
-// NEW: Now functional (was incomplete before)
+// Register a service
 server.RegisterService("MyService", new MyServiceImpl());
-var health = server.GetHealthStatus(); // NEW API
+
+// Start server
+await server.StartAsync();
+
+Console.WriteLine("Server running on port 8080. Press Enter to stop...");
+Console.ReadLine();
+
+// Stop server gracefully
+await server.StopAsync();
 ```
 
 ---
 
-### Scenario 2: ServerHost User (Zero Code Changes via Facade)
+### 2. Multi-Transport Server (TCP + KCP)
 
-**Before**:
 ```csharp
-var transport = new TcpServerTransport("localhost", 5000);
-var options = new ServerHostOptions
+var options = new UnifiedServerOptions
 {
-    MessageReceiverOptions = new MessageReceiverOptions { MaxBufferSize = 16 * 1024 * 1024 },
-    MessageDispatcherOptions = new MessageDispatcherOptions { WorkerThreadCount = 8 }
-};
-
-var serverHost = new ServerHost(transport, options);
-serverHost.RegisterService("MyService", new MyServiceImpl());
-
-await serverHost.StartAsync();
-var healthStatus = serverHost.GetHealthStatus();
-await serverHost.StopAsync();
-```
-
-**After (no changes)**:
-```csharp
-// NO CHANGES - ServerHost facade works identically
-var transport = new TcpServerTransport("localhost", 5000);
-var options = new ServerHostOptions { /* ... */ };
-
-var serverHost = new ServerHost(transport, options); // [Obsolete] warning
-serverHost.RegisterService("MyService", new MyServiceImpl());
-
-await serverHost.StartAsync();
-var healthStatus = serverHost.GetHealthStatus();
-await serverHost.StopAsync();
-```
-
-**Compiler Output**:
-```
-warning CS0618: 'ServerHost' is obsolete: 'ServerHost is deprecated. Use PulseServer instead.
-See migration guide at https://github.com/your-org/PulseRPC/blob/main/specs/006-unify-dual-server/quickstart.md'
-```
-
----
-
-### Scenario 3: ServerHost User (Migrate to Unified PulseServer)
-
-**Recommended Approach** - eliminates deprecation warning:
-
-**Before**:
-```csharp
-var transport = new TcpServerTransport("localhost", 5000);
-var options = new ServerHostOptions
-{
-    MessageReceiverOptions = new MessageReceiverOptions { MaxBufferSize = 16 * 1024 * 1024 },
-    MessageDispatcherOptions = new MessageDispatcherOptions { WorkerThreadCount = 8 },
-    ConnectionManagerOptions = new ConnectionManagerOptions { MaxConnections = 1000 }
-};
-
-var serverHost = new ServerHost(transport, options);
-serverHost.RegisterService("UserService", new UserServiceImpl());
-serverHost.RegisterService("AuthService", new AuthServiceImpl());
-
-await serverHost.StartAsync();
-```
-
-**After (migrated)**:
-```csharp
-var server = new PulseServerBuilder()
-    .AddTcpTransport(5000, tcpOptions =>
+    Transports = new List<TransportChannelConfiguration>
     {
-        tcpOptions.ReceiverOptions = new MessageReceiverOptions { MaxBufferSize = 16 * 1024 * 1024 };
-        tcpOptions.DispatcherOptions = new MessageDispatcherOptions { WorkerThreadCount = 8 };
-        tcpOptions.ConnectionOptions = new ConnectionManagerOptions { MaxConnections = 1000 };
-    })
-    .Build();
+        TransportChannelConfiguration.Tcp("tcp", 8080, isDefault: true),
+        TransportChannelConfiguration.Kcp("kcp", 9090)
+    }
+};
 
-server.RegisterService("UserService", new UserServiceImpl());
-server.RegisterService("AuthService", new AuthServiceImpl());
+var server = new UnifiedPulseServer(
+    loggerFactory,
+    Options.Create(options));
+
+server.RegisterService("GameService", new GameServiceImpl());
+server.RegisterService("ChatService", new ChatServiceImpl());
+
+await server.StartAsync();
+
+// Server now listens on:
+// - TCP port 8080 (default)
+// - KCP port 9090
+```
+
+---
+
+### 3. ASP.NET Core Integration
+
+```csharp
+// Program.cs
+var builder = WebApplication.CreateBuilder(args);
+
+// Configure unified server options
+builder.Services.Configure<UnifiedServerOptions>(options =>
+{
+    options.Transports = new List<TransportChannelConfiguration>
+    {
+        TransportChannelConfiguration.Tcp("tcp", 8080, isDefault: true)
+    };
+    options.DefaultOperationTimeout = TimeSpan.FromSeconds(60);
+});
+
+// Register unified server as hosted service
+builder.Services.AddUnifiedPulseServer(options =>
+{
+    options.Transports.Add(
+        TransportChannelConfiguration.Tcp("tcp", 8080, isDefault: true));
+});
+
+var app = builder.Build();
+
+// Server starts automatically with ASP.NET Core host
+await app.RunAsync();
+```
+
+---
+
+### 4. Advanced Configuration
+
+```csharp
+var options = new UnifiedServerOptions
+{
+    // Transport configuration
+    Transports = new List<TransportChannelConfiguration>
+    {
+        TransportChannelConfiguration.Tcp("tcp", 8080, tcpOptions =>
+        {
+            tcpOptions.KeepAlive = true;
+            tcpOptions.NoDelay = true;
+        }, isDefault: true)
+    },
+
+    // Pipeline configuration
+    MessageDispatcher = new MessageDispatcherOptions
+    {
+        WorkerCount = 4,
+        MaxQueueDepthPerPriority = 2000
+    },
+
+    BackpressurePolicy = new BackpressurePolicyOptions
+    {
+        ThrottleThreshold = 0.7,  // 70% queue utilization
+        RejectThreshold = 0.9      // 90% queue utilization
+    },
+
+    ConnectionManager = new ConnectionManagerOptions
+    {
+        MaxConnections = 5000,
+        ConnectionTimeout = TimeSpan.FromMinutes(5)
+    },
+
+    // General options
+    DefaultOperationTimeout = TimeSpan.FromSeconds(30),
+    MaxConcurrentOperations = 10000,
+    EnableDetailedLogging = true
+};
+
+var server = new UnifiedPulseServer(
+    loggerFactory,
+    Options.Create(options));
+```
+
+---
+
+## Migration Guide
+
+### Migrating from PulseServer
+
+**Before (PulseServer)**:
+```csharp
+var server = new PulseServer(
+    loggerFactory,
+    serverOptions,
+    channelManager,
+    transportManager);
+
+server.AddTransport(TransportChannelConfiguration.Tcp("tcp", 8080));
+server.AddTransport(TransportChannelConfiguration.Kcp("kcp", 9090));
 
 await server.StartAsync();
 ```
 
-**Migration Steps**:
-1. Replace `new ServerHost(transport, options)` with `new PulseServerBuilder().AddTcpTransport(...).Build()`
-2. Move `ServerHostOptions` properties into transport configuration lambda
-3. Keep service registration calls unchanged (`RegisterService` works identically)
-4. Update method calls if using ServerHost-specific APIs (see below)
-
----
-
-### Scenario 4: Multi-Transport Migration (ServerHost → PulseServer)
-
-**Before** (ServerHost - single transport):
+**After (UnifiedPulseServer)**:
 ```csharp
-var tcpTransport = new TcpServerTransport("localhost", 8080);
-var serverHost = new ServerHost(tcpTransport, options);
-```
-
-**After** (unified PulseServer - multi-transport):
-```csharp
-var server = new PulseServerBuilder()
-    .AddTcpTransport(8080, tcp =>
-    {
-        tcp.ReceiverOptions = new MessageReceiverOptions { /* ... */ };
-        tcp.DispatcherOptions = new MessageDispatcherOptions { /* ... */ };
-    })
-    .AddKcpTransport(9090, kcp =>
-    {
-        kcp.EnableLowLatencyMode = true;
-    })
-    .Build();
-```
-
-**Benefit**: Now supports multiple transports simultaneously (TCP for reliability + KCP for low latency).
-
----
-
-### Scenario 5: DI Registration Migration
-
-**Before** (PulseServer DI):
-```csharp
-services.AddPulseServer(builder => builder
-    .AddTcpTransport(8080)
-    .AddService<MyService>());
-
-// Resolve
-var server = serviceProvider.GetRequiredService<IPulseServer>();
-```
-
-**After** (unified PulseServer DI):
-```csharp
-// NO CHANGES REQUIRED - ServiceCollectionExtensions updated internally
-services.AddPulseServer(builder => builder
-    .AddTcpTransport(8080)
-    .AddService<MyService>());
-
-// Resolve (same interface)
-var server = serviceProvider.GetRequiredService<IPulseServer>();
-```
-
----
-
-### Scenario 6: Pipeline Component Access (ServerHost-Exclusive API)
-
-**Before** (ServerHost):
-```csharp
-var serverHost = new ServerHost(transport, options);
-
-// Direct access to pipeline components
-var connectionMgr = serverHost.ConnectionManager;
-var serviceRegistry = serverHost.ServiceRegistry;
-var backpressure = serverHost.BackpressurePolicy;
-
-backpressure.UpdateMaxQueueDepth(5000);
-```
-
-**After** (unified PulseServer):
-```csharp
-var server = new PulseServerBuilder()
-    .AddTcpTransport(5000)
-    .Build();
-
-// Access pipeline coordinator for component access
-var pipeline = server.GetPipelineCoordinator();
-
-var connectionMgr = pipeline.ConnectionManager;
-var serviceRegistry = pipeline.ServiceRegistry;
-var backpressure = pipeline.BackpressurePolicy;
-
-backpressure.UpdateMaxQueueDepth(5000);
-```
-
-**Change**: Use `GetPipelineCoordinator()` to access pipeline components (ServerHost exposed them directly as properties).
-
----
-
-### Scenario 7: Custom Extension Methods (Requires Rewrite)
-
-**Important**: Custom extension methods targeting ServerHost types must be rewritten (clarification decision).
-
-**Before** (extension method on ServerHost):
-```csharp
-public static class ServerHostExtensions
+var options = new UnifiedServerOptions
 {
-    public static void ConfigureForGameServer(this ServerHost server)
+    Transports = new List<TransportChannelConfiguration>
     {
-        server.BackpressurePolicy.UpdateMaxQueueDepth(10000);
-        server.ConnectionManager.SetMaxConnections(5000);
+        TransportChannelConfiguration.Tcp("tcp", 8080, isDefault: true),
+        TransportChannelConfiguration.Kcp("kcp", 9090)
     }
-}
+};
 
-// Usage
-var serverHost = new ServerHost(transport, options);
-serverHost.ConfigureForGameServer();
+var server = new UnifiedPulseServer(
+    loggerFactory,
+    Options.Create(options));
+
+await server.StartAsync();
 ```
 
-**After** (extension method on PulseServer):
+**Key Changes**:
+- Transports configured in options instead of AddTransport() calls
+- Dependency injection of channelManager and transportManager now automatic
+- Options use Options pattern (IOptions<T>)
+
+---
+
+### Migrating from ServerHost
+
+**Before (ServerHost)**:
 ```csharp
-public static class PulseServerExtensions
+var transport = new TcpServerTransport(/* ... */);
+
+var options = new ServerHostOptions
 {
-    public static void ConfigureForGameServer(this PulseServer server, string? transportName = null)
+    MessageDispatcherOptions = new() { WorkerCount = 4 },
+    // ... other pipeline options
+};
+
+var host = new ServerHost(transport, options);
+host.RegisterService("MyService", serviceInstance);
+await host.StartAsync();
+```
+
+**After (UnifiedPulseServer)**:
+```csharp
+var options = new UnifiedServerOptions
+{
+    Transports = new List<TransportChannelConfiguration>
     {
-        var pipeline = server.GetPipelineCoordinator(transportName);
-        pipeline.BackpressurePolicy.UpdateMaxQueueDepth(10000);
-        pipeline.ConnectionManager.SetMaxConnections(5000);
-    }
-}
+        TransportChannelConfiguration.Tcp("tcp", 8080, isDefault: true)
+    },
+    MessageDispatcher = new MessageDispatcherOptions { WorkerCount = 4 },
+    // ... other pipeline options (same as before)
+};
 
-// Usage
-var server = new PulseServerBuilder().AddTcpTransport(5000).Build();
-server.ConfigureForGameServer();
+var server = new UnifiedPulseServer(
+    loggerFactory,
+    Options.Create(options));
+
+server.RegisterService("MyService", serviceInstance);
+await server.StartAsync();
 ```
 
-**Changes**:
-1. Change extension target from `ServerHost` to `PulseServer`
-2. Access pipeline components via `GetPipelineCoordinator()`
-3. Optionally support transport-specific configuration (multi-transport scenarios)
+**Key Changes**:
+- Transport no longer passed as constructor parameter
+- Transport configured in options.Transports
+- Pipeline options remain the same
+- RegisterService() API unchanged
 
 ---
 
-## API Mapping Reference
+## Deprecation Timeline
 
-### Lifecycle Methods (Identical)
-
-| ServerHost | Unified PulseServer | Notes |
-|------------|---------------------|-------|
-| `StartAsync(ct)` | `StartAsync(ct)` | Identical signature |
-| `StopAsync(ct)` | `StopAsync(ct)` | Now includes graceful shutdown timeout (30s default) |
-| `IsRunning` | `IsRunning` | Identical |
-| `Dispose()` | `Dispose()` | Identical |
-
-### Service Management
-
-| ServerHost | Unified PulseServer | Notes |
-|------------|---------------------|-------|
-| `RegisterService<T>(name, instance, options)` | `RegisterService<T>(name, instance, options)` | Identical - now works in PulseServer (was incomplete before) |
-| `UnregisterService(name)` | `UnregisterService(name)` | Identical |
-
-### Health Monitoring
-
-| ServerHost | Unified PulseServer | Notes |
-|------------|---------------------|-------|
-| `GetHealthStatus()` | `GetHealthStatus()` | Identical - returns `ServerHealthStatus` |
-| N/A | `GetPerformanceMetrics()` | NEW in unified - returns `ServerPerformanceMetrics` |
-
-### Pipeline Component Access
-
-| ServerHost | Unified PulseServer | Notes |
-|------------|---------------------|-------|
-| `ConnectionManager` | `GetPipelineCoordinator().ConnectionManager` | Access via coordinator |
-| `ServiceRegistry` | `GetPipelineCoordinator().ServiceRegistry` | Access via coordinator |
-| `BackpressurePolicy` | `GetPipelineCoordinator().BackpressurePolicy` | Access via coordinator |
-
-### Transport Management (New in Unified)
-
-| ServerHost | Unified PulseServer | Notes |
-|------------|---------------------|-------|
-| N/A (single transport via constructor) | `AddTransport(config)` | NEW - multi-transport support |
-| N/A | `GetTransports()` | NEW - query all transports |
-| N/A | `GetDefaultTransport()` | NEW - get primary transport |
+| Version | PulseServer/ServerHost Status | Action Required |
+|---------|-------------------------------|-----------------|
+| **v2.x** (Current) | Deprecated with warnings | Optional - migrate when convenient |
+| **v3.0** (Next major) | Compilation errors | **Required** - must migrate before upgrading |
+| **v4.0** (Future) | Removed | N/A |
 
 ---
 
-## Common Pitfalls
+## Common Patterns
 
-### Pitfall 1: Forgetting to Migrate Extension Methods
+### 1. Service Registration with Options
 
-**Problem**:
 ```csharp
-// Extension method still targets ServerHost
-public static class MyExtensions
+var serviceOptions = new ServiceOptions
 {
-    public static void Setup(this ServerHost server) { /* ... */ }
+    DefaultTimeout = TimeSpan.FromSeconds(60),
+    Priority = MessagePriority.High
+};
+
+server.RegisterService("CriticalService", serviceInstance, serviceOptions);
+```
+
+---
+
+### 2. Monitoring Server Health
+
+```csharp
+// Get performance metrics
+var metrics = server.GetPerformanceMetrics();
+Console.WriteLine($"Active Connections: {metrics.ActiveConnections}");
+Console.WriteLine($"Messages Processed: {metrics.TotalMessagesProcessed}");
+Console.WriteLine($"Average Latency: {metrics.AverageLatencyMs}ms");
+
+// Get transport information
+var transports = server.GetTransports();
+foreach (var (name, info) in transports)
+{
+    Console.WriteLine($"Transport: {name} ({info.Type}:{info.Port}) - Listening: {info.IsListening}");
 }
 
-// Usage with facade (works but generates warning)
-var facade = new ServerHost(transport, options);
-facade.Setup(); // Works but extension is deprecated
+// Get active connections
+var connections = server.GetActiveConnections();
+foreach (var conn in connections)
+{
+    Console.WriteLine($"Connection: {conn.ConnectionId} from {conn.RemoteEndPoint}");
+}
 ```
 
-**Solution**: Rewrite extension to target `PulseServer` (see Scenario 7).
-
 ---
 
-### Pitfall 2: Assuming Zero Pipeline Overhead
+### 3. Broadcasting Messages
 
-**Problem**: ServerHost facade delegates to unified PulseServer, which may add minimal overhead.
-
-**Reality**: Facade overhead <5% per spec (measured by message throughput). For most applications, this is negligible.
-
-**Validation**: Run BenchmarkDotNet suite to measure impact in your scenario.
-
----
-
-### Pitfall 3: Direct Access to Internal Components
-
-**Problem**:
 ```csharp
-// Before (ServerHost - direct access)
-var dispatcher = serverHost._messageDispatcher; // BREAKS - private field
-```
+// Broadcast to all connections
+var message = Encoding.UTF8.GetBytes("Hello, everyone!");
+var sentCount = await server.BroadcastAsync(message);
+Console.WriteLine($"Message sent to {sentCount} clients");
 
-**Solution**: Use public APIs (`GetPipelineCoordinator()`) instead of relying on internal implementation details.
+// Broadcast with filter (e.g., only authenticated clients)
+sentCount = await server.BroadcastAsync(
+    message,
+    filter: ctx => ctx.IsAuthenticated);
+```
 
 ---
 
-## Testing Your Migration
+### 4. Graceful Shutdown
 
-### Step 1: Verify Compilation
-```bash
-dotnet build
-# Expect: Success (may have [Obsolete] warnings)
+```csharp
+// Handle Ctrl+C for graceful shutdown
+var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (sender, e) =>
+{
+    e.Cancel = true;
+    cts.Cancel();
+};
+
+try
+{
+    await server.StartAsync(cts.Token);
+
+    Console.WriteLine("Server started. Press Ctrl+C to stop...");
+
+    // Wait for cancellation
+    await Task.Delay(Timeout.Infinite, cts.Token);
+}
+catch (OperationCanceledException)
+{
+    Console.WriteLine("Shutdown requested, stopping server...");
+}
+finally
+{
+    await server.StopAsync();
+    Console.WriteLine("Server stopped gracefully");
+}
 ```
-
-### Step 2: Run Integration Tests
-```bash
-dotnet test
-# Expect: 100% pass rate (binary compatibility)
-```
-
-### Step 3: Performance Validation
-```bash
-cd perf/BenchmarkApp
-dotnet run --project PulseRPC.Benchmark.Client -- run --scenario throughput
-# Compare before/after metrics (expect <5% difference)
-```
-
-### Step 4: Production Smoke Test
-- Deploy to staging environment
-- Monitor health metrics (`GetHealthStatus()`)
-- Validate connection counts, message throughput
-- Check logs for unexpected errors
 
 ---
 
-## Getting Help
+## Performance Tips
 
-- **Documentation**: [Implementation Plan](./plan.md)
-- **Architecture**: [Data Model](./data-model.md)
-- **Issues**: [GitHub Issues](https://github.com/your-org/PulseRPC/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/PulseRPC/discussions)
+### 1. Optimize Worker Count
+
+```csharp
+// Match worker count to CPU cores for CPU-bound services
+var workerCount = Environment.ProcessorCount;
+
+options.MessageDispatcher = new MessageDispatcherOptions
+{
+    WorkerCount = workerCount
+};
+```
 
 ---
 
-**Estimated Migration Time**: <30 minutes for typical applications (spec requirement validated)
+### 2. Configure Backpressure
+
+```csharp
+// Adjust thresholds based on expected load
+options.BackpressurePolicy = new BackpressurePolicyOptions
+{
+    ThrottleThreshold = 0.7,  // Start rejecting some requests at 70%
+    RejectThreshold = 0.9,    // Reject all new requests at 90%
+    HysteresisBand = 0.1      // 10% buffer to prevent oscillation
+};
+```
+
+---
+
+### 3. Connection Pooling
+
+```csharp
+options.ConnectionManager = new ConnectionManagerOptions
+{
+    MaxConnections = 10000,            // Increase for high-traffic scenarios
+    ConnectionTimeout = TimeSpan.FromMinutes(5),
+    EnableAutoCleanup = true,
+    CleanupInterval = TimeSpan.FromSeconds(30)
+};
+```
+
+---
+
+## Troubleshooting
+
+### Server Won't Start
+
+**Problem**: `InvalidOperationException: No transports configured`
+
+**Solution**: Ensure at least one transport is configured in options:
+```csharp
+options.Transports.Add(
+    TransportChannelConfiguration.Tcp("tcp", 8080, isDefault: true));
+```
+
+---
+
+### Multiple Default Transports Error
+
+**Problem**: `InvalidOperationException: Exactly one transport must be marked as default`
+
+**Solution**: Mark only one transport as default:
+```csharp
+options.Transports = new List<TransportChannelConfiguration>
+{
+    TransportChannelConfiguration.Tcp("tcp", 8080, isDefault: true),   // Default
+    TransportChannelConfiguration.Kcp("kcp", 9090, isDefault: false)  // Not default
+};
+```
+
+---
+
+### Port Already in Use
+
+**Problem**: `SocketException: Address already in use`
+
+**Solution**: Change the port number or stop the process using the port:
+```bash
+# Windows
+netstat -ano | findstr :8080
+taskkill /PID <process_id> /F
+
+# Linux
+lsof -i :8080
+kill -9 <process_id>
+```
+
+---
+
+## Next Steps
+
+1. **Read the Full Spec**: See [spec.md](./spec.md) for complete requirements and design decisions
+2. **Review Architecture**: See [research.md](./research.md) for detailed architecture analysis
+3. **Understand Data Model**: See [data-model.md](./data-model.md) for entity relationships
+4. **Explore API Contracts**: See [contracts/](./contracts/) for interface definitions
+5. **Check Examples**: See `examples/BasicServerDI/` for a working example
+
+---
+
+## Support
+
+- **Migration Issues**: See migration guides in `docs/` directory
+- **API Questions**: Check API contracts in `contracts/` directory
+- **Bug Reports**: File issues on GitHub
+- **Performance Questions**: Review `research.md` for optimization patterns
+
+---
+
+## Summary
+
+The UnifiedPulseServer provides:
+- ✅ Single, clear API entry point
+- ✅ Consolidated configuration
+- ✅ Transport-focused architecture
+- ✅ Full pipeline integration
+- ✅ Backward compatibility via facades
+- ✅ ASP.NET Core integration
+- ✅ Comprehensive monitoring
+
+Start with the basic examples and gradually adopt advanced features as needed. The unified server maintains all functionality from both PulseServer and ServerHost while providing a cleaner, more maintainable API.
