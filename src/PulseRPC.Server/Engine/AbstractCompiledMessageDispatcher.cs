@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -50,5 +51,5 @@ public abstract class AbstractCompiledMessageDispatcher
     /// 尝试获取指定方法的处理器元数据
     /// 由生成的实现提供，用于运行时反序列化和调度
     /// </summary>
-    public abstract bool TryGetHandlerMetadata(string serviceName, string methodName, out HandlerMetadata? metadata);
+    public abstract bool TryGetHandlerMetadata(string serviceName, string methodName, [NotNullWhen(true)] out HandlerMetadata? metadata);
 }

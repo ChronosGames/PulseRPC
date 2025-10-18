@@ -285,11 +285,11 @@ internal sealed class HighPerformanceDeserializer : IMetadataAwareMessageDeseria
         return Task.FromResult<object?>(payload.ToArray());
     }
 
-    public async ValueTask<object?> DeserializeAsync(MetadataDeserializationContext context)
+    public ValueTask<object?> DeserializeAsync(MetadataDeserializationContext context)
     {
         if (context.Metadata.RequestType == null || context.Payload.IsEmpty)
         {
-            return null;
+            return ValueTask.FromResult<object?>(null);
         }
 
         var methodKey = new MethodKey(context.Metadata.ServiceName, context.Metadata.MethodName);
@@ -298,7 +298,7 @@ internal sealed class HighPerformanceDeserializer : IMetadataAwareMessageDeseria
         if (context.Metadata.RequestIsMemoryPackable)
         {
             // MemoryPack 需要 ReadOnlySpan<byte> - 使用 MemoryPack 2.x API
-            return MemoryPackSerializer.Deserialize(context.Metadata.RequestType, context.Payload.Span);
+            return ValueTask.FromResult(MemoryPackSerializer.Deserialize(context.Metadata.RequestType, context.Payload.Span));
         }
 
         // ISerializer 需要 ReadOnlySequence<byte>
@@ -309,7 +309,7 @@ internal sealed class HighPerformanceDeserializer : IMetadataAwareMessageDeseria
         // 使用反射调用泛型方法 Deserialize<T>
         var deserializeMethod = serializer.GetType().GetMethod(nameof(ISerializer.Deserialize))!
             .MakeGenericMethod(context.Metadata.RequestType);
-        return deserializeMethod.Invoke(serializer, new object[] { sequence });
+        return ValueTask.FromResult(deserializeMethod.Invoke(serializer, new object[] { sequence }));
     }
 
     public void Dispose()

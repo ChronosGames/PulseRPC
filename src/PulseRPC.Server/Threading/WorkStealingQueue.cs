@@ -20,21 +20,13 @@ public sealed class WorkStealingQueue<T> where T : struct
     private const int InitialCapacity = 256;
     private const int MaxCapacity = 1024 * 1024; // 1M elements
 
-    private volatile T[] _array;
-    private volatile int _mask;
-    private volatile int _headIndex;
-    private volatile int _tailIndex;
+    private volatile T[] _array = new T[InitialCapacity];
+    private volatile int _mask = InitialCapacity - 1;
+    private volatile int _headIndex = 0;
+    private volatile int _tailIndex = 0;
 
     // 锁，仅在扩容时使用
     private readonly Lock _expandLock = new();
-
-    public WorkStealingQueue()
-    {
-        _array = new T[InitialCapacity];
-        _mask = InitialCapacity - 1;
-        _headIndex = 0;
-        _tailIndex = 0;
-    }
 
     /// <summary>
     /// 获取队列中元素的近似数量
@@ -43,8 +35,8 @@ public sealed class WorkStealingQueue<T> where T : struct
     {
         get
         {
-            int head = _headIndex;
-            int tail = _tailIndex;
+            var head = _headIndex;
+            var tail = _tailIndex;
             return tail - head;
         }
     }
@@ -60,8 +52,9 @@ public sealed class WorkStealingQueue<T> where T : struct
     /// </summary>
     public bool TryEnqueue(T item)
     {
-        int tail = _tailIndex;
-        int head = _headIndex;
+        var tailIndex = _tailIndex;
+        var tail = tailIndex;
+        var head = _headIndex;
 
         // 检查是否需要扩容
         if (tail - head >= _mask)
@@ -76,7 +69,7 @@ public sealed class WorkStealingQueue<T> where T : struct
         _array[tail & _mask] = item;
 
         // 更新尾指针（内存屏障）
-        Volatile.Write(ref _tailIndex, tail + 1);
+        Volatile.Write(ref tailIndex, tail + 1);
 
         return true;
     }
@@ -172,7 +165,8 @@ public sealed class WorkStealingQueue<T> where T : struct
                 return true; // 已经被其他线程扩容了
             }
 
-            int currentCapacity = _array.Length;
+            var location = _array;
+            var currentCapacity = location.Length;
             if (currentCapacity >= MaxCapacity)
             {
                 return false; // 达到最大容量
@@ -187,7 +181,7 @@ public sealed class WorkStealingQueue<T> where T : struct
             int count = tail - head;
             for (int i = 0; i < count; i++)
             {
-                newArray[i] = _array[(head + i) & _mask];
+                newArray[i] = location[(head + i) & _mask];
             }
 
             // 更新索引
@@ -196,7 +190,7 @@ public sealed class WorkStealingQueue<T> where T : struct
             _mask = newMask;
 
             // 更新数组引用（原子操作）
-            Volatile.Write(ref _array, newArray);
+            Volatile.Write(ref location, newArray);
 
             return true;
         }

@@ -11,6 +11,8 @@ using PulseRPC.Benchmark.Shared;
 using PulseRPC.Generated;
 using PulseRPC.Serialization;
 using PulseRPC.Server;
+using PulseRPC.Server.Extensions;
+using PulseRPC.Transport;
 using CollectorConfiguration = PulseRPC.Benchmark.Metrics.Abstractions.CollectorConfiguration;
 using LogLevel = Microsoft.Extensions.Logging.LogLevel;
 
@@ -168,74 +170,95 @@ internal class Program
                 services.AddSingleton(GeneratedResponseSerializers.Registry);
 
                 // 3. 配置 PulseRPC 服务端 - 使用手动构建模式避免服务注册被覆盖
-                var builder = services.AddPulseServer();  // 使用无参版本，不自动启用高级特性
+                var builder = services.AddUnifiedPulseServerBuilder();  // 使用无参版本，不自动启用高级特性
 
                 // 配置 TCP 传输通道（必需）
-                builder.AddTcp("TcpChannel", config.Port, tcpOptions =>
+                builder.AddTcpTransport("TcpChannel", config.Port, true, tcpOptions =>
                 {
                     tcpOptions.NoDelay = true;
                     tcpOptions.RecvBufferSize = config.BufferSize;
                     tcpOptions.SendBufferSize = config.BufferSize;
-                }, isDefault: true);
+                });
 
                 // 如果启用 KCP，也添加 KCP 传输
                 if (config.EnableKcp)
                 {
-                    builder.AddKcp("KcpChannel", config.Port + 1, kcpOptions =>
+                    builder.AddKcpTransport("KcpChannel", config.Port + 1, false, kcpOptions =>
                     {
                         kcpOptions.NoDelay = true;
-                        kcpOptions.Interval = 10;
-                        kcpOptions.Resend = 2;
-                        kcpOptions.SendWindow = 256;
-                        kcpOptions.RecvWindow = 256;
+                        // kcpOptions.Interval = 10;
+                        // kcpOptions.Resend = 2;
+                        // kcpOptions.SendWindow = 256;
+                        // kcpOptions.RecvWindow = 256;
                     });
                 }
 
                 // ⭐ 关键：注册 RPC 服务实现
-                builder.AddService<IBenchmarkHub, BenchmarkHubImpl>(ServiceLifetime.Scoped);
+                // builder.AddService<IBenchmarkHub, BenchmarkHubImpl>(ServiceLifetime.Scoped);
 
                 // 配置服务器选项
-                builder.ConfigureServer(options =>
+                builder.ConfigureOptions(options =>
                 {
-                    options.MaxConnections = config.MaxConnections;
+                    options.MaxConcurrentOperations = config.MaxConnections;
+                    options.Transports = new List<TransportChannelConfiguration>()
+                    {
+                        new TransportChannelConfiguration()
+                        {
+                            Name = "TcpChannel",
+                            Type = TransportType.Tcp,
+                            Port = config.Port,
+                            IsDefault = true
+                        },
+                    };
+
+                    if (config.EnableKcp)
+                    {
+                        options.Transports.Add(new TransportChannelConfiguration()
+                        {
+                            Name = "KcpChannel",
+                            Type = TransportType.Kcp,
+                            Port = config.Port + 1,
+                            IsDefault = false,
+                        });
+                    }
                 });
 
                 // === 逐步启用高性能特性 ===
 
                 // 阶段1: 启用高性能消息引擎（已验证稳定）
-                builder.UseHighPerformanceEngine(options =>
-                {
-                    options.Enabled = true;
-                    options.L1BufferSize = 4096;         // L1 循环缓冲区
-                    options.L2QueueCapacity = 256;       // L2 批处理队列
-                    options.L3QueueCapacity = 128;       // L3 响应队列
-                });
+                // builder.UseHighPerformanceEngine(options =>
+                // {
+                //     options.Enabled = true;
+                //     options.L1BufferSize = 4096;         // L1 循环缓冲区
+                //     options.L2QueueCapacity = 256;       // L2 批处理队列
+                //     options.L3QueueCapacity = 128;       // L3 响应队列
+                // });
 
                 // 阶段2: 启用优先级调度器（已验证稳定）
-                builder.UsePriorityScheduler(options =>
-                {
-                    options.Enabled = true;
-                    options.CriticalWeight = 50;         // 关键消息权重
-                    options.NormalWeight = 30;           // 普通消息权重
-                    options.BulkWeight = 20;             // 批量消息权重
-                });
+                // builder.UsePriorityScheduler(options =>
+                // {
+                //     options.Enabled = true;
+                //     options.CriticalWeight = 50;         // 关键消息权重
+                //     options.NormalWeight = 30;           // 普通消息权重
+                //     options.BulkWeight = 20;             // 批量消息权重
+                // });
 
                 // 阶段3: 启用分层消息处理器（⚠️ 谨慎启用，建议先测试）
                 // 注意：根据之前的重构，现在的元数据传递和内存管理已修复
                 // 如果测试稳定，可以启用以获得更高性能
-                builder.UseTieredMessageProcessor(options =>
-                {
-                    options.Enabled = true;
-
-                    // 快速路径配置（小消息）
-                    options.FastPath.MessageSizeThreshold = 1024;  // < 1KB
-                    options.FastPath.DedicatedThreads = 2;
-
-                    // 批处理路径配置（中等消息）
-                    options.BatchPath.MinMessageSize = 1024;       // >= 1KB
-                    options.BatchPath.MaxMessageSize = 65536;      // <= 64KB
-                    options.BatchPath.BatchSize = 32;
-                });
+                // builder.UseTieredMessageProcessor(options =>
+                // {
+                //     options.Enabled = true;
+                //
+                //     // 快速路径配置（小消息）
+                //     options.FastPath.MessageSizeThreshold = 1024;  // < 1KB
+                //     options.FastPath.DedicatedThreads = 2;
+                //
+                //     // 批处理路径配置（中等消息）
+                //     options.BatchPath.MinMessageSize = 1024;       // >= 1KB
+                //     options.BatchPath.MaxMessageSize = 65536;      // <= 64KB
+                //     options.BatchPath.BatchSize = 32;
+                // });
 
                 // 手动构建，确保服务注册生效
                 builder.Build();

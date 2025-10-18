@@ -2,24 +2,34 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
-using PulseRPC.Server.Builder;
+using PulseRPC.Server.Configuration;
+using PulseRPC.Server.Core;
 using PulseRPC.Server.Integration;
+using PulseRPC.Server.Models;
+using PulseRPC.Server.Pipeline;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
+using BackpressurePolicyCore = PulseRPC.Server.Core.BackpressurePolicy;
 
 namespace PulseRPC.Server;
 
 /// <summary>
-/// 增强的服务器管理器 - 集成传输层管理，高性能线程安全设计
+/// Unified server implementation consolidating PulseServer and ServerHost functionality.
+/// Provides a single, clear API entry point for RPC server management.
 /// </summary>
-public sealed class PulseServer : IPulseServer
+public sealed class UnifiedPulseServer : IPulseServer
 {
     private readonly ILoggerFactory _loggerFactory;
-    private readonly ServerOptions _serverOptions;
+    private readonly UnifiedServerOptions _options;
     private readonly IServerChannelManager _channelManager;
     private readonly ITransportIntegrationManager _transportIntegrationManager;
-    private readonly ILogger<PulseServer> _logger;
+    private readonly ILogger<UnifiedPulseServer> _logger;
+
+    // Pipeline components
+    private readonly MessageDispatcher? _messageDispatcher;
+    private readonly ServiceRegistry? _serviceRegistry;
+    private readonly BackpressurePolicyCore? _backpressurePolicy;
 
     private readonly ConcurrentDictionary<string, IServerListener> _listeners = new();
     private readonly ConcurrentDictionary<string, TransportChannelConfiguration> _transports = new();
@@ -28,7 +38,7 @@ public sealed class PulseServer : IPulseServer
     private readonly Lock _stateLock = new();
     private readonly CancellationTokenSource _shutdownCts = new();
 
-    // 性能统计
+    // Performance tracking
     private long _totalConnectionsAccepted;
     private DateTime _lastResetTime = DateTime.UtcNow;
 
@@ -36,58 +46,42 @@ public sealed class PulseServer : IPulseServer
     public bool IsRunning => _state == ServerState.Running;
     public int ActiveConnectionCount => _channelManager.ConnectionCount;
 
-    // 事件
+    // Events
     public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
     public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
     public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
-    public PulseServer(
+    public UnifiedPulseServer(
         ILoggerFactory? loggerFactory = null,
-        IOptions<ServerOptions>? serverOptions = null,
+        IOptions<UnifiedServerOptions>? options = null,
         IServerChannelManager? channelManager = null,
         ITransportIntegrationManager? transportIntegrationManager = null)
     {
         _loggerFactory = loggerFactory ?? new NullLoggerFactory();
+        _logger = _loggerFactory.CreateLogger<UnifiedPulseServer>();
+        _options = options?.Value ?? new UnifiedServerOptions();
+
+        // Validate configuration
+        _options.Validate();
+
         _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
         _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));
-        _serverOptions = serverOptions?.Value ?? new ServerOptions();
-        _logger = _loggerFactory.CreateLogger<PulseServer>();
 
-        _logger.LogInformation("增强服务器管理器已初始化，会话管理器类型：{ManagerType}", _channelManager.GetType().Name);
+        // Initialize pipeline components (if options configured)
+        _messageDispatcher = new MessageDispatcher(_options.MessageDispatcher);
+        _serviceRegistry = new ServiceRegistry(_options.ServiceRegistry);
+        _backpressurePolicy = new BackpressurePolicyCore(_options.BackpressurePolicy);
+
+        // Add configured transports
+        foreach (var transport in _options.Transports)
+        {
+            _transports.TryAdd(transport.Name, transport);
+        }
+
+        _logger.LogInformation("UnifiedPulseServer initialized with {TransportCount} transports", _transports.Count);
     }
 
-    /// <summary>
-    /// 添加传输配置
-    /// </summary>
-    public void AddTransport(TransportChannelConfiguration config)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-
-        if (_state == ServerState.Running)
-        {
-            throw new InvalidOperationException("服务器运行中，无法添加传输");
-        }
-
-        if (_transports.ContainsKey(config.Name))
-        {
-            throw new ArgumentException($"传输通道已存在: {config.Name}");
-        }
-
-        // 验证传输是否支持
-        if (!_transportIntegrationManager.IsSupported(config.Type.ToString()))
-        {
-            throw new NotSupportedException($"不支持的传输类型: {config.Type}");
-        }
-
-        if (_transports.TryAdd(config.Name, config))
-        {
-            _logger.LogInformation("已添加传输配置: {Name} ({Type}:{Port})", config.Name, config.Type, config.Port);
-        }
-        else
-        {
-            throw new InvalidOperationException($"添加传输配置失败: {config.Name}");
-        }
-    }
+    // === Lifecycle Management ===
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
@@ -97,6 +91,7 @@ public sealed class PulseServer : IPulseServer
         {
             if (_state is ServerState.Running or ServerState.Starting)
             {
+                _logger.LogWarning("Server is already running or starting");
                 return;
             }
 
@@ -105,69 +100,67 @@ public sealed class PulseServer : IPulseServer
 
         try
         {
-            _logger.LogInformation("正在启动服务器，传输数量: {TransportCount}", _transports.Count);
+            _logger.LogInformation("Starting server with {TransportCount} transports", _transports.Count);
 
             if (_transports.Count == 0)
             {
-                throw new InvalidOperationException("没有配置任何传输通道");
+                throw new InvalidOperationException("No transports configured");
             }
 
-            // 并行启动所有传输 - 提升启动性能
+            // Start pipeline components
+            if (_messageDispatcher != null)
+                await _messageDispatcher.StartAsync(combinedCts.Token);
+
+            // Start all transports in parallel
             var startTasks = _transports.Values.Select(config =>
                 StartTransportAsync(config, combinedCts.Token)).ToArray();
 
             await Task.WhenAll(startTasks);
 
             ChangeState(ServerState.Running);
-            _logger.LogInformation("服务器启动完成，活动监听器: {ListenerCount}", _listeners.Count);
+            _logger.LogInformation("Server started successfully with {ListenerCount} active listeners", _listeners.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "启动服务器失败");
+            _logger.LogError(ex, "Failed to start server");
             ChangeState(ServerState.Stopped);
 
-            // 清理已启动的监听器
+            // Cleanup started listeners
             await StopAllListenersAsync();
             throw;
         }
     }
 
-    /// <summary>
-    /// 启动单个传输 - 异步高性能实现
-    /// </summary>
-    private async Task StartTransportAsync(TransportChannelConfiguration config,
-        CancellationToken cancellationToken)
+    private async Task StartTransportAsync(TransportChannelConfiguration config, CancellationToken cancellationToken)
     {
         try
         {
-            _logger.LogDebug("正在启动传输: {Name} ({Type}:{Port})",
-                config.Name, config.Type, config.Port);
+            _logger.LogDebug("Starting transport: {Name} ({Type}:{Port})", config.Name, config.Type, config.Port);
 
-            // 创建监听器
+            // Create listener
             var listener = _transportIntegrationManager.CreateListener(config, _loggerFactory);
 
-            // 注册连接接受事件
+            // Subscribe to events
             listener.ConnectionAccepted += OnConnectionAccepted;
 
-            // 启动监听器
+            // Start listener
             await listener.StartAsync(cancellationToken);
 
-            // 原子操作添加到监听器集合
+            // Add to collection
             if (_listeners.TryAdd(config.Name, listener))
             {
-                _logger.LogInformation("传输监听器已启动: {Name} ({Type}:{Port})",
+                _logger.LogInformation("Transport listener started: {Name} ({Type}:{Port})",
                     config.Name, config.Type, config.Port);
             }
             else
             {
-                // 如果添加失败，清理监听器
                 await SafeStopListenerAsync(listener);
-                throw new InvalidOperationException($"监听器已存在: {config.Name}");
+                throw new InvalidOperationException($"Listener already exists: {config.Name}");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "启动传输监听器失败: {Name} ({Type}:{Port})",
+            _logger.LogError(ex, "Failed to start transport: {Name} ({Type}:{Port})",
                 config.Name, config.Type, config.Port);
             throw;
         }
@@ -187,31 +180,32 @@ public sealed class PulseServer : IPulseServer
 
         try
         {
-            _logger.LogInformation("正在停止服务器...");
+            _logger.LogInformation("Stopping server...");
 
-            // 触发内部取消令牌
+            // Trigger shutdown
             await _shutdownCts.CancelAsync();
 
-            // 并行停止所有监听器
+            // Stop all listeners
             await StopAllListenersAsync();
 
+            // Stop pipeline components
+            if (_messageDispatcher != null)
+                await _messageDispatcher.StopAsync(cancellationToken);
+
             ChangeState(ServerState.Stopped);
-            _logger.LogInformation("服务器已停止");
+            _logger.LogInformation("Server stopped successfully");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "停止服务器时发生异常");
+            _logger.LogError(ex, "Error during server shutdown");
             ChangeState(ServerState.Stopped);
             throw;
         }
     }
 
-    /// <summary>
-    /// 高性能并行停止所有监听器
-    /// </summary>
     private async Task StopAllListenersAsync()
     {
-        var listeners = _listeners.ToArray(); // 快照，避免并发修改
+        var listeners = _listeners.ToArray();
         _listeners.Clear();
 
         if (listeners.Length == 0) return;
@@ -225,30 +219,24 @@ public sealed class PulseServer : IPulseServer
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "停止部分监听器时发生异常");
+            _logger.LogError(ex, "Error stopping some listeners");
         }
     }
 
-    /// <summary>
-    /// 停止单个监听器
-    /// </summary>
     private async Task StopListenerAsync(string name, IServerListener listener)
     {
         try
         {
             listener.ConnectionAccepted -= OnConnectionAccepted;
             await SafeStopListenerAsync(listener);
-            _logger.LogInformation("监听器已停止: {Name}", name);
+            _logger.LogInformation("Listener stopped: {Name}", name);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "停止监听器时发生异常: {Name}", name);
+            _logger.LogError(ex, "Error stopping listener: {Name}", name);
         }
     }
 
-    /// <summary>
-    /// 安全停止监听器
-    /// </summary>
     private static async Task SafeStopListenerAsync(IServerListener listener)
     {
         try
@@ -263,17 +251,16 @@ public sealed class PulseServer : IPulseServer
             }
             catch
             {
-                // 忽略释放异常
+                // Ignore disposal errors
             }
         }
     }
 
-    /// <summary>
-    /// 处理新连接接受 - 高性能异步处理
-    /// </summary>
+    // === Connection Management ===
+
     private void OnConnectionAccepted(object? sender, ServerConnectionEventArgs e)
     {
-        // 使用后台任务避免阻塞监听线程
+        // Non-blocking connection processing
         _ = Task.Run(async () => await ProcessNewConnectionAsync(e));
     }
 
@@ -281,17 +268,23 @@ public sealed class PulseServer : IPulseServer
     {
         try
         {
-            _logger.LogDebug("接受新连接: {ConnectionId} from {RemoteEndPoint} via {TransportType}", e.Transport.Id, e.Transport.RemoteEndPoint, e.Transport.Type);
+            Interlocked.Increment(ref _totalConnectionsAccepted);
+
+            _logger.LogDebug("Accepting connection: {ConnectionId} from {RemoteEndPoint}",
+                e.Transport.Id, e.Transport.RemoteEndPoint);
 
             _channelManager.AddChannel(e.Transport);
 
-            _logger.LogInformation("新连接已接受: {ConnectionId}", ((ITransport)e.Transport).Id);
+            ClientConnected?.Invoke(this, new ClientConnectedEventArgs(e.Transport as IServerChannel
+                ?? throw new InvalidOperationException("Transport is not IServerChannel")));
+
+            _logger.LogInformation("Connection accepted: {ConnectionId}", e.Transport.Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "处理新连接时发生异常: {ConnectionId}", ((ITransport)e.Transport).Id);
+            _logger.LogError(ex, "Error processing new connection: {ConnectionId}", e.Transport.Id);
 
-            // 异步关闭有问题的连接
+            // Close problematic connection
             _ = Task.Run(async () =>
             {
                 try
@@ -300,29 +293,46 @@ public sealed class PulseServer : IPulseServer
                 }
                 catch (Exception closeEx)
                 {
-                    _logger.LogDebug(closeEx, "关闭异常连接时发生异常: {ConnectionId}",
-                        ((ITransport)e.Transport).Id);
+                    _logger.LogDebug(closeEx, "Error closing failed connection: {ConnectionId}", e.Transport.Id);
                 }
             });
         }
     }
 
-    /// <summary>
-    /// 更改服务器状态 - 线程安全
-    /// </summary>
-    private void ChangeState(ServerState newState)
+    // === Service Registration ===
+
+    public void RegisterService<TService>(string serviceName, TService serviceInstance, ServiceOptions? options = null)
+        where TService : class
     {
-        var oldState = _state;
-        if (oldState == newState) return;
+        if (_serviceRegistry == null)
+            throw new InvalidOperationException("Service registry not initialized");
 
-        lock (_stateLock)
+        _serviceRegistry.RegisterService(serviceName, serviceInstance, options);
+
+        var handler = _serviceRegistry.GetServiceHandler(serviceName);
+        if (handler != null && _messageDispatcher != null)
         {
-            _state = newState;
+            _messageDispatcher.RegisterServiceHandler(serviceName, handler);
         }
-        _logger.LogInformation("服务器状态变更: {OldState} -> {NewState}", oldState, newState);
 
-        StateChanged?.Invoke(this, new ServerStateChangedEventArgs(oldState, newState));
+        _logger.LogInformation("Service registered: {ServiceName}", serviceName);
     }
+
+    public bool UnregisterService(string serviceName)
+    {
+        if (_serviceRegistry == null)
+            return false;
+
+        _messageDispatcher?.UnregisterServiceHandler(serviceName);
+        var result = _serviceRegistry.UnregisterService(serviceName);
+
+        if (result)
+            _logger.LogInformation("Service unregistered: {ServiceName}", serviceName);
+
+        return result;
+    }
+
+    // === Query Methods ===
 
     public IReadOnlyDictionary<string, TransportInfo> GetTransports()
     {
@@ -351,34 +361,34 @@ public sealed class PulseServer : IPulseServer
             Port = defaultTransport.Port,
             IsDefault = true,
             IsListening = _listeners.TryGetValue(defaultTransport.Name, out var listener) && listener.IsListening,
-            LocalEndPoint = listener?.LocalEndPoint
+            LocalEndPoint = _listeners.TryGetValue(defaultTransport.Name, out var l) ? l.LocalEndPoint : null
         };
     }
 
     public IReadOnlyList<ConnectionInfo> GetActiveConnections()
     {
         return _channelManager.GetAllChannels()
-            .Select(session => new ConnectionInfo
+            .Select(channel => new ConnectionInfo
             {
-                ConnectionId = session.Id,
-                RemoteEndPoint = session.RemoteEndPoint,
-                TransportType = session.Type,
-                IsAuthenticated = session.IsAuthenticated,
-                ConnectedTime = session.ConnectedAt,
-                LastActiveTime = session.LastActiveTime
+                ConnectionId = channel.Id,
+                RemoteEndPoint = channel.RemoteEndPoint,
+                TransportType = channel.Type,
+                IsAuthenticated = channel.IsAuthenticated,
+                ConnectedTime = channel.ConnectedAt,
+                LastActiveTime = channel.LastActiveTime
             }).ToList();
-    }
-
-    public Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<System.Net.TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
-    {
-        throw new NotImplementedException();
     }
 
     public IReadOnlyList<ServiceInfo> GetRegisteredServices()
     {
-        // TODO: 从 ServiceRegistry 或其他服务注册表获取
-        return new List<ServiceInfo>();
+        if (_serviceRegistry == null)
+            return Array.Empty<ServiceInfo>();
+
+        // TODO: Implement proper service info retrieval from registry
+        return Array.Empty<ServiceInfo>();
     }
+
+    // === Performance Metrics ===
 
     public ServerPerformanceMetrics GetPerformanceMetrics()
     {
@@ -386,12 +396,12 @@ public sealed class PulseServer : IPulseServer
         {
             ActiveConnections = ActiveConnectionCount,
             TotalConnectionsAccepted = Interlocked.Read(ref _totalConnectionsAccepted),
-            TotalMessagesProcessed = 0, // TODO: 实现消息处理统计
-            TotalMessagesDropped = 0, // TODO: 实现消息丢弃统计
-            AverageLatencyMs = 0, // TODO: 实现延迟统计
-            ThroughputMsgsPerSec = 0, // TODO: 实现吞吐量统计
+            TotalMessagesProcessed = _messageDispatcher?.TotalMessagesDispatched ?? 0,
+            TotalMessagesDropped = 0, // TODO: Track dropped messages
+            AverageLatencyMs = 0, // TODO: Implement latency tracking
+            ThroughputMsgsPerSec = 0, // TODO: Implement throughput calculation
             MemoryUsageMB = GC.GetTotalMemory(false) / 1024.0 / 1024.0,
-            CpuUsagePercent = 0, // TODO: 实现CPU使用率统计
+            CpuUsagePercent = 0, // TODO: Implement CPU usage tracking
             LastResetTime = _lastResetTime
         };
     }
@@ -400,32 +410,43 @@ public sealed class PulseServer : IPulseServer
     {
         Interlocked.Exchange(ref _totalConnectionsAccepted, 0);
         _lastResetTime = DateTime.UtcNow;
-        _logger.LogInformation("性能统计已重置");
+        _logger.LogInformation("Performance metrics reset");
     }
 
-    /// <summary>
-    /// 广播消息到所有连接
-    /// </summary>
-    public Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
+    // === Broadcasting ===
+
+    public Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<System.Net.TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
     {
-        // 使用会话管理器进行广播
         return _channelManager.BroadcastAsync(data, cancellationToken);
     }
 
-    /// <summary>
-    /// 向指定连接发送数据
-    /// </summary>
     public async Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
-        var session = _channelManager.GetChannel(connectionId);
-        if (session != null)
+        var channel = _channelManager.GetChannel(connectionId);
+        if (channel != null)
         {
-            return await session.SendAsync(data, cancellationToken);
+            return await channel.SendAsync(data, cancellationToken);
         }
         return false;
     }
 
-    // === 资源释放 ===
+    // === State Management ===
+
+    private void ChangeState(ServerState newState)
+    {
+        var oldState = _state;
+        if (oldState == newState) return;
+
+        lock (_stateLock)
+        {
+            _state = newState;
+        }
+
+        _logger.LogInformation("Server state changed: {OldState} -> {NewState}", oldState, newState);
+        StateChanged?.Invoke(this, new ServerStateChangedEventArgs(oldState, newState));
+    }
+
+    // === Disposal ===
 
     public void Dispose()
     {
@@ -437,11 +458,12 @@ public sealed class PulseServer : IPulseServer
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "释放资源时停止服务器失败");
+                _logger.LogError(ex, "Error stopping server during disposal");
             }
         }
 
         _shutdownCts.Dispose();
+        _messageDispatcher?.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -453,6 +475,7 @@ public sealed class PulseServer : IPulseServer
         }
 
         _shutdownCts.Dispose();
+        _messageDispatcher?.Dispose();
         GC.SuppressFinalize(this);
     }
 }
