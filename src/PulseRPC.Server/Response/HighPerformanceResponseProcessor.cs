@@ -231,10 +231,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
 
              ReadOnlyMemory<byte> responsePayload;
 
-             // 特殊处理：系统消息（如 Ping/Pong）ServiceName 和 MethodName 都为空
-             bool isSystemMessage = string.IsNullOrEmpty(responseTask.ServiceName) && string.IsNullOrEmpty(responseTask.MethodName);
-
-             if (responseTask.Success && responseTask.Result != null && !isSystemMessage)
+             if (responseTask.Success && responseTask.Result != null)
              {
                  // 序列化成功响应（普通业务消息）
                  responsePayload = await SerializeResponseAsync(responseTask.Result, responseTask.ServiceName, responseTask.MethodName);
@@ -263,7 +260,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
 
              // 通过会话管理器发送响应到客户端
              var session = _sessionManager.GetChannel(responseTask.ConnectionId);
-             bool sent = false;
+             var sent = false;
 
              if (session != null)
              {

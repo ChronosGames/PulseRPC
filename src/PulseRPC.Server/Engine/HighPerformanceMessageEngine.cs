@@ -204,7 +204,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 var processingTime = Stopwatch.GetElapsedTime(startTime);
                 _metrics.MessagesProcessed.Add(1);
 
-                return ProcessingResult.SuccessResult();
+                return ProcessingResult.SuccessResult(response);
             }
             catch (Exception ex)
             {
@@ -431,11 +431,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 _logger.LogTrace("处理消息: Service={ServiceName}, Method={MethodName}, MessageId={MessageId}, ConnectionId={ConnectionId}",
                     serviceName, methodName, envelope.MessageId, envelope.ConnectionId);
 
-                // 🔧 修复：使用 MessagePacketHolder 替代 ref struct MessagePacket
-                // ref struct 不能在 async lambda 中使用，因此需要转换为普通 class
-                var reconstructedPacket = new MessagePacket(envelope.Header, envelope.Payload.Span);
-                var packetHolder = new MessagePacketHolder(reconstructedPacket, envelope.ConnectionId);
-
                 // 获取服务上下文（用于调度）
                 var serviceContext = GetServiceContextForConnection(envelope.ConnectionId);
 
@@ -449,7 +444,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                         async () =>
                         {
                             dispatchResult = await _messageDispatcher.DispatchAsync(
-                                packetHolder,
+                                envelope,
                                 _serviceProvider,
                                 CancellationToken.None);
                         },
@@ -458,7 +453,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 else
                 {
                     dispatchResult = await _messageDispatcher.DispatchAsync(
-                        packetHolder,
+                        envelope,
                         _serviceProvider,
                         CancellationToken.None);
                 }

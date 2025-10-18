@@ -109,9 +109,6 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             // 生成全局路由表
             GenerateGlobalRoutingTable(context, serviceModels);
 
-            // 生成序列化优化代码
-            GenerateSerializationOptimization(context, serviceModels);
-
             // 生成编译时消息分发器
             GenerateCompiledMessageDispatcher(context, serviceModels);
 
@@ -169,15 +166,6 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     {
         var sourceText = RoutingTableGenerator.GenerateSourceText(serviceModels);
         context.AddSource("ServiceRoutingTable.g.cs", sourceText);
-    }
-
-    /// <summary>
-    /// 生成序列化优化代码
-    /// </summary>
-    private static void GenerateSerializationOptimization(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
-    {
-        var sourceText = SerializationGenerator.GenerateSourceText(serviceModels);
-        context.AddSource("OptimizedSerialization.g.cs", sourceText);
     }
 
     /// <summary>
@@ -266,20 +254,6 @@ public enum OptimizationLevel
     None = 0,
     Basic = 1,
     Maximum = 2
-}
-
-/// <summary>
-/// Optimization attribute for fine-tuning generated code
-/// </summary>
-[System.AttributeUsage(System.AttributeTargets.Interface | System.AttributeTargets.Method | System.AttributeTargets.Class)]
-public sealed class PulseOptimizeAttribute : System.Attribute
-{
-    public OptimizationLevel Level { get; }
-
-    public PulseOptimizeAttribute(OptimizationLevel level)
-    {
-        Level = level;
-    }
 }";
 
         context.AddSource("PulseRPC.Abstractions.g.cs", code);

@@ -127,12 +127,13 @@ public class BenchmarkServerHost(
     /// </summary>
     private async Task StartRpcServerAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("🌐 启动PulseRPC服务器...");
+        _logger.LogInformation("🌐 等待PulseRPC服务器启动...");
 
         try
         {
-            // 启动服务器监听已配置的传输端口
-            await _pulseServer.StartAsync(cancellationToken);
+            // UnifiedPulseServer 已经通过 UnifiedPulseServerHostedService 自动启动
+            // 这里只需要等待其启动完成并记录指标
+            // 注意：不需要手动调用 _pulseServer.StartAsync()，避免重复启动
 
             _logger.LogInformation("✅ PulseRPC服务器已启动在端口 {Port}", _config.Port);
 
@@ -182,15 +183,9 @@ public class BenchmarkServerHost(
 
         try
         {
-            // 停止服务器
-            try
-            {
-                await _pulseServer.StopAsync(CancellationToken.None);
-            }
-            catch (Exception stopEx)
-            {
-                _logger.LogWarning(stopEx, "停止服务器时发生非致命错误");
-            }
+            // UnifiedPulseServer 会通过 UnifiedPulseServerHostedService 自动停止
+            // 这里只需要记录指标
+            // 注意：不需要手动调用 _pulseServer.StopAsync()，避免重复停止
 
             // 记录服务器停止指标
             await _metricsCollector.CollectAsync("server_stopped", new

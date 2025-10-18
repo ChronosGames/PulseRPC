@@ -32,7 +32,7 @@ public interface IMessageDispatcher : IDisposable
     /// <summary>
     /// 分发反序列化的消息
     /// </summary>
-    ValueTask<object?> DispatchAsync(object message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default);
+    ValueTask<object?> DispatchAsync(MessageEnvelope message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 注册服务处理器
@@ -75,7 +75,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     private IMetadataAwareMessageDeserializer? _metadataDeserializer;
 
     // 编译时消息分发器 (可选，由 Source Generator 生成)
-    private AbstractCompiledMessageDispatcher? CompiledMessageDispatcher { get; set; }
+    private AbstractCompiledMessageDispatcher? _compiledMessageDispatcher;
 
     public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
 
@@ -86,7 +86,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
 
     public void SetCompiledDispatcher(AbstractCompiledMessageDispatcher? compiledDispatcher)
     {
-        CompiledMessageDispatcher = compiledDispatcher;
+        _compiledMessageDispatcher = compiledDispatcher;
     }
 
     public HighPerformanceMessageDispatcher()
@@ -176,35 +176,56 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     /// 分发消息 - 高性能入口点
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public async ValueTask<object?> DispatchAsync(object message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
+    public async ValueTask<object?> DispatchAsync(MessageEnvelope message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
     {
-        if (message is MessageDeserializedEventArgs deserialized)
+        var header = message.Header;
+        if (header == null)
         {
-            return await DispatchCallContextAsync(deserialized.CallContext, cancellationToken).ConfigureAwait(false);
+            _logger.LogWarning("消息头为空，无法分发");
+            return new { Success = false, Error = "Missing header" };
         }
 
-        // MessagePacket 是 ref struct，不能直接在 async 方法中使用
-        // 需要先转换为 MessagePacketHolder 或 byte[]
-        if (message is MessagePacketHolder holder)
+        var serviceName = header.ServiceName ?? string.Empty;
+        var methodName = header.MethodName ?? string.Empty;
+
+        if (string.IsNullOrEmpty(serviceName) || string.IsNullOrEmpty(methodName))
         {
-            return await DispatchPacketHolderAsync(holder, serviceProvider, cancellationToken).ConfigureAwait(false);
+            _logger.LogWarning("消息缺少 ServiceName 或 MethodName，无法分发");
+            return new { Success = false, Error = "Missing service or method" };
         }
 
-        if (message is byte[] rawBytes && MessagePacket.TryReadFrom(rawBytes, out var parsedPacket))
+        if (_compiledMessageDispatcher == null || !_compiledMessageDispatcher.TryGetHandlerMetadata(serviceName, methodName, out var metadata))
         {
-            // 将 ref struct 转换为 holder
-            var packetHolder = new MessagePacketHolder(parsedPacket);
-            return await DispatchPacketHolderAsync(packetHolder, serviceProvider, cancellationToken).ConfigureAwait(false);
+            _logger.LogWarning("未找到服务元数据: Service={Service}, Method={Method}", serviceName, methodName);
+            return new { Success = false, Error = "Missing handler metadata" };
         }
 
-        if (message is ReadOnlyMemory<byte> rom && MessagePacket.TryReadFrom(rom.Span.ToArray(), out var memoryPacket))
+        object? requestModel = null;
+        if (message.Payload.Length > 0)
         {
-            // 将 ref struct 转换为 holder
-            var packetHolder = new MessagePacketHolder(memoryPacket);
-            return await DispatchPacketHolderAsync(packetHolder, serviceProvider, cancellationToken).ConfigureAwait(false);
+            try
+            {
+                requestModel = await DeserializeRequestAsync(message.Payload, metadata, serviceProvider, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "消息反序列化失败: Service={Service}, Method={Method}", serviceName, methodName);
+                return new { Success = false, Error = ex.Message };
+            }
         }
 
-        throw new InvalidOperationException($"不支持的消息类型: {message.GetType().FullName}");
+        var callContext = new ServiceCallContext(
+            connectionId: message.ConnectionId ?? string.Empty,
+            messageId: header.MessageId != Guid.Empty ? header.MessageId : Guid.NewGuid(),
+            serviceName: serviceName,
+            methodName: methodName,
+            requestData: requestModel,
+            messageType: header.Type,
+            receivedTime: DateTime.UtcNow,
+            processorId: Environment.CurrentManagedThreadId,
+            flags: header.Flags);
+
+        return await DispatchCallContextAsync(callContext, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -441,58 +462,6 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         }
 
         return writer.TryWrite(invocationTask);
-    }
-
-    private async ValueTask<object?> DispatchPacketHolderAsync(MessagePacketHolder holder, IServiceProvider serviceProvider, CancellationToken cancellationToken)
-    {
-        var header = holder.Header;
-        if (header == null)
-        {
-            _logger.LogWarning("消息头为空，无法分发");
-            return new { Success = false, Error = "Missing header" };
-        }
-
-        var serviceName = header.ServiceName ?? string.Empty;
-        var methodName = header.MethodName ?? string.Empty;
-
-        if (string.IsNullOrEmpty(serviceName) || string.IsNullOrEmpty(methodName))
-        {
-            _logger.LogWarning("消息缺少 ServiceName 或 MethodName，无法分发");
-            return new { Success = false, Error = "Missing service or method" };
-        }
-
-        if (CompiledMessageDispatcher == null || !CompiledMessageDispatcher.TryGetHandlerMetadata(serviceName, methodName, out var metadata) || metadata == null)
-        {
-            _logger.LogWarning("未找到服务元数据: Service={Service}, Method={Method}", serviceName, methodName);
-            return new { Success = false, Error = "Missing handler metadata" };
-        }
-
-        object? requestModel = null;
-        if (holder.Payload.Length > 0)
-        {
-            try
-            {
-                requestModel = await DeserializeRequestAsync(holder.Payload, metadata!, serviceProvider, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "消息反序列化失败: Service={Service}, Method={Method}", serviceName, methodName);
-                return new { Success = false, Error = ex.Message };
-            }
-        }
-
-        var callContext = new ServiceCallContext(
-            connectionId: holder.ConnectionId ?? string.Empty,
-            messageId: header.MessageId != Guid.Empty ? header.MessageId : Guid.NewGuid(),
-            serviceName: serviceName,
-            methodName: methodName,
-            requestData: requestModel,
-            messageType: header.Type,
-            receivedTime: DateTime.UtcNow,
-            processorId: Environment.CurrentManagedThreadId,
-            flags: header.Flags);
-
-        return await DispatchCallContextAsync(callContext, cancellationToken).ConfigureAwait(false);
     }
 
     private async ValueTask<object?> DispatchCallContextAsync(ServiceCallContext callContext, CancellationToken cancellationToken)

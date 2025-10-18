@@ -8,13 +8,15 @@ namespace PulseRPC.Transport;
 public struct ProcessingResult
 {
     public bool Success { get; set; }
+    public object? Payload { get; set; }
+
     public string? ErrorMessage { get; set; }
     public TimeSpan ProcessingTime { get; set; }
 
     /// <summary>
     /// 成功结果
     /// </summary>
-    public static ProcessingResult SuccessResult() => new() { Success = true };
+    public static ProcessingResult SuccessResult(object? payload) => new() { Success = true, Payload = payload };
 
     /// <summary>
     /// 失败结果

@@ -228,7 +228,7 @@ public static class MessageDispatcherGenerator
         code.AppendLine("    /// 尝试获取指定 Hub 与方法的预编译元数据");
         code.AppendLine("    /// 实现 AbstractCompiledMessageDispatcher.TryGetHandlerMetadata");
         code.AppendLine("    /// </summary>");
-        code.AppendLine("    public override bool TryGetHandlerMetadata(string serviceName, string methodName, out HandlerMetadata? metadata)");
+        code.AppendLine("    public override bool TryGetHandlerMetadata(string serviceName, string methodName, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out HandlerMetadata? metadata)");
         code.AppendLine("    {");
         code.AppendLine("        if (HandlerMetadataMap.TryGetValue(serviceName, out var methods) && methods.TryGetValue(methodName, out metadata))");
         code.AppendLine("        {");
