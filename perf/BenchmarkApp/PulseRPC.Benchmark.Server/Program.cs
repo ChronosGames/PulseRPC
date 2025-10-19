@@ -279,10 +279,12 @@ internal class Program
                 //     options.EnableDetailedLogging = false;  // 生产环境禁用详细日志
                 // });
 
+                services.AddSingleton<IBenchmarkHub, BenchmarkHubImpl>();
+
                 // 4. 指标收集器（依赖配置）
                 MetricsConfigurationBuilderExtensions.CreateProductionConfiguration();
 
-                //
+                // 5.
                 services.AddSingleton<IMetricsCollector, RealTimeMetricsCollector>();
 
                 // 6. 健康检查

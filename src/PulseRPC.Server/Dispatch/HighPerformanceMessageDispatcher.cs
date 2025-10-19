@@ -10,6 +10,7 @@ using PulseRPC.Messaging;
 using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Serialization;
 using PulseRPC.Server.Engine;
+using PulseRPC.Server.Routing;
 using MemoryPack;
 
 namespace PulseRPC.Server.Dispatch;
@@ -194,7 +195,26 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
             return new { Success = false, Error = "Missing service or method" };
         }
 
-        if (_compiledMessageDispatcher == null || !_compiledMessageDispatcher.TryGetHandlerMetadata(serviceName, methodName, out var metadata))
+        // 快速路径1：优先使用编译时生成的 ServiceRoutingTable（零反射，最快）
+        var routingTable = ServiceRoutingTableRegistry.Instance;
+        if (routingTable != null)
+        {
+            try
+            {
+                _logger.LogTrace("使用 ServiceRoutingTable 路由: Service={Service}, Method={Method}", serviceName, methodName);
+                return await routingTable.RouteAsync(serviceProvider, serviceName, methodName, message.Payload, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "ServiceRoutingTable 路由失败: Service={Service}, Method={Method}", serviceName, methodName);
+                return new { Success = false, Error = ex.Message };
+            }
+        }
+
+        // 慢速路径：反射路径（兼容性后备）
+        _logger.LogDebug("编译时分发器不可用，使用反射路径: Service={Service}, Method={Method}", serviceName, methodName);
+
+        if (!_compiledMessageDispatcher!.TryGetHandlerMetadata(serviceName, methodName, out var metadata))
         {
             _logger.LogWarning("未找到服务元数据: Service={Service}, Method={Method}", serviceName, methodName);
             return new { Success = false, Error = "Missing handler metadata" };

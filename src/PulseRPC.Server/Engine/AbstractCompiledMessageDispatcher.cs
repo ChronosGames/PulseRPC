@@ -52,4 +52,19 @@ public abstract class AbstractCompiledMessageDispatcher
     /// 由生成的实现提供，用于运行时反序列化和调度
     /// </summary>
     public abstract bool TryGetHandlerMetadata(string serviceName, string methodName, [NotNullWhen(true)] out HandlerMetadata? metadata);
+
+    /// <summary>
+    /// 高性能路由分发方法 - 直接调用编译时生成的路由表
+    /// 此方法由生成的 CompiledMessageDispatcher 实现，委托给 ServiceRoutingTable.RouteAsync
+    /// </summary>
+    /// <param name="serviceName">服务名称</param>
+    /// <param name="methodName">方法名称</param>
+    /// <param name="payloadData">消息负载数据</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>方法调用结果</returns>
+    public abstract ValueTask<object?> RouteAsync(
+        string serviceName,
+        string methodName,
+        ReadOnlyMemory<byte> payloadData,
+        CancellationToken cancellationToken = default);
 }
