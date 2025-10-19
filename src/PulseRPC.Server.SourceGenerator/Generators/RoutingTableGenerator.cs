@@ -52,6 +52,7 @@ public static class RoutingTableGenerator
         sb.AppendLine("using System.Buffers;");
         sb.AppendLine("using PulseRPC.Abstractions;");
         sb.AppendLine("using PulseRPC.Server.Abstractions;");
+        sb.AppendLine("using PulseRPC.Server.Routing;");
         sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
         
         // 添加服务命名空间
@@ -76,8 +77,19 @@ public static class RoutingTableGenerator
         sb.AppendLine("/// High-performance static routing table for all PulseRPC services");
         sb.AppendLine("/// Provides compile-time optimized service dispatch");
         sb.AppendLine("/// </summary>");
-        sb.AppendLine("public static partial class ServiceRoutingTable");
+        sb.AppendLine("public sealed class ServiceRoutingTable : IServiceRoutingTable");
         sb.AppendLine("{");
+        sb.AppendLine("    // 单例实例");
+        sb.AppendLine("    private static readonly ServiceRoutingTable _instance = new();");
+        sb.AppendLine("    ");
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// 获取路由表单例实例");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    public static ServiceRoutingTable Instance => _instance;");
+        sb.AppendLine("    ");
+        sb.AppendLine("    // 私有构造函数，确保单例");
+        sb.AppendLine("    private ServiceRoutingTable() { }");
+        sb.AppendLine();
 
         // 生成服务常量
         GenerateServiceConstants(sb, services);
@@ -142,17 +154,34 @@ public static class RoutingTableGenerator
         sb.AppendLine("    /// High-performance service routing with compile-time optimization");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    public static ValueTask<object?> RouteAsync(string serviceName, string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
+        sb.AppendLine("    public ValueTask<object?> RouteAsync(IServiceProvider serviceProvider, string serviceName, string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
         sb.AppendLine("    {");
         
         // 使用switch表达式进行快速服务分发
+        // 支持多种服务名称格式：完整名称、接口名、自定义ServiceName
         sb.AppendLine("        return serviceName switch");
         sb.AppendLine("        {");
 
         foreach (var service in services)
         {
             var routerMethodName = GetServiceRouterName(service.InterfaceName);
-            sb.AppendLine($"            {GetServiceConstantName(service.InterfaceName)} => {routerMethodName}(methodName, data, cancellationToken),");
+
+            // 1. 匹配完整接口名称（带命名空间）
+            sb.AppendLine($"            \"{service.InterfaceFullName}\" => {routerMethodName}(serviceProvider, methodName, data, cancellationToken),");
+
+            // 2. 匹配接口名称（不带命名空间）
+            if (service.InterfaceFullName != service.InterfaceName)
+            {
+                sb.AppendLine($"            \"{service.InterfaceName}\" => {routerMethodName}(serviceProvider, methodName, data, cancellationToken),");
+            }
+
+            // 3. 匹配自定义 ServiceName（如果有）
+            if (!string.IsNullOrEmpty(service.ServiceName) &&
+                service.ServiceName != service.InterfaceFullName &&
+                service.ServiceName != service.InterfaceName)
+            {
+                sb.AppendLine($"            \"{service.ServiceName}\" => {routerMethodName}(serviceProvider, methodName, data, cancellationToken),");
+            }
         }
 
         sb.AppendLine("            _ => ThrowServiceNotFoundException(serviceName)");
@@ -173,7 +202,7 @@ public static class RoutingTableGenerator
         sb.AppendLine("    /// Ultra-fast routing using pre-computed hash codes");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    public static ValueTask<object?> RouteByHashAsync(uint serviceNameHash, string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
+        sb.AppendLine("    public ValueTask<object?> RouteByHashAsync(IServiceProvider serviceProvider, uint serviceNameHash, string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
         sb.AppendLine("    {");
 
         sb.AppendLine("        return serviceNameHash switch");
@@ -183,7 +212,7 @@ public static class RoutingTableGenerator
         {
             var constantName = GetServiceConstantName(service.InterfaceName);
             var routerMethodName = GetServiceRouterName(service.InterfaceName);
-            sb.AppendLine($"            ServiceHashes.{constantName} => {routerMethodName}(methodName, data, cancellationToken),");
+            sb.AppendLine($"            ServiceHashes.{constantName} => {routerMethodName}(serviceProvider, methodName, data, cancellationToken),");
         }
 
         sb.AppendLine("            _ => ThrowServiceNotFoundByHashException(serviceNameHash)");
@@ -221,11 +250,11 @@ public static class RoutingTableGenerator
         sb.AppendLine($"    /// Optimized router for {service.InterfaceName}");
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine($"    private static ValueTask<object?> {routerMethodName}(string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
+        sb.AppendLine($"    private ValueTask<object?> {routerMethodName}(IServiceProvider serviceProvider, string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
         sb.AppendLine("    {");
 
-        // 获取或创建代理实例
-        sb.AppendLine($"        var proxy = GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy();");
+        // 从 ServiceProvider 获取服务实例并创建代理
+        sb.AppendLine($"        var proxy = GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy(serviceProvider);");
         sb.AppendLine("        return proxy.InvokeAsync(methodName, data, cancellationToken);");
 
         sb.AppendLine("    }");
@@ -241,31 +270,17 @@ public static class RoutingTableGenerator
     private static void GenerateProxyGetter(StringBuilder sb, ServiceModel service)
     {
         var proxyClassName = $"{service.InterfaceName.TrimStart('I')}Proxy";
-        var fieldName = $"_cached{service.InterfaceName.TrimStart('I')}Proxy";
-
-        sb.AppendLine($"    private static {service.Namespace}.Generated.{proxyClassName}? {fieldName};");
-        sb.AppendLine($"    private static readonly object _{service.InterfaceName.TrimStart('I')}Lock = new();");
-        sb.AppendLine();
 
         sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// Thread-safe singleton access to {service.InterfaceName} proxy");
+        sb.AppendLine($"    /// Get or create proxy for {service.InterfaceName} from ServiceProvider");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    private static {service.Namespace}.Generated.{proxyClassName} GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy()");
+        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine($"    private {service.Namespace}.Generated.{proxyClassName} GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy(IServiceProvider serviceProvider)");
         sb.AppendLine("    {");
-        sb.AppendLine($"        if ({fieldName} is null)");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            lock (_{service.InterfaceName.TrimStart('I')}Lock)");
-        sb.AppendLine("            {");
-        sb.AppendLine($"                if ({fieldName} is null)");
-        sb.AppendLine("                {");
-        sb.AppendLine($"                    var implementation = ({service.InterfaceFullName}?)ServiceProvider?.GetService(typeof({service.InterfaceFullName}));");
-        sb.AppendLine("                    if (implementation is null)");
-        sb.AppendLine($"                        throw new InvalidOperationException($\"Service implementation for {service.InterfaceName} not registered in DI container\");");
-        sb.AppendLine($"                    {fieldName} = new {service.Namespace}.Generated.{proxyClassName}(implementation);");
-        sb.AppendLine("                }");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine($"        return {fieldName};");
+        sb.AppendLine($"        var implementation = ({service.InterfaceFullName}?)serviceProvider?.GetService(typeof({service.InterfaceFullName}));");
+        sb.AppendLine("        if (implementation is null)");
+        sb.AppendLine($"            throw new InvalidOperationException($\"Service implementation for {service.InterfaceName} not registered in DI container\");");
+        sb.AppendLine($"        return new {service.Namespace}.Generated.{proxyClassName}(implementation);");
         sb.AppendLine("    }");
         sb.AppendLine();
     }
@@ -299,7 +314,17 @@ public static class RoutingTableGenerator
         sb.AppendLine("        {");
         foreach (var service in services)
         {
-            sb.AppendLine($"            \"{service.InterfaceFullName}\",");
+            sb.AppendLine($"            \"{service.InterfaceFullName}\",  // Full name");
+            if (service.InterfaceFullName != service.InterfaceName)
+            {
+                sb.AppendLine($"            \"{service.InterfaceName}\",  // Short name");
+            }
+            if (!string.IsNullOrEmpty(service.ServiceName) &&
+                service.ServiceName != service.InterfaceFullName &&
+                service.ServiceName != service.InterfaceName)
+            {
+                sb.AppendLine($"            \"{service.ServiceName}\",  // Custom ServiceName");
+            }
         }
         sb.AppendLine("        };");
 
@@ -339,7 +364,29 @@ public static class RoutingTableGenerator
         sb.AppendLine("    public static IServiceProvider? ServiceProvider { get; set; }");
         sb.AppendLine();
 
+        // 生成 ModuleInitializer
+        GenerateModuleInitializer(sb);
+
         sb.AppendLine("    #endregion");
+    }
+
+    /// <summary>
+    /// 生成模块初始化器 - 自动注册 ServiceRoutingTable
+    /// </summary>
+    private static void GenerateModuleInitializer(StringBuilder sb)
+    {
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Module initializer - automatically registers ServiceRoutingTable when assembly loads");
+        sb.AppendLine("    /// This method is called automatically by the runtime before any other code in the assembly");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    [System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("    internal static void Initialize()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        // 自动注册路由表实例到全局注册中心");
+        sb.AppendLine("        PulseRPC.Server.Routing.ServiceRoutingTableRegistry.Register(Instance);");
+        sb.AppendLine("        System.Diagnostics.Debug.WriteLine(\"[PulseRPC] ServiceRoutingTable registered to global registry\");");
+        sb.AppendLine("    }");
+        sb.AppendLine();
     }
 
     /// <summary>
