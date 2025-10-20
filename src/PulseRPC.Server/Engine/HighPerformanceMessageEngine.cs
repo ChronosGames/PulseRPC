@@ -349,7 +349,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// </summary>
     private bool TryEnqueueWithRetry(MessageSlot slot, TimeSpan delay, int maxRetries)
     {
-        for (int i = 0; i < maxRetries; i++)
+        for (var i = 0; i < maxRetries; i++)
         {
             if (_tieredProcessor.TryEnqueueMessageSlot(slot))
             {
@@ -408,8 +408,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     // 注意：三层架构（L1→L2→L3）现在由TieredMessageProcessor内部处理
     // 所有相关的处理逻辑已经被封装在TieredMessageProcessor中
 
-
-
     /// <summary>
     /// 处理单个消息
     /// </summary>
@@ -431,13 +429,12 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
                 _logger.LogTrace("处理消息: Service={ServiceName}, Method={MethodName}, MessageId={MessageId}, ConnectionId={ConnectionId}",
                     serviceName, methodName, envelope.MessageId, envelope.ConnectionId);
 
-                // 获取服务上下文（用于调度）
-                var serviceContext = GetServiceContextForConnection(envelope.ConnectionId);
-
                 object? dispatchResult = null;
 
                 if (_scheduler != null)
                 {
+                    // 获取服务上下文（用于调度）
+                    var serviceContext = GetServiceContextForConnection(envelope.ConnectionId);
                     await _scheduler.InvokeWithSchedulerAsync(
                         serviceContext,
                         serviceName,
@@ -514,11 +511,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             TriggerMessageProcessedEvent(envelope, null, ex);
 
             return response;
-        }
-        finally
-        {
-            // 使用零拷贝方式，ReadOnlyMemory<byte> 会自动管理生命周期
-            // 不需要手动归还缓冲区
         }
     }
 
