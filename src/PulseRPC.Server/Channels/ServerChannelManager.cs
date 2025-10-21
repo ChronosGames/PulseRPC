@@ -2,17 +2,11 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Messaging;
-using PulseRPC.Serialization;
 using PulseRPC.Server.Engine;
 using PulseRPC.Server.Transport;
-using PulseRPC.Server.Serialization;
-using PulseRPC.Server.Memory;
 using PulseRPC.Transport;
-using System.Buffers;
 using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Dispatch;
-using PulseRPC.Server.Response;
-using MessageProcessedEventArgs = PulseRPC.Server.Dispatch.MessageProcessedEventArgs;
 
 namespace PulseRPC.Server.Processing;
 
@@ -22,7 +16,7 @@ namespace PulseRPC.Server.Processing;
 internal class ServerChannelManager : IServerChannelManager
 {
     private readonly ConcurrentDictionary<string, IServerChannel> _channels;
-    private readonly ITieredMessageEngineManager? _engineManager;
+    private readonly ITieredMessageEngineManager _engineManager;
     private readonly IOptions<MessageEngineConfiguration> _processorOptions;
     private readonly ILogger<ServerChannelManager> _logger;
     private readonly ILoggerFactory? _loggerFactory;
@@ -83,7 +77,7 @@ internal class ServerChannelManager : IServerChannelManager
         _cleanupTimer = new Timer(CleanupExpiredChannels, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
         _logger.LogInformation("增强服务器通道管理器已启动，引擎管理器: {EngineManagerType}, 消息分发器: {DispatcherType}",
-            _engineManager?.GetType().Name ?? "None", _messageDispatcher.GetType().Name);
+            _engineManager.GetType().Name, _messageDispatcher.GetType().Name);
     }
 
     /// <summary>
@@ -109,7 +103,7 @@ internal class ServerChannelManager : IServerChannelManager
         {
             Interlocked.Increment(ref _totalChannelsCreated);
 
-            _logger.LogInformation("已添加传输通道: {ConnectionId}, 总数: {TotalCount}", ((ITransport)transport).Id, _channels.Count);
+            _logger.LogInformation("已添加传输通道: {ConnectionId}, 总数: {TotalCount}", transport.Id, _channels.Count);
 
             // 如果启用了消息引擎，为此通道创建引擎
             _ = Task.Run(async () => await TryCreateEngineAsync(channel));
@@ -128,9 +122,9 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 尝试为通道创建消息引擎
     /// </summary>
-    private async Task TryCreateEngineAsync(IServerChannel channel)
+    private async Task TryCreateEngineAsync(ServerTransportChannel channel)
     {
-        if (!_processorOptions.Value.Enabled || _engineManager == null)
+        if (!_processorOptions.Value.Enabled)
             return;
 
         try
@@ -198,9 +192,6 @@ internal class ServerChannelManager : IServerChannelManager
     /// </summary>
     private async Task TryRemoveEngineAsync(string connectionId)
     {
-        if (_engineManager == null)
-            return;
-
         try
         {
             await _engineManager.RemoveConnectionAsync(connectionId);
@@ -228,22 +219,6 @@ internal class ServerChannelManager : IServerChannelManager
     public IEnumerable<IServerChannel> GetAuthenticatedChannels()
     {
         return _channels.Values.Where(c => c.IsAuthenticated).ToList();
-    }
-
-    /// <summary>
-    /// 根据认证用户名获取传输通道
-    /// </summary>
-    /// <param name="username">用户名</param>
-    /// <returns>用户的传输通道集合</returns>
-    public IEnumerable<IServerChannel> GetChannelsByUser(string username)
-    {
-        if (string.IsNullOrEmpty(username))
-            return Enumerable.Empty<IServerChannel>();
-
-        return _channels.Values
-            .Where(c => c.IsAuthenticated &&
-                        string.Equals(c.AuthenticationContext?.Name, username, StringComparison.OrdinalIgnoreCase))
-            .ToList();
     }
 
     /// <summary>
@@ -277,9 +252,6 @@ internal class ServerChannelManager : IServerChannelManager
     /// </summary>
     public Dictionary<string, object?> GetEngineStats()
     {
-        if (_engineManager == null)
-            return new Dictionary<string, object?>();
-
         // 同步版本 - 返回基础统计信息
         return new Dictionary<string, object?>();
     }
@@ -328,14 +300,14 @@ internal class ServerChannelManager : IServerChannelManager
     /// </summary>
     private void OnChannelMessageParsed(object? sender, MessageParsedEventArgs e)
     {
-        if (sender is not IServerChannel channel)
+        if (sender is not IServerChannel)
             return;
 
         _logger.LogTrace("[消息路由] {ConnectionId} 解析消息: 服务={ServiceName}, 方法={MethodName}, 类型={Type}",
             e.ConnectionId, e.MessagePacket.Header.ServiceName, e.MessagePacket.Header.MethodName, e.MessagePacket.Header.Type);
 
         // 将消息路由到引擎（如果启用）
-        if (_engineManager != null && _processorOptions.Value.Enabled)
+        if (_processorOptions.Value.Enabled)
         {
             _ = Task.Run(async () => await RouteToEngineAsync(e));
         }
@@ -353,14 +325,6 @@ internal class ServerChannelManager : IServerChannelManager
     {
         try
         {
-            if (_engineManager == null)
-            {
-                // 回退路径：直接调用分发器
-                _logger.LogWarning("[消息路由] {ConnectionId} 引擎管理器未初始化，使用回退处理", eventArgs.ConnectionId);
-                await FallbackProcessMessageAsync(eventArgs);
-                return;
-            }
-
             // 获取当前连接对应的通道
             if (!_channels.TryGetValue(eventArgs.ConnectionId, out var serverChannel))
             {
@@ -403,12 +367,14 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 回退处理路径 - 当高性能引擎不可用时使用
     /// </summary>
-    private async Task FallbackProcessMessageAsync(MessageParsedEventArgs eventArgs)
+    private Task FallbackProcessMessageAsync(MessageParsedEventArgs eventArgs)
     {
         _logger.LogInformation("[回退处理] {ConnectionId} 使用简化处理路径: Service={ServiceName}, Method={MethodName}",
             eventArgs.ConnectionId,
             eventArgs.MessagePacket.Header.ServiceName,
             eventArgs.MessagePacket.Header.MethodName);
+
+        return Task.CompletedTask;
     }
 
     /// <summary>
