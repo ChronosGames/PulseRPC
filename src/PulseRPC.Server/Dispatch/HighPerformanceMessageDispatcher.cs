@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
@@ -72,35 +73,12 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     private long _totalProcessingTime;
     private readonly ConcurrentDictionary<string, ServiceStatistics> _serviceStats = new();
 
-    // 可识别元数据的高性能反序列化器 (可选依赖)
-    private IMetadataAwareMessageDeserializer? _metadataDeserializer;
-
-    // 编译时消息分发器 (可选，由 Source Generator 生成)
-    private AbstractCompiledMessageDispatcher? _compiledMessageDispatcher;
-
     public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
 
-    public void SetMetadataDeserializer(IMetadataAwareMessageDeserializer? metadataDeserializer)
-    {
-        _metadataDeserializer = metadataDeserializer;
-    }
-
-    public void SetCompiledDispatcher(AbstractCompiledMessageDispatcher? compiledDispatcher)
-    {
-        _compiledMessageDispatcher = compiledDispatcher;
-    }
-
-    public HighPerformanceMessageDispatcher()
-        : this(null, null, null)
-    {
-    }
-
     public HighPerformanceMessageDispatcher(
-        IMetadataAwareMessageDeserializer? metadataDeserializer = null,
         DispatcherOptions? options = null,
         ILogger<HighPerformanceMessageDispatcher>? logger = null)
     {
-        _metadataDeserializer = metadataDeserializer;
         _options = options ?? new DispatcherOptions();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HighPerformanceMessageDispatcher>.Instance;
 
@@ -180,72 +158,29 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     public async ValueTask<object?> DispatchAsync(MessageEnvelope message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
     {
         var header = message.Header;
-        if (header == null)
-        {
-            _logger.LogWarning("消息头为空，无法分发");
-            return new { Success = false, Error = "Missing header" };
-        }
+        Debug.Assert(header != null, "消息头不能为空");
 
-        var serviceName = header.ServiceName ?? string.Empty;
-        var methodName = header.MethodName ?? string.Empty;
-
+        var serviceName = header.ServiceName;
+        var methodName = header.MethodName;
         if (string.IsNullOrEmpty(serviceName) || string.IsNullOrEmpty(methodName))
         {
             _logger.LogWarning("消息缺少 ServiceName 或 MethodName，无法分发");
             return new { Success = false, Error = "Missing service or method" };
         }
 
-        // 快速路径1：优先使用编译时生成的 ServiceRoutingTable（零反射，最快）
+        // 使用编译时生成的 ServiceRoutingTable（零反射，最快）
         var routingTable = ServiceRoutingTableRegistry.Instance;
-        if (routingTable != null)
+        Debug.Assert(routingTable != null, "ServiceRoutingTable不能为空");
+        try
         {
-            try
-            {
-                _logger.LogTrace("使用 ServiceRoutingTable 路由: Service={Service}, Method={Method}", serviceName, methodName);
-                return await routingTable.RouteAsync(serviceProvider, serviceName, methodName, message.Payload, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "ServiceRoutingTable 路由失败: Service={Service}, Method={Method}", serviceName, methodName);
-                return new { Success = false, Error = ex.Message };
-            }
+            _logger.LogTrace("使用 ServiceRoutingTable 路由: Service={Service}, Method={Method}", serviceName, methodName);
+            return await routingTable.RouteAsync(serviceProvider, serviceName, methodName, message.Payload, cancellationToken).ConfigureAwait(false);
         }
-
-        // 慢速路径：反射路径（兼容性后备）
-        _logger.LogDebug("编译时分发器不可用，使用反射路径: Service={Service}, Method={Method}", serviceName, methodName);
-
-        if (!_compiledMessageDispatcher!.TryGetHandlerMetadata(serviceName, methodName, out var metadata))
+        catch (Exception ex)
         {
-            _logger.LogWarning("未找到服务元数据: Service={Service}, Method={Method}", serviceName, methodName);
-            return new { Success = false, Error = "Missing handler metadata" };
+            _logger.LogError(ex, "ServiceRoutingTable 路由失败: Service={Service}, Method={Method}", serviceName, methodName);
+            return new { Success = false, Error = ex.Message };
         }
-
-        object? requestModel = null;
-        if (message.Payload.Length > 0)
-        {
-            try
-            {
-                requestModel = await DeserializeRequestAsync(message.Payload, metadata, serviceProvider, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "消息反序列化失败: Service={Service}, Method={Method}", serviceName, methodName);
-                return new { Success = false, Error = ex.Message };
-            }
-        }
-
-        var callContext = new ServiceCallContext(
-            connectionId: message.ConnectionId ?? string.Empty,
-            messageId: header.MessageId != Guid.Empty ? header.MessageId : Guid.NewGuid(),
-            serviceName: serviceName,
-            methodName: methodName,
-            requestData: requestModel,
-            messageType: header.Type,
-            receivedTime: DateTime.UtcNow,
-            processorId: Environment.CurrentManagedThreadId,
-            flags: header.Flags);
-
-        return await DispatchCallContextAsync(callContext, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -255,9 +190,6 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     {
         if (string.IsNullOrEmpty(serviceName))
             throw new ArgumentException("服务名称不能为空", nameof(serviceName));
-
-        if (handler == null)
-            throw new ArgumentNullException(nameof(handler));
 
         _serviceHandlers[serviceName] = handler;
         _logger.LogInformation("注册服务处理器: {ServiceName}", serviceName);
@@ -277,7 +209,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
                 // 按优先级顺序检查通道
                 var taskHandled = false;
 
-                for (int priority = (int)MessagePriority.Critical; priority >= (int)MessagePriority.Low; priority--)
+                for (var priority = (int)MessagePriority.Critical; priority <= (int)MessagePriority.Low; priority++)
                 {
                     var reader = _priorityReaders[priority];
 
@@ -293,11 +225,10 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
                 if (!taskHandled)
                 {
                     // 使用 WaitToReadAsync 等待任何优先级通道有数据
-                    var waitTasks = _priorityReaders.Select(reader => reader.WaitToReadAsync(cancellationToken).AsTask()).ToArray();
-
+                    var waitTasks = _priorityReaders.Select(reader => reader.WaitToReadAsync(cancellationToken).AsTask());
                     try
                     {
-                        await Task.WhenAny(waitTasks);
+                        await Task.WhenAny(waitTasks).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)
                     {
@@ -420,25 +351,6 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         Interlocked.Exchange(ref _totalProcessingTime, totalTime + (long)processingTime.TotalMilliseconds);
     }
 
-    private async ValueTask<object?> DeserializeRequestAsync(ReadOnlyMemory<byte> payload, HandlerMetadata metadata, IServiceProvider serviceProvider, CancellationToken cancellationToken)
-    {
-        if (metadata.RequestType == null || payload.IsEmpty)
-        {
-            return null;
-        }
-
-        // 优先使用可识别元数据的高性能反序列化器
-        if (_metadataDeserializer != null)
-        {
-            var context = new MetadataDeserializationContext(metadata, payload, cancellationToken);
-            return await _metadataDeserializer.DeserializeAsync(context).ConfigureAwait(false);
-        }
-
-        // 回退到 MemoryPack 反序列化 - 使用 MemoryPack 2.x API
-        var requestType = metadata.RequestType;
-        return MemoryPackSerializer.Deserialize(requestType, payload.Span);
-    }
-
     private async ValueTask<bool> RouteInvocationAsync(
         ServiceCallContext callContext,
         IServiceHandler serviceHandler,
@@ -482,31 +394,6 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         }
 
         return writer.TryWrite(invocationTask);
-    }
-
-    private async ValueTask<object?> DispatchCallContextAsync(ServiceCallContext callContext, CancellationToken cancellationToken)
-    {
-        if (!_serviceHandlers.TryGetValue(callContext.ServiceName, out var serviceHandler))
-        {
-            _logger.LogWarning("未找到服务处理器: {ServiceName}", callContext.ServiceName);
-            return new { Success = false, Error = "Handler not found" };
-        }
-
-        var completionSource = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var priority = DeterminePriority(callContext);
-        var routed = await RouteInvocationAsync(
-            callContext,
-            serviceHandler,
-            priority,
-            completionSource,
-            cancellationToken).ConfigureAwait(false);
-
-        if (!routed)
-        {
-            return new { Success = false, Error = "Dispatcher queue full" };
-        }
-
-        return await completionSource.Task.ConfigureAwait(false);
     }
 
     public void Dispose()

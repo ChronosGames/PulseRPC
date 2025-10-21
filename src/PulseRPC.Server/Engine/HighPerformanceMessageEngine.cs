@@ -76,7 +76,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     private readonly MessageEngineConfiguration _options;
     private readonly ILogger<HighPerformanceMessageEngine> _logger;
     private readonly IServiceScheduler? _scheduler;
-    private readonly IMessageDeserializer? _deserializer;
     private readonly IResponseProcessor _responseProcessor;
 
     // 三级缓冲架构核心组件 - 使用TieredMessageProcessor实现
@@ -111,8 +110,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         IServiceProvider serviceProvider,
         MessageEngineConfiguration configuration,
         ILogger<HighPerformanceMessageEngine>? logger = null,
-        IServiceScheduler? scheduler = null,
-        IMessageDeserializer? deserializer = null)
+        IServiceScheduler? scheduler = null)
     {
         _engineId = engineId ?? throw new ArgumentNullException(nameof(engineId));
         _messageDispatcher = messageDispatcher ?? throw new ArgumentNullException(nameof(messageDispatcher));
@@ -120,13 +118,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         _options = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _logger = logger ?? NullLogger<HighPerformanceMessageEngine>.Instance;
         _scheduler = scheduler;
-        _deserializer = deserializer;
         _responseProcessor = serviceProvider.GetRequiredService<IResponseProcessor>() ?? throw new ArgumentNullException(nameof(_responseProcessor));
-
-        if (_deserializer is IMetadataAwareMessageDeserializer metadataAware && _messageDispatcher is HighPerformanceMessageDispatcher highPerfDispatcher)
-        {
-            highPerfDispatcher.SetMetadataDeserializer(metadataAware);
-        }
 
         InitializeEngine();
     }

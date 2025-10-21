@@ -57,14 +57,14 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
     // 生成的响应序列化器注册表（优先使用，零拷贝路径）
     private readonly IResponseSerializerRegistry? _responseSerializerRegistry;
 
-     // 处理任务
-     private Task[]? _processingTasks;
-     private readonly CancellationTokenSource _shutdownCts = new();
+    // 处理任务
+    private Task[]? _processingTasks;
+    private readonly CancellationTokenSource _shutdownCts = new();
 
-     // 性能统计
-     private long _totalResponsesSent;
-     private long _totalResponseErrors;
-     private long _totalSerializationTime;
+    // 性能统计
+    private long _totalResponsesSent;
+    private long _totalResponseErrors;
+    private long _totalSerializationTime;
 
     public HighPerformanceResponseProcessor(
         IServerChannelManager sessionManager,
@@ -217,7 +217,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
      /// </summary>
      private async Task ProcessResponseTaskAsync(ResponseTask responseTask, int processorId)
      {
-         var startTime = DateTime.UtcNow;
+         var startTime = Environment.TickCount;
 
          try
          {
@@ -278,12 +278,11 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
              {
                  Interlocked.Increment(ref _totalResponsesSent);
 
-                 var processingTime = DateTime.UtcNow - startTime;
+                 var processingTime = Environment.TickCount - startTime;
                  var currentTotal = Interlocked.Read(ref _totalSerializationTime);
-                 Interlocked.Exchange(ref _totalSerializationTime, currentTotal + (long)processingTime.TotalMilliseconds);
+                 Interlocked.Exchange(ref _totalSerializationTime, currentTotal + processingTime);
 
-                 _logger.LogTrace("响应发送成功: 会话={SessionId}, 消息ID={MessageId}, 处理器={ProcessorId}, 耗时={ProcessingTime}ms",
-                     responseTask.ConnectionId, responseTask.MessageId, processorId, processingTime.TotalMilliseconds);
+                 _logger.LogTrace("响应发送成功: 会话={SessionId}, 消息ID={MessageId}, 处理器={ProcessorId}, 耗时={ProcessingTime}ms", responseTask.ConnectionId, responseTask.MessageId, processorId, processingTime);
              }
              else
              {
@@ -358,10 +357,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
      [MethodImpl(MethodImplOptions.AggressiveInlining)]
      private ISerializer GetCachedSerializer(string cacheKey)
      {
-         return _serializerCache.GetOrAdd(cacheKey, static (key, provider) =>
-         {
-             return provider.Create(MethodType.Unary, null);
-         }, _serializerProvider);
+         return _serializerCache.GetOrAdd(cacheKey, static (key, provider) => provider.Create(MethodType.Unary, null), _serializerProvider);
      }
 
      /// <summary>

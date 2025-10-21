@@ -104,13 +104,6 @@ public interface IServerChannelManager : IDisposable
     IEnumerable<IServerChannel> GetAuthenticatedChannels();
 
     /// <summary>
-    /// 根据认证用户名获取传输通道
-    /// </summary>
-    /// <param name="username">用户名</param>
-    /// <returns>用户的传输通道集合</returns>
-    IEnumerable<IServerChannel> GetChannelsByUser(string username);
-
-    /// <summary>
     /// 广播消息到所有已认证的通道
     /// </summary>
     /// <param name="data">要发送的数据</param>

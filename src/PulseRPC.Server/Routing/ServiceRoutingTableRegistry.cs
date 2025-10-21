@@ -9,19 +9,18 @@ namespace PulseRPC.Server.Routing;
 /// </summary>
 public static class ServiceRoutingTableRegistry
 {
-    private static IServiceRoutingTable? _instance;
-    private static readonly object _lock = new();
+    private static readonly Lock _lock = new();
     private static int _initialized = 0;
 
     /// <summary>
     /// 获取当前注册的路由表实例
     /// </summary>
-    public static IServiceRoutingTable? Instance => _instance;
+    public static IServiceRoutingTable? Instance { get; private set; }
 
     /// <summary>
     /// 检查路由表是否已注册
     /// </summary>
-    public static bool IsRegistered => _instance != null;
+    public static bool IsRegistered => Instance != null;
 
     /// <summary>
     /// 注册路由表实例（线程安全）
@@ -30,15 +29,12 @@ public static class ServiceRoutingTableRegistry
     /// <param name="routingTable">路由表实例</param>
     public static void Register(IServiceRoutingTable routingTable)
     {
-        if (routingTable == null)
-            throw new ArgumentNullException(nameof(routingTable));
-
         // 使用 Interlocked 确保只注册一次
         if (Interlocked.CompareExchange(ref _initialized, 1, 0) == 0)
         {
-            lock (_lock)
+            using (_lock.EnterScope())
             {
-                _instance = routingTable;
+                Instance = routingTable;
                 System.Diagnostics.Debug.WriteLine($"[PulseRPC] ServiceRoutingTable registered: {routingTable.GetType().FullName}");
             }
         }
@@ -53,9 +49,9 @@ public static class ServiceRoutingTableRegistry
     /// </summary>
     internal static void Clear()
     {
-        lock (_lock)
+        using (_lock.EnterScope())
         {
-            _instance = null;
+            Instance = null;
             Interlocked.Exchange(ref _initialized, 0);
         }
     }

@@ -109,12 +109,6 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             // 生成全局路由表
             GenerateGlobalRoutingTable(context, serviceModels);
 
-            // 生成编译时消息分发器
-            GenerateCompiledMessageDispatcher(context, serviceModels);
-
-            // 生成 DI 扩展方法
-            GenerateDIExtensions(context, serviceModels);
-
             // 生成事件订阅管理器
             GenerateEventSubscriptionManager(context, serviceModels);
 
@@ -169,24 +163,6 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     {
         var sourceText = RoutingTableGenerator.GenerateSourceText(serviceModels);
         context.AddSource("ServiceRoutingTable.g.cs", sourceText);
-    }
-
-    /// <summary>
-    /// 生成编译时消息分发器
-    /// </summary>
-    private static void GenerateCompiledMessageDispatcher(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
-    {
-        var sourceText = MessageDispatcherGenerator.GenerateSourceText(serviceModels);
-        context.AddSource("CompiledMessageDispatcher.g.cs", sourceText);
-    }
-
-    /// <summary>
-    /// 生成 DI 扩展方法
-    /// </summary>
-    private static void GenerateDIExtensions(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
-    {
-        var sourceText = MessageDispatcherGenerator.GenerateDIExtensions(serviceModels);
-        context.AddSource("PulseRPCDIExtensions.g.cs", sourceText);
     }
 
     /// <summary>
