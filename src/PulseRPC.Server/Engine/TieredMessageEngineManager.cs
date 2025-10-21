@@ -24,7 +24,7 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
 
     // 管理状态
     private volatile bool _isDisposed;
-    private readonly object _disposeLock = new();
+    private readonly Lock _disposeLock = new();
 
     public TieredMessageEngineManager(
         IServiceProvider serviceProvider,
@@ -67,7 +67,7 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
             messageDispatcher,
             _serviceProvider,
             config,
-            new NullLogger<HighPerformanceMessageEngine>(),
+            NullLogger<HighPerformanceMessageEngine>.Instance,
             null // scheduler
             );
 
@@ -168,7 +168,7 @@ public sealed class TieredMessageEngineManager : ITieredMessageEngineManager, IA
     {
         if (_isDisposed) return;
 
-        lock (_disposeLock)
+        using (_disposeLock.EnterScope())
         {
             if (_isDisposed) return;
             _isDisposed = true;
