@@ -32,7 +32,7 @@ public class KcpTransport : ITransport
     protected readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
     public virtual string Id => throw new NotImplementedException();
-    public TransportType Type => TransportType.Kcp;
+    public TransportType Type => TransportType.KCP;
     public bool IsConnected => _state == ConnectionState.Connected;
     public ConnectionState State => _state;
 

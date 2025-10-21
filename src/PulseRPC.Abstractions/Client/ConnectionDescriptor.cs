@@ -187,7 +187,7 @@ public sealed class ConnectionDescriptor
     /// <summary>
     /// 传输类型
     /// </summary>
-    public TransportType Transport { get; set; } = TransportType.Tcp;
+    public TransportType Transport { get; set; } = TransportType.TCP;
 
     /// <summary>
     /// 连接策略
@@ -316,7 +316,7 @@ public sealed class ConnectionDescriptor
             Id = id,
             Name = name,
             Endpoint = new EndpointAddress(host, port),
-            Transport = TransportType.Tcp,
+            Transport = TransportType.TCP,
             Strategy = strategy,
             Tags = tags ?? new Dictionary<string, string>()
         };
@@ -338,7 +338,7 @@ public sealed class ConnectionDescriptor
             Id = id,
             Name = name,
             Endpoint = new EndpointAddress(host, port),
-            Transport = TransportType.Kcp,
+            Transport = TransportType.KCP,
             Strategy = strategy,
             Tags = tags ?? new Dictionary<string, string>()
         };
@@ -351,7 +351,7 @@ public sealed class ConnectionDescriptor
         string id,
         string name,
         string serviceName,
-        TransportType transport = TransportType.Tcp,
+        TransportType transport = TransportType.TCP,
         ConnectionStrategy strategy = ConnectionStrategy.Session,
         Dictionary<string, string>? tags = null)
     {

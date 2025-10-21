@@ -1,4 +1,5 @@
 using System.Net;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Models;
 

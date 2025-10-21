@@ -44,7 +44,7 @@ public class ClientTransportConfiguration
         new()
         {
             Name = name,
-            Type = TransportType.Tcp,
+            Type = TransportType.TCP,
             Host = host,
             Port = port,
             Options = options,
@@ -58,7 +58,7 @@ public class ClientTransportConfiguration
         new()
         {
             Name = name,
-            Type = TransportType.Kcp,
+            Type = TransportType.KCP,
             Host = host,
             Port = port,
             Options = options,

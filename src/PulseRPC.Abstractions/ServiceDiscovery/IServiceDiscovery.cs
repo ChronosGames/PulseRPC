@@ -82,7 +82,7 @@ public class ServiceEndpoint
     /// <summary>
     /// 传输类型（为了兼容客户端代码）
     /// </summary>
-    public TransportType Transport { get; set; } = TransportType.Tcp;
+    public TransportType Transport { get; set; } = TransportType.TCP;
 
     /// <summary>
     /// 服务元数据

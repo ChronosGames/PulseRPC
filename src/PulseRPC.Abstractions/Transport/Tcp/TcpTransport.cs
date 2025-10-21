@@ -93,7 +93,7 @@ public abstract class TcpTransport : ITransport
     protected bool _disposed;
 
     public virtual string Id => throw new NotImplementedException();
-    public TransportType Type => TransportType.Tcp;
+    public TransportType Type => TransportType.TCP;
     public bool IsConnected => _state == ConnectionState.Connected && _socket?.Connected == true;
     public ConnectionState State => _state;
 

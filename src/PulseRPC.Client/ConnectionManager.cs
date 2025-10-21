@@ -271,12 +271,12 @@ public sealed class ConnectionManager : IConnectionManager
 
         return descriptor.Transport switch
         {
-            TransportType.Tcp => new TcpClientTransport(
+            TransportType.TCP => new TcpClientTransport(
                 descriptor.Id,
                 transportOptions as TcpTransportOptions,
                 _logger),
 
-            TransportType.Kcp => new KcpClientTransport(
+            TransportType.KCP => new KcpClientTransport(
                 descriptor.Id,
                 transportOptions as KcpTransportOptions,
                 _logger),

@@ -30,7 +30,7 @@ public sealed class ConnectionConfig
     /// <summary>
     /// 传输类型
     /// </summary>
-    public TransportType Transport { get; set; } = TransportType.Tcp;
+    public TransportType Transport { get; set; } = TransportType.TCP;
 
     /// <summary>
     /// 连接生命周期
@@ -77,7 +77,7 @@ public sealed class ConnectionConfig
             Name = name,
             Host = host,
             Port = port,
-            Transport = TransportType.Tcp,
+            Transport = TransportType.TCP,
             Lifetime = lifetime,
             Tags = tags ?? new Dictionary<string, string>()
         };
@@ -98,7 +98,7 @@ public sealed class ConnectionConfig
             Name = name,
             Host = host,
             Port = port,
-            Transport = TransportType.Kcp,
+            Transport = TransportType.KCP,
             Lifetime = lifetime,
             Tags = tags ?? new Dictionary<string, string>()
         };
@@ -110,7 +110,7 @@ public sealed class ConnectionConfig
     public static ConnectionConfig Service(
         string name,
         string serviceName,
-        TransportType transport = TransportType.Tcp,
+        TransportType transport = TransportType.TCP,
         ConnectionLifetime lifetime = ConnectionLifetime.Session,
         Dictionary<string, string>? tags = null)
     {

@@ -15,7 +15,7 @@ public static class GameClientExtensions
     public static async Task<IClientChannel> ConnectToCoreServerAsync(
         this IPulseClient client,
         string serviceName,
-        TransportType transport = TransportType.Tcp,
+        TransportType transport = TransportType.TCP,
         CancellationToken cancellationToken = default)
     {
         var config = new ConnectionConfig
@@ -46,7 +46,7 @@ public static class GameClientExtensions
             Name = $"battle-{battleId}",
             Host = host,
             Port = port,
-            Transport = TransportType.Kcp, // 战斗服优先使用KCP
+            Transport = TransportType.KCP, // 战斗服优先使用KCP
             Lifetime = ConnectionLifetime.Transient,
             AutoReconnect = false,
             IdleTimeout = TimeSpan.FromMinutes(1), // 1分钟无活动自动断开
@@ -71,7 +71,7 @@ public static class GameClientExtensions
             Name = $"instance-{instanceId}",
             Host = host,
             Port = port,
-            Transport = TransportType.Tcp,
+            Transport = TransportType.TCP,
             Lifetime = ConnectionLifetime.Transient,
             AutoReconnect = true,
             IdleTimeout = TimeSpan.FromMinutes(5),
@@ -94,7 +94,7 @@ public static class GameClientExtensions
         {
             Name = $"map-{mapId}",
             ServiceName = serviceName ?? $"map-server-{mapId}",
-            Transport = TransportType.Tcp,
+            Transport = TransportType.TCP,
             Lifetime = ConnectionLifetime.Session,
             AutoReconnect = true,
             IdleTimeout = TimeSpan.FromMinutes(10),

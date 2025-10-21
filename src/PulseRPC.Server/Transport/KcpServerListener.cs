@@ -29,7 +29,7 @@ public class KcpServerTransport : IServerTransport
     private readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
     public string Id => _id;
-    public TransportType Type => TransportType.Kcp;
+    public TransportType Type => TransportType.KCP;
     public bool IsConnected => _state == ConnectionState.Connected;
     public ConnectionState State => _state;
     public EndPoint LocalEndPoint => _sharedSocket.LocalEndPoint!;
@@ -407,7 +407,7 @@ public class KcpServerListener : IServerListener
     private readonly ConcurrentDictionary<string, KcpServerTransport> _connections = new();
 
     public string Name => "KCP";
-    public TransportType Type => TransportType.Kcp;
+    public TransportType Type => TransportType.KCP;
     public EndPoint LocalEndPoint => _socket.LocalEndPoint!;
     public bool IsListening => _isListening;
 

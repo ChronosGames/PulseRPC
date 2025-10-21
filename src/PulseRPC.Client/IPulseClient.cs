@@ -425,7 +425,7 @@ public sealed class ServiceEndpoint
     /// <summary>
     /// 传输类型
     /// </summary>
-    public TransportType Transport { get; set; } = TransportType.Tcp;
+    public TransportType Transport { get; set; } = TransportType.TCP;
 
     /// <summary>
     /// 权重

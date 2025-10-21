@@ -205,7 +205,7 @@ internal class Program
                         new TransportChannelConfiguration()
                         {
                             Name = "TcpChannel",
-                            Type = TransportType.Tcp,
+                            Type = TransportType.TCP,
                             Port = config.Port,
                             IsDefault = true
                         },
@@ -216,7 +216,7 @@ internal class Program
                         options.Transports.Add(new TransportChannelConfiguration()
                         {
                             Name = "KcpChannel",
-                            Type = TransportType.Kcp,
+                            Type = TransportType.KCP,
                             Port = config.Port + 1,
                             IsDefault = false,
                         });

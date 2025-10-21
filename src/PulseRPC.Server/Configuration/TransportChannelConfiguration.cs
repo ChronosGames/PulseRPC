@@ -39,7 +39,7 @@ public class TransportChannelConfiguration
         new()
         {
             Name = name,
-            Type = TransportType.Tcp,
+            Type = TransportType.TCP,
             Port = port,
             Options = options,
             IsDefault = isDefault
@@ -52,7 +52,7 @@ public class TransportChannelConfiguration
         new()
         {
             Name = name,
-            Type = TransportType.Kcp,
+            Type = TransportType.KCP,
             Port = port,
             Options = options,
             IsDefault = isDefault

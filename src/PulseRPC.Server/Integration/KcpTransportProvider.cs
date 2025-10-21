@@ -10,7 +10,7 @@ namespace PulseRPC.Server.Integration;
 /// </summary>
 internal sealed class KcpTransportProvider : ITransportProvider
 {
-    public string TransportType => PulseRPC.Transport.TransportType.Kcp.ToString();
+    public string TransportType => PulseRPC.Transport.TransportType.KCP.ToString();
     public string Name => "Built-in KCP Transport Provider";
 
     public IServerListener CreateServerListener(TransportChannelConfiguration config, ILoggerFactory loggerFactory)

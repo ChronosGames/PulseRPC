@@ -17,7 +17,7 @@ public class MockPulseServerTransport : IPulseServerTransport
     private bool _isListening;
 
     public string Name => "MockTransport";
-    public TransportType Type => TransportType.Tcp;
+    public TransportType Type => TransportType.TCP;
     public EndPoint LocalEndPoint => new IPEndPoint(IPAddress.Loopback, 8080);
     public bool IsListening => _isListening;
 
@@ -95,7 +95,7 @@ public class MockServerTransport : IServerTransport
     }
 
     public string Id { get; }
-    public TransportType Type => TransportType.Tcp;
+    public TransportType Type => TransportType.TCP;
     public bool IsConnected => State == PulseRPC.Transport.ConnectionState.Connected;
     public PulseRPC.Transport.ConnectionState State { get; private set; } = PulseRPC.Transport.ConnectionState.Connected;
     public EndPoint LocalEndPoint => new IPEndPoint(IPAddress.Loopback, 8080);

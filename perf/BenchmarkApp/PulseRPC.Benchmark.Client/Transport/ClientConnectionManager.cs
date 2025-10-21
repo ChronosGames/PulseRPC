@@ -234,7 +234,7 @@ public class ClientConnection : IDisposable
             // 创建 PulseRPC 客户端 - 基于指南文档的最佳实践
             _pulseClient = new PulseClientBuilder()
                 .AddTcpConnection("123", "UnknownServer", Host, Port, ConnectionStrategy.Persistent)
-                .WithTransportOptions(TransportType.Tcp, new TcpTransportOptions()
+                .WithTransportOptions(TransportType.TCP, new TcpTransportOptions()
                 {
                     ConnectionTimeout = 5000,
                     NoDelay = true,

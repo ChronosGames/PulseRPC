@@ -8,6 +8,9 @@ using System.Threading.Tasks;
 using ChatApp;
 using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Engine;
+using PulseRPC.Server.Extensions;
+using PulseRPC.Server.Models;
+using PulseRPC.Transport;
 
 namespace GameServer;
 
@@ -76,13 +79,23 @@ internal abstract class Program
         services.AddSingleton<IPlayerManager, PlayerManager>();
 
         // 添加PulseRPC服务器 - 基于指南文档的最佳实践
-        services.AddPulseServer(builder =>
+        services.AddUnifiedPulseServer(options =>
         {
-            // TCP 监听器配置
-            builder.AddTcp("TcpChannel", 7000, isDefault: true);
-
-            // KCP 监听器配置（低延迟）
-            builder.AddKcp("KcpChannel", 7001);
+            options.Transports = new()
+            {
+                new TransportChannelConfiguration()
+                {
+                    Type = TransportType.TCP,
+                    Port = 7000,
+                    IsDefault = true
+                },
+                new TransportChannelConfiguration()
+                {
+                    Type = TransportType.KCP,
+                    Port = 7001,
+                    IsDefault = false
+                }
+            };
         });
 
         // 注册 Hub 服务
@@ -121,8 +134,5 @@ internal abstract class Program
             options.ServicesStartConcurrently = false;
             options.ServicesStopConcurrently = false;
         });
-
-        // 使用修复后的 GeneratedMessageDispatcher
-        services.AddSingleton<IMessageDispatcher, GeneratedMessageDispatcher>();
     }
 }
