@@ -109,14 +109,14 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         IMessageDispatcher messageDispatcher,
         IServiceProvider serviceProvider,
         MessageEngineConfiguration configuration,
-        ILogger<HighPerformanceMessageEngine>? logger = null,
+        ILogger<HighPerformanceMessageEngine> logger,
         IServiceScheduler? scheduler = null)
     {
         _engineId = engineId ?? throw new ArgumentNullException(nameof(engineId));
         _messageDispatcher = messageDispatcher ?? throw new ArgumentNullException(nameof(messageDispatcher));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _options = configuration ?? throw new ArgumentNullException(nameof(configuration));
-        _logger = logger ?? NullLogger<HighPerformanceMessageEngine>.Instance;
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _scheduler = scheduler;
         _responseProcessor = serviceProvider.GetRequiredService<IResponseProcessor>() ?? throw new ArgumentNullException(nameof(_responseProcessor));
 
