@@ -239,7 +239,7 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
         string id,
         string name,
         string serviceName,
-        TransportType transport = TransportType.Tcp,
+        TransportType transport = TransportType.TCP,
         ConnectionStrategy strategy = ConnectionStrategy.Session,
         Dictionary<string, string>? tags = null)
     {
@@ -265,7 +265,7 @@ public static class GameClientBuilderExtensions
             id: Guid.NewGuid().ToString("N"),
             name: $"core-{serviceName}",
             serviceName: serviceName,
-            transport: TransportType.Tcp,
+            transport: TransportType.TCP,
             strategy: ConnectionStrategy.Persistent,
             tags: new Dictionary<string, string>
             {
@@ -278,7 +278,7 @@ public static class GameClientBuilderExtensions
     /// 添加直连配置
     /// </summary>
     public static PulseClientBuilder AddDirectConnection(this PulseClientBuilder builder,
-        string name, string host, int port, TransportType transport = TransportType.Tcp)
+        string name, string host, int port, TransportType transport = TransportType.TCP)
     {
         return builder.AddTcpConnection(
             id: Guid.NewGuid().ToString("N"),

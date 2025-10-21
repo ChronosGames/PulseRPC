@@ -108,19 +108,3 @@ public enum MessagePriority : byte
     /// </summary>
     Low = 3
 }
-
-/// <summary>
-/// Transport type enumeration.
-/// </summary>
-public enum TransportType : byte
-{
-    /// <summary>
-    /// Reliable stream-based transport.
-    /// </summary>
-    TCP = 1,
-
-    /// <summary>
-    /// Low-latency UDP-based transport.
-    /// </summary>
-    KCP = 2
-}

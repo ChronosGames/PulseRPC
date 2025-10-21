@@ -125,7 +125,7 @@ public class TcpServerListener : IServerListener
     private readonly int _port;
 
     public string Name => "TCP";
-    public TransportType Type => TransportType.Tcp;
+    public TransportType Type => TransportType.TCP;
     public EndPoint LocalEndPoint => _listener.LocalEndpoint;
     public bool IsListening => _isListening;
 

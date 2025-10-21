@@ -40,7 +40,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         // 使用 PulseRPC 客户端构建器 API
         _client = new PulseClientBuilder()
             .AddConnection(ConnectionDescriptor.CreateTcp("ChatApp001", "ChatApp", "localhost", 7000, ConnectionStrategy.Persistent))
-            .WithTransportOptions(TransportType.Tcp, new TcpTransportOptions
+            .WithTransportOptions(TransportType.TCP, new TcpTransportOptions
             {
                 ConnectionTimeout = 30000,
                 NoDelay = true,

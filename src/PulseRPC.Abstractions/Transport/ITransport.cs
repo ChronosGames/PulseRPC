@@ -137,12 +137,12 @@ public enum TransportType
     /// <summary>
     /// TCP传输
     /// </summary>
-    Tcp,
+    TCP,
 
     /// <summary>
     /// KCP传输
     /// </summary>
-    Kcp,
+    KCP,
 }
 
 /// <summary>

@@ -10,7 +10,7 @@ namespace PulseRPC.Server.Integration;
 /// </summary>
 internal sealed class TcpTransportProvider : ITransportProvider
 {
-    public string TransportType => PulseRPC.Transport.TransportType.Tcp.ToString();
+    public string TransportType => PulseRPC.Transport.TransportType.TCP.ToString();
     public string Name => "Built-in TCP Transport Provider";
 
     public IServerListener CreateServerListener(TransportChannelConfiguration config, ILoggerFactory loggerFactory)
