@@ -218,18 +218,20 @@ public sealed class AdaptiveBatchScheduler : IAsyncDisposable
     #region 自适应调整逻辑
 
     /// <summary>
-    /// 自适应调整主循环
+    /// 自适应调整主循环 - .NET 9 优化：使用 PeriodicTimer 替代 Task.Delay
     /// </summary>
     private async Task AdaptationLoop()
     {
         _logger.LogDebug("自适应调整循环已启动");
 
+        // .NET 9 优化：PeriodicTimer 比 Task.Delay 更高效，资源占用更少，时序更精确
+        using var adaptationTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(SchedulerSpecs.ADAPTATION_CHECK_INTERVAL_MS));
+
         try
         {
             while (!_cancellationTokenSource.Token.IsCancellationRequested)
             {
-                await Task.Delay(SchedulerSpecs.ADAPTATION_CHECK_INTERVAL_MS,
-                    _cancellationTokenSource.Token).ConfigureAwait(false);
+                await adaptationTimer.WaitForNextTickAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
 
                 if (_throughputMetrics.HasEnoughSamples())
                 {

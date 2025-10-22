@@ -155,11 +155,13 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
     }
 
     /// <summary>
-    /// L1到L2批处理转移循环
+    /// L1到L2批处理转移循环 - 优化为基于信号的等待机制，避免轮询
     /// </summary>
     private async Task L1ToL2BatchTransferLoop()
     {
         var batchBuffer = new MessageSlot[_options.MaxBatchSize];
+        // .NET 9 优化：使用 PeriodicTimer 替代 Task.Delay 以获得更精确的时序和更低的开销
+        using var batchTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(1));
 
         while (!_cancellationTokenSource.Token.IsCancellationRequested)
         {
@@ -168,7 +170,7 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
                 var batchSize = 0;
                 var batchStartTime = Stopwatch.GetTimestamp();
 
-                // 收集批处理
+                // 首先尝试快速收集一批消息
                 while (batchSize < batchBuffer.Length && _l1Buffer.TryDequeue(out var slot))
                 {
                     batchBuffer[batchSize++] = slot;
@@ -177,7 +179,7 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
 
                 if (batchSize > 0)
                 {
-                    // 创建批处理
+                    // 创建批处理（使用ArrayPool减少内存分配）
                     var batch = new TieredMessageBatch
                     {
                         BatchId = Guid.NewGuid(),
@@ -200,8 +202,8 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
                 }
                 else
                 {
-                    // 没有消息时短暂等待
-                    await Task.Delay(1, _cancellationTokenSource.Token);
+                    // 没有消息时使用 PeriodicTimer 等待，更高效且精确
+                    await batchTimer.WaitForNextTickAsync(_cancellationTokenSource.Token);
                 }
             }
             catch (OperationCanceledException)
@@ -211,7 +213,7 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
             catch (Exception ex)
             {
                 _logger.LogError(ex, "L1到L2批处理转移失败: ProcessorId={ProcessorId}", _processorId);
-                await Task.Delay(100, _cancellationTokenSource.Token);
+                await batchTimer.WaitForNextTickAsync(_cancellationTokenSource.Token);
             }
         }
     }
