@@ -309,7 +309,7 @@ public class ClientConnection : IDisposable
 
             object? responseObj = null;
 
-            // 根据请求类型路由到基准服务方法（当前支持 Ping/Echo）
+            // 根据请求类型路由到基准服务方法
             switch (request)
             {
                 case PingRequest pingReq:
@@ -317,6 +317,12 @@ public class ClientConnection : IDisposable
                     break;
                 case EchoRequest echoReq:
                     responseObj = await _service.EchoAsync(echoReq, cancellationToken);
+                    break;
+                case ThroughputTestRequest throughputReq:
+                    responseObj = await _service.ThroughputTestAsync(throughputReq, cancellationToken);
+                    break;
+                case StreamTestRequest streamReq:
+                    responseObj = await _service.StreamTestAsync(streamReq, cancellationToken);
                     break;
                 default:
                     throw new NotSupportedException($"不支持的请求类型: {typeof(TRequest).Name}");
