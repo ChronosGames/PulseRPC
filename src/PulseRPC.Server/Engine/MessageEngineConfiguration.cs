@@ -89,11 +89,6 @@ public class MessageEngineConfiguration
     public bool EnableTieredMemoryPool { get; set; } = true;
 
     /// <summary>
-    /// 是否启用高性能消息引擎，默认true
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-
-    /// <summary>
     /// 普通消息丢弃阈值，默认0.8
     /// </summary>
     public double NormalMessageDropThreshold { get; set; } = 0.8;

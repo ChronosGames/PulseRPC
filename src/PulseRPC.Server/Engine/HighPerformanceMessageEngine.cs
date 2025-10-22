@@ -5,6 +5,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using PulseRPC.Memory;
 using PulseRPC.Messaging;
 using PulseRPC.Scheduling;
@@ -32,7 +33,7 @@ namespace PulseRPC.Server.Engine;
 /// • 分层内存管理：NUMA感知的多级内存池
 /// • 丰富监控指标：实时性能追踪和诊断
 /// </summary>
-public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProcessor
+internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProcessor, ITieredMessageEngine
 {
     #region 技术规格常量
 
@@ -70,28 +71,24 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
 
     #region 核心组件和字段
 
-    private readonly string _engineId;
     private readonly IMessageDispatcher _messageDispatcher;
     private readonly IServiceProvider _serviceProvider;
     private readonly MessageEngineConfiguration _options;
     private readonly ILogger<HighPerformanceMessageEngine> _logger;
     private readonly IServiceScheduler? _scheduler;
+    private readonly IServerChannelManager _channelManager;
     private readonly IResponseProcessor _responseProcessor;
+    private readonly TieredMessageProcessorOptions _messageProcessorOptions;
 
     // 三级缓冲架构核心组件 - 使用TieredMessageProcessor实现
-    private TieredMessageProcessor _tieredProcessor = null!;
-
-    // 连接管理和负载均衡
-    private ConcurrentDictionary<string, ConnectionContext> _activeConnections = null!;
-    private LoadBalancingStrategy _loadBalancer = null!;
+    private ConcurrentDictionary<string, TieredMessageProcessor> _tieredProcessors;
 
     // 性能监控和统计
-    private EngineMetrics _metrics = null!;
-    private PerformanceMonitor _performanceMonitor = null!;
+    private EngineMetrics _metrics;
+    private PerformanceMonitor _performanceMonitor;
 
     // 生命周期管理
-    private CancellationTokenSource _cancellationTokenSource = null!;
-    private volatile bool _isRunning;
+    private CancellationTokenSource _cancellationTokenSource;
     private volatile bool _isDisposed;
 
     // 处理任务
@@ -105,30 +102,26 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// 构造高性能消息引擎 (使用 IMessageDispatcher)
     /// </summary>
     public HighPerformanceMessageEngine(
-        string engineId,
         IMessageDispatcher messageDispatcher,
         IServiceProvider serviceProvider,
-        MessageEngineConfiguration configuration,
+        IOptions<MessageEngineConfiguration> configuration,
         ILogger<HighPerformanceMessageEngine> logger,
+        IServerChannelManager serverChannelManager,
+        IResponseProcessor responseProcessor,
         IServiceScheduler? scheduler = null)
     {
-        _engineId = engineId ?? throw new ArgumentNullException(nameof(engineId));
         _messageDispatcher = messageDispatcher ?? throw new ArgumentNullException(nameof(messageDispatcher));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-        _options = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _options = configuration.Value ?? throw new ArgumentNullException(nameof(configuration));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _scheduler = scheduler;
-        _responseProcessor = serviceProvider.GetRequiredService<IResponseProcessor>() ?? throw new ArgumentNullException(nameof(_responseProcessor));
+        _channelManager =  serverChannelManager ?? throw new ArgumentNullException(nameof(serverChannelManager));
+        _responseProcessor = responseProcessor ?? throw new ArgumentNullException(nameof(responseProcessor));
 
-        InitializeEngine();
-    }
-
-    private void InitializeEngine()
-    {
         _cancellationTokenSource = new CancellationTokenSource();
 
         // 创建TieredMessageProcessor配置
-        var processorOptions = new TieredMessageProcessorOptions
+        _messageProcessorOptions = new TieredMessageProcessorOptions
         {
             L1BufferSize = Specifications.L1_BUFFER_SIZE,
             L2QueueCapacity = Specifications.L2_QUEUE_CAPACITY,
@@ -142,28 +135,18 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             L2BackpressureWaitMs = Specifications.MIN_BATCH_INTERVAL_MS
         };
 
-        // 创建消息处理委托
-        var messageHandler = CreateMessageHandler();
-
         // 初始化TieredMessageProcessor
-        var tieredLogger = (_serviceProvider.GetService(typeof(ILogger<TieredMessageProcessor>)) as ILogger<TieredMessageProcessor>) ??
-                           new NullLogger<TieredMessageProcessor>();
-        _tieredProcessor = new TieredMessageProcessor(
-            _engineId,
-            processorOptions,
-            messageHandler,
-            tieredLogger);
-
-        // 初始化连接管理
-        _activeConnections = new ConcurrentDictionary<string, ConnectionContext>();
-        _loadBalancer = new LoadBalancingStrategy(_options.LoadBalancingMode);
+        _tieredProcessors = new ConcurrentDictionary<string, TieredMessageProcessor>();
 
         // 初始化监控组件
         _metrics = new EngineMetrics();
         _performanceMonitor = new PerformanceMonitor(_metrics, _logger);
 
-        _logger.LogInformation("HighPerformanceMessageEngine初始化完成: EngineId={EngineId}, L1Size={L1Size}, 性能目标: {ThroughputTarget} msgs/sec",
-            _engineId, Specifications.L1_BUFFER_SIZE, PerformanceRequirements.TARGET_THROUGHPUT);
+        _logger.LogInformation("HighPerformanceMessageEngine初始化完成: L1Size={L1Size}, 性能目标: {ThroughputTarget} msgs/sec", Specifications.L1_BUFFER_SIZE, PerformanceRequirements.TARGET_THROUGHPUT);
+
+        _channelManager.ChannelConnected += OnChannelConnected;
+        _channelManager.ChannelDisconnected += OnChannelDisconnected;
+        _channelManager.ChannelMessageParsed += OnChannelMessageParsed;
     }
 
     /// <summary>
@@ -214,27 +197,24 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// <summary>
     /// 启动消息引擎
     /// </summary>
-    public async ValueTask StartAsync(CancellationToken cancellationToken = default)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        if (_isRunning) return;
-
-        _logger.LogInformation("启动HighPerformanceMessageEngine: EngineId={EngineId}", _engineId);
+        _logger.LogInformation("启动HighPerformanceMessageEngine");
 
         try
         {
             // TieredMessageProcessor 在构造时自动启动，这里只需要启动性能监控
             _monitoringTask = RunPerformanceMonitoringAsync(_cancellationTokenSource.Token);
 
-            _isRunning = true;
             _metrics.EngineStartTime = DateTime.UtcNow;
 
             await _responseProcessor.StartAsync(cancellationToken);
 
-            _logger.LogInformation("HighPerformanceMessageEngine启动成功: EngineId={EngineId}", _engineId);
+            _logger.LogInformation("HighPerformanceMessageEngine启动成功");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "HighPerformanceMessageEngine启动失败: EngineId={EngineId}", _engineId);
+            _logger.LogError(ex, "HighPerformanceMessageEngine启动失败");
             throw;
         }
     }
@@ -248,18 +228,15 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         MessagePacketHolder messagePacket,
         MessagePriority priority = MessagePriority.Normal)
     {
-        if (!_isRunning || _isDisposed)
-            return false;
-
         var startTicks = Stopwatch.GetTimestamp();
 
         try
         {
             // 更新连接活动时间
-            if (_activeConnections.TryGetValue(connectionId, out var context))
-            {
-                context.LastActivity = DateTime.UtcNow;
-            }
+            // if (_activeConnections.TryGetValue(connectionId, out var context))
+            // {
+            //     context.LastActivity = DateTime.UtcNow;
+            // }
 
             // 构造包含完整元数据的 MessageSlot
             var slot = new MessageSlot
@@ -274,8 +251,12 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             };
 
             // 传递给 TieredMessageProcessor
-            var success = _tieredProcessor.TryEnqueueMessageSlot(slot);
+            if (!_tieredProcessors.TryGetValue(connectionId, out var processor))
+            {
+                return false;
+            }
 
+            var success = processor.TryEnqueueMessageSlot(slot);
             if (!success)
             {
                 _metrics.BackpressureEvents.Add(1);
@@ -291,8 +272,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         catch (Exception ex)
         {
             _metrics.EnqueueErrors.Add(1);
-            _logger.LogWarning(ex, "消息入队失败: EngineId={EngineId}, ConnectionId={ConnectionId}",
-                _engineId, connectionId);
+            _logger.LogWarning(ex, "消息入队失败: ConnectionId={ConnectionId}", connectionId);
             return false;
         }
     }
@@ -343,7 +323,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     {
         for (var i = 0; i < maxRetries; i++)
         {
-            if (_tieredProcessor.TryEnqueueMessageSlot(slot))
+            if (_tieredProcessors.TryGetValue(slot.ConnectionId, out var processor) && processor.TryEnqueueMessageSlot(slot))
             {
                 if (i > 0)
                 {
@@ -364,20 +344,14 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// <summary>
     /// 注册连接上下文
     /// </summary>
-    public void RegisterConnection(string connectionId, object transportChannel)
+    public void RegisterConnection(string connectionId)
     {
-        var context = new ConnectionContext
-        {
-            ConnectionId = connectionId,
-            TransportChannel = transportChannel,
-            ConnectedAt = DateTime.UtcNow,
-            LastActivity = DateTime.UtcNow
-        };
+        // 创建消息处理委托
+        var messageHandler = CreateMessageHandler();
+        _tieredProcessors.AddOrUpdate(connectionId, (x) => new TieredMessageProcessor(x, _messageProcessorOptions, messageHandler, _logger), (x, y) => y);
+        _metrics.ActiveConnections.Set(_tieredProcessors.Count);
 
-        _activeConnections.TryAdd(connectionId, context);
-        _metrics.ActiveConnections.Set(_activeConnections.Count);
-
-        _logger.LogDebug("连接已注册: EngineId={EngineId}, ConnectionId={ConnectionId}", _engineId, connectionId);
+        _logger.LogDebug("连接已注册: ConnectionId={ConnectionId}", connectionId);
     }
 
     /// <summary>
@@ -385,12 +359,61 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// </summary>
     public void UnregisterConnection(string connectionId)
     {
-        if (_activeConnections.TryRemove(connectionId, out var context))
+        if (_tieredProcessors.TryRemove(connectionId, out var processor))
         {
-            _metrics.ActiveConnections.Set(_activeConnections.Count);
-            _logger.LogDebug("连接已注销: EngineId={EngineId}, ConnectionId={ConnectionId}, Duration={Duration}ms",
-                _engineId, connectionId, (DateTime.UtcNow - context.ConnectedAt).TotalMilliseconds);
+            _metrics.ActiveConnections.Set(_tieredProcessors.Count);
+            _logger.LogDebug("连接已注销: ConnectionId={ConnectionId}, Duration={Duration}ms",
+                connectionId, (DateTime.UtcNow - processor.ConnectedAt).TotalMilliseconds);
         }
+    }
+
+    private void OnChannelConnected(object? sender, ChannelEventArgs e)
+    {
+        RegisterConnection(e.Channel.ConnectionId);
+    }
+
+    private void OnChannelDisconnected(object? sender, ChannelEventArgs e)
+    {
+        UnregisterConnection(e.Channel.ConnectionId);
+    }
+
+    private void OnChannelMessageParsed(object? sender, MessageParsedEventArgs eventArgs)
+    {
+        // 将消息路由到引擎
+        // 传递完整消息包而非仅 Payload
+        var priority = DetermineMessagePriority(eventArgs.MessagePacket.Header);
+
+        var success = TryEnqueueMessage(
+            eventArgs.ConnectionId,
+            eventArgs.MessagePacket, // 传递完整结构
+            priority);
+
+        if (success)
+        {
+            _logger.LogTrace("[消息路由] {ConnectionId} 消息已成功路由到引擎: 服务={ServiceName}, 方法={MethodName}, MessageId={MessageId}",
+                eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName,
+                eventArgs.MessagePacket.Header.MethodName, eventArgs.MessagePacket.Header.MessageId);
+        }
+        else
+        {
+            _logger.LogWarning("[消息路由] {ConnectionId} 消息入队失败，尝试回退处理", eventArgs.ConnectionId);
+        }
+    }
+
+    /// <summary>
+    /// 根据消息头确定消息优先级
+    /// </summary>
+    private static MessagePriority DetermineMessagePriority(MessageHeader header)
+    {
+        // 可以根据服务名、方法名或其他头信息确定优先级
+        // 这里使用简单的策略
+        return header.Type switch
+        {
+            MessageType.Request => MessagePriority.Normal,
+            MessageType.Response => MessagePriority.High,
+            MessageType.Event => MessagePriority.Low,
+            _ => MessagePriority.Normal
+        };
     }
 
     #endregion
@@ -451,8 +474,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             }
             catch (Exception dispatchEx)
             {
-                _logger.LogError(dispatchEx, "消息分发失败: EngineId={EngineId}, MessageId={MessageId}, ConnectionId={ConnectionId}",
-                    _engineId, envelope.MessageId, envelope.ConnectionId);
+                _logger.LogError(dispatchEx, "消息分发失败: MessageId={MessageId}, ConnectionId={ConnectionId}",
+                    envelope.MessageId, envelope.ConnectionId);
 
                 // 如果分发失败，返回错误响应
                 envelope.Status = MessageStatus.Failed;
@@ -487,8 +510,8 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             envelope.Status = MessageStatus.Failed;
             _metrics.MessagesErrored.Add(1);
 
-            _logger.LogWarning(ex, "消息处理失败: EngineId={EngineId}, MessageId={MessageId}, ConnectionId={ConnectionId}",
-                _engineId, envelope.MessageId, envelope.ConnectionId);
+            _logger.LogWarning(ex, "消息处理失败: MessageId={MessageId}, ConnectionId={ConnectionId}",
+                envelope.MessageId, envelope.ConnectionId);
 
             var response = new MessageResponse
             {
@@ -554,20 +577,20 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// </summary>
     private IServiceContext? GetServiceContextForConnection(string connectionId)
     {
-        if (_activeConnections.TryGetValue(connectionId, out var context))
-        {
-            // 如果尚未创建ServiceContext，创建一个默认的
-            if (context.ServiceContext == null)
-            {
-                // 注意：ServiceName在这里不可用，将在调度器调用时传入
-                context.ServiceContext = new ServiceExecutionContext(
-                    connectionId,
-                    serviceName: "Unknown", // 将在InvokeWithSchedulerAsync中使用传入的serviceName
-                    serviceId: null // 将在认证后设置
-                );
-            }
-            return context.ServiceContext;
-        }
+        // if (_tieredProcessors.TryGetValue(connectionId, out var context))
+        // {
+        //     // 如果尚未创建ServiceContext，创建一个默认的
+        //     if (context.ServiceContext == null)
+        //     {
+        //         // 注意：ServiceName在这里不可用，将在调度器调用时传入
+        //         context.ServiceContext = new ServiceExecutionContext(
+        //             connectionId,
+        //             serviceName: "Unknown", // 将在InvokeWithSchedulerAsync中使用传入的serviceName
+        //             serviceId: null // 将在认证后设置
+        //         );
+        //     }
+        //     return context.ServiceContext;
+        // }
 
         return null;
     }
@@ -581,7 +604,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// </summary>
     private async Task RunPerformanceMonitoringAsync(CancellationToken cancellationToken)
     {
-        _logger.LogDebug("性能监控循环启动: EngineId={EngineId}", _engineId);
+        _logger.LogDebug("性能监控循环启动");
 
         try
         {
@@ -600,11 +623,11 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogDebug("性能监控循环已取消: EngineId={EngineId}", _engineId);
+            _logger.LogDebug("性能监控循环已取消");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "性能监控循环异常: EngineId={EngineId}", _engineId);
+            _logger.LogError(ex, "性能监控循环异常");
         }
     }
 
@@ -644,8 +667,6 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     {
         return new EngineStatistics
         {
-            EngineId = _engineId,
-            IsRunning = _isRunning,
             UpTime = DateTime.UtcNow - _metrics.EngineStartTime,
 
             // L1统计
@@ -664,7 +685,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
             P99LatencyMs = _metrics.GetP99LatencyMs(),
 
             // 连接统计
-            ActiveConnections = _activeConnections.Count,
+            ActiveConnections = _tieredProcessors.Count,
 
             // 内存统计
             MemoryPoolStatistics = null // 内存池统计现在由TieredMessageProcessor管理
@@ -680,8 +701,7 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// </summary>
     public void OnParametersUpdated(int newBatchInterval, int newBatchSize)
     {
-        _logger.LogDebug("批处理参数更新: EngineId={EngineId}, NewInterval={NewInterval}ms, NewBatchSize={NewBatchSize}",
-            _engineId, newBatchInterval, newBatchSize);
+        _logger.LogDebug("批处理参数更新: NewInterval={NewInterval}ms, NewBatchSize={NewBatchSize}", newBatchInterval, newBatchSize);
 
         // 这里可以根据新参数调整处理策略
         // 例如调整L1到L2的转移频率等
@@ -694,13 +714,10 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     /// <summary>
     /// 停止消息引擎
     /// </summary>
-    public async ValueTask StopAsync()
+    public async Task StopAsync()
     {
-        if (!_isRunning) return;
+        _logger.LogInformation("停止HighPerformanceMessageEngine");
 
-        _logger.LogInformation("停止HighPerformanceMessageEngine: EngineId={EngineId}", _engineId);
-
-        _isRunning = false;
         await _cancellationTokenSource.CancelAsync();
 
         await _responseProcessor.StopAsync();
@@ -715,12 +732,12 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
         }
         catch (TimeoutException)
         {
-            _logger.LogWarning("引擎停止超时: EngineId={EngineId}", _engineId);
+            _logger.LogWarning("引擎停止超时");
         }
 
         // 注意：调度器现在由TieredMessageProcessor管理，不需要手动停止
 
-        _logger.LogInformation("HighPerformanceMessageEngine已停止: EngineId={EngineId}", _engineId);
+        _logger.LogInformation("HighPerformanceMessageEngine已停止");
     }
 
     /// <summary>
@@ -730,18 +747,18 @@ public sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProce
     {
         if (_isDisposed) return;
 
-        _logger.LogInformation("释放HighPerformanceMessageEngine资源: EngineId={EngineId}", _engineId);
+        _logger.LogInformation("释放HighPerformanceMessageEngine资源");
 
         await StopAsync();
 
         // 释放TieredMessageProcessor
-        await _tieredProcessor.DisposeAsync();
+        await Task.WhenAll(_tieredProcessors.Values.Select(x => x.DisposeAsync().AsTask()));
 
         _cancellationTokenSource.Dispose();
 
         _isDisposed = true;
 
-        _logger.LogInformation("HighPerformanceMessageEngine资源释放完成: EngineId={EngineId}", _engineId);
+        _logger.LogInformation("HighPerformanceMessageEngine资源释放完成");
     }
 
     /// <summary>
@@ -872,7 +889,6 @@ public class ConnectionContext
 public class EngineStatistics
 {
     public string EngineId { get; set; } = "";
-    public bool IsRunning { get; set; }
     public TimeSpan UpTime { get; set; }
 
     // L1统计
@@ -936,24 +952,47 @@ public class EngineMetrics
 }
 
 /// <summary>
-/// 简单计数器
+/// 简单计数器（线程安全）
 /// </summary>
-public class Counter<T> where T : struct
+public class Counter<T> where T : struct, IConvertible
 {
     private long _value;
-    public T Value => (T)(object)Interlocked.Read(ref _value);
+
+    public T Value
+    {
+        get
+        {
+            var longValue = Interlocked.Read(ref _value);
+            return (T)Convert.ChangeType(longValue, typeof(T));
+        }
+    }
+
     public void Increment() => Interlocked.Increment(ref _value);
     public void Add(int count) => Interlocked.Add(ref _value, count);
+    public void Add(long count) => Interlocked.Add(ref _value, count);
 }
 
 /// <summary>
-/// 简单仪表
+/// 简单仪表（线程安全）
 /// </summary>
-public class Gauge<T> where T : struct
+public class Gauge<T> where T : struct, IConvertible
 {
     private long _value;
-    public T Value => (T)(object)Interlocked.Read(ref _value);
-    public void Set(T value) => Interlocked.Exchange(ref _value, (long)(object)value);
+
+    public T Value
+    {
+        get
+        {
+            var longValue = Interlocked.Read(ref _value);
+            return (T)Convert.ChangeType(longValue, typeof(T));
+        }
+    }
+
+    public void Set(T value)
+    {
+        var longValue = Convert.ToInt64(value);
+        Interlocked.Exchange(ref _value, longValue);
+    }
 }
 
 /// <summary>

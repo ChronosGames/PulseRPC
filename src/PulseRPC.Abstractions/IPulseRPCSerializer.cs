@@ -60,7 +60,7 @@ public partial class PulseRPCSerializerProvider : ISerializerProvider
         // DynamicArgumentTupleFormatter.Register();
     }
 
-    public PulseRPCSerializerProvider WithOptions(MemoryPackSerializerOptions serializerOptions) => new PulseRPCSerializerProvider(serializerOptions);
+    public PulseRPCSerializerProvider WithOptions(MemoryPackSerializerOptions serializerOptions) => new(serializerOptions);
 
     public ISerializer Create(MethodType methodType, MethodInfo? methodInfo)
     {

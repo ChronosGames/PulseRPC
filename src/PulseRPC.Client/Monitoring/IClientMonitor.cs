@@ -1,9 +1,4 @@
 using PulseRPC.Client.Reliability;
-using PulseRPC.Client.Routing;
-using System;
-using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace PulseRPC.Client.Monitoring;
 
@@ -410,11 +405,6 @@ public sealed class MonitoringReport
     /// 连接统计信息
     /// </summary>
     public List<ConnectionStatistics> ConnectionStatistics { get; set; } = new();
-
-    /// <summary>
-    /// 路由统计信息
-    /// </summary>
-    public RoutingStatistics? RoutingStatistics { get; set; }
 
     /// <summary>
     /// 重试统计信息

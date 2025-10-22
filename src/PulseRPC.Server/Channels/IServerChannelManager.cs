@@ -66,6 +66,11 @@ public interface IServerChannelManager : IDisposable
     event EventHandler<ChannelEventArgs>? ChannelDisconnected;
 
     /// <summary>
+    ///
+    /// </summary>
+    event EventHandler<MessageParsedEventArgs>? ChannelMessageParsed;
+
+    /// <summary>
     /// 通道认证事件
     /// </summary>
     event EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;

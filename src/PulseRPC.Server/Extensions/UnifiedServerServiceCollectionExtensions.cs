@@ -100,27 +100,33 @@ public static class UnifiedServerServiceCollectionExtensions
     /// </summary>
     private static void RegisterInternalDependencies(IServiceCollection services)
     {
-        // 注册 ServerChannelManager 所需的依赖
-        services.TryAddSingleton<ITieredMessageEngineManager, TieredMessageEngineManager>();
+        // 1. 首先注册基础依赖（不依赖其他服务）
         services.TryAddSingleton<IMessageDispatcher, HighPerformanceMessageDispatcher>();
-
-        // 注册响应处理器
         services.TryAddSingleton<IResponseProcessor, HighPerformanceResponseProcessor>();
 
-        // 配置选项
-        services.TryAddSingleton(Options.Create(new MessageEngineConfiguration { Enabled = true }));
-
-        // 注册 ServerChannelManager 为单例（使用工厂方法）
-        services.TryAddSingleton<IServerChannelManager>(sp =>
+        // 2. 配置选项
+        services.TryAddSingleton(Options.Create(new MessageEngineConfiguration()));
+        services.TryAddSingleton(Options.Create(new TieredEngineManagerOptions
         {
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var logger = loggerFactory.CreateLogger<ServerChannelManager>();
-            var engineOptions = sp.GetRequiredService<IOptions<MessageEngineConfiguration>>();
-            var dispatcher = sp.GetRequiredService<IMessageDispatcher>();
-            var engineManager = sp.GetRequiredService<ITieredMessageEngineManager>();
+            MaxConnections = 10000,
+            DefaultL1BufferSize = 4096,
+            DefaultL2QueueCapacity = 256,
+            DefaultL3QueueCapacity = 128,
+            DefaultMaxBatchSize = 128,
+            EnableDetailedLogging = false
+        }));
 
-            return new ServerChannelManager(logger, engineOptions, dispatcher, loggerFactory, engineManager);
-        });
+        // 3. 注册依赖于 IMessageDispatcher 的 TieredMessageEngineManager
+        services.TryAddSingleton<ITieredMessageEngine, HighPerformanceMessageEngine>();
+
+        // 4. 注册 ServerChannelManager（依赖于上面的所有服务）
+        services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
+
+        // 5. 注册 ResponseSerializerRegistry
+        if (ResponseSerializerRegistry.Instance != null)
+        {
+            services.TryAddSingleton(ResponseSerializerRegistry.Instance);
+        }
     }
 
     /// <summary>

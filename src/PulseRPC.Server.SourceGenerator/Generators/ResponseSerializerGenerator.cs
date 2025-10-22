@@ -73,17 +73,13 @@ public static class ResponseSerializerGenerator
         sb.AppendLine();
         GenerateSerializerContainer(sb, services);
 
+        GenerateModuleInitializer(sb);
+
         sb.AppendLine("}");
     }
 
     private static void GenerateRegistry(StringBuilder sb, List<ServiceModel> services)
     {
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 运行时可用的响应序列化器注册表实例。");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    public static readonly IResponseSerializerRegistry Registry = new RegistryImpl();");
-        sb.AppendLine();
-
         sb.AppendLine("    private sealed class RegistryImpl : IResponseSerializerRegistry");
         sb.AppendLine("    {");
         sb.AppendLine("        private static readonly IResponseSerializer[] s_serializers = new IResponseSerializer[]");
@@ -313,6 +309,25 @@ public static class ResponseSerializerGenerator
         }
 
         return set.OrderBy(n => n);
+    }
+
+    /// <summary>
+    /// 生成模块初始化器 - 自动注册 ResponseSerializer
+    /// </summary>
+    private static void GenerateModuleInitializer(StringBuilder sb)
+    {
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Module initializer - automatically registers ResponseSerializer when assembly loads");
+        sb.AppendLine("    /// This method is called automatically by the runtime before any other code in the assembly");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    [System.Runtime.CompilerServices.ModuleInitializer]");
+        sb.AppendLine("    internal static void Initialize()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        // 自动注册ResponseSerializer实例到全局注册中心");
+        sb.AppendLine("        PulseRPC.Server.Response.ResponseSerializerRegistry.Register(new RegistryImpl());");
+        sb.AppendLine("        System.Diagnostics.Debug.WriteLine(\"[PulseRPC] ResponseSerializer registered to global registry\");");
+        sb.AppendLine("    }");
+        sb.AppendLine();
     }
 
     private static string GetSafeIdentifier(string value)

@@ -1,4 +1,5 @@
 using PulseRPC.Server.Abstractions;
+using PulseRPC.Server.Scheduling;
 
 namespace PulseRPC.Server.Models;
 

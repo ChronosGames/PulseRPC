@@ -3,7 +3,7 @@ namespace PulseRPC.Server.Scheduling;
 /// <summary>
 /// 消息优先级枚举
 /// </summary>
-public enum MessagePriority
+public enum MessagePriority : byte
 {
     /// <summary>关键消息 - 最高优先级</summary>
     Critical = 0,

@@ -58,6 +58,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
 
     // 服务处理器注册表
     private readonly ConcurrentDictionary<string, IServiceHandler> _serviceHandlers = new();
+    private readonly IServiceRoutingTable _serviceRoutingTable;
 
     // 多优先级调度通道
     private readonly Channel<ServiceInvocationTask>[] _priorityChannels;
@@ -81,6 +82,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     {
         _options = options ?? new DispatcherOptions();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HighPerformanceMessageDispatcher>.Instance;
+        _serviceRoutingTable = ServiceRoutingTableRegistry.Instance ?? throw new ArgumentNullException(nameof(ServiceRoutingTableRegistry.Instance));
 
         // 创建多优先级通道
         var priorityCount = Enum.GetValues<MessagePriority>().Length;
@@ -169,12 +171,10 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         }
 
         // 使用编译时生成的 ServiceRoutingTable（零反射，最快）
-        var routingTable = ServiceRoutingTableRegistry.Instance;
-        Debug.Assert(routingTable != null, "ServiceRoutingTable不能为空");
         try
         {
             _logger.LogTrace("使用 ServiceRoutingTable 路由: Service={Service}, Method={Method}", serviceName, methodName);
-            return await routingTable.RouteAsync(serviceProvider, serviceName, methodName, message.Payload, cancellationToken).ConfigureAwait(false);
+            return await _serviceRoutingTable.RouteAsync(serviceProvider, serviceName, methodName, message.Payload, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
