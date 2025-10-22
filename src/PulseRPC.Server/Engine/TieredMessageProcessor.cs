@@ -44,10 +44,10 @@ public class AdapterStatistics
 /// L2: 自适应批处理层 (AdaptiveBatchScheduler)
 /// L3: 分层内存池 (TieredMemoryPool)
 /// </summary>
-public sealed class TieredMessageProcessor : IAsyncDisposable
+internal sealed class TieredMessageProcessor : IAsyncDisposable
 {
     private readonly string _processorId;
-    private readonly ILogger<TieredMessageProcessor> _logger;
+    private readonly ILogger _logger;
     private readonly TieredMessageProcessorOptions _options;
 
     // 三层架构核心组件
@@ -67,11 +67,17 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
     // 消息处理委托
     private readonly Func<MessageSlot, CancellationToken, ValueTask<ProcessingResult>> _messageHandler;
 
+    public DateTime ConnectedAt
+    {
+        get;
+        private set;
+    }
+
     public TieredMessageProcessor(
         string processorId,
         TieredMessageProcessorOptions options,
         Func<MessageSlot, CancellationToken, ValueTask<ProcessingResult>> messageHandler,
-        ILogger<TieredMessageProcessor> logger)
+        ILogger logger)
     {
         _processorId = processorId ?? throw new ArgumentNullException(nameof(processorId));
         _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -105,6 +111,8 @@ public sealed class TieredMessageProcessor : IAsyncDisposable
         // 初始化性能指标
         _metrics = new TieredProcessorMetrics();
         _cancellationTokenSource = new CancellationTokenSource();
+
+        ConnectedAt = DateTime.UtcNow;
 
         // 启动处理管道
         StartProcessingPipeline();

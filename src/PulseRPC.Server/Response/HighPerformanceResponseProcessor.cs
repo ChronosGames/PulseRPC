@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
@@ -12,6 +13,16 @@ using PulseRPC.Server.Dispatch;
 using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Response;
+
+public static class ResponseSerializerRegistry
+{
+    public static IResponseSerializerRegistry? Instance;
+
+    public static void Register(IResponseSerializerRegistry instance)
+    {
+        Instance = instance;
+    }
+}
 
 /// <summary>
 /// 高性能响应处理器接口
@@ -47,7 +58,6 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
     private readonly ResponseProcessorOptions _options;
 
     // 高性能通道用于响应处理
-    private readonly Channel<ResponseTask> _responseChannel;
     private readonly ChannelWriter<ResponseTask> _responseWriter;
     private readonly ChannelReader<ResponseTask> _responseReader;
 
@@ -61,10 +71,20 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
     private Task[]? _processingTasks;
     private readonly CancellationTokenSource _shutdownCts = new();
 
-    // 性能统计
+    // 性能统计（使用线程本地计数器以减少原子操作开销）
     private long _totalResponsesSent;
     private long _totalResponseErrors;
     private long _totalSerializationTime;
+
+    // 响应发送的最大缓冲区大小限制（防止内存无限增长）
+    private const int MaxResponseBufferSize = 1024 * 1024; // 1MB
+
+    // 线程本地指标（避免原子操作开销）
+    [ThreadStatic]
+    private static ProcessorMetrics? t_localMetrics;
+
+    // 所有线程的指标集合（用于聚合）
+    private readonly ConcurrentBag<ProcessorMetrics> _allMetrics = new();
 
     public HighPerformanceResponseProcessor(
         IServerChannelManager sessionManager,
@@ -88,14 +108,21 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
              FullMode = BoundedChannelFullMode.Wait // 背压控制
          };
 
-         _responseChannel = Channel.CreateBounded<ResponseTask>(channelOptions);
-         _responseWriter = _responseChannel.Writer;
-         _responseReader = _responseChannel.Reader;
+         var responseChannel = Channel.CreateBounded<ResponseTask>(channelOptions);
+         _responseWriter = responseChannel.Writer;
+         _responseReader = responseChannel.Reader;
      }
 
      public Task StartAsync(CancellationToken cancellationToken = default)
      {
          _logger.LogInformation("启动高性能响应处理器，处理器线程数: {ProcessorCount}", _options.ProcessorThreadCount);
+
+         // 预热响应序列化器（减少运行时查找开销）
+         if (_responseSerializerRegistry != null)
+         {
+             var serializers = _responseSerializerRegistry.EnumerateSerializers();
+             _logger.LogInformation("预热响应序列化器: {Count} 个", serializers.Length);
+         }
 
          // 启动多个响应处理器线程
          _processingTasks = new Task[_options.ProcessorThreadCount];
@@ -141,22 +168,25 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
              }
          }
 
+         // 聚合所有线程的指标
+         AggregateMetrics();
+
          _logger.LogInformation("响应处理器停止完成，总响应数: {TotalResponses}, 错误数: {TotalErrors}",
              _totalResponsesSent, _totalResponseErrors);
      }
 
      /// <summary>
-     /// 处理消息结果 - 高性能入口点
+     /// 处理消息结果 - 高性能入口点（快速路径同步化）
      /// </summary>
      [MethodImpl(MethodImplOptions.AggressiveInlining)]
-     public async ValueTask ProcessMessageResultAsync(MessageProcessedEventArgs eventArgs)
+     public ValueTask ProcessMessageResultAsync(MessageProcessedEventArgs eventArgs)
      {
          var callContext = eventArgs.CallContext;
 
          // 只有需要响应的消息才处理
          if (callContext.MessageType == MessageType.OneWay)
          {
-             return; // 单向消息不需要响应
+             return ValueTask.CompletedTask; // 单向消息不需要响应
          }
 
          // 创建响应任务
@@ -170,7 +200,58 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
              eventArgs.Exception,
              DateTime.UtcNow);
 
-         // 异步写入响应通道
+         // 快速路径：尝试同步写入（零分配）
+         if (_responseWriter.TryWrite(responseTask))
+         {
+             return ValueTask.CompletedTask;
+         }
+
+         // 慢速路径：异步等待（通道满时）
+         return ProcessMessageResultSlowPathAsync(responseTask);
+     }
+
+     /// <summary>
+     /// 获取线程本地指标 - 避免原子操作开销
+     /// </summary>
+     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+     private ProcessorMetrics GetLocalMetrics()
+     {
+         if (t_localMetrics != null)
+         {
+             return t_localMetrics;
+         }
+
+         t_localMetrics = new ProcessorMetrics();
+         _allMetrics.Add(t_localMetrics);
+         return t_localMetrics;
+     }
+
+     /// <summary>
+     /// 聚合所有线程的指标
+     /// </summary>
+     private void AggregateMetrics()
+     {
+         var totalSent = 0L;
+         var totalErrors = 0L;
+         var totalTime = 0L;
+
+         foreach (var metrics in _allMetrics)
+         {
+             totalSent += metrics.ResponsesSent;
+             totalErrors += metrics.ResponseErrors;
+             totalTime += metrics.TotalSerializationTime;
+         }
+
+         _totalResponsesSent = totalSent;
+         _totalResponseErrors = totalErrors;
+         _totalSerializationTime = totalTime;
+     }
+
+     /// <summary>
+     /// 处理消息结果的慢速路径 - 当通道满时使用
+     /// </summary>
+     private async ValueTask ProcessMessageResultSlowPathAsync(ResponseTask responseTask)
+     {
          if (!await _responseWriter.WaitToWriteAsync(_shutdownCts.Token))
          {
              _logger.LogWarning("响应处理器通道已关闭");
@@ -180,24 +261,44 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
          if (!_responseWriter.TryWrite(responseTask))
          {
              _logger.LogWarning("无法写入响应任务到通道，连接: {ConnectionId}, 消息ID: {MessageId}",
-                 callContext.ConnectionId, callContext.MessageId);
+                 responseTask.ConnectionId, responseTask.MessageId);
 
-             Interlocked.Increment(ref _totalResponseErrors);
+             // 使用线程本地计数器（避免原子操作开销）
+             var metrics = GetLocalMetrics();
+             metrics.ResponseErrors++;
          }
      }
 
      /// <summary>
-     /// 处理响应任务的主循环
+     /// 处理响应任务的主循环 - 优化为批量读取 + 同步处理
      /// </summary>
      private async Task ProcessResponseTasksAsync(int processorId, CancellationToken cancellationToken)
      {
          _logger.LogDebug("响应处理器 #{ProcessorId} 启动", processorId);
 
+         // 批量缓冲区（避免每次异步迭代开销）
+         var batchBuffer = new ResponseTask[32];
+
          try
          {
-             await foreach (var responseTask in _responseReader.ReadAllAsync(cancellationToken))
+             while (!cancellationToken.IsCancellationRequested)
              {
-                 await ProcessResponseTaskAsync(responseTask, processorId);
+                 // 等待至少一个任务可用（异步等待）
+                 if (!await _responseReader.WaitToReadAsync(cancellationToken))
+                     break;
+
+                 // 批量同步读取（快速路径，避免异步开销）
+                 var count = 0;
+                 while (count < batchBuffer.Length && _responseReader.TryRead(out var task))
+                 {
+                     batchBuffer[count++] = task;
+                 }
+
+                 // 批量处理（同步循环，减少异步状态机开销）
+                 for (var i = 0; i < count; i++)
+                 {
+                     await ProcessResponseTaskAsync(batchBuffer[i], processorId);
+                 }
              }
          }
          catch (OperationCanceledException)
@@ -217,7 +318,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
      /// </summary>
      private async Task ProcessResponseTaskAsync(ResponseTask responseTask, int processorId)
      {
-         var startTime = Environment.TickCount;
+         var startTime = Stopwatch.GetTimestamp();
 
          try
          {
@@ -254,8 +355,21 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
              // 创建响应消息包
              var responsePacket = new MessagePacket(responseHeader, responsePayload.Span);
 
-             // 序列化消息包到缓冲区
-             using var packetBuffer = MemoryPool<byte>.Shared.Rent(responsePacket.EstimateSize());
+             // 序列化消息包到内存池缓冲区
+             var estimatedSize = responsePacket.EstimateSize();
+
+             // 防止超大消息导致内存暴涨
+             if (estimatedSize > MaxResponseBufferSize)
+             {
+                 _logger.LogWarning("响应消息过大，跳过发送: {ConnectionId}, {MessageId}, 大小: {Size} bytes",
+                     responseTask.ConnectionId, responseTask.MessageId, estimatedSize);
+
+                 var metrics = GetLocalMetrics();
+                 metrics.ResponseErrors++;
+                 return;
+             }
+
+             using var packetBuffer = MemoryPool<byte>.Shared.Rent(estimatedSize);
              var bytesWritten = responsePacket.WriteTo(packetBuffer.Memory.Span);
 
              // 通过会话管理器发送响应到客户端
@@ -266,8 +380,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
              {
                  // 发送完整的消息包（包括头长度、头数据和payload数据）
                  sent = await session.SendAsync(packetBuffer.Memory[..bytesWritten], _shutdownCts.Token);
-                 _logger.LogDebug("[响应发送] 连接={ConnectionId}, 消息ID={MessageId}, 数据大小={BytesWritten} bytes",
-                     responseTask.ConnectionId, responseTask.MessageId, bytesWritten);
+                 _logger.LogDebug("[响应发送] 连接={ConnectionId}, 消息ID={MessageId}, 数据大小={BytesWritten} bytes", responseTask.ConnectionId, responseTask.MessageId, bytesWritten);
              }
              else
              {
@@ -276,26 +389,34 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
 
              if (sent)
              {
-                 Interlocked.Increment(ref _totalResponsesSent);
+                 // 使用线程本地计数器（避免原子操作开销）
+                 var metrics = GetLocalMetrics();
+                 metrics.ResponsesSent++;
 
-                 var processingTime = Environment.TickCount - startTime;
-                 var currentTotal = Interlocked.Read(ref _totalSerializationTime);
-                 Interlocked.Exchange(ref _totalSerializationTime, currentTotal + processingTime);
+                 var processingTime = (Stopwatch.GetTimestamp() - startTime) * 1000 / Stopwatch.Frequency;
+                 metrics.TotalSerializationTime += processingTime;
 
-                 _logger.LogTrace("响应发送成功: 会话={SessionId}, 消息ID={MessageId}, 处理器={ProcessorId}, 耗时={ProcessingTime}ms", responseTask.ConnectionId, responseTask.MessageId, processorId, processingTime);
+                 _logger.LogTrace("响应发送成功: 会话={SessionId}, 消息ID={MessageId}, 耗时={ProcessingTime}ms", responseTask.ConnectionId, responseTask.MessageId, processingTime);
              }
              else
              {
-                 Interlocked.Increment(ref _totalResponseErrors);
-                 _logger.LogWarning("响应发送失败: 会话={SessionId}, 消息ID={MessageId}",
-                     responseTask.ConnectionId, responseTask.MessageId);
+                 // 使用线程本地计数器（避免原子操作开销）
+                 var metrics = GetLocalMetrics();
+                 metrics.ResponseErrors++;
+
+                 _logger.LogWarning("响应发送失败: 会话={SessionId}, 消息ID={MessageId}", responseTask.ConnectionId, responseTask.MessageId);
              }
          }
          catch (Exception ex)
          {
-             Interlocked.Increment(ref _totalResponseErrors);
+             // 使用线程本地计数器（避免原子操作开销）
+             var metrics = GetLocalMetrics();
+             metrics.ResponseErrors++;
+
              _logger.LogError(ex, "响应处理失败: 连接={ConnectionId}, 消息ID={MessageId}, 处理器={ProcessorId}",
-                 responseTask.ConnectionId, responseTask.MessageId, processorId);
+                 responseTask.ConnectionId,
+                 responseTask.MessageId,
+                 processorId);
          }
     }
 
@@ -321,7 +442,7 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "生成的响应序列化器失败，降级到反射路径: {ServiceName}.{MethodName}", serviceName, methodName);
+                _logger.LogWarning(ex, "生成的响应序列化器失败，降级到反射路径: {ServiceName}.{MethodName}",  serviceName, methodName);
             }
         }
 
@@ -387,6 +508,16 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
          _shutdownCts.Dispose();
          _serializerCache.Clear();
      }
+}
+
+/// <summary>
+/// 线程本地性能指标（避免原子操作开销）
+/// </summary>
+internal sealed class ProcessorMetrics
+{
+    public long ResponsesSent;
+    public long ResponseErrors;
+    public long TotalSerializationTime;
 }
 
 /// <summary>

@@ -82,29 +82,3 @@ public enum ServiceState : byte
     /// </summary>
     Unregistered = 4
 }
-
-/// <summary>
-/// Message priority enumeration.
-/// </summary>
-public enum MessagePriority : byte
-{
-    /// <summary>
-    /// Process immediately (health checks, admin).
-    /// </summary>
-    Critical = 0,
-
-    /// <summary>
-    /// High priority (latency-sensitive operations).
-    /// </summary>
-    High = 1,
-
-    /// <summary>
-    /// Default priority.
-    /// </summary>
-    Normal = 2,
-
-    /// <summary>
-    /// Low priority (background tasks, analytics).
-    /// </summary>
-    Low = 3
-}

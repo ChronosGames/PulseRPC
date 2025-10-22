@@ -88,10 +88,20 @@ public class TestExecutionEngine
             {
                 StateChanged?.Invoke(TestState.WarmingUp);
                 await ExecuteWarmupAsync(scenario, config, cancellationToken);
+
+                // 重置统计数据的起始时间，确保不包含 warmup 阶段
+                _logger.LogInformation("预热完成，重置统计起始时间");
+                results = new TestResults
+                {
+                    TestName = config.ScenarioName,
+                    StartTime = DateTime.UtcNow,
+                    Configuration = config
+                };
             }
 
             // 执行主测试
             StateChanged?.Invoke(TestState.Running);
+            _logger.LogInformation("开始主测试阶段，持续 {Duration} 秒", config.DurationSeconds);
             await ExecuteMainTestAsync(scenario, config, results, cancellationToken);
 
             // 收集最终结果
@@ -268,59 +278,289 @@ public class TestExecutionEngine
         TestResults results,
         CancellationToken cancellationToken)
     {
-        _logger.LogInformation("开始主测试阶段，持续 {Duration} 秒", config.DurationSeconds);
+        _logger.LogInformation("配置: 并发={Concurrency}, 目标速率={Rate} QPS",
+            config.ConcurrentConnections, config.RequestRate);
 
-        var endTime = DateTime.UtcNow.AddSeconds(config.DurationSeconds);
-        var requestInterval = TimeSpan.FromMilliseconds(1000.0 / config.RequestRate);
-        var connectionIndex = 0;
+        // 使用高性能计时器
+        var totalStopwatch = Stopwatch.StartNew();
+        var endTicks = totalStopwatch.ElapsedTicks + config.DurationSeconds * Stopwatch.Frequency;
 
-        var testTasks = new List<Task>();
-        var requestCount = 0;
+        var concurrencyLimit = config.ConcurrentConnections;
 
-        while (DateTime.UtcNow < endTime && !cancellationToken.IsCancellationRequested)
+        // 速率控制 - 使用令牌桶算法
+        var requestIntervalTicks = config.RequestRate > 0
+            ? Stopwatch.Frequency / config.RequestRate
+            : 0; // 每个请求之间的最小间隔(ticks)
+
+        _logger.LogInformation("速率控制: requestIntervalTicks={Interval}, 预期间隔={Ms}ms",
+            requestIntervalTicks, (double)requestIntervalTicks * 1000 / Stopwatch.Frequency);
+
+        // 自适应模式选择：
+        // - 低速率场景 (RequestRate < ConcurrentConnections): 使用限流+并发模式，避免线程池浪费
+        // - 高速率场景 (RequestRate >= ConcurrentConnections): 使用工作线程池模式
+        var useThreadPool = config.RequestRate >= config.ConcurrentConnections;
+        _logger.LogInformation("执行模式: {Mode}", useThreadPool ? "工作线程池(高速率)" : "限流+并发(低速率)");
+
+        if (useThreadPool)
         {
-            // 选择连接
-            var connectionId = $"client_{connectionIndex % config.ConcurrentConnections}";
-            connectionIndex++;
-
-            // 执行请求
-            var requestTask = ExecuteRequestAsync(scenario, connectionId, ++requestCount, results, cancellationToken);
-            testTasks.Add(requestTask);
-
-            // 更新进度
-            if ((requestCount & 0xFF) == 0xFE) // 每0xFF个请求更新一次进度
-            {
-                // 计算统计信息
-                results.CalculateStatistics();
-
-                var progress = new TestProgress
-                {
-                    ElapsedTime = DateTime.UtcNow - results.StartTime,
-                    TotalRequests = requestCount,
-                    RequestsPerSecond = requestCount / Math.Max((DateTime.UtcNow - results.StartTime).TotalSeconds, 1),
-                    ActiveConnections = config.ConcurrentConnections,
-                    SuccessfulRequests = results.SuccessfulRequests,
-                    FailedRequests = results.FailedRequests,
-                    AverageLatencyMs = results.AverageLatencyMs,
-                    RecentQPS = requestCount / Math.Max((DateTime.UtcNow - results.StartTime).TotalSeconds, 1),
-                    PeakQPS = Math.Max(requestCount / Math.Max((DateTime.UtcNow - results.StartTime).TotalSeconds, 1), 0),
-                    MinLatencyMs = results.MinLatencyMs,
-                    MaxLatencyMs = results.MaxLatencyMs,
-                    P95LatencyMs = results.P95LatencyMs,
-                    P99LatencyMs = results.P99LatencyMs
-                };
-                ProgressUpdated?.Invoke(progress);
-            }
-
-            // 控制请求速率
-            // await Task.Delay(requestInterval, cancellationToken);
+            await ExecuteWithThreadPoolAsync(config, results, totalStopwatch, endTicks, concurrencyLimit, requestIntervalTicks, cancellationToken);
+        }
+        else
+        {
+            await ExecuteWithRateLimitAsync(config, results, totalStopwatch, endTicks, concurrencyLimit, requestIntervalTicks, cancellationToken);
         }
 
-        // 等待所有请求完成
-        await Task.WhenAll(testTasks);
+        _logger.LogInformation("主测试阶段完成，总请求数: {Count}", results.TotalRequests);
+    }
+
+    /// <summary>
+    /// 工作线程池模式：适合高速率场景
+    /// </summary>
+    private async Task ExecuteWithThreadPoolAsync(
+        TestConfiguration config,
+        TestResults results,
+        Stopwatch totalStopwatch,
+        long endTicks,
+        int concurrencyLimit,
+        long requestIntervalTicks,
+        CancellationToken cancellationToken)
+    {
+        var scenario = GetScenario(config.ScenarioName);
+        var workerTasks = new Task[concurrencyLimit];
+        var globalRequestId = 0;
+
+        for (int workerId = 0; workerId < concurrencyLimit; workerId++)
+        {
+            var localWorkerId = workerId;
+            workerTasks[workerId] = Task.Run(async () =>
+            {
+                var connectionId = $"client_{localWorkerId % config.ConcurrentConnections}";
+                var localStopwatch = Stopwatch.StartNew();
+
+                // 每个工作线程的目标速率（均分总速率）
+                var workerTargetIntervalTicks = requestIntervalTicks > 0
+                    ? requestIntervalTicks * concurrencyLimit
+                    : 0;
+                var workerRequestCount = 0;
+
+                while (localStopwatch.ElapsedTicks < endTicks && !cancellationToken.IsCancellationRequested)
+                {
+                    // 每个工作线程独立发送请求
+                    var requestId = Interlocked.Increment(ref globalRequestId);
+                    workerRequestCount++;
+
+                    // 速率控制：每个工作线程独立控制自己的速率
+                    if (workerTargetIntervalTicks > 0)
+                    {
+                        var expectedTicks = workerRequestCount * workerTargetIntervalTicks;
+                        var currentTicks = localStopwatch.ElapsedTicks;
+
+                        if (currentTicks < expectedTicks)
+                        {
+                            // 使用高精度自旋等待
+                            var spinWait = new SpinWait();
+                            while (localStopwatch.ElapsedTicks < expectedTicks && !cancellationToken.IsCancellationRequested)
+                            {
+                                spinWait.SpinOnce();
+                            }
+                        }
+                    }
+
+                    try
+                    {
+                        await ExecuteRequestAsync(scenario, connectionId, requestId, results, cancellationToken);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "工作线程 {WorkerId} 执行请求失败", localWorkerId);
+                    }
+                }
+            }, cancellationToken);
+        }
+
+        // 定期更新进度
+        var progressTask = Task.Run(async () =>
+        {
+            while (totalStopwatch.ElapsedTicks < endTicks && !cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(1000, cancellationToken);
+                UpdateProgressInline(results, globalRequestId, totalStopwatch.Elapsed, config.ConcurrentConnections);
+            }
+        }, cancellationToken);
+
+        // 等待所有工作线程完成
+        try
+        {
+            await Task.WhenAll(workerTasks);
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常取消
+        }
+
+        // 停止进度更新
+        try
+        {
+            await progressTask;
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常取消
+        }
+
+        results.TotalRequests = globalRequestId;
+    }
+
+    /// <summary>
+    /// 限流+并发模式：适合低速率场景
+    /// </summary>
+    private async Task ExecuteWithRateLimitAsync(
+        TestConfiguration config,
+        TestResults results,
+        Stopwatch totalStopwatch,
+        long endTicks,
+        int concurrencyLimit,
+        long requestIntervalTicks,
+        CancellationToken cancellationToken)
+    {
+        var scenario = GetScenario(config.ScenarioName);
+        var connectionIndex = 0;
+        var requestCount = 0;
+        var lastProgressUpdateTicks = totalStopwatch.ElapsedTicks;
+        var progressUpdateIntervalTicks = (long)(1.0 * Stopwatch.Frequency); // 每1秒更新一次
+
+        // 使用信号量控制最大并发数
+        using var semaphore = new SemaphoreSlim(concurrencyLimit, concurrencyLimit);
+        var pendingTasks = new List<Task>(concurrencyLimit * 2);
+
+        while (totalStopwatch.ElapsedTicks < endTicks && !cancellationToken.IsCancellationRequested)
+        {
+            // 清理已完成的任务
+            pendingTasks.RemoveAll(t => t.IsCompleted);
+
+            // 如果达到并发上限，等待一个任务完成
+            if (pendingTasks.Count >= concurrencyLimit)
+            {
+                var completedTask = await Task.WhenAny(pendingTasks);
+                pendingTasks.Remove(completedTask);
+            }
+
+            // 速率控制：非阻塞检查
+            var currentTicks = totalStopwatch.ElapsedTicks;
+            var expectedTicks = requestCount * requestIntervalTicks;
+            if (requestIntervalTicks > 0 && currentTicks < expectedTicks)
+            {
+                // 还没到发送下一个请求的时间，短暂等待
+                var waitMs = (int)Math.Min((expectedTicks - currentTicks) * 1000 / Stopwatch.Frequency, 10);
+                if (waitMs > 0)
+                {
+                    await Task.Delay(waitMs, cancellationToken);
+                }
+                continue;
+            }
+
+            // 发送请求
+            await semaphore.WaitAsync(cancellationToken);
+            var connectionId = $"client_{connectionIndex % config.ConcurrentConnections}";
+            connectionIndex++;
+            var requestId = ++requestCount;
+
+            var requestTask = Task.Run(async () =>
+            {
+                try
+                {
+                    await ExecuteRequestAsync(scenario, connectionId, requestId, results, cancellationToken);
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            }, cancellationToken);
+
+            pendingTasks.Add(requestTask);
+
+            // 更新进度
+            currentTicks = totalStopwatch.ElapsedTicks;
+            if (currentTicks - lastProgressUpdateTicks >= progressUpdateIntervalTicks)
+            {
+                UpdateProgressInline(results, requestCount, totalStopwatch.Elapsed, config.ConcurrentConnections);
+                lastProgressUpdateTicks = currentTicks;
+            }
+        }
+
+        // 等待所有剩余任务完成
+        if (pendingTasks.Count > 0)
+        {
+            await Task.WhenAll(pendingTasks);
+        }
 
         results.TotalRequests = requestCount;
-        _logger.LogInformation("主测试阶段完成，总请求数: {Count}", requestCount);
+    }
+
+    /// <summary>
+    /// 内联更新进度,避免创建后台线程的开销
+    /// </summary>
+    private void UpdateProgressInline(TestResults results, int requestCount, TimeSpan elapsed, int activeConnections)
+    {
+        // 快速计算统计信息
+        var totalQPS = requestCount / Math.Max(elapsed.TotalSeconds, 1);
+
+        // 使用轻量级统计计算,避免完整的排序操作
+        results.CalculateLightweightStatistics();
+
+        var progress = new TestProgress
+        {
+            ElapsedTime = elapsed,
+            TotalRequests = requestCount,
+            RequestsPerSecond = totalQPS,
+            ActiveConnections = activeConnections,
+            SuccessfulRequests = results.SuccessfulRequests,
+            FailedRequests = results.FailedRequests,
+            AverageLatencyMs = results.AverageLatencyMs,
+            RecentQPS = totalQPS,
+            PeakQPS = Math.Max(totalQPS, 0),
+            MinLatencyMs = results.MinLatencyMs,
+            MaxLatencyMs = results.MaxLatencyMs,
+            P95LatencyMs = results.P95LatencyMs,
+            P99LatencyMs = results.P99LatencyMs
+        };
+
+        ProgressUpdated?.Invoke(progress);
+    }
+
+    private async Task UpdateProgressAsync(TestResults results, int requestCount, DateTime currentTime, int activeConnections)
+    {
+        // 在后台线程计算统计信息，避免阻塞主循环
+        await Task.Run(() =>
+        {
+            results.CalculateStatistics();
+
+            var elapsed = currentTime - results.StartTime;
+            var totalQPS = requestCount / Math.Max(elapsed.TotalSeconds, 1);
+
+            var progress = new TestProgress
+            {
+                ElapsedTime = elapsed,
+                TotalRequests = requestCount,
+                RequestsPerSecond = totalQPS,
+                ActiveConnections = activeConnections,
+                SuccessfulRequests = results.SuccessfulRequests,
+                FailedRequests = results.FailedRequests,
+                AverageLatencyMs = results.AverageLatencyMs,
+                RecentQPS = totalQPS, // 这里可以改为计算最近几秒的QPS
+                PeakQPS = Math.Max(totalQPS, 0),
+                MinLatencyMs = results.MinLatencyMs,
+                MaxLatencyMs = results.MaxLatencyMs,
+                P95LatencyMs = results.P95LatencyMs,
+                P99LatencyMs = results.P99LatencyMs
+            };
+
+            ProgressUpdated?.Invoke(progress);
+        });
     }
 
     /// <summary>
@@ -531,12 +771,6 @@ public class TestResults
     public int SuccessfulRequests => _successfulRequests;
     public int FailedRequests => _failedRequests;
 
-    public void IncrementSuccessfulRequests(double latencyMs)
-    {
-        Interlocked.Increment(ref _successfulRequests);
-        _latencies.Add(latencyMs);
-    }
-
     public void IncrementFailedRequests() => Interlocked.Increment(ref _failedRequests);
 
     public double RequestsPerSecond => TotalRequests / Math.Max(TotalDuration.TotalSeconds, 1);
@@ -551,6 +785,57 @@ public class TestResults
 
     private readonly ConcurrentBag<double> _latencies = new();
 
+    // 用于轻量级统计的累积值
+    private double _sumLatency;
+    private double _minLatency = double.MaxValue;
+    private double _maxLatency = double.MinValue;
+
+    public void IncrementSuccessfulRequests(double latencyMs)
+    {
+        Interlocked.Increment(ref _successfulRequests);
+        _latencies.Add(latencyMs);
+
+        // 更新累积统计值(无锁更新,允许轻微不准确)
+        _sumLatency += latencyMs;
+
+        // 更新最小/最大值
+        var currentMin = _minLatency;
+        while (latencyMs < currentMin)
+        {
+            var original = Interlocked.CompareExchange(ref _minLatency, latencyMs, currentMin);
+            if (original == currentMin) break;
+            currentMin = _minLatency;
+        }
+
+        var currentMax = _maxLatency;
+        while (latencyMs > currentMax)
+        {
+            var original = Interlocked.CompareExchange(ref _maxLatency, latencyMs, currentMax);
+            if (original == currentMax) break;
+            currentMax = _maxLatency;
+        }
+    }
+
+    /// <summary>
+    /// 轻量级统计计算,仅使用累积值,不排序
+    /// </summary>
+    public void CalculateLightweightStatistics()
+    {
+        var count = _successfulRequests;
+        if (count == 0) return;
+
+        // 使用累积值计算平均值,避免完整遍历
+        AverageLatencyMs = _sumLatency / count;
+        MinLatencyMs = _minLatency == double.MaxValue ? 0 : _minLatency;
+        MaxLatencyMs = _maxLatency == double.MinValue ? 0 : _maxLatency;
+
+        // P95/P99 使用上次计算的缓存值或估算值
+        // 这里不做精确计算以避免排序开销
+    }
+
+    /// <summary>
+    /// 完整统计计算,包含百分位数(需要排序)
+    /// </summary>
     public void CalculateStatistics()
     {
         if (_latencies.IsEmpty) return;

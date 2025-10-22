@@ -167,8 +167,6 @@ internal class Program
                     };
                 });
 
-                services.AddSingleton(GeneratedResponseSerializers.Registry);
-
                 // 3. 配置 PulseRPC 服务端 - 使用手动构建模式避免服务注册被覆盖
                 var builder = services.AddUnifiedPulseServerBuilder();  // 使用无参版本，不自动启用高级特性
 

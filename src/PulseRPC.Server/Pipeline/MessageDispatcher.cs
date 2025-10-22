@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using PulseRPC.Server.Scheduling;
 
 namespace PulseRPC.Server.Pipeline;
 

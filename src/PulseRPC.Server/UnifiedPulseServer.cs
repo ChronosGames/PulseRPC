@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Core;
+using PulseRPC.Server.Engine;
 using PulseRPC.Server.Integration;
 using PulseRPC.Server.Models;
 using PulseRPC.Server.Pipeline;
@@ -27,7 +28,8 @@ public sealed class UnifiedPulseServer : IPulseServer
     private readonly ILogger<UnifiedPulseServer> _logger;
 
     // Pipeline components
-    private readonly MessageDispatcher? _messageDispatcher;
+    private readonly ITieredMessageEngine _messageEngine;
+    private readonly MessageDispatcher _messageDispatcher;
     private readonly ServiceRegistry? _serviceRegistry;
     private readonly BackpressurePolicyCore? _backpressurePolicy;
 
@@ -52,10 +54,11 @@ public sealed class UnifiedPulseServer : IPulseServer
     public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
     public UnifiedPulseServer(
-        ILoggerFactory? loggerFactory = null,
-        IOptions<UnifiedServerOptions>? options = null,
+        ITieredMessageEngine? messageEngine = null,
         IServerChannelManager? channelManager = null,
-        ITransportIntegrationManager? transportIntegrationManager = null)
+        ITransportIntegrationManager? transportIntegrationManager = null,
+        ILoggerFactory? loggerFactory = null,
+        IOptions<UnifiedServerOptions>? options = null)
     {
         _loggerFactory = loggerFactory ?? new NullLoggerFactory();
         _logger = _loggerFactory.CreateLogger<UnifiedPulseServer>();
@@ -64,6 +67,7 @@ public sealed class UnifiedPulseServer : IPulseServer
         // Validate configuration
         _options.Validate();
 
+        _messageEngine = messageEngine ?? throw new ArgumentNullException(nameof(messageEngine));
         _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
         _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));
 
@@ -108,8 +112,9 @@ public sealed class UnifiedPulseServer : IPulseServer
             }
 
             // Start pipeline components
-            if (_messageDispatcher != null)
-                await _messageDispatcher.StartAsync(combinedCts.Token);
+            await _messageEngine.StartAsync(combinedCts.Token);
+
+            await _messageDispatcher.StartAsync(combinedCts.Token);
 
             // Start all transports in parallel
             var startTasks = _transports.Values.Select(config =>
@@ -189,8 +194,8 @@ public sealed class UnifiedPulseServer : IPulseServer
             await StopAllListenersAsync();
 
             // Stop pipeline components
-            if (_messageDispatcher != null)
-                await _messageDispatcher.StopAsync(cancellationToken);
+            await _messageEngine.StopAsync();
+            await _messageDispatcher.StopAsync(cancellationToken);
 
             ChangeState(ServerState.Stopped);
             _logger.LogInformation("Server stopped successfully");

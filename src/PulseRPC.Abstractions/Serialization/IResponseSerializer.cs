@@ -51,27 +51,3 @@ public interface IResponseSerializerRegistry
     /// </summary>
     ReadOnlySpan<IResponseSerializer> EnumerateSerializers();
 }
-
-/// <summary>
-/// 默认的空注册表实现，便于在未生成代码时提供合理降级。
-/// </summary>
-public sealed class EmptyResponseSerializerRegistry : IResponseSerializerRegistry
-{
-    public static EmptyResponseSerializerRegistry Instance { get; } = new();
-
-    private EmptyResponseSerializerRegistry()
-    {
-    }
-
-    public bool TryGetSerializer(string serviceName, string methodName, out IResponseSerializer serializer)
-    {
-        serializer = default!;
-        return false;
-    }
-
-    public ReadOnlySpan<IResponseSerializer> EnumerateSerializers()
-    {
-        return ReadOnlySpan<IResponseSerializer>.Empty;
-    }
-}
-

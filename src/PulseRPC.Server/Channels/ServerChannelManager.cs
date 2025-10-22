@@ -16,18 +16,14 @@ namespace PulseRPC.Server.Processing;
 internal class ServerChannelManager : IServerChannelManager
 {
     private readonly ConcurrentDictionary<string, IServerChannel> _channels;
-    private readonly ITieredMessageEngineManager _engineManager;
-    private readonly IOptions<MessageEngineConfiguration> _processorOptions;
     private readonly ILogger<ServerChannelManager> _logger;
     private readonly ILoggerFactory? _loggerFactory;
-    private readonly IMessageDispatcher _messageDispatcher;
     private readonly Timer _cleanupTimer;
     private volatile bool _disposed;
 
     // 统计信息
     private long _totalChannelsCreated;
     private long _totalChannelsRemoved;
-    private long _totalEnginesCreated;
 
     /// <summary>
     /// 通道超时时间（毫秒）
@@ -55,29 +51,25 @@ internal class ServerChannelManager : IServerChannelManager
     public event EventHandler<ChannelEventArgs>? ChannelDisconnected;
 
     /// <summary>
+    /// 通道消息解析
+    /// </summary>
+    public event EventHandler<MessageParsedEventArgs>? ChannelMessageParsed;
+
+    /// <summary>
     /// 通道认证事件
     /// </summary>
     public event EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;
 
     public ServerChannelManager(
         ILogger<ServerChannelManager> logger,
-        IOptions<MessageEngineConfiguration> processorOptions,
-        IMessageDispatcher messageDispatcher,
-        ILoggerFactory? loggerFactory = null,
-        ITieredMessageEngineManager? engineManager = null)
+        ILoggerFactory? loggerFactory = null)
     {
         _channels = new ConcurrentDictionary<string, IServerChannel>();
-        _engineManager = engineManager ?? throw new ArgumentNullException(nameof(engineManager));
-        _processorOptions = processorOptions;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _loggerFactory = loggerFactory;
-        _messageDispatcher = messageDispatcher ?? throw new ArgumentNullException(nameof(messageDispatcher));
 
         // 启动清理定时器，每60秒清理一次过期连接
         _cleanupTimer = new Timer(CleanupExpiredChannels, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-
-        _logger.LogInformation("增强服务器通道管理器已启动，引擎管理器: {EngineManagerType}, 消息分发器: {DispatcherType}",
-            _engineManager.GetType().Name, _messageDispatcher.GetType().Name);
     }
 
     /// <summary>
@@ -105,9 +97,6 @@ internal class ServerChannelManager : IServerChannelManager
 
             _logger.LogInformation("已添加传输通道: {ConnectionId}, 总数: {TotalCount}", transport.Id, _channels.Count);
 
-            // 如果启用了消息引擎，为此通道创建引擎
-            _ = Task.Run(async () => await TryCreateEngineAsync(channel));
-
             ChannelConnected?.Invoke(this, new ChannelEventArgs(channel));
             return channel;
         }
@@ -116,27 +105,6 @@ internal class ServerChannelManager : IServerChannelManager
             // 如果添加失败，说明连接ID冲突，释放新创建的通道
             channel.Dispose();
             throw new InvalidOperationException($"连接ID冲突: {transport.Id}");
-        }
-    }
-
-    /// <summary>
-    /// 尝试为通道创建消息引擎
-    /// </summary>
-    private async Task TryCreateEngineAsync(ServerTransportChannel channel)
-    {
-        if (!_processorOptions.Value.Enabled)
-            return;
-
-        try
-        {
-            var engine = await _engineManager.GetOrCreateEngineAsync(channel.Id, channel, _messageDispatcher);
-            Interlocked.Increment(ref _totalEnginesCreated);
-
-            _logger.LogDebug("已为通道创建消息引擎: {ConnectionId}", channel.Id);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "为通道创建消息引擎失败: {ConnectionId}", channel.Id);
         }
     }
 
@@ -171,9 +139,6 @@ internal class ServerChannelManager : IServerChannelManager
 
         _logger.LogInformation("已移除传输通道: {ConnectionId}, 剩余: {RemainingCount}", connectionId, _channels.Count);
 
-        // 移除对应的消息引擎
-        _ = Task.Run(async () => await TryRemoveEngineAsync(connectionId));
-
         // 取消订阅事件
         channel.StateChanged -= OnChannelStateChanged;
         channel.MessageParsed -= OnChannelMessageParsed;
@@ -185,22 +150,6 @@ internal class ServerChannelManager : IServerChannelManager
         channel.Dispose();
 
         return true;
-    }
-
-    /// <summary>
-    /// 尝试移除消息引擎
-    /// </summary>
-    private async Task TryRemoveEngineAsync(string connectionId)
-    {
-        try
-        {
-            await _engineManager.RemoveConnectionAsync(connectionId);
-            _logger.LogDebug("已移除消息引擎: {ConnectionId}", connectionId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "移除消息引擎失败: {ConnectionId}", connectionId);
-        }
     }
 
     /// <summary>
@@ -273,8 +222,7 @@ internal class ServerChannelManager : IServerChannelManager
             TotalChannelsRemoved = Interlocked.Read(ref _totalChannelsRemoved),
             TotalHighThroughputProcessorsCreated = engineStats.Count,
             TotalMessagesProcessed = totalProcessed,
-            TotalMessagesDropped = totalDropped,
-            HighThroughputProcessorEnabled = _processorOptions.Value.Enabled
+            TotalMessagesDropped = totalDropped
         };
     }
 
@@ -298,99 +246,18 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 处理通道消息解析事件
     /// </summary>
-    private void OnChannelMessageParsed(object? sender, MessageParsedEventArgs e)
+    private void OnChannelMessageParsed(object? sender, MessageParsedEventArgs eventArgs)
     {
-        if (sender is not IServerChannel)
-            return;
-
         _logger.LogTrace("[消息路由] {ConnectionId} 解析消息: 服务={ServiceName}, 方法={MethodName}, 类型={Type}",
-            e.ConnectionId, e.MessagePacket.Header.ServiceName, e.MessagePacket.Header.MethodName, e.MessagePacket.Header.Type);
+            eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName, eventArgs.MessagePacket.Header.MethodName, eventArgs.MessagePacket.Header.Type);
 
-        // 将消息路由到引擎（如果启用）
-        if (_processorOptions.Value.Enabled)
+        if (sender is not IServerChannel)
         {
-            _ = Task.Run(async () => await RouteToEngineAsync(e));
+            _logger.LogWarning("[消息路由] {ConnectionId} 消息入队失败，来源不正确", eventArgs.ConnectionId);
+            return;
         }
-        else
-        {
-            // 如果没有启用引擎，可以在这里添加默认的消息处理逻辑
-            _logger.LogWarning("[消息路由] {ConnectionId} 消息引擎未启用，消息将被丢弃", e.ConnectionId);
-        }
-    }
 
-    /// <summary>
-    /// 将消息路由到消息引擎
-    /// </summary>
-    private async Task RouteToEngineAsync(MessageParsedEventArgs eventArgs)
-    {
-        try
-        {
-            // 获取当前连接对应的通道
-            if (!_channels.TryGetValue(eventArgs.ConnectionId, out var serverChannel))
-            {
-                _logger.LogWarning("[消息路由] {ConnectionId} 找不到对应的服务器通道", eventArgs.ConnectionId);
-                return;
-            }
-
-            // 获取或创建对应连接的消息引擎
-            var engine = await _engineManager.GetOrCreateEngineAsync(
-                eventArgs.ConnectionId,
-                serverChannel,
-                _messageDispatcher);
-
-            // 传递完整消息包而非仅 Payload
-            var priority = DetermineMessagePriority(eventArgs.MessagePacket.Header);
-            var success = engine.TryEnqueueMessage(
-                eventArgs.ConnectionId,
-                eventArgs.MessagePacket, // 传递完整结构
-                priority);
-
-            if (success)
-            {
-                _logger.LogTrace("[消息路由] {ConnectionId} 消息已成功路由到引擎: 服务={ServiceName}, 方法={MethodName}, MessageId={MessageId}",
-                    eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName,
-                    eventArgs.MessagePacket.Header.MethodName, eventArgs.MessagePacket.Header.MessageId);
-            }
-            else
-            {
-                _logger.LogWarning("[消息路由] {ConnectionId} 消息入队失败，尝试回退处理", eventArgs.ConnectionId);
-                await FallbackProcessMessageAsync(eventArgs);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "[消息路由] {ConnectionId} 引擎处理失败，尝试回退处理", eventArgs.ConnectionId);
-            await FallbackProcessMessageAsync(eventArgs);
-        }
-    }
-
-    /// <summary>
-    /// 回退处理路径 - 当高性能引擎不可用时使用
-    /// </summary>
-    private Task FallbackProcessMessageAsync(MessageParsedEventArgs eventArgs)
-    {
-        _logger.LogInformation("[回退处理] {ConnectionId} 使用简化处理路径: Service={ServiceName}, Method={MethodName}",
-            eventArgs.ConnectionId,
-            eventArgs.MessagePacket.Header.ServiceName,
-            eventArgs.MessagePacket.Header.MethodName);
-
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// 根据消息头确定消息优先级
-    /// </summary>
-    private static MessagePriority DetermineMessagePriority(MessageHeader header)
-    {
-        // 可以根据服务名、方法名或其他头信息确定优先级
-        // 这里使用简单的策略
-        return header.Type switch
-        {
-            MessageType.Request => MessagePriority.Normal,
-            MessageType.Response => MessagePriority.High,
-            MessageType.Event => MessagePriority.Low,
-            _ => MessagePriority.Normal
-        };
+        ChannelMessageParsed?.Invoke(sender, eventArgs);
     }
 
     /// <summary>

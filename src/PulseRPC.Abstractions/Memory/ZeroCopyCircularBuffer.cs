@@ -67,7 +67,7 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     /// <exception cref="ArgumentOutOfRangeException">容量不符合规格要求</exception>
     public ZeroCopyCircularBuffer(int capacity)
     {
-        if (capacity < MemorySpecs.MIN_CAPACITY || capacity > MemorySpecs.MAX_CAPACITY)
+        if (capacity is < MemorySpecs.MIN_CAPACITY or > MemorySpecs.MAX_CAPACITY)
             throw new ArgumentOutOfRangeException(nameof(capacity),
                 $"Capacity must be between {MemorySpecs.MIN_CAPACITY} and {MemorySpecs.MAX_CAPACITY}");
 
@@ -106,7 +106,7 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     private void PrewarmBuffer()
     {
         var span = _buffer.Span;
-        for (int i = 0; i < span.Length; i += MemorySpecs.ALIGNMENT_BYTES / Unsafe.SizeOf<T>())
+        for (var i = 0; i < span.Length; i += MemorySpecs.ALIGNMENT_BYTES / Unsafe.SizeOf<T>())
         {
             span[i] = default;
         }
