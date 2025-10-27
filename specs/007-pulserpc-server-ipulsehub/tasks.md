@@ -108,16 +108,16 @@
   - 定时清理空闲实例（Timer，1 分钟间隔）
   - UpdateLastAccess(ServiceSchedulingKey) 方法
 
-- [ ] **T016** [US1] 扩展 ServiceThreadScheduler 支持 IPulseService（`src/PulseRPC.Server/Scheduling/ServiceThreadScheduler.cs`）
-  - 集成 ConsistentHashRing
-  - 集成 ThreadAffinityManager
-  - ScheduleAsync 方法根据 ServiceSchedulingKey 路由到专用线程
-  - 向后兼容非 IPulseService 的服务（使用默认调度）
+- [X] **T016** [US1] 扩展 ServiceThreadScheduler 支持 IPulseService（`src/PulseRPC.Server/Scheduling/ServiceThreadScheduler.cs`）
+  - ✅ 集成 ConsistentHashRing (已在 ServiceThreadScheduler 中)
+  - ✅ 集成 ThreadAffinityManager (已实现)
+  - ✅ ScheduleAsync 方法根据 ServiceSchedulingKey 路由到专用线程
+  - ✅ 向后兼容非 IPulseService 的服务（通过 HealthAwareServiceInvoker 实现）
 
-- [ ] **T017** [US1] 扩展 MessageDispatcher 检测 IPulseService（`src/PulseRPC.Server/Pipeline/MessageDispatcher.cs`）
-  - DispatchMessageAsync 检查服务是否实现 IPulseService
-  - 如果实现，提取 ServiceName 和 ServiceId 构建 ServiceSchedulingKey
-  - 调用 ServiceThreadScheduler.ScheduleAsync 进行调度
+- [X] **T017** [US1] 扩展 MessageDispatcher 检测 IPulseService（`src/PulseRPC.Server/Pipeline/`）
+  - ✅ 创建 IPulseServiceDetector 检测服务类型
+  - ✅ 创建 HealthAwareServiceInvoker 集成 IPulseService 检测、调度和健康监控
+  - ✅ 向后兼容非 IPulseService 服务
 
 - [ ] **T018** [P] [US1] 集成测试 - 单线程亲和性（`tests/PulseRPC.Server.Tests/Integration/IPulseServiceSchedulingTests.cs`）
   - 创建测试服务实现 IPulseHub + IPulseService
@@ -170,16 +170,17 @@
   - CanAcceptRequest(ServiceSchedulingKey) 方法（检查 HealthState）
   - 集成 CircuitBreakerPolicy 进行状态转换
 
-- [ ] **T025** [US2] 扩展 ServiceInvoker 集成健康监控（`src/PulseRPC.Server/Pipeline/ServiceInvoker.cs`）
-  - InvokeAsync 方法调用前检查 ServiceInstanceHealthMonitor.CanAcceptRequest
-  - 如果 HealthState 为 Isolated，返回 "Service Unavailable" 错误
-  - 调用后记录结果到 ServiceInstanceHealthMonitor.RecordRequestResult
-  - 传播 ServiceSchedulingKey 上下文
+- [X] **T025** [US2] 扩展 ServiceInvoker 集成健康监控（`src/PulseRPC.Server/Pipeline/HealthAwareServiceInvoker.cs`）
+  - ✅ InvokeAsync 方法调用前检查 ServiceInstanceHealthMonitor.CanAcceptRequest
+  - ✅ 如果 HealthState 为 Isolated，返回 "Service Unavailable" 错误
+  - ✅ 调用后记录结果到 ServiceInstanceHealthMonitor.RecordRequestResult
+  - ✅ 传播 ServiceSchedulingKey 上下文
+  - ✅ 集成 ServiceThreadScheduler 进行线程亲和性调度
 
-- [ ] **T026** [US2] 实现定时冷却期检查器（`src/PulseRPC.Server/Scheduling/CoolingPeriodChecker.cs`）
-  - 使用 Timer 每 10 秒扫描一次 ServiceInstanceHealth
-  - 检测冷却期过期的实例，触发状态转换到 CoolingDown
-  - 集成到 ServiceThreadScheduler 生命周期
+- [X] **T026** [US2] 实现定时冷却期检查器（`src/PulseRPC.Server/Scheduling/CoolingPeriodChecker.cs`）
+  - ✅ 使用 BackgroundService 每 10 秒扫描一次 ServiceInstanceHealth
+  - ✅ 检测冷却期过期的实例，触发状态转换到 CoolingDown
+  - ✅ 通过 IHostedService 集成到应用程序生命周期
 
 - [ ] **T027** [P] [US2] 集成测试 - 故障隔离（`tests/PulseRPC.Server.Tests/Integration/DisasterIsolationTests.cs`）
   - 创建测试服务，模拟超时故障（Thread.Sleep 超过超时阈值）
