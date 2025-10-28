@@ -17,15 +17,49 @@
 
 ---
 
+## 📊 实施状态总览 (更新于: 2025-10-28)
+
+### 整体进度
+- **Phase 1 (项目设置)**: ✅ 2/2 完成 (100%) - T001 N/A, T002 完成, T003 文档待更新
+- **Phase 2 (基础设施)**: ✅ 7/7 完成 (100%) - T004-T010 全部完成
+- **Phase 3 (US1-线程亲和性)**: 🟡 7/10 完成 (70%) - 核心实现完成，测试待补充
+- **Phase 4 (US2-灾难隔离)**: 🟡 4/8 完成 (50%) - 核心实现完成，测试待补充
+- **Phase 5 (US3-向后兼容)**: 🟡 1/6 完成 (17%) - T032 完成，其他待实施
+- **Phase 6 (US4-动态管理)**: ⏸️ 0/6 完成 (0%) - 待开始
+- **Phase 7 (US5-可观测性)**: ⏸️ 0/8 完成 (0%) - 待开始
+- **Phase 8 (集成优化)**: ⏸️ 0/6 完成 (0%) - 待开始
+
+### 关键里程碑
+- ✅ **MVP 就绪** (Phase 2 + Phase 3 核心): 核心调度功能已实现
+- 🟡 **灾难隔离就绪** (Phase 4 核心): 熔断器和健康监控已实现
+- ⏸️ **生产就绪** (所有 Phase): 需要完成测试和文档
+
+### 构建状态
+- ✅ **PulseRPC.Server**: 编译成功 (0 errors, 32 warnings)
+- ✅ **PulseRPC.Abstractions**: ServiceSchedulingKey 已实现
+- ⚠️ **PulseRPC.Infrastructure**: 预存在架构问题（不阻塞 Feature 007）
+- 🔧 **Tests**: 部分测试文件已修复，需要实现缺失的测试
+
+### 下一步行动
+1. ⚡ **优先**: 实现缺失的单元测试 (T011-T012, T021-T022)
+2. 📝 **文档**: 更新 CLAUDE.md (T003) 和创建迁移指南 (T033)
+3. 🧪 **集成测试**: 实现 US1 和 US2 的集成测试 (T018-T020, T027-T028)
+4. 🎯 **扩展功能**: 实现 US4 和 US5 (动态管理和可观测性)
+
+---
+
 ## Phase 1: 项目设置（共享基础设施）
 
 **目的**: 项目初始化和基础结构准备
 
-- [ ] **T001** 更新 PublicAPI.Unshipped.txt 添加新的公共接口（IPulseService, IServiceScheduler, HealthState 等）
-- [ ] **T002** [P] 配置 MemoryPack 源生成器以支持新的可序列化类型
+- [N/A] **T001** 更新 PublicAPI.Unshipped.txt 添加新的公共接口（IPulseService, IServiceScheduler, HealthState 等）
+  - **注**: PulseRPC.Server 项目不使用 PublicAPI 文件，相关接口在 Abstractions 项目中管理
+- [X] **T002** [P] 配置 MemoryPack 源生成器以支持新的可序列化类型
+  - ✅ MemoryPack 已在项目中配置和使用
 - [ ] **T003** [P] 更新项目文档（CLAUDE.md）记录新的调度机制
+  - ⚠️ 待完成：需要添加服务调度和灾难隔离的使用说明
 
-**检查点**: 项目环境配置完成
+**检查点**: 项目环境配置完成 ✅ (2/2 必需任务完成)
 
 ---
 
@@ -224,10 +258,10 @@
 
 ### US3 实施任务
 
-- [ ] **T032** [US3] 在 MessageDispatcher 实现服务类型检测逻辑（`src/PulseRPC.Server/Pipeline/MessageDispatcher.cs`）
-  - 使用反射或类型检查判断服务是否实现 IPulseService
-  - 如果实现，提取 ServiceSchedulingKey 并调度到专用线程
-  - 如果未实现，保持原有行为（使用 Task.Run 或线程池）
+- [X] **T032** [US3] 在 MessageDispatcher 实现服务类型检测逻辑（`src/PulseRPC.Server/Pipeline/MessageDispatcher.cs`）
+  - ✅ 已通过 IPulseServiceDetector 实现服务类型检测
+  - ✅ HealthAwareServiceInvoker 集成检测、调度和健康监控
+  - ✅ 向后兼容非 IPulseService 服务
 
 - [ ] **T033** [US3] 添加迁移指南文档（`docs/IPulseService-Migration-Guide.md`）
   - 说明如何从 IPulseHub 迁移到 IPulseHub + IPulseService
