@@ -1164,7 +1164,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         var channelName = GetChannelAttributeValue(methodSymbol) ?? defaultChannelName;
 
         sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 调用 {methodName} 方法");
+        sb.AppendLine($"        /// 调用 {methodName} 方法 (零拷贝优化)");
         sb.AppendLine($"        /// </summary>");
 
         // 生成方法签名
@@ -1188,54 +1188,184 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
         if (isAsync)
         {
-            var str = string.Join(", ", parameters.Select(p => p.Name));
+            // 提取 CancellationToken 参数
+            var cancelTokenParam = parameters.FirstOrDefault(p =>
+                p.Type.ToDisplayString() == "System.Threading.CancellationToken" ||
+                p.Type.ToDisplayString() == "CancellationToken");
+            var tokenName = cancelTokenParam?.Name ?? "default";
+
+            // 提取非 CancellationToken 的参数
+            var dataParameters = parameters.Where(p =>
+                p.Type.ToDisplayString() != "System.Threading.CancellationToken" &&
+                p.Type.ToDisplayString() != "CancellationToken").ToList();
 
             // 根据返回类型生成不同的调用
             if (returnType == "System.Threading.Tasks.Task" || returnType == "System.Threading.Tasks.ValueTask")
             {
-                // void Task 方法
-                sb.AppendLine($"            await _connection.SendAsync(\"{interfaceName}\", \"{methodName}\"{(string.IsNullOrEmpty(str) ? string.Empty : ", " + str)});");
+                // OneWay/Command 方法（无返回值）- 使用零拷贝路径
+                GenerateCommandMethodBody(sb, interfaceName, methodName, dataParameters, tokenName);
             }
             else
             {
-                // Task<T> 方法
+                // Request/Response 方法（有返回值）- 使用零拷贝路径
                 var taskType = returnType
                     .Replace("System.Threading.Tasks.Task<", string.Empty)
                     .Replace("System.Threading.Tasks.ValueTask<", string.Empty)
                     .TrimEnd('>');
 
-                if (parameters.Length > 1)
-                {
-                    var requestType = "Tuple<" + string.Join(", ", parameters.Select(x => x.Type.ToDisplayString())) + ">";
-                    sb.AppendLine($"            var __request__ = new {requestType}({string.Join(", ", parameters.Select(x => x.Name))});");
-                    sb.AppendLine($"            return await _connection.InvokeAsync<{requestType}, {taskType}>(\"{interfaceName}\", \"{methodName}\", in __request__);");
-                }
-                else if (parameters.Length == 1)
-                {
-                    sb.AppendLine($"            return await _connection.InvokeAsync<{parameters.First().Type.ToDisplayString()}, {taskType}>(\"{interfaceName}\", \"{methodName}\", in {parameters.First().Name});");
-                }
-                else
-                {
-                    sb.AppendLine($"            return await _connection.InvokeAsync<{taskType}>(\"{interfaceName}\", \"{methodName}\");");
-                }
+                GenerateRequestMethodBody(sb, interfaceName, methodName, dataParameters, taskType, tokenName);
             }
         }
         else
         {
-            // 生成同步实现
+            // 生成同步实现（通过异步包装）
             sb.AppendLine($"            // 同步方法通过异步实现");
+            var asyncCall = $"{methodName}Async({string.Join(", ", parameters.Select(p => p.Name))})";
             if (returnType == "void")
             {
-                sb.AppendLine($"            _connection.SendAsync(nameof({interfaceName}), nameof({methodName}), {string.Join(", ", parameters.Select(p => p.Name))}).GetAwaiter().GetResult();");
+                sb.AppendLine($"            {asyncCall}.GetAwaiter().GetResult();");
             }
             else
             {
-                sb.AppendLine($"            return {methodName}({string.Join(", ", parameters.Select(p => p.Name))}).GetAwaiter().GetResult();");
+                sb.AppendLine($"            return {asyncCall}.GetAwaiter().GetResult();");
             }
         }
 
         sb.AppendLine("        }");
         sb.AppendLine();
+    }
+
+    /// <summary>
+    /// 生成 Request/Response 方法体（零拷贝优化）
+    /// </summary>
+    private static void GenerateRequestMethodBody(
+        StringBuilder sb,
+        string interfaceName,
+        string methodName,
+        List<IParameterSymbol> dataParameters,
+        string responseType,
+        string tokenName)
+    {
+        sb.AppendLine($"            // ========== 零拷贝优化路径：Request/Response ==========");
+        sb.AppendLine($"            // Step 1: 租借序列化缓冲区");
+        sb.AppendLine($"            var __buffer__ = _connection.RentSerializationBuffer(256);");
+        sb.AppendLine($"            try");
+        sb.AppendLine($"            {{");
+
+        // Step 2: 显式 MemoryPack 序列化
+        if (dataParameters.Count == 0)
+        {
+            // 无参数
+            sb.AppendLine($"                // 无参数，序列化空对象");
+            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, PulseRPC.EmptyResponse.Instance);");
+        }
+        else if (dataParameters.Count == 1)
+        {
+            // 单参数
+            var param = dataParameters[0];
+            sb.AppendLine($"                // 序列化单个参数");
+            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, {param.Name});");
+        }
+        else
+        {
+            // 多参数：创建元组
+            var tupleType = "(" + string.Join(", ", dataParameters.Select(p => p.Type.ToDisplayString())) + ")";
+            var tupleValues = "(" + string.Join(", ", dataParameters.Select(p => p.Name)) + ")";
+            sb.AppendLine($"                // 序列化多个参数为元组");
+            sb.AppendLine($"                var __request__ = {tupleValues};");
+            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, __request__);");
+        }
+
+        sb.AppendLine($"");
+        sb.AppendLine($"                // Step 3: 获取已序列化的字节");
+        sb.AppendLine($"                var __serializedRequest__ = __buffer__ is System.Buffers.ArrayBufferWriter<byte> __abw__ ");
+        sb.AppendLine($"                    ? __abw__.WrittenMemory ");
+        sb.AppendLine($"                    : System.ReadOnlyMemory<byte>.Empty;");
+        sb.AppendLine($"");
+        sb.AppendLine($"                // Step 4: 零拷贝发送并等待响应");
+        sb.AppendLine($"                var __responseBytes__ = await _connection.InvokeRawAsync(");
+        sb.AppendLine($"                    serviceName: \"{interfaceName}\",");
+        sb.AppendLine($"                    methodName: \"{methodName}\",");
+        sb.AppendLine($"                    serializedRequest: __serializedRequest__,");
+        sb.AppendLine($"                    cancellationToken: {tokenName}");
+        sb.AppendLine($"                );");
+        sb.AppendLine($"");
+
+        // Step 5: 反序列化响应
+        if (responseType == "PulseRPC.EmptyResponse" || responseType == "EmptyResponse")
+        {
+            sb.AppendLine($"                // 空响应，直接返回");
+            sb.AppendLine($"                return;");
+        }
+        else
+        {
+            sb.AppendLine($"                // Step 5: 显式反序列化响应");
+            sb.AppendLine($"                return MemoryPack.MemoryPackSerializer.Deserialize<{responseType}>(__responseBytes__.Span)!;");
+        }
+
+        sb.AppendLine($"            }}");
+        sb.AppendLine($"            finally");
+        sb.AppendLine($"            {{");
+        sb.AppendLine($"                // Step 6: 归还缓冲区");
+        sb.AppendLine($"                _connection.ReturnSerializationBuffer(__buffer__);");
+        sb.AppendLine($"            }}");
+    }
+
+    /// <summary>
+    /// 生成 Command/OneWay 方法体（零拷贝优化）
+    /// </summary>
+    private static void GenerateCommandMethodBody(
+        StringBuilder sb,
+        string interfaceName,
+        string methodName,
+        List<IParameterSymbol> dataParameters,
+        string tokenName)
+    {
+        sb.AppendLine($"            // ========== 零拷贝优化路径：Command/OneWay ==========");
+        sb.AppendLine($"            // Step 1: 租借序列化缓冲区");
+        sb.AppendLine($"            var __buffer__ = _connection.RentSerializationBuffer(256);");
+        sb.AppendLine($"            try");
+        sb.AppendLine($"            {{");
+
+        // Step 2: 显式 MemoryPack 序列化
+        if (dataParameters.Count == 0)
+        {
+            sb.AppendLine($"                // 无参数，序列化空对象");
+            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, PulseRPC.EmptyResponse.Instance);");
+        }
+        else if (dataParameters.Count == 1)
+        {
+            var param = dataParameters[0];
+            sb.AppendLine($"                // 序列化单个参数");
+            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, {param.Name});");
+        }
+        else
+        {
+            var tupleValues = "(" + string.Join(", ", dataParameters.Select(p => p.Name)) + ")";
+            sb.AppendLine($"                // 序列化多个参数为元组");
+            sb.AppendLine($"                var __command__ = {tupleValues};");
+            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, __command__);");
+        }
+
+        sb.AppendLine($"");
+        sb.AppendLine($"                // Step 3: 获取已序列化的字节");
+        sb.AppendLine($"                var __serializedCommand__ = __buffer__ is System.Buffers.ArrayBufferWriter<byte> __abw__");
+        sb.AppendLine($"                    ? __abw__.WrittenMemory");
+        sb.AppendLine($"                    : System.ReadOnlyMemory<byte>.Empty;");
+        sb.AppendLine($"");
+        sb.AppendLine($"                // Step 4: 零拷贝发送（无需等待响应）");
+        sb.AppendLine($"                await _connection.SendCommandAsync(");
+        sb.AppendLine($"                    serviceName: \"{interfaceName}\",");
+        sb.AppendLine($"                    methodName: \"{methodName}\",");
+        sb.AppendLine($"                    serializedCommand: __serializedCommand__,");
+        sb.AppendLine($"                    cancellationToken: {tokenName}");
+        sb.AppendLine($"                );");
+        sb.AppendLine($"            }}");
+        sb.AppendLine($"            finally");
+        sb.AppendLine($"            {{");
+        sb.AppendLine($"                // Step 5: 归还缓冲区");
+        sb.AppendLine($"                _connection.ReturnSerializationBuffer(__buffer__);");
+        sb.AppendLine($"            }}");
     }
 
     private static string GetEventDataType(IMethodSymbol method)

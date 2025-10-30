@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
+    <ProjectReference Include="..\PulseRPC.Client\PulseRPC.Client.csproj" />
   </ItemGroup>
 
 </Project>

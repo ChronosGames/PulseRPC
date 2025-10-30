@@ -20,7 +20,7 @@ public class MessagePacketHolder
         this.Payload = packet.Payload.ToArray();
         this.ConnectionId = connectionId;
     }
-    
+
     public MessagePacketHolder(MessageHeader header, byte[] payload, string? connectionId = null)
     {
         this.Header = header;
@@ -58,6 +58,35 @@ public readonly ref struct MessagePacket
             Flags = MessageFlags.RequireResponse
         };
         return new MessagePacket(header, payload);
+    }
+
+    /// <summary>
+    /// 创建请求消息包 - 零拷贝版本（源生成器专用）
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static MessagePacket CreateRequestZeroCopy(string serviceName, string methodName, ReadOnlySpan<byte> serializedPayload)
+    {
+        var header = new MessageHeader(MessageType.Request, serviceName, methodName)
+        {
+            MessageId = Guid.NewGuid(),
+            Flags = MessageFlags.RequireResponse
+        };
+        return new MessagePacket(header, serializedPayload);
+    }
+
+    /// <summary>
+    /// 创建命令消息包 - 零拷贝版本（源生成器专用）
+    /// 命令/OneWay 消息无需服务器响应
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static MessagePacket CreateCommandZeroCopy(string serviceName, string methodName, ReadOnlySpan<byte> serializedPayload)
+    {
+        var header = new MessageHeader(MessageType.OneWay, serviceName, methodName)
+        {
+            MessageId = Guid.NewGuid(),
+            Flags = MessageFlags.None // 无需响应标志
+        };
+        return new MessagePacket(header, serializedPayload);
     }
 
     /// <summary>

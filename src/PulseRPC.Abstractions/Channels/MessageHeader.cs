@@ -193,13 +193,11 @@ public class NetworkMessage
 {
     public MessageHeader Header;
     public byte[] Body;
-    public ReadOnlyMemory<byte> Payload;
 
     public NetworkMessage(MessageHeader header, byte[]? body)
     {
         Header = header ?? throw new ArgumentNullException(nameof(header));
         Body = body ?? Array.Empty<byte>();
-        Payload = new ReadOnlyMemory<byte>(Body);
     }
 }
 
