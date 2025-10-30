@@ -1,4 +1,4 @@
-using PulseRPC.HealthCheck;
+using PulseRPC.Client.Health;
 using PulseRPC.Configuration;
 using PulseRPC.ServiceDiscovery;
 

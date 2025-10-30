@@ -616,9 +616,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
                 // 检查性能目标达成情况
                 CheckPerformanceTargets(snapshot);
-
-                // 触发自适应调优
-                TriggerAdaptiveOptimization(snapshot);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -639,7 +636,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         // 检查吞吐量目标
         if (snapshot.CurrentThroughput < PerformanceRequirements.TARGET_THROUGHPUT * 0.8) // 允许20%偏差
         {
-            _logger.LogWarning("吞吐量低于目标: Current={Current}, Target={Target}",
+            _logger.LogWarning("吞吐量低于目标: Current={Current:N1}, Target={Target}",
                 snapshot.CurrentThroughput, PerformanceRequirements.TARGET_THROUGHPUT);
         }
 
@@ -649,15 +646,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
             _logger.LogWarning("P99延迟超过目标: Current={Current}ms, Target={Target}ms",
                 snapshot.P99LatencyMs, PerformanceRequirements.TARGET_P99_LATENCY_MS);
         }
-    }
-
-    /// <summary>
-    /// 触发自适应优化
-    /// </summary>
-    private void TriggerAdaptiveOptimization(PerformanceSnapshot snapshot)
-    {
-        // 根据性能指标调整批处理参数
-        // 这个逻辑会通过IBatchProcessor接口回调到AdaptiveBatchScheduler
     }
 
     /// <summary>
@@ -947,7 +935,7 @@ public class EngineMetrics
     public double GetCurrentThroughput() => MessagesProcessed.Value / (DateTime.UtcNow - EngineStartTime).TotalSeconds;
     public double GetAverageLatencyMs() => 2.5; // 临时实现
     public double GetP99LatencyMs() => 5.0; // 临时实现
-    public void RecordEnqueueLatency(long ticks) { /* TODO: 实现延迟记录 */ }
+    public void RecordEnqueueLatency(long ticks) { L1MessagesEnqueued.Add(ticks); }
     public void RecordBatchProcessingTime(TimeSpan time) { /* TODO: 实现批处理时间记录 */ }
 }
 

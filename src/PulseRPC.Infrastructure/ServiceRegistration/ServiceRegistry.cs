@@ -2,7 +2,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
 using PulseRPC.Infrastructure;
-using PulseRPC.HealthCheck;
+using PulseRPC.Client.Health;
 using PulseRPC.Configuration;
 using PulseRPC.ServiceDiscovery;
 using PulseRPC.Routing;

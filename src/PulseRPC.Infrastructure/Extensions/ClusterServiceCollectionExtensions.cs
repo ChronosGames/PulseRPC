@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using PulseRPC.Infrastructure.Registry;
 using PulseRPC.Infrastructure.Routing;
 using PulseRPC.LoadBalancing;
-using PulseRPC.HealthCheck;
+using PulseRPC.Client.Health;
 using PulseRPC.Configuration;
 using PulseServiceDiscovery.Client.LoadBalancing;
 using PulseRPC.Routing;

@@ -293,13 +293,21 @@ public static class SmartEventHandlerGenerator
         }
         else
         {
-            // 多个参数时创建一个包装类型名称
-            eventDataType = $"{methodName}EventData";
+            // 多个参数时创建一个包装类型名称 (元组)
+            eventDataType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
         }
 
-        sb.AppendLine($"            // 订阅 {methodName} 事件");
-        sb.AppendLine($"            tokens.Add(channel.SubscribeToEvent<{eventDataType}>(\"{methodName}\", ");
-        sb.AppendLine($"                (sender, eventData) => Dispatch{methodName}FromChannelAsync(eventData)));");
+        sb.AppendLine($"            // ========== 零拷贝优化路径：Server Sent Event ==========");
+        sb.AppendLine($"            // 订阅 {methodName} 事件（零拷贝反序列化）");
+        sb.AppendLine($"            tokens.Add(channel.RegisterEventHandler(");
+        sb.AppendLine($"                eventName: \"{interfaceName}.{methodName}\",");
+        sb.AppendLine($"                deserializeAndInvoke: (System.ReadOnlyMemory<byte> __rawEventData__) =>");
+        sb.AppendLine($"                {{");
+        sb.AppendLine($"                    // 显式反序列化（编译时已知类型）");
+        sb.AppendLine($"                    var __eventData__ = MemoryPack.MemoryPackSerializer.Deserialize<{eventDataType}>(__rawEventData__.Span);");
+        sb.AppendLine($"                    // 调用分发方法");
+        sb.AppendLine($"                    _ = Dispatch{methodName}FromChannelAsync(__eventData__);");
+        sb.AppendLine($"                }}));");
         sb.AppendLine();
     }
 
@@ -309,7 +317,7 @@ public static class SmartEventHandlerGenerator
         var parameters = methodSymbol.Parameters;
 
         sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 从通道分发 {methodName} 事件到智能处理器");
+        sb.AppendLine($"        /// 从通道分发 {methodName} 事件到智能处理器（零拷贝优化）");
         sb.AppendLine($"        /// </summary>");
 
         // 确定参数类型和处理方式
@@ -331,16 +339,17 @@ public static class SmartEventHandlerGenerator
         }
         else
         {
-            // 多个参数的情况下，假设 eventData 是一个包含所有参数的对象
-            sb.AppendLine($"        private async Task Dispatch{methodName}FromChannelAsync({methodName}EventData eventData)");
+            // 多个参数的情况下，使用元组解构
+            var tupleType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
+            sb.AppendLine($"        private async Task Dispatch{methodName}FromChannelAsync({tupleType} eventData)");
             sb.AppendLine("        {");
             sb.Append($"            await Dispatch{methodName}Async(");
 
-            // 生成参数列表
+            // 生成参数列表（从元组解构）
             for (var i = 0; i < parameters.Length; i++)
             {
                 if (i > 0) sb.Append(", ");
-                sb.Append($"eventData.{parameters[i].Name}");
+                sb.Append($"eventData.Item{i + 1}");
             }
 
             sb.AppendLine(");");

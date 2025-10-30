@@ -2,7 +2,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
-using PulseRPC.HealthCheck;
+using PulseRPC.Client.Health;
 using PulseRPC.Configuration;
 using PulseRPC.ServiceRegistration;
 

@@ -3,7 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Collections.Concurrent;
-using PulseRPC.HealthCheck;
+using PulseRPC.Client.Health;
 using PulseRPC.Configuration;
 using PulseRPC.ServiceRegistration;
 

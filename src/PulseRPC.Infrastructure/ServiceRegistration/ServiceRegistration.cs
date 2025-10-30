@@ -1,5 +1,6 @@
-using PulseRPC.HealthCheck;
+using PulseRPC.Client.Health;
 using PulseRPC.Configuration;
+using PulseRPC.HealthCheck;
 using PulseRPC.Infrastructure;
 using PulseRPC.ServiceDiscovery;
 using PulseRPC.Routing;

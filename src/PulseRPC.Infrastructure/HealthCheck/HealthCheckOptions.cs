@@ -2,6 +2,7 @@
 // 此文件仅保留 HealthCheckState 类
 
 using System;
+using PulseRPC.Client.Health;
 
 namespace PulseRPC.HealthCheck;
 
