@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Scheduling;
+using PulseRPC.Server.Health;
 using PulseRPC.Server.Scheduling;
 
 namespace PulseRPC.Server.Builder;
@@ -47,7 +48,8 @@ public static class ServiceSchedulerExtensions
         {
             var configuration = sp.GetRequiredService<SchedulerConfiguration>();
             var logger = sp.GetService<ILogger<ServiceThreadScheduler>>();
-            return new ServiceThreadScheduler(configuration, logger);
+            var healthMonitor = sp.GetService<ServiceHealthMonitor>(); // Optional
+            return new ServiceThreadScheduler(configuration, logger, healthMonitor);
         });
 
         // Register as hosted service to manage lifecycle
@@ -80,6 +82,74 @@ public static class ServiceSchedulerExtensions
             if (section.Exists())
             {
                 section.Bind(config);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Add ServiceHealthMonitor to the service collection with default configuration.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The service collection for chaining.</returns>
+    public static IServiceCollection AddServiceHealthMonitor(this IServiceCollection services)
+    {
+        return AddServiceHealthMonitor(services, _ => { });
+    }
+
+    /// <summary>
+    /// Add ServiceHealthMonitor to the service collection with custom configuration.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configureOptions">Action to configure health monitor options.</param>
+    /// <returns>The service collection for chaining.</returns>
+    public static IServiceCollection AddServiceHealthMonitor(
+        this IServiceCollection services,
+        Action<HealthMonitorOptions> configureOptions)
+    {
+        if (services == null)
+            throw new ArgumentNullException(nameof(services));
+
+        // Register configuration
+        var options = new HealthMonitorOptions();
+        configureOptions?.Invoke(options);
+
+        services.AddSingleton(options);
+
+        // Register health monitor as singleton
+        services.AddSingleton<ServiceHealthMonitor>(sp =>
+        {
+            var healthOptions = sp.GetRequiredService<HealthMonitorOptions>();
+            var logger = sp.GetService<ILogger<ServiceHealthMonitor>>();
+            return new ServiceHealthMonitor(healthOptions, logger);
+        });
+
+        return services;
+    }
+
+    /// <summary>
+    /// Add ServiceHealthMonitor with configuration from IConfiguration.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">The configuration section containing health monitor settings.</param>
+    /// <param name="sectionName">The configuration section name (default: "HealthMonitor").</param>
+    /// <returns>The service collection for chaining.</returns>
+    public static IServiceCollection AddServiceHealthMonitor(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string sectionName = "HealthMonitor")
+    {
+        if (services == null)
+            throw new ArgumentNullException(nameof(services));
+
+        if (configuration == null)
+            throw new ArgumentNullException(nameof(configuration));
+
+        return AddServiceHealthMonitor(services, options =>
+        {
+            var section = configuration.GetSection(sectionName);
+            if (section.Exists())
+            {
+                section.Bind(options);
             }
         });
     }
@@ -142,6 +212,8 @@ internal sealed class ServiceSchedulerHostedService : IHostedService
 /// <code>
 /// // In Program.cs or Startup.cs:
 ///
+/// // ========== Scheduler Registration ==========
+///
 /// // Option 1: Default configuration
 /// services.AddServiceScheduler();
 ///
@@ -157,6 +229,34 @@ internal sealed class ServiceSchedulerHostedService : IHostedService
 /// // Option 3: Configuration from appsettings.json
 /// services.AddServiceScheduler(Configuration);
 ///
+/// // ========== Health Monitor Registration ==========
+///
+/// // Option 1: Default health monitoring
+/// services.AddServiceHealthMonitor();
+///
+/// // Option 2: Custom health monitoring
+/// services.AddServiceHealthMonitor(options =>
+/// {
+///     options.FailureThreshold = 5;      // Trigger circuit breaker after 5 failures
+///     options.RecoveryThreshold = 3;     // Recover after 3 successes
+///     options.CooldownPeriod = TimeSpan.FromMinutes(1);
+///     options.IdleTimeout = TimeSpan.FromMinutes(10);
+/// });
+///
+/// // Option 3: Configuration from appsettings.json
+/// services.AddServiceHealthMonitor(Configuration);
+///
+/// // ========== Complete Setup with Health Monitoring ==========
+/// services.AddServiceHealthMonitor(options =>
+/// {
+///     options.FailureThreshold = 5;
+///     options.CooldownPeriod = TimeSpan.FromMinutes(2);
+/// });
+/// services.AddServiceScheduler(config =>
+/// {
+///     config.InitialThreadCount = 4;
+/// });
+///
 /// // appsettings.json:
 /// {
 ///   "Scheduler": {
@@ -166,6 +266,14 @@ internal sealed class ServiceSchedulerHostedService : IHostedService
 ///     "ThreadIdleTimeout": "00:00:30",
 ///     "EnablePriorityDroppingWhenFull": true,
 ///     "EnableMetrics": true
+///   },
+///   "HealthMonitor": {
+///     "FailureThreshold": 5,
+///     "DegradedThreshold": 3,
+///     "RecoveryThreshold": 3,
+///     "CooldownPeriod": "00:01:00",
+///     "IdleTimeout": "00:10:00",
+///     "CheckInterval": "00:00:30"
 ///   }
 /// }
 /// </code>

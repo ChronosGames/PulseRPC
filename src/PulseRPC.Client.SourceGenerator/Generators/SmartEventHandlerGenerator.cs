@@ -304,7 +304,7 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine($"                deserializeAndInvoke: (System.ReadOnlyMemory<byte> __rawEventData__) =>");
         sb.AppendLine($"                {{");
         sb.AppendLine($"                    // 显式反序列化（编译时已知类型）");
-        sb.AppendLine($"                    var __eventData__ = MemoryPack.MemoryPackSerializer.Deserialize<{eventDataType}>(__rawEventData__.Span);");
+        sb.AppendLine($"                    var __eventData__ = MemoryPack.MemoryPackSerializer.Deserialize<{eventDataType}>(__rawEventData__.Span)!;");
         sb.AppendLine($"                    // 调用分发方法");
         sb.AppendLine($"                    _ = Dispatch{methodName}FromChannelAsync(__eventData__);");
         sb.AppendLine($"                }}));");
