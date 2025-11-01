@@ -167,7 +167,7 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         if (string.IsNullOrEmpty(serviceName) || string.IsNullOrEmpty(methodName))
         {
             _logger.LogWarning("消息缺少 ServiceName 或 MethodName，无法分发");
-            return new { Success = false, Error = "Missing service or method" };
+            throw new ArgumentException("消息缺少 ServiceName 或 MethodName", nameof(message));
         }
 
         // 使用编译时生成的 ServiceRoutingTable（零反射，最快）
@@ -179,7 +179,8 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         catch (Exception ex)
         {
             _logger.LogError(ex, "ServiceRoutingTable 路由失败: Service={Service}, Method={Method}", serviceName, methodName);
-            return new { Success = false, Error = ex.Message };
+            // 重新抛出异常，让调用方处理，而不是返回匿名对象
+            throw;
         }
     }
 

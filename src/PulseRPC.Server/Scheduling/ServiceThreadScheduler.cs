@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Scheduling;
+using PulseRPC.Server.Health;
 
 namespace PulseRPC.Server.Scheduling;
 
@@ -12,6 +13,7 @@ public sealed class ServiceThreadScheduler : IServiceScheduler
     private readonly ServiceThreadPool _threadPool;
     private readonly SchedulerConfiguration _configuration;
     private readonly ILogger<ServiceThreadScheduler> _logger;
+    private readonly ServiceHealthMonitor? _healthMonitor;
     private bool _isDisposed;
 
     /// <summary>
@@ -20,17 +22,29 @@ public sealed class ServiceThreadScheduler : IServiceScheduler
     public bool IsRunning { get; private set; }
 
     /// <summary>
+    /// Gets the health monitor (if enabled).
+    /// </summary>
+    public ServiceHealthMonitor? HealthMonitor => _healthMonitor;
+
+    /// <summary>
     /// Initializes a new ServiceThreadScheduler.
     /// </summary>
     public ServiceThreadScheduler(
         SchedulerConfiguration configuration,
-        ILogger<ServiceThreadScheduler>? logger = null)
+        ILogger<ServiceThreadScheduler>? logger = null,
+        ServiceHealthMonitor? healthMonitor = null)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _configuration.Validate();
 
         _logger = logger ?? NullLogger<ServiceThreadScheduler>.Instance;
+        _healthMonitor = healthMonitor;
         _threadPool = new ServiceThreadPool(configuration, logger);
+
+        if (_healthMonitor != null)
+        {
+            _logger.LogInformation("ServiceThreadScheduler initialized with health monitoring enabled");
+        }
     }
 
     /// <summary>
@@ -75,8 +89,41 @@ public sealed class ServiceThreadScheduler : IServiceScheduler
         if (!IsRunning)
             throw new InvalidOperationException("Scheduler not started. Call StartAsync() first.");
 
+        // Health check: reject requests if circuit is broken
+        if (_healthMonitor != null)
+        {
+            var healthState = _healthMonitor.GetHealthState(key);
+            if (healthState == ServiceHealthState.CircuitBroken)
+            {
+                _logger.LogWarning(
+                    "Request rejected - service circuit broken: {ServiceName}:{ServiceId}",
+                    key.ServiceName, key.ServiceId);
+
+                throw new InvalidOperationException(
+                    $"Service instance {key.ServiceName}:{key.ServiceId} is unavailable (circuit broken). Please try again later.");
+            }
+        }
+
+        // Wrap work with health monitoring
+        Func<Task> monitoredWork = async () =>
+        {
+            try
+            {
+                await work();
+
+                // Record success
+                _healthMonitor?.RecordSuccess(key);
+            }
+            catch (Exception ex)
+            {
+                // Record failure
+                _healthMonitor?.RecordFailure(key, ex);
+                throw;
+            }
+        };
+
         // Create work item
-        var workItem = new WorkItem(key, work, MessagePriority.Normal);
+        var workItem = new WorkItem(key, monitoredWork, MessagePriority.Normal);
 
         // Enqueue to thread pool
         await _threadPool.EnqueueWorkAsync(workItem, cancellationToken);
@@ -122,6 +169,12 @@ public sealed class ServiceThreadScheduler : IServiceScheduler
         }
 
         await _threadPool.DisposeAsync();
+
+        if (_healthMonitor != null)
+        {
+            await _healthMonitor.DisposeAsync();
+        }
+
         _isDisposed = true;
 
         _logger.LogInformation("ServiceThreadScheduler disposed");

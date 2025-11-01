@@ -71,7 +71,7 @@ public class AuthenticationMiddleware
                 if (authResult.IsAuthenticated && authResult.User != null)
                 {
                     // 创建新的认证上下文
-                    var authContext = new AuthenticationContext(((ITransport)transport).Id);
+                    var authContext = new AuthenticationContext(transport.Id);
                     var userId = authResult.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
                     var username = authResult.User.FindFirst(ClaimTypes.Name)?.Value;
 

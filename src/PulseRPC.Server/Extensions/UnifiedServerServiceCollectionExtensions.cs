@@ -13,6 +13,7 @@ using PulseRPC.Server.Engine;
 using PulseRPC.Transport;
 using PulseRPC.Server.Dispatch;
 using PulseRPC.Server.Response;
+using PulseRPC.Serialization;
 
 namespace PulseRPC.Server.Extensions;
 
@@ -103,6 +104,9 @@ public static class UnifiedServerServiceCollectionExtensions
         // 1. 首先注册基础依赖（不依赖其他服务）
         services.TryAddSingleton<IMessageDispatcher, HighPerformanceMessageDispatcher>();
         services.TryAddSingleton<IResponseProcessor, HighPerformanceResponseProcessor>();
+        
+        // 1.5. 注册序列化提供程序（EventPublisher 的依赖）
+        services.TryAddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
 
         // 2. 配置选项
         services.TryAddSingleton(Options.Create(new MessageEngineConfiguration()));
@@ -122,10 +126,20 @@ public static class UnifiedServerServiceCollectionExtensions
         // 4. 注册 ServerChannelManager（依赖于上面的所有服务）
         services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
 
-        // 5. 注册 ResponseSerializerRegistry
+        // 5. 注册 EventPublisher（依赖于 IServerChannelManager 和 ISerializerProvider）
+        services.TryAddSingleton<Events.IEventPublisher, Events.EventPublisher>();
+
+        // 6. 注册 ResponseSerializerRegistry（由源代码生成器生成）
         if (ResponseSerializerRegistry.Instance != null)
         {
             services.TryAddSingleton(ResponseSerializerRegistry.Instance);
+        }
+
+        // 7. 注册 ServiceRoutingTable（由源代码生成器生成）
+        // ServiceRoutingTableRegistry 在程序集加载时由 ModuleInitializer 自动注册
+        if (Routing.ServiceRoutingTableRegistry.Instance != null)
+        {
+            services.TryAddSingleton<Routing.IServiceRoutingTable>(Routing.ServiceRoutingTableRegistry.Instance);
         }
     }
 
