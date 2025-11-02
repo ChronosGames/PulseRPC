@@ -482,7 +482,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     private readonly Type _actorType;
     private readonly PermissionValidator _permissionValidator;
 
-    private readonly ConcurrentDictionary<string, ActorTimer> _timers = new();
+    private readonly ConcurrentDictionary<string, ServiceTimer> _timers = new();
 
     private long _totalProcessed;
     private long _totalFailed;

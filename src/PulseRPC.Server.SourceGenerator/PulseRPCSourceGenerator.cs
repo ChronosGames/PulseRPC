@@ -59,7 +59,15 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                     {
                         // 扫描标记类型所在程序集中的所有服务接口
                         var assemblyServiceModels = ScanAssemblyForServices(markerType, context.Compilation);
-                        serviceModels.AddRange(assemblyServiceModels);
+
+                        // 去重：只添加不存在的服务模型
+                        foreach (var serviceModel in assemblyServiceModels)
+                        {
+                            if (!serviceModels.Any(s => s.InterfaceFullName == serviceModel.InterfaceFullName))
+                            {
+                                serviceModels.Add(serviceModel);
+                            }
+                        }
                     }
                 }
             }
@@ -533,7 +541,7 @@ public static class GenerationReport
     private static string? GetResponseTypeFullName(string returnType)
     {
         // 处理非泛型 Task 和 ValueTask
-        if (returnType is "Task" or "ValueTask")
+        if (returnType is "Task" or "System.Threading.Tasks.Task" or "ValueTask" or "System.Threading.Tasks.ValueTask")
         {
             return null;
         }
@@ -558,7 +566,7 @@ public static class GenerationReport
             return returnType[33..^1].Trim();
         }
 
-        throw new InvalidOperationException();
+        throw new InvalidOperationException($"{returnType} is not a valid response type");
     }
 
     /// <summary>

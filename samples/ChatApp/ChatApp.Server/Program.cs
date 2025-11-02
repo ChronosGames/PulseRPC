@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
 using GameServer.World;
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using ChatApp;
 using PulseRPC.Server.Authentication;
@@ -44,17 +45,37 @@ internal abstract class Program
             Console.WriteLine("\n高性能服务器已启动，按 ESC 键停止服务器...\n");
 
             // 等待退出
-            while (true)
+            using var cts = new CancellationTokenSource();
+            Console.CancelKeyPress += (sender, e) =>
             {
-                if (Console.KeyAvailable)
-                {
-                    var key = Console.ReadKey(true);
-                    if (key.Key == ConsoleKey.Escape)
-                        break;
-                }
+                e.Cancel = true;
+                cts.Cancel();
+            };
 
-                await Task.Delay(100);
+            // 如果是交互式控制台，等待ESC键；否则等待Ctrl+C
+            if (!Console.IsInputRedirected)
+            {
+                while (!cts.Token.IsCancellationRequested)
+                {
+                    if (Console.KeyAvailable)
+                    {
+                        var key = Console.ReadKey(true);
+                        if (key.Key == ConsoleKey.Escape)
+                            break;
+                    }
+
+                    await Task.Delay(100);
+                }
             }
+            else
+            {
+                Console.WriteLine("在后台模式下运行，按 Ctrl+C 停止服务器...");
+                await Task.Delay(Timeout.Infinite, cts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常取消
         }
         catch (Exception ex)
         {
@@ -67,30 +88,28 @@ internal abstract class Program
             // 停止服务器
             await server.StopAsync();
 
-            Console.WriteLine("\n服务器已停止。按任意键退出...");
-            Console.ReadKey(true);
+            Console.WriteLine("\n服务器已停止。");
         }
     }
 
     private static void ConfigureServices(HostBuilderContext context, IServiceCollection services)
     {
-        // 添加游戏世界
-        services.AddSingleton<IGameWorld, GameWorld>();
-        services.AddSingleton<IPlayerManager, PlayerManager>();
-
         // 添加PulseRPC服务器 - 基于指南文档的最佳实践
+        // 必须先添加，因为它会注册核心服务（IEventPublisher等）
         services.AddUnifiedPulseServer(options =>
         {
             options.Transports = new()
             {
                 new TransportChannelConfiguration()
                 {
+                    Name = "TCP",
                     Type = TransportType.TCP,
                     Port = 7000,
                     IsDefault = true
                 },
                 new TransportChannelConfiguration()
                 {
+                    Name = "KCP",
                     Type = TransportType.KCP,
                     Port = 7001,
                     IsDefault = false
@@ -98,7 +117,36 @@ internal abstract class Program
             };
         });
 
-        // 注册 Hub 服务
+        // ========================================
+        // 认证和授权服务配置
+        // ========================================
+
+        // 注册 IJwtTokenService（AuthenticationService 的依赖）
+        // 使用 PulseRPC.Server 中的简化实现
+        services.AddSingleton<PulseRPC.Server.IJwtTokenService, PulseRPC.Server.JwtTokenService>();
+
+        // 手动注册 IAuthenticationService（AddUnifiedPulseServer 未注册它）
+        services.AddSingleton<IAuthenticationService, AuthenticationService>();
+
+        // 添加权限验证器（ChatRoomManager 依赖）
+        services.AddSingleton<PermissionValidator>();
+
+        // ========================================
+        // 业务服务配置
+        // ========================================
+
+        // 添加游戏世界（依赖 IEventPublisher，所以放在 AddUnifiedPulseServer 之后）
+        services.AddSingleton<IGameWorld, GameWorld>();
+        services.AddSingleton<IPlayerManager, PlayerManager>();
+
+        // 添加聊天室管理器（服务隔离架构，依赖 IAuthenticationService 和 PermissionValidator）
+        services.AddSingleton<ChatRoomManager>();
+
+        // ========================================
+        // Hub 服务注册
+        // ========================================
+
+        // 注册 Hub 服务（这些服务会被源代码生成器自动发现和路由）
         services.AddSingleton<IPlayerHub, PlayerHub>();
         services.AddSingleton<IChatHub, ChatHub>();
 
