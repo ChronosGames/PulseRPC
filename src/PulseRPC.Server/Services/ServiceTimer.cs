@@ -61,7 +61,7 @@ public class TimerInfo
 /// <summary>
 /// Actor定时器 - 将定时器回调调度到Actor的消息队列
 /// </summary>
-internal class ActorTimer : IAsyncDisposable
+internal class ServiceTimer : IAsyncDisposable
 {
     private readonly string _timerId;
     private readonly Func<Task> _callback;
@@ -74,7 +74,7 @@ internal class ActorTimer : IAsyncDisposable
     private long _fireCount;
     private DateTime? _lastFireTime;
     private bool _isActive;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     public string TimerId => _timerId;
     public bool IsActive => _isActive;
@@ -92,7 +92,7 @@ internal class ActorTimer : IAsyncDisposable
         }
     }
 
-    public ActorTimer(
+    public ServiceTimer(
         string timerId,
         TimeSpan dueTime,
         TimeSpan? period,
@@ -110,7 +110,7 @@ internal class ActorTimer : IAsyncDisposable
 
     public void Start()
     {
-        lock (_lock)
+        using (_lock.EnterScope())
         {
             if (_isActive)
                 return;
@@ -137,7 +137,7 @@ internal class ActorTimer : IAsyncDisposable
 
     public void Stop()
     {
-        lock (_lock)
+        using (_lock.EnterScope())
         {
             if (!_isActive)
                 return;
