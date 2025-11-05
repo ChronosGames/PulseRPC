@@ -31,14 +31,14 @@ public interface ITestService
 }
 
 [MemoryPackable]
-public partial class GetDataRequest 
+public partial class GetDataRequest
 {
     [MemoryPackOrder(0)]
     public string Id { get; set; } = string.Empty;
 }";
 
         var compilation = CreateCompilation(sourceCode);
-        var generator = new PulseRPCSourceGenerator();
+        var generator = new Pul();
 
         // Act
         var driver = CSharpGeneratorDriver.Create(generator);
@@ -86,7 +86,7 @@ public interface ITestService2
 }
 
 [MemoryPackable]
-public partial class TestRequest 
+public partial class TestRequest
 {
     [MemoryPackOrder(0)]
     public string Data { get; set; } = string.Empty;
@@ -104,10 +104,10 @@ public partial class TestRequest
 
         var generatedFiles = driver.GetRunResult().Results[0].GeneratedSources;
         var routingTableFile = generatedFiles.FirstOrDefault(f => f.HintName == "ServiceRoutingTable.g.cs");
-        
+
         routingTableFile.Should().NotBeNull();
         var routingCode = routingTableFile.SourceText.ToString();
-        
+
         routingCode.Should().Contain("ServiceRoutingTable");
         routingCode.Should().Contain("RouteAsync");
         routingCode.Should().Contain("TESTSERVICE1_SERVICE");
@@ -134,14 +134,14 @@ public interface ITestService
 }
 
 [MemoryPackable]
-public partial class RequestType 
+public partial class RequestType
 {
     [MemoryPackOrder(0)]
     public string Data { get; set; } = string.Empty;
 }
 
 [MemoryPackable]
-public partial class ResponseType 
+public partial class ResponseType
 {
     [MemoryPackOrder(0)]
     public string Result { get; set; } = string.Empty;
@@ -159,10 +159,10 @@ public partial class ResponseType
 
         var generatedFiles = driver.GetRunResult().Results[0].GeneratedSources;
         var serializationFile = generatedFiles.FirstOrDefault(f => f.HintName == "OptimizedSerialization.g.cs");
-        
+
         serializationFile.Should().NotBeNull();
         var serializationCode = serializationFile.SourceText.ToString();
-        
+
         serializationCode.Should().Contain("OptimizedSerialization");
         serializationCode.Should().Contain("DeserializeMessage");
         serializationCode.Should().Contain("SerializeMessage");
@@ -197,11 +197,11 @@ public interface IAnotherInterface
 
         // Assert
         var generatedFiles = driver.GetRunResult().Results[0].GeneratedSources;
-        
+
         // 应该只生成抽象接口文件，不应该有服务代理
         generatedFiles.Should().HaveCount(2); // PulseRPC.Abstractions.g.cs 和 GenerationReport.g.cs
         generatedFiles.Should().NotContain(f => f.HintName.Contains("Proxy"));
-        
+
         // 检查是否有信息性诊断
         var infoDiagnostics = diagnostics.Where(d => d.Id == "PULSE001").ToArray();
         infoDiagnostics.Should().HaveCount(1);
@@ -236,10 +236,10 @@ public interface ITestService
         // Assert
         var generatedFiles = driver.GetRunResult().Results[0].GeneratedSources;
         var reportFile = generatedFiles.FirstOrDefault(f => f.HintName == "GenerationReport.g.cs");
-        
+
         reportFile.Should().NotBeNull();
         var reportCode = reportFile.SourceText.ToString();
-        
+
         reportCode.Should().Contain("GenerationReport");
         reportCode.Should().Contain("TotalServices = 1");
         reportCode.Should().Contain("TotalMethods = 3");
@@ -254,7 +254,7 @@ public interface ITestService
     private static Compilation CreateCompilation(string source)
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(source);
-        
+
         var references = new[]
         {
             MetadataReference.CreateFromFile(typeof(object).Assembly.Location),

@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
-namespace PulseRPC.Server.Threading;
+namespace PulseRPC.Server.Scheduling;
 
 /// <summary>
 /// 工作窃取队列 - 无锁双端队列实现

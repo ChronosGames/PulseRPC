@@ -1,7 +1,7 @@
 using PulseRPC.Messaging;
 using PulseRPC.Server.Scheduling;
 
-namespace PulseRPC.Server.Engine;
+namespace PulseRPC.Server.MessageEngine;
 
 public interface ITieredMessageEngine
 {

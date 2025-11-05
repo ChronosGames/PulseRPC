@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace PulseRPC.Server.Processing;
+namespace PulseRPC.Server.MessageEngine;
 
 /// <summary>
 /// 自适应批处理调度器 - 基于负载动态调整批处理参数的智能调度器

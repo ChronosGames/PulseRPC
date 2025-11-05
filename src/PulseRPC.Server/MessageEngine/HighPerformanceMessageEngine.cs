@@ -10,17 +10,17 @@ using PulseRPC.Memory;
 using PulseRPC.Messaging;
 using PulseRPC.Scheduling;
 using PulseRPC.Server.Memory;
+using PulseRPC.Server.Pipeline;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Serialization;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
-using PulseRPC.Server.Dispatch;
-using PulseRPC.Server.Response;
 using MessageStatus = PulseRPC.Server.Memory.MessageStatus;
-using MessageProcessedEventArgs = PulseRPC.Server.Dispatch.MessageProcessedEventArgs;
+using MessageParsedEventArgs = PulseRPC.Server.Transport.MessageParsedEventArgs;
+using MessageProcessedEventArgs = PulseRPC.Server.MessageEngine.MessageProcessedEventArgs;
 
-namespace PulseRPC.Server.Engine;
+namespace PulseRPC.Server.MessageEngine;
 
 /// <summary>
 /// 高性能消息引擎
@@ -377,7 +377,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         UnregisterConnection(e.Channel.ConnectionId);
     }
 
-    private void OnChannelMessageParsed(object? sender, MessageParsedEventArgs eventArgs)
+    private void OnChannelMessageParsed(object? sender, PulseRPC.Server.Transport.MessageParsedEventArgs eventArgs)
     {
         // 将消息路由到引擎
         // 传递完整消息包而非仅 Payload
@@ -610,7 +610,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                await Task.Delay(1000, cancellationToken); // 每秒监控一次
+                await Task.Delay(60000, cancellationToken); // 每分钟监控一次
 
                 var snapshot = _performanceMonitor.TakeSnapshot();
 

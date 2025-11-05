@@ -2,7 +2,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace PulseRPC.Server.IO;
+namespace PulseRPC.Server.Pipeline;
 
 /// <summary>
 /// 批量网络写入器 - 聚合多个写入操作到单个系统调用

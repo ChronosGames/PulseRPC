@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Serialization;
-using PulseRPC.Server.Dispatch;
+using PulseRPC.Server.MessageEngine;
 using PulseRPC.Server.Serialization;
 
 namespace PulseRPC.Server;

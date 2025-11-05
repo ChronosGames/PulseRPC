@@ -11,7 +11,6 @@ namespace PulseRPC.Client;
 public sealed class PulseClientBuilder : IPulseClientBuilder
 {
     private readonly List<ConnectionDescriptor> _connections = new();
-    private IServiceDiscovery? _serviceDiscovery;
     private ILoggerFactory? _loggerFactory;
     private ISerializerProvider? _serializerProvider;
     private IAuthenticationProvider? _authenticationProvider;
@@ -35,15 +34,6 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
             throw new ArgumentException($"连接描述符无效: {validation.GetErrorString()}", nameof(descriptor));
 
         _connections.Add(descriptor);
-        return this;
-    }
-
-    /// <summary>
-    /// 配置服务发现
-    /// </summary>
-    public IPulseClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery)
-    {
-        _serviceDiscovery = serviceDiscovery ?? throw new ArgumentNullException(nameof(serviceDiscovery));
         return this;
     }
 
@@ -141,7 +131,6 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
 
         return new PulseClient(
             connections: _connections,
-            serviceDiscovery: _serviceDiscovery,
             loggerFactory: _loggerFactory,
             serializerProvider: _serializerProvider,
             authenticationProvider: _authenticationProvider,
@@ -157,9 +146,9 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     /// </summary>
     private void ValidateConfiguration()
     {
-        if (_connections.Count == 0 && _serviceDiscovery == null)
+        if (_connections.Count == 0)
         {
-            throw new InvalidOperationException("必须至少添加一个连接或配置服务发现");
+            throw new InvalidOperationException("必须至少添加一个连接");
         }
 
         // 验证所有连接描述符

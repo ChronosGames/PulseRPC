@@ -925,16 +925,6 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
 
                 sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// 获取 {interfaceName} 服务代理（通过服务名）");
-                sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        public static async Task<{interfaceName}> Get{serviceName}Async(this IPulseClient client, string serviceName, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)");
-                sb.AppendLine("        {");
-                sb.AppendLine("            var connection = await client.ConnectToServiceAsync(serviceName);");
-                sb.AppendLine("            return await client.GetServiceAsync<" + fullTypeName + ">(connection.Id, options, cancellationToken);");
-                sb.AppendLine("        }");
-                sb.AppendLine();
-
-                sb.AppendLine($"        /// <summary>");
                 sb.AppendLine($"        /// 获取指定连接的 {interfaceName} 服务代理");
                 sb.AppendLine($"        /// </summary>");
                 sb.AppendLine($"        public static Task<{fullTypeName}Proxy> Get{serviceName}ProxyAsync(this IPulseClient self, string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)");

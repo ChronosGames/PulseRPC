@@ -15,7 +15,6 @@ namespace PulseRPC.Client;
 public sealed class ConnectionManager : IConnectionManager
 {
     private readonly ILogger<ConnectionManager> _logger;
-    private readonly IServiceDiscovery? _serviceDiscovery;
     private readonly ISerializerProvider _serializerProvider;
     private readonly ConcurrentDictionary<string, IClientChannel> _connections = new();
     private readonly SemaphoreSlim _connectionSemaphore = new(1, 1);
@@ -31,11 +30,9 @@ public sealed class ConnectionManager : IConnectionManager
     /// </summary>
     public ConnectionManager(
         ISerializerProvider? serializerProvider = null,
-        IServiceDiscovery? serviceDiscovery = null,
         ILoggerFactory? loggerFactory = null)
     {
         _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
-        _serviceDiscovery = serviceDiscovery;
         _logger = loggerFactory?.CreateLogger<ConnectionManager>() ?? NullLogger<ConnectionManager>.Instance;
     }
 
@@ -224,42 +221,10 @@ public sealed class ConnectionManager : IConnectionManager
     /// <summary>
     /// 解析端点地址
     /// </summary>
-    private async Task<EndpointAddress?> ResolveEndpointAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken)
+    private Task<EndpointAddress?> ResolveEndpointAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken)
     {
-        // 如果有直接端点，直接使用
-        if (descriptor.Endpoint != null)
-        {
-            return descriptor.Endpoint;
-        }
-
-        // 如果有服务名称，尝试服务发现
-        if (!string.IsNullOrEmpty(descriptor.ServiceName) && _serviceDiscovery != null)
-        {
-            try
-            {
-                var endpoints = await _serviceDiscovery.DiscoverAsync(descriptor.ServiceName, cancellationToken);
-                var healthyEndpoints = endpoints.Where(e => e.IsHealthy && e.Transport == descriptor.Transport).ToList();
-
-                if (healthyEndpoints.Count > 0)
-                {
-                    // 简单选择第一个健康的端点
-                    var selectedEndpoint = healthyEndpoints.First();
-                    _logger.LogInformation("通过服务发现解析端点: {ServiceName} -> {Endpoint}",
-                        descriptor.ServiceName, selectedEndpoint.Address);
-                    return selectedEndpoint.Address;
-                }
-                else
-                {
-                    _logger.LogWarning("服务发现未找到健康的端点: {ServiceName}", descriptor.ServiceName);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "服务发现失败: {ServiceName}", descriptor.ServiceName);
-            }
-        }
-
-        return null;
+        // 直接使用端点地址
+        return Task.FromResult(descriptor.Endpoint);
     }
 
     /// <summary>
@@ -333,7 +298,6 @@ public sealed class ConnectionManager : IConnectionManager
 
         _connections.Clear();
         _connectionSemaphore.Dispose();
-        _serviceDiscovery?.Dispose();
 
         _logger.LogInformation("连接管理器已关闭");
     }

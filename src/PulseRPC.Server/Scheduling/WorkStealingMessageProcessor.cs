@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Scheduling;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Server.Threading;
+namespace PulseRPC.Server.Scheduling;
 
 /// <summary>
 /// 工作窃取消息处理器 - 实现负载均衡的并发消息处理
@@ -184,7 +184,7 @@ public sealed class WorkStealingMessageProcessor : IAsyncDisposable
         if (_options.EnableSessionAffinity && task.Context is string sessionId && !string.IsNullOrEmpty(sessionId))
         {
             // 使用会话亲和性
-            return _sessionAffinity.GetOrAdd(sessionId, _ => _affinityHashRing.GetNode(sessionId));
+            return _sessionAffinity.GetOrAdd(sessionId, _ => _affinityHashRing.GetThread(sessionId));
         }
 
         if (_options.UseRoundRobinSelection)

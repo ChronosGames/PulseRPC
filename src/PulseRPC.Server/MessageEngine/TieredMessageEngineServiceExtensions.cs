@@ -2,12 +2,12 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using PulseRPC.Server.Processing;
+using PulseRPC.Server.MessageEngine;
 
 // 类型别名兼容性
-using TieredProcessorOptions = PulseRPC.Server.Engine.TieredMessageProcessorOptions;
+using TieredProcessorOptions = PulseRPC.Server.MessageEngine.TieredMessageProcessorOptions;
 
-namespace PulseRPC.Server.Engine;
+namespace PulseRPC.Server.MessageEngine;
 
 /// <summary>
 /// TieredMessageEngine服务扩展

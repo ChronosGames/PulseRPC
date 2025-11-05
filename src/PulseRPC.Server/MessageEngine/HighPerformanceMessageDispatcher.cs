@@ -10,11 +10,11 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
 using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Serialization;
-using PulseRPC.Server.Engine;
+using PulseRPC.Server.MessageEngine;
 using PulseRPC.Server.Routing;
 using MemoryPack;
 
-namespace PulseRPC.Server.Dispatch;
+namespace PulseRPC.Server.MessageEngine;
 
 /// <summary>
 /// 高性能消息调度器接口
