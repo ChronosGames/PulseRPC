@@ -73,7 +73,7 @@ public interface IServerChannelManager : IDisposable
     /// <summary>
     ///
     /// </summary>
-    event EventHandler<MessageParsedEventArgs>? ChannelMessageParsed;
+    event EventHandler<PulseRPC.Server.Transport.MessageParsedEventArgs>? ChannelMessageParsed;
 
     /// <summary>
     /// 添加新的传输通道

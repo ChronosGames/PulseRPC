@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
-using PulseRPC.Server.Network;
+using PulseRPC.Server.MessageEngine;
 using MemoryPack;
 
 namespace PulseRPC.Server.Serialization;

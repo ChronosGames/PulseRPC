@@ -1,5 +1,4 @@
 using System;
-using PulseRPC.ServiceDiscovery;
 using System.Collections.Generic;
 using PulseRPC.Transport;
 
@@ -21,9 +20,19 @@ public class ServiceInstanceInfo
     public string ServiceName { get; set; } = "";
 
     /// <summary>
-    /// 服务端点
+    /// 主机地址
     /// </summary>
-    public ServiceEndpoint Endpoint { get; set; } = new();
+    public string Host { get; set; } = "";
+
+    /// <summary>
+    /// 端口号
+    /// </summary>
+    public int Port { get; set; }
+
+    /// <summary>
+    /// 传输类型
+    /// </summary>
+    public TransportType Transport { get; set; } = TransportType.TCP;
 
     /// <summary>
     /// 元数据

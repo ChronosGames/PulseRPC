@@ -1,6 +1,4 @@
 #nullable enable
-override PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer.Name.get -> string!
-override PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer.Strategy.get -> PulseRPC.Client.LoadBalancing.LoadBalancingStrategy
 override PulseRPC.Client.Transport.KcpClientTransport.Dispose() -> void
 override PulseRPC.Client.Transport.TcpClientTransport.Dispose() -> void
 PulseRPC.Client.ClientTransportConfiguration
@@ -23,11 +21,6 @@ PulseRPC.Client.ConnectionPool.IConnectionPool.Name.get -> string!
 PulseRPC.Client.ConnectionPool.IConnectionPool.State.get -> PulseRPC.Client.ConnectionPool.ConnectionPoolState
 PulseRPC.Client.IConnectionLifecycleManager
 PulseRPC.Client.LifecycleStrategies.IConnectionLifecycleStrategy.Name.get -> string!
-PulseRPC.Client.LoadBalancing.InstanceHealthInfo.ErrorRate.get -> double
-PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer
-PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer.LeastConnectionsLoadBalancer(PulseRPC.Client.LoadBalancing.LoadBalancingConfiguration? configuration = null, Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.LoadBalancing.LeastConnectionsLoadBalancer!>? logger = null) -> void
-PulseRPC.Client.LoadBalancing.LoadBalancingStrategy
-PulseRPC.Client.LoadBalancing.LoadBalancingStrategy.Random = 0 -> PulseRPC.Client.LoadBalancing.LoadBalancingStrategy
 PulseRPC.Client.PulseClientBuilder
 PulseRPC.Client.PulseClientBuilder.PulseClientBuilder() -> void
 PulseRPC.Client.EventErrorManager
@@ -77,45 +70,6 @@ PulseRPC.Client.PulseReceiverBuilder<T>.WithTimeout(System.TimeSpan timeout) -> 
 PulseRPC.Client.Reliability.ICircuitBreaker
 PulseRPC.Client.Routing.RoutingResult.RoutingResult(PulseRPC.Messaging.IClientChannel! selectedConnection, PulseRPC.Client.Routing.RoutingRule? matchedRule, int candidateCount, System.TimeSpan routingTime, string? reason = null) -> void
 PulseRPC.Client.Serialization.ISerializerManager
-PulseRPC.Client.ServiceDiscovery.IServiceDiscovery
-PulseRPC.Client.ServiceDiscoveryOptions
-PulseRPC.Client.ServiceDiscoveryOptions.CacheTimeout.get -> System.TimeSpan
-PulseRPC.Client.ServiceDiscoveryOptions.CacheTimeout.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.ConsulAddress.get -> string?
-PulseRPC.Client.ServiceDiscoveryOptions.ConsulAddress.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.DnsDomain.get -> string?
-PulseRPC.Client.ServiceDiscoveryOptions.DnsDomain.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.EnableCaching.get -> bool
-PulseRPC.Client.ServiceDiscoveryOptions.EnableCaching.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.Enabled.get -> bool
-PulseRPC.Client.ServiceDiscoveryOptions.Enabled.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.EnableFailover.get -> bool
-PulseRPC.Client.ServiceDiscoveryOptions.EnableFailover.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.EnableWatch.get -> bool
-PulseRPC.Client.ServiceDiscoveryOptions.EnableWatch.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.EtcdEndpoints.get -> string![]?
-PulseRPC.Client.ServiceDiscoveryOptions.EtcdEndpoints.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.RefreshInterval.get -> System.TimeSpan
-PulseRPC.Client.ServiceDiscoveryOptions.RefreshInterval.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.RetryCount.get -> int
-PulseRPC.Client.ServiceDiscoveryOptions.RetryCount.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.RetryDelay.get -> System.TimeSpan
-PulseRPC.Client.ServiceDiscoveryOptions.RetryDelay.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.ServiceDiscoveryOptions() -> void
-PulseRPC.Client.ServiceDiscoveryOptions.StaticEndpoints.get -> System.Collections.Generic.Dictionary<string!, string![]!>!
-PulseRPC.Client.ServiceDiscoveryOptions.StaticEndpoints.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.TagFilters.get -> System.Collections.Generic.Dictionary<string!, string!>!
-PulseRPC.Client.ServiceDiscoveryOptions.TagFilters.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.Timeout.get -> System.TimeSpan
-PulseRPC.Client.ServiceDiscoveryOptions.Timeout.set -> void
-PulseRPC.Client.ServiceDiscoveryOptions.Type.get -> PulseRPC.Client.ServiceDiscoveryType
-PulseRPC.Client.ServiceDiscoveryOptions.Type.set -> void
-PulseRPC.Client.ServiceDiscoveryType
-PulseRPC.Client.ServiceDiscoveryType.Consul = 1 -> PulseRPC.Client.ServiceDiscoveryType
-PulseRPC.Client.ServiceDiscoveryType.Custom = 4 -> PulseRPC.Client.ServiceDiscoveryType
-PulseRPC.Client.ServiceDiscoveryType.Dns = 3 -> PulseRPC.Client.ServiceDiscoveryType
-PulseRPC.Client.ServiceDiscoveryType.Etcd = 2 -> PulseRPC.Client.ServiceDiscoveryType
-PulseRPC.Client.ServiceDiscoveryType.Static = 0 -> PulseRPC.Client.ServiceDiscoveryType
 PulseRPC.Client.Transport.FirewallInfo
 PulseRPC.Client.Transport.FirewallInfo.ErrorMessage.get -> string?
 PulseRPC.Client.Transport.FirewallInfo.ErrorMessage.set -> void

@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
 using PulseRPC.Transport;
 
-namespace PulseRPC.Server.Network;
+namespace PulseRPC.Server.MessageEngine;
 
 /// <summary>
 /// 高性能网络处理器 - 零拷贝字节流接收和解析

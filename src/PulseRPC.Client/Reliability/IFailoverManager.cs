@@ -1,4 +1,3 @@
-using PulseRPC.Client.ServiceDiscovery;
 using System;
 using System.Collections.Generic;
 using System.Threading;

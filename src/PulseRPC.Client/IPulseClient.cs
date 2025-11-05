@@ -29,11 +29,6 @@ public interface IPulseClient : IDisposable
     IConnectionRouter Router { get; }
 
     /// <summary>
-    /// 服务发现
-    /// </summary>
-    IServiceDiscovery ServiceDiscovery { get; }
-
-    /// <summary>
     /// 连接注册表
     /// </summary>
     IConnectionRegistry Registry { get; }
@@ -67,11 +62,6 @@ public interface IPulseClient : IDisposable
     /// 连接到服务
     /// </summary>
     Task<IClientChannel> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 通过服务发现连接到服务
-    /// </summary>
-    Task<IClientChannel> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default);
 
     // 注意：GetServiceAsync<T> 和 RegisterEventListenerAsync<T> 方法现在通过
     // PulseClientFactoryExtensions 扩展方法提供，以支持源代码生成器工厂模式
@@ -201,53 +191,6 @@ public interface IConnectionRouter
     IReadOnlyList<IClientChannel> GetMatchingConnections(string routingKey, RoutingContext? context = null);
 }
 
-/// <summary>
-/// 服务发现接口 - 动态服务实例发现
-/// 实现思路：
-/// - 多后端支持：支持Consul、Etcd、Kubernetes等服务发现后端
-/// - 缓存机制：本地缓存服务实例信息，减少网络开销
-/// - 变更通知：实时监听服务实例变化并通知上层
-/// - 健康检查：集成健康检查，过滤不健康的实例
-/// - 故障恢复：服务发现后端故障时的恢复机制
-/// </summary>
-public interface IServiceDiscovery : IDisposable
-{
-    /// <summary>
-    /// 发现服务实例
-    /// </summary>
-    Task<IReadOnlyList<ServiceEndpoint>> DiscoverAsync(string serviceName, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 监听服务变化
-    /// </summary>
-    Task<IServiceWatcher> WatchAsync(string serviceName, Action<ServiceChangeEvent> callback, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 获取所有服务
-    /// </summary>
-    Task<IReadOnlyList<string>> GetServicesAsync(CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 检查服务是否存在
-    /// </summary>
-    Task<bool> ExistsAsync(string serviceName, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 刷新服务缓存
-    /// </summary>
-    Task RefreshAsync(string? serviceName = null, CancellationToken cancellationToken = default);
-}
-
-/// <summary>
-/// 服务监听器接口
-/// </summary>
-public interface IServiceWatcher : IDisposable
-{
-    /// <summary>
-    /// 停止监听
-    /// </summary>
-    Task StopAsync();
-}
 
 /// <summary>
 /// 连接注册表接口 - 连接实例的注册和查询
@@ -542,11 +485,6 @@ public interface IPulseClientBuilder
     /// 添加连接配置
     /// </summary>
     IPulseClientBuilder AddConnection(ConnectionDescriptor descriptor);
-
-    /// <summary>
-    /// 配置服务发现
-    /// </summary>
-    IPulseClientBuilder WithServiceDiscovery(IServiceDiscovery serviceDiscovery);
 
     /// <summary>
     /// 配置负载均衡策略

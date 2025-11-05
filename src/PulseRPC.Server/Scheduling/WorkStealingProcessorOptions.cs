@@ -1,6 +1,6 @@
 using System;
 
-namespace PulseRPC.Server.Threading;
+namespace PulseRPC.Server.Scheduling;
 
 /// <summary>
 /// 工作窃取处理器配置选项

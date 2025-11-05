@@ -1,7 +1,7 @@
 using PulseRPC.Scheduling;
 using PulseRPC.Server.Scheduling;
 
-namespace PulseRPC.Server.Engine;
+namespace PulseRPC.Server.MessageEngine;
 
 /// <summary>
 /// Extension methods for integrating ServiceThreadScheduler into HighPerformanceMessageEngine.

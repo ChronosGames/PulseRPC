@@ -9,10 +9,10 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
-using PulseRPC.Server.Dispatch;
+using PulseRPC.Server.MessageEngine;
 using PulseRPC.Server.Transport;
 
-namespace PulseRPC.Server.Response;
+namespace PulseRPC.Server.Pipeline;
 
 public static class ResponseSerializerRegistry
 {

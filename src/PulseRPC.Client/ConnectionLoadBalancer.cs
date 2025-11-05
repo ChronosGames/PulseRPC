@@ -6,11 +6,12 @@ using PulseRPC.Messaging;
 namespace PulseRPC.Client;
 
 /// <summary>
-/// 简单负载均衡器实现 - Stage 1 基础版本
+/// 基于连接的负载均衡器实现
+/// 支持多种负载均衡策略，针对已建立的连接进行智能分配
 /// </summary>
-public sealed class SimpleLoadBalancer : ILoadBalancer
+public sealed class ConnectionLoadBalancer : ILoadBalancer
 {
-    private readonly ILogger<SimpleLoadBalancer> _logger;
+    private readonly ILogger<ConnectionLoadBalancer> _logger;
     private readonly ConcurrentDictionary<string, int> _roundRobinCounters = new();
     private readonly Random _random = new();
     private readonly object _lock = new();
@@ -23,12 +24,12 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// <summary>
     /// 构造函数
     /// </summary>
-    public SimpleLoadBalancer(
+    public ConnectionLoadBalancer(
         LoadBalancingStrategy strategy = LoadBalancingStrategy.RoundRobin,
-        ILogger<SimpleLoadBalancer>? logger = null)
+        ILogger<ConnectionLoadBalancer>? logger = null)
     {
         Strategy = strategy;
-        _logger = logger ?? NullLogger<SimpleLoadBalancer>.Instance;
+        _logger = logger ?? NullLogger<ConnectionLoadBalancer>.Instance;
     }
 
     /// <summary>
@@ -98,14 +99,35 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     }
 
     /// <summary>
-    /// 最少连接选择
+    /// 最少连接选择 - 选择活跃请求数最少的连接
     /// </summary>
     private IClientChannel SelectLeastConnections(IReadOnlyList<IClientChannel> connections)
     {
-        // 简化实现：选择第一个连接（Stage 1）
-        // 在 Stage 2 中会实现真正的连接数统计
-        _logger.LogDebug("最少连接策略：当前使用简化实现（选择第一个连接）");
-        return connections[0];
+        IClientChannel? bestConnection = null;
+        int minActiveRequests = int.MaxValue;
+
+        foreach (var connection in connections)
+        {
+            var activeRequests = connection.Statistics.ActiveRequests;
+
+            if (activeRequests < minActiveRequests)
+            {
+                minActiveRequests = activeRequests;
+                bestConnection = connection;
+            }
+        }
+
+        if (bestConnection == null)
+        {
+            // 降级处理：如果所有连接统计信息不可用，使用第一个连接
+            _logger.LogWarning("无法获取连接统计信息，使用第一个连接");
+            return connections[0];
+        }
+
+        _logger.LogDebug("最少连接策略：选择连接 {ConnectionId}，活跃请求数: {ActiveRequests}",
+            bestConnection.Id, minActiveRequests);
+
+        return bestConnection;
     }
 
     /// <summary>
@@ -113,8 +135,8 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// </summary>
     private IClientChannel SelectWeightedRoundRobin(IReadOnlyList<IClientChannel> connections)
     {
-        // 简化实现：忽略权重，使用普通轮询（Stage 1）
-        // 在 Stage 2 中会实现真正的权重支持
+        // TODO: 从连接标签或配置中读取权重信息
+        // 当前实现：忽略权重，使用普通轮询
         _logger.LogDebug("加权轮询策略：当前使用简化实现（普通轮询）");
         return SelectRoundRobin(connections);
     }
@@ -124,13 +146,13 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// </summary>
     private IClientChannel SelectConsistentHash(IReadOnlyList<IClientChannel> connections, LoadBalancingHint hint)
     {
-        // 简化实现：基于连接ID的哈希（Stage 1）
-        // 在 Stage 2 中会实现真正的一致性哈希环
+        // TODO: 实现基于虚拟节点的一致性哈希环
+        // 当前实现：基于提示的简单哈希
         var hashKey = hint.ToString() + DateTime.UtcNow.Ticks.ToString();
         var hash = hashKey.GetHashCode();
         var index = Math.Abs(hash) % connections.Count;
 
-        _logger.LogDebug("一致性哈希策略：当前使用简化实现（基于提示的哈希）");
+        _logger.LogDebug("一致性哈希策略：选择连接索引 {Index}", index);
         return connections[index];
     }
 
@@ -168,8 +190,8 @@ public sealed class SimpleLoadBalancer : ILoadBalancer
     /// </summary>
     private static int GetConnectionWeight(IClientChannel connection)
     {
-        // 简化实现：所有连接权重相等（Stage 1）
-        // 在 Stage 2 中从连接标签或配置中读取权重
+        // TODO: 从连接标签或配置中读取权重
+        // 当前实现：所有连接权重相等
         return 1;
     }
 

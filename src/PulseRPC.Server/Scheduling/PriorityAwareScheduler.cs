@@ -7,7 +7,7 @@ using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Memory;
-using PulseRPC.Server.Threading;
+using PulseRPC.Server.Scheduling;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Scheduling;

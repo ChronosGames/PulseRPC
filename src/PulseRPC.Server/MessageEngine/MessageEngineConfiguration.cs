@@ -8,9 +8,9 @@ using PulseRPC.Serialization;
 using PulseRPC.Messaging;
 using MemoryPack;
 using PulseRPC.Server.Scheduling;
-using PulseRPC.Server.Dispatch;
+using PulseRPC.Server.MessageEngine;
 
-namespace PulseRPC.Server.Engine;
+namespace PulseRPC.Server.MessageEngine;
 
 /// <summary>
 /// 消息引擎配置 - 替代 HighThroughputProcessorOptions

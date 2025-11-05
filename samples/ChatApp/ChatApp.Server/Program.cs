@@ -8,7 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using ChatApp;
 using PulseRPC.Server.Authentication;
-using PulseRPC.Server.Engine;
 using PulseRPC.Server.Extensions;
 using PulseRPC.Server.Models;
 using PulseRPC.Transport;

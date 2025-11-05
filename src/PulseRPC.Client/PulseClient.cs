@@ -21,7 +21,6 @@ internal sealed class PulseClient : IPulseClient
     // 核心组件
     private readonly IConnectionManager _connectionManager;
     private readonly IConnectionRouter _connectionRouter;
-    private readonly IServiceDiscovery? _serviceDiscovery;
     private readonly IConnectionRegistry _connectionRegistry;
     private readonly IConnectionLifecycleManager _connectionLifecycleManager;
     private readonly ILoadBalancer _loadBalancer;
@@ -44,11 +43,6 @@ internal sealed class PulseClient : IPulseClient
     /// 连接路由器
     /// </summary>
     public IConnectionRouter Router => _connectionRouter;
-
-    /// <summary>
-    /// 服务发现
-    /// </summary>
-    public IServiceDiscovery ServiceDiscovery => _serviceDiscovery ?? throw new InvalidOperationException("服务发现未配置");
 
     /// <summary>
     /// 连接注册表
@@ -80,7 +74,6 @@ internal sealed class PulseClient : IPulseClient
     /// </summary>
     public PulseClient(
         IReadOnlyList<ConnectionDescriptor> connections,
-        IServiceDiscovery? serviceDiscovery = null,
         ILoggerFactory? loggerFactory = null,
         ISerializerProvider? serializerProvider = null,
         IAuthenticationProvider? authenticationProvider = null,
@@ -91,7 +84,6 @@ internal sealed class PulseClient : IPulseClient
         ClientOptions? clientOptions = null)
     {
         _initialConnections = connections?.ToList() ?? new List<ConnectionDescriptor>();
-        _serviceDiscovery = serviceDiscovery;
         _retryPolicy = retryPolicy;
         _clientOptions = clientOptions ?? new ClientOptions();
 
@@ -103,7 +95,7 @@ internal sealed class PulseClient : IPulseClient
         _statistics.StartTime = _startTime;
 
         // 创建核心组件（暂时使用基础实现）
-        _connectionManager = new ConnectionManager(null, _serviceDiscovery, logger);
+        _connectionManager = new ConnectionManager(serializerProvider, logger);
         _connectionRegistry = new SimpleConnectionRegistry();
         _connectionRouter = new SimpleConnectionRouter(_connectionRegistry, logger.CreateLogger<SimpleConnectionRouter>());
         _connectionLifecycleManager = new SimpleConnectionLifecycleManager(_connectionManager, logger.CreateLogger<SimpleConnectionLifecycleManager>());
@@ -260,47 +252,6 @@ internal sealed class PulseClient : IPulseClient
     }
 
     /// <summary>
-    /// 通过服务发现连接到服务
-    /// </summary>
-    public async Task<IClientChannel> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default)
-    {
-        ThrowIfDisposed();
-        EnsureRunning();
-
-        if (_serviceDiscovery == null)
-        {
-            throw new InvalidOperationException("服务发现未配置");
-        }
-
-        // 通过服务发现获取端点
-        var endpoints = await _serviceDiscovery.DiscoverAsync(serviceName, cancellationToken);
-        var healthyEndpoints = endpoints.Where(e => e.IsHealthy).ToList();
-
-        if (healthyEndpoints.Count == 0)
-        {
-            throw new InvalidOperationException($"未找到健康的服务实例: {serviceName}");
-        }
-
-        // 使用负载均衡器选择端点
-        var selectedEndpoint = healthyEndpoints.First(); // 简化实现，后续使用负载均衡器
-
-        var descriptor = new ConnectionDescriptor
-        {
-            Id = Guid.NewGuid().ToString("N"),
-            Name = $"service-{serviceName}",
-            ServiceName = serviceName,
-            Endpoint = selectedEndpoint.Address,
-            Transport = options?.PreferredTransport ?? selectedEndpoint.Transport,
-            Strategy = options?.Strategy ?? ConnectionStrategy.Session,
-            AutoReconnect = options?.AutoReconnect ?? true,
-            ConnectTimeout = options?.ConnectTimeout
-        };
-
-        return await ConnectAsync(descriptor, cancellationToken);
-    }
-
-
-    /// <summary>
     /// 断开连接
     /// </summary>
     public async Task DisconnectAsync(string connectionId, bool graceful = true, CancellationToken cancellationToken = default)
@@ -371,7 +322,7 @@ internal sealed class PulseClient : IPulseClient
         {
             OverallHealth = overallHealth,
             ConnectionResults = connectionResults,
-            ServiceDiscoveryHealth = _serviceDiscovery != null ? ConnectionHealth.Healthy : ConnectionHealth.Unknown,
+            ServiceDiscoveryHealth = ConnectionHealth.Unknown,
             CheckedAt = checkStart,
             TotalCheckTime = DateTime.UtcNow - checkStart
         };
@@ -385,8 +336,8 @@ internal sealed class PulseClient : IPulseClient
         IReadOnlyDictionary<string, object>? options,
         ILoggerFactory loggerFactory)
     {
-        // 暂时返回简单实现，后续在 Stage 3 中完善
-        return new SimpleLoadBalancer(strategy, loggerFactory.CreateLogger<SimpleLoadBalancer>());
+        // 创建基于连接的负载均衡器
+        return new ConnectionLoadBalancer(strategy, loggerFactory.CreateLogger<ConnectionLoadBalancer>());
     }
 
     /// <summary>
@@ -452,7 +403,6 @@ internal sealed class PulseClient : IPulseClient
 
         // 释放组件
         _connectionManager?.Dispose();
-        _serviceDiscovery?.Dispose();
 
         _logger.LogInformation("PulseRPC 客户端已释放");
     }

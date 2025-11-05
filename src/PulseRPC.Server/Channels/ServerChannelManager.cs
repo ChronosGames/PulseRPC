@@ -2,11 +2,10 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Messaging;
-using PulseRPC.Server.Engine;
+using PulseRPC.Server.MessageEngine;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 using PulseRPC.Server.Scheduling;
-using PulseRPC.Server.Dispatch;
 
 namespace PulseRPC.Server.Processing;
 
@@ -53,7 +52,7 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 通道消息解析
     /// </summary>
-    public event EventHandler<MessageParsedEventArgs>? ChannelMessageParsed;
+    public event EventHandler<PulseRPC.Server.Transport.MessageParsedEventArgs>? ChannelMessageParsed;
 
     /// <summary>
     /// 通道认证事件
@@ -246,7 +245,7 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 处理通道消息解析事件
     /// </summary>
-    private void OnChannelMessageParsed(object? sender, MessageParsedEventArgs eventArgs)
+    private void OnChannelMessageParsed(object? sender, PulseRPC.Server.Transport.MessageParsedEventArgs eventArgs)
     {
         _logger.LogTrace("[消息路由] {ConnectionId} 解析消息: 服务={ServiceName}, 方法={MethodName}, 类型={Type}",
             eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName, eventArgs.MessagePacket.Header.MethodName, eventArgs.MessagePacket.Header.Type);

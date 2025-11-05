@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 
-namespace PulseRPC.Server.Engine;
+namespace PulseRPC.Server.MessageEngine;
 
 /// <summary>
 /// 分层消息处理器性能指标
