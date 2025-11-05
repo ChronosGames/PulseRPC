@@ -9,8 +9,29 @@ namespace PulseRPC.Server.Routing;
 /// </summary>
 public interface IServiceRoutingTable
 {
+    #region 基于协议号的路由 (推荐 - 高性能)
+
     /// <summary>
-    /// 高性能服务路由方法
+    /// [推荐] 基于协议号的超快速路由 - 零字符串分配
+    /// 通过编译时生成的协议号直接定位到方法处理器
+    /// </summary>
+    /// <param name="serviceProvider">服务提供者</param>
+    /// <param name="protocolId">协议号（由源生成器自动分配）</param>
+    /// <param name="data">已序列化的请求数据</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>方法执行结果</returns>
+    ValueTask<object?> RouteByProtocolIdAsync(
+        IServiceProvider serviceProvider,
+        ushort protocolId,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default);
+
+    #endregion
+
+    #region 基于方法名的路由 (向后兼容 - 保留用于调试)
+
+    /// <summary>
+    /// 高性能服务路由方法（基于服务名+方法名）
     /// </summary>
     ValueTask<object?> RouteAsync(
         IServiceProvider serviceProvider,
@@ -28,4 +49,6 @@ public interface IServiceRoutingTable
         string methodName,
         ReadOnlyMemory<byte> data,
         CancellationToken cancellationToken = default);
+
+    #endregion
 }

@@ -655,6 +655,38 @@ internal class TransportChannel : IClientChannel
 
     private void ProcessEvent(NetworkMessage message)
     {
+        // 优先使用协议号路径（高性能）
+        if (message.Header.ProtocolId != 0)
+        {
+            List<Action<ReadOnlyMemory<byte>>>? protocolIdHandlers;
+            lock (_syncRoot)
+            {
+                if (_protocolIdEventHandlers.TryGetValue(message.Header.ProtocolId, out protocolIdHandlers))
+                {
+                    protocolIdHandlers = new List<Action<ReadOnlyMemory<byte>>>(protocolIdHandlers);
+                }
+            }
+
+            if (protocolIdHandlers != null && protocolIdHandlers.Count > 0)
+            {
+                // 基于协议号的零拷贝路径：直接传递原始字节流
+                foreach (var handler in protocolIdHandlers)
+                {
+                    try
+                    {
+                        handler(message.Body);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "协议号事件处理异常: ProtocolId=0x{ProtocolId:X4}, MessageId={MessageId}",
+                            message.Header.ProtocolId, message.Header.MessageId);
+                    }
+                }
+                return; // 协议号路径处理完成，直接返回
+            }
+        }
+
+        // 回退到方法名路径（向后兼容）
         var eventName = message.Header.MethodName;
 
         // 构造完整事件名（包含服务名）
@@ -662,7 +694,7 @@ internal class TransportChannel : IClientChannel
             ? $"{message.Header.ServiceName}.{eventName}"
             : eventName;
 
-        // 优先尝试零拷贝路径
+        // 尝试基于方法名的零拷贝路径
         List<Action<ReadOnlyMemory<byte>>>? zeroCopyHandlers;
         lock (_syncRoot)
         {
@@ -904,6 +936,181 @@ internal class TransportChannel : IClientChannel
                 eventName,
                 typeof(ReadOnlyMemory<byte>),
                 () => UnsubscribeZeroCopyEvent(eventName, deserializeAndInvoke));
+        }
+    }
+
+    // ============================================================================
+    // 基于协议号的方法 (高性能路径 - 推荐使用)
+    // ============================================================================
+
+    /// <summary>
+    /// [Request/Response] 发送请求并等待响应 - 使用协议号（零拷贝路径）
+    /// 源生成器专用：使用协议号替代方法名，性能更优
+    /// </summary>
+    /// <param name="protocolId">协议号（由源生成器生成）</param>
+    /// <param name="serializedRequest">已通过 MemoryPack 序列化的请求载荷</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>原始响应字节流（待反序列化）</returns>
+    public async ValueTask<ReadOnlyMemory<byte>> InvokeRawAsync(
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedRequest,
+        CancellationToken cancellationToken = default)
+    {
+        var messageId = Guid.NewGuid();
+
+        // Step 1: 创建响应上下文
+        var tcs = new TaskCompletionSource<ReadOnlyMemory<byte>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var context = new ResponseContext
+        {
+            MessageId = messageId,
+            Tcs = tcs,
+            EnqueueTimestamp = Stopwatch.GetTimestamp()
+        };
+
+        // 注册取消处理
+        context.CancellationRegistration = cancellationToken.Register(() =>
+        {
+            _responseManager.TryCancel(messageId, new OperationCanceledException(cancellationToken));
+        });
+
+        _responseManager.Register(context);
+
+        try
+        {
+            // Step 2: 构建消息包（零拷贝）
+            var messageBuffer = _bufferWriterPool.Get();
+            try
+            {
+                // 写入消息头 - 使用协议号
+                var header = new MessageHeader
+                {
+                    Type = MessageType.Request,
+                    MessageId = messageId,
+                    ProtocolId = protocolId,
+                    ServiceName = string.Empty,  // 协议号模式下无需服务名
+                    MethodName = string.Empty,   // 协议号模式下无需方法名
+                    Flags = MessageFlags.RequireResponse,
+                    Timestamp = DateTimeOffset.UtcNow.Ticks
+                };
+
+                var headerBytes = MemoryPack.MemoryPackSerializer.Serialize(header);
+                BinaryPrimitives.WriteInt32LittleEndian(messageBuffer.GetSpan(4), headerBytes.Length);
+                messageBuffer.Advance(4);
+                messageBuffer.Write(headerBytes);
+
+                // 写入载荷
+                messageBuffer.Write(serializedRequest.Span);
+
+                // Step 3: 投入三层发送缓冲（零拷贝批量发送）
+                await _sendBuffer.EnqueueAsync(messageBuffer.WrittenMemory, cancellationToken);
+                await _sendBuffer.FlushAsync(cancellationToken); // 立即刷新以减少延迟
+            }
+            finally
+            {
+                _bufferWriterPool.Return(messageBuffer);
+            }
+
+            // Step 4: 等待响应
+            return await tcs.Task;
+        }
+        catch
+        {
+            _responseManager.TrySetException(messageId, new InvalidOperationException("Request failed"));
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// [Command/OneWay] 发送命令不等待响应 - 使用协议号（零拷贝路径）
+    /// 源生成器专用：使用协议号替代方法名，性能更优
+    /// </summary>
+    /// <param name="protocolId">协议号（由源生成器生成）</param>
+    /// <param name="serializedCommand">已通过 MemoryPack 序列化的命令载荷</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    public async ValueTask SendCommandAsync(
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedCommand,
+        CancellationToken cancellationToken = default)
+    {
+        // Command/OneWay 消息无需等待响应
+        var messageBuffer = _bufferWriterPool.Get();
+        try
+        {
+            var header = new MessageHeader
+            {
+                Type = MessageType.OneWay,
+                MessageId = Guid.NewGuid(),
+                ProtocolId = protocolId,
+                ServiceName = string.Empty,  // 协议号模式下无需服务名
+                MethodName = string.Empty,   // 协议号模式下无需方法名
+                Flags = MessageFlags.None,
+                Timestamp = DateTimeOffset.UtcNow.Ticks
+            };
+
+            var headerBytes = MemoryPack.MemoryPackSerializer.Serialize(header);
+            BinaryPrimitives.WriteInt32LittleEndian(messageBuffer.GetSpan(4), headerBytes.Length);
+            messageBuffer.Advance(4);
+            messageBuffer.Write(headerBytes);
+            messageBuffer.Write(serializedCommand.Span);
+
+            // 投入三层发送缓冲（零拷贝批量发送）
+            await _sendBuffer.EnqueueAsync(messageBuffer.WrittenMemory, cancellationToken);
+            // 注意：Command 不需要立即刷新，可以等待批量发送以提高吞吐量
+        }
+        finally
+        {
+            _bufferWriterPool.Return(messageBuffer);
+        }
+    }
+
+    // 基于协议号的事件处理器字典（protocolId -> 反序列化委托列表）
+    private readonly Dictionary<ushort, List<Action<ReadOnlyMemory<byte>>>> _protocolIdEventHandlers = new();
+
+    /// <summary>
+    /// [Server Sent Event] 注册事件接收处理器 - 使用协议号（零拷贝路径）
+    /// 源生成器专用：使用协议号替代事件名，性能更优
+    /// </summary>
+    /// <param name="protocolId">协议号（由源生成器生成）</param>
+    /// <param name="deserializeAndInvoke">反序列化+调用委托（由源生成器生成）</param>
+    /// <returns>订阅令牌，用于取消订阅</returns>
+    public ISubscriptionToken RegisterEventHandler(
+        ushort protocolId,
+        Action<ReadOnlyMemory<byte>> deserializeAndInvoke)
+    {
+        lock (_syncRoot)
+        {
+            if (!_protocolIdEventHandlers.TryGetValue(protocolId, out var handlers))
+            {
+                handlers = new List<Action<ReadOnlyMemory<byte>>>();
+                _protocolIdEventHandlers[protocolId] = handlers;
+            }
+
+            handlers.Add(deserializeAndInvoke);
+
+            var subscriptionId = Guid.NewGuid();
+            return new SubscriptionToken(
+                subscriptionId,
+                $"Protocol:{protocolId:X4}",  // 使用协议号的十六进制表示作为标识
+                typeof(ReadOnlyMemory<byte>),
+                () => UnsubscribeProtocolIdEvent(protocolId, deserializeAndInvoke));
+        }
+    }
+
+    /// <summary>
+    /// 取消订阅基于协议号的事件
+    /// </summary>
+    private void UnsubscribeProtocolIdEvent(ushort protocolId, Action<ReadOnlyMemory<byte>> handler)
+    {
+        lock (_syncRoot)
+        {
+            if (_protocolIdEventHandlers.TryGetValue(protocolId, out var handlers))
+            {
+                handlers.Remove(handler);
+                if (handlers.Count == 0)
+                {
+                    _protocolIdEventHandlers.Remove(protocolId);
+                }
+            }
         }
     }
 

@@ -18,6 +18,9 @@ public interface IResponseSerializer
     /// <summary>所属方法名称。</summary>
     string MethodName { get; }
 
+    /// <summary>协议号（0 表示未设置）。</summary>
+    ushort ProtocolId { get; }
+
     /// <summary>
     /// 序列化响应对象。
     /// </summary>
@@ -41,10 +44,23 @@ public interface IResponseSerializer
 /// </summary>
 public interface IResponseSerializerRegistry
 {
+    #region 基于协议号的查找 (推荐 - 高性能)
+
     /// <summary>
-    /// 根据服务与方法名称获取对应的响应序列化器。
+    /// [推荐] 根据协议号获取对应的响应序列化器（零字符串分配）。
+    /// </summary>
+    bool TryGetSerializer(ushort protocolId, [NotNullWhen(true)] out IResponseSerializer? serializer);
+
+    #endregion
+
+    #region 基于方法名的查找 (向后兼容)
+
+    /// <summary>
+    /// [向后兼容] 根据服务与方法名称获取对应的响应序列化器。
     /// </summary>
     bool TryGetSerializer(string serviceName, string methodName, [NotNullWhen(true)] out IResponseSerializer? serializer);
+
+    #endregion
 
     /// <summary>
     /// 获取所有序列化器条目，用于测试或诊断。

@@ -63,9 +63,52 @@ public interface IClientChannel : IDisposable
     // 零拷贝优化路径 (为源生成器设计)
     // ============================================================================
 
+    #region 基于协议号的方法 (推荐 - 高性能)
+
     /// <summary>
-    /// [Request/Response] 发送请求并等待响应 - 零拷贝路径
+    /// [Request/Response] 发送请求并等待响应 - 使用协议号（零拷贝路径）
+    /// 源生成器专用：使用协议号替代方法名，性能更优
+    /// </summary>
+    /// <param name="protocolId">协议号（由源生成器生成）</param>
+    /// <param name="serializedRequest">已通过 MemoryPack 序列化的请求载荷</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>原始响应字节流（待反序列化）</returns>
+    ValueTask<ReadOnlyMemory<byte>> InvokeRawAsync(
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedRequest,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// [Command/OneWay] 发送命令不等待响应 - 使用协议号（零拷贝路径）
+    /// 源生成器专用：使用协议号替代方法名，性能更优
+    /// </summary>
+    /// <param name="protocolId">协议号（由源生成器生成）</param>
+    /// <param name="serializedCommand">已通过 MemoryPack 序列化的命令载荷</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    ValueTask SendCommandAsync(
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedCommand,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// [Server Sent Event] 注册事件接收处理器 - 使用协议号（零拷贝路径）
+    /// 源生成器专用：使用协议号替代事件名，性能更优
+    /// </summary>
+    /// <param name="protocolId">协议号（由源生成器生成）</param>
+    /// <param name="deserializeAndInvoke">反序列化+调用委托（由源生成器生成）</param>
+    /// <returns>订阅令牌，用于取消订阅</returns>
+    ISubscriptionToken RegisterEventHandler(
+        ushort protocolId,
+        Action<ReadOnlyMemory<byte>> deserializeAndInvoke);
+
+    #endregion
+
+    #region 基于方法名的方法 (向后兼容 - 保留用于调试)
+
+    /// <summary>
+    /// [Request/Response] 发送请求并等待响应 - 使用方法名（零拷贝路径）
     /// 源生成器专用：传入已序列化的请求载荷，返回原始响应字节供反序列化
+    /// 注意：建议使用协议号版本以获得更好的性能
     /// </summary>
     /// <param name="serviceName">服务名称</param>
     /// <param name="methodName">方法名称</param>
@@ -79,8 +122,9 @@ public interface IClientChannel : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// [Command/OneWay] 发送命令不等待响应 - 零拷贝路径
+    /// [Command/OneWay] 发送命令不等待响应 - 使用方法名（零拷贝路径）
     /// 源生成器专用：用于单向消息，无需等待服务器响应
+    /// 注意：建议使用协议号版本以获得更好的性能
     /// </summary>
     /// <param name="serviceName">服务名称</param>
     /// <param name="methodName">方法名称</param>
@@ -93,8 +137,9 @@ public interface IClientChannel : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// [Server Sent Event] 注册事件接收处理器 - 零拷贝路径
+    /// [Server Sent Event] 注册事件接收处理器 - 使用事件名（零拷贝路径）
     /// 源生成器专用：注册原始字节流处理委托，由生成器负责反序列化
+    /// 注意：建议使用协议号版本以获得更好的性能
     /// </summary>
     /// <param name="eventName">事件名称（通常为 ServiceName.MethodName）</param>
     /// <param name="deserializeAndInvoke">反序列化+调用委托（由源生成器生成）</param>
@@ -102,6 +147,8 @@ public interface IClientChannel : IDisposable
     ISubscriptionToken RegisterEventHandler(
         string eventName,
         Action<ReadOnlyMemory<byte>> deserializeAndInvoke);
+
+    #endregion
 
     /// <summary>
     /// 租借序列化缓冲区 - 支持零拷贝序列化

@@ -37,7 +37,8 @@ public interface IService : IAsyncDisposable
 public abstract class BaseService : IService, IPulseHub
 {
     // MethodInfo 缓存 - 用于优化反射性能
-    private static readonly ConcurrentDictionary<(Type ServiceType, string MethodName), System.Reflection.MethodInfo?> _methodInfoCache = new();
+    // TODO: 协议号到方法的映射将由 SourceGenerator 生成
+    private static readonly ConcurrentDictionary<(Type ServiceType, PulseRPC.Protocol.ProtocolId ProtocolId), System.Reflection.MethodInfo?> _methodInfoCache = new();
 
     public PID ServicePID { get; private set; }
 
@@ -86,7 +87,7 @@ public abstract class BaseService : IService, IPulseHub
     /// <summary>
     /// RPC调用 - 自动附加认证上下文
     /// </summary>
-    public virtual Task InvokeAsync(string method, object?[] args, CancellationToken cancellationToken = default)
+    public virtual Task InvokeAsync(PulseRPC.Protocol.ProtocolId protocolId, object?[] args, CancellationToken cancellationToken = default)
     {
         if (_messageQueue == null)
             throw new InvalidOperationException("Service is not properly initialized");
@@ -95,10 +96,10 @@ public abstract class BaseService : IService, IPulseHub
         var authContext = AuthenticationContextProvider.Current
             ?? AuthenticationContext.CreateServiceContext(ServicePID, _serviceSecret!);
 
-        return _messageQueue.SendMethodInvocationAsync(method, args, authContext, cancellationToken);
+        return _messageQueue.SendMethodInvocationAsync(protocolId, args, authContext, cancellationToken);
     }
 
-    public virtual Task<TResult> InvokeAsync<TResult>(string method, object?[] args, CancellationToken cancellationToken = default)
+    public virtual Task<TResult> InvokeAsync<TResult>(PulseRPC.Protocol.ProtocolId protocolId, object?[] args, CancellationToken cancellationToken = default)
     {
         if (_messageQueue == null)
             throw new InvalidOperationException("Service is not properly initialized");
@@ -106,7 +107,7 @@ public abstract class BaseService : IService, IPulseHub
         var authContext = AuthenticationContextProvider.Current
             ?? AuthenticationContext.CreateServiceContext(ServicePID, _serviceSecret!);
 
-        return _messageQueue.SendMethodInvocationAsync<TResult>(method, args, authContext, cancellationToken);
+        return _messageQueue.SendMethodInvocationAsync<TResult>(protocolId, args, authContext, cancellationToken);
     }
 
     /// <summary>
@@ -179,18 +180,16 @@ public abstract class BaseService : IService, IPulseHub
         {
             message.CancellationToken.ThrowIfCancellationRequested();
 
-            // 从缓存获取 MethodInfo
+            // 从缓存获取 MethodInfo（使用 SourceGenerator 生成的映射表）
             var serviceType = GetType();
             var methodInfo = _methodInfoCache.GetOrAdd(
-                (serviceType, message.MethodName),
-                static key => key.ServiceType.GetMethod(
-                    key.MethodName,
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance));
+                (serviceType, message.ProtocolId),
+                key => PulseRPC.Generated.ProtocolIdMapping.GetMethod(key.ServiceType, key.ProtocolId));
 
             if (methodInfo == null)
             {
                 throw new InvalidOperationException(
-                    $"Method '{message.MethodName}' not found on actor {ServicePID}");
+                    $"Method with ProtocolId '{message.ProtocolId}' (0x{message.ProtocolId.Value:X4}) not found on service {ServicePID}");
             }
 
             // ✅ 使用表达式树编译调用（性能提升 ~50 倍）
@@ -244,33 +243,29 @@ public abstract class BaseService : IService, IPulseHub
     /// <summary>
     /// 通过编译后的表达式树调用方法（已优化）
     /// </summary>
-    private async Task InvokeMethodAsync(string method, object?[] args, CancellationToken cancellationToken)
+    private async Task InvokeMethodAsync(PulseRPC.Protocol.ProtocolId protocolId, object?[] args, CancellationToken cancellationToken)
     {
         var serviceType = GetType();
         var methodInfo = _methodInfoCache.GetOrAdd(
-            (serviceType, method),
-            static key => key.ServiceType.GetMethod(
-                key.MethodName,
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance));
+            (serviceType, protocolId),
+            key => PulseRPC.Generated.ProtocolIdMapping.GetMethod(key.ServiceType, key.ProtocolId));
 
         if (methodInfo == null)
-            throw new InvalidOperationException($"Method '{method}' not found on service {ServicePID}");
+            throw new InvalidOperationException($"Method with ProtocolId '{protocolId}' (0x{protocolId.Value:X4}) not found on service {ServicePID}");
 
         // ✅ 使用表达式树编译调用
         await CompiledAsyncMethodInvoker.InvokeAsync(this, methodInfo, args);
     }
 
-    private async Task<TResult> InvokeMethodAsync<TResult>(string method, object?[] args, CancellationToken cancellationToken)
+    private async Task<TResult> InvokeMethodAsync<TResult>(PulseRPC.Protocol.ProtocolId protocolId, object?[] args, CancellationToken cancellationToken)
     {
         var serviceType = GetType();
         var methodInfo = _methodInfoCache.GetOrAdd(
-            (serviceType, method),
-            static key => key.ServiceType.GetMethod(
-                key.MethodName,
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance));
+            (serviceType, protocolId),
+            key => PulseRPC.Generated.ProtocolIdMapping.GetMethod(key.ServiceType, key.ProtocolId));
 
         if (methodInfo == null)
-            throw new InvalidOperationException($"Method '{method}' not found on service {ServicePID}");
+            throw new InvalidOperationException($"Method with ProtocolId '{protocolId}' (0x{protocolId.Value:X4}) not found on service {ServicePID}");
 
         // ✅ 使用表达式树编译调用
         var result = await CompiledAsyncMethodInvoker.InvokeAsync<TResult>(this, methodInfo, args);

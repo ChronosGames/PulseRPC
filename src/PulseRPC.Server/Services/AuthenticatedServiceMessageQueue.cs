@@ -273,9 +273,24 @@ public abstract class ServiceMessage
 /// </summary>
 public class MethodInvocationMessage : ServiceMessage
 {
-    public string MethodName { get; set; } = string.Empty;
+    /// <summary>
+    /// 协议号 - 用于路由到具体方法
+    /// </summary>
+    public PulseRPC.Protocol.ProtocolId ProtocolId { get; set; }
+
+    /// <summary>
+    /// 方法参数
+    /// </summary>
     public object?[] Arguments { get; set; } = Array.Empty<object?>();
+
+    /// <summary>
+    /// 返回值类型（可选）
+    /// </summary>
     public Type? ReturnType { get; set; }
+
+    /// <summary>
+    /// 完成源 - 用于异步返回结果
+    /// </summary>
     public TaskCompletionSource<object?> CompletionSource { get; } = new();
 
     public MethodInvocationMessage()
@@ -473,7 +488,8 @@ public class PermissionValidator
 internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
 {
     // MethodInfo 缓存 - 用于优化权限验证时的反射性能
-    private static readonly ConcurrentDictionary<(Type ServiceType, string MethodName), System.Reflection.MethodInfo?> _methodInfoCache = new();
+    // TODO: 协议号到方法的映射将由 SourceGenerator 生成
+    private static readonly ConcurrentDictionary<(Type ServiceType, PulseRPC.Protocol.ProtocolId ProtocolId), System.Reflection.MethodInfo?> _methodInfoCache = new();
 
     private readonly Channel<ServiceMessage> _messageChannel;
     private readonly ILogger _logger;
@@ -532,14 +548,14 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     /// 发送方法调用消息（带认证上下文）
     /// </summary>
     public async Task<TResult> SendMethodInvocationAsync<TResult>(
-        string methodName,
+        PulseRPC.Protocol.ProtocolId protocolId,
         object?[] arguments,
         AuthenticationContext? authContext,
         CancellationToken cancellationToken = default)
     {
         var message = new MethodInvocationMessage
         {
-            MethodName = methodName,
+            ProtocolId = protocolId,
             Arguments = arguments,
             ReturnType = typeof(TResult),
             CancellationToken = cancellationToken,
@@ -560,14 +576,14 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     }
 
     public async Task SendMethodInvocationAsync(
-        string methodName,
+        PulseRPC.Protocol.ProtocolId protocolId,
         object?[] arguments,
         AuthenticationContext? authContext,
         CancellationToken cancellationToken = default)
     {
         var message = new MethodInvocationMessage
         {
-            MethodName = methodName,
+            ProtocolId = protocolId,
             Arguments = arguments,
             ReturnType = null,
             CancellationToken = cancellationToken,
@@ -638,19 +654,18 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     {
         try
         {
-            // 从缓存获取 MethodInfo，提升性能
+            // 从缓存获取 MethodInfo（使用 SourceGenerator 生成的映射表）
             var actorType = GetActorType();
             var methodInfo = _methodInfoCache.GetOrAdd(
-                (actorType, message.MethodName),
-                static key => key.ServiceType.GetMethod(
-                    key.MethodName,
-                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance));
+                (actorType, message.ProtocolId),
+                key => PulseRPC.Generated.ProtocolIdMapping.GetMethod(key.ServiceType, key.ProtocolId));
 
             if (methodInfo == null)
             {
-                _logger.LogError("Method not found - Method: {Method}", message.MethodName);
+                _logger.LogError("Method not found - ProtocolId: {ProtocolId} (0x{ProtocolIdHex})",
+                    message.ProtocolId.Value, message.ProtocolId.Value.ToString("X4"));
                 message.CompletionSource.TrySetException(
-                    new InvalidOperationException($"Method '{message.MethodName}' not found"));
+                    new InvalidOperationException($"Method with ProtocolId '{message.ProtocolId}' (0x{message.ProtocolId.Value:X4}) not found"));
                 return false;
             }
 
@@ -658,8 +673,8 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
             if (!_permissionValidator.ValidateMethodCall(methodInfo, message.AuthContext, out var errorMessage))
             {
                 _logger.LogWarning(
-                    "Authorization failed - Method: {Method}, Caller: {Caller}, Error: {Error}",
-                    message.MethodName,
+                    "Authorization failed - ProtocolId: {ProtocolId}, Caller: {Caller}, Error: {Error}",
+                    message.ProtocolId,
                     message.AuthContext?.CallerId ?? "Anonymous",
                     errorMessage);
 
@@ -672,7 +687,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error validating method call");
+            _logger.LogError(ex, "Error validating method call - ProtocolId: {ProtocolId}", message.ProtocolId);
             message.CompletionSource.TrySetException(ex);
             return false;
         }

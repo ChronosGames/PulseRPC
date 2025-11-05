@@ -12,12 +12,15 @@ public static class SmartEventHandlerGenerator
     /// <summary>
     /// 生成智能事件处理器
     /// </summary>
-    public static string GenerateSmartEventHandler(INamedTypeSymbol interfaceSymbol)
+    public static string GenerateSmartEventHandler(INamedTypeSymbol interfaceSymbol, SourceProductionContext context)
     {
         var interfaceName = interfaceSymbol.Name;
         var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
         var handlerClassName = GetHandlerClassName(interfaceName);
         var channelName = GetChannelAttributeValue(interfaceSymbol) ?? "default";
+
+        // 为所有方法生成协议号
+        var protocolIds = ProtocolIdGenerator.AssignProtocolIds(interfaceSymbol, context);
 
         var sb = new StringBuilder();
 
@@ -29,7 +32,7 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine("{");
 
         // 生成智能事件处理器类（只生成特定于此接口的处理器）
-        GenerateSmartHandlerClass(sb, interfaceSymbol, handlerClassName, channelName);
+        GenerateSmartHandlerClass(sb, interfaceSymbol, handlerClassName, channelName, protocolIds);
 
         // CompositeSubscriptionToken 已在 PulseRPC.Abstractions 中定义，无需重复生成
 
@@ -58,12 +61,13 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine();
     }
 
-    private static void GenerateSmartHandlerClass(StringBuilder sb, INamedTypeSymbol interfaceSymbol, string handlerClassName, string channelName)
+    private static void GenerateSmartHandlerClass(StringBuilder sb, INamedTypeSymbol interfaceSymbol, string handlerClassName, string channelName, Dictionary<string, ushort> protocolIds)
     {
         var interfaceName = interfaceSymbol.Name;
 
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// 智能事件处理器 - 为 {interfaceName} 提供高性能事件处理功能");
+        sb.AppendLine($"    /// 使用协议号进行高性能事件路由");
         sb.AppendLine($"    /// </summary>");
         var smartClassName = interfaceSymbol.Name.StartsWith("I")
             ? $"Smart{interfaceSymbol.Name.Substring(1)}Handler"
@@ -75,6 +79,10 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine("        private readonly BatchProcessor _batchProcessor;");
         sb.AppendLine("        private readonly CancellationTokenSource _cancellationTokenSource = new();");
         sb.AppendLine("        private volatile bool _disposed;");
+        sb.AppendLine();
+
+        // 生成协议号常量
+        GenerateProtocolIdConstants(sb, interfaceSymbol, protocolIds);
         sb.AppendLine();
 
         sb.AppendLine($"        public {smartClassName}()");
@@ -280,6 +288,7 @@ public static class SmartEventHandlerGenerator
     {
         var methodName = methodSymbol.Name;
         var parameters = methodSymbol.Parameters;
+        var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
 
         // 确定事件数据类型
         string eventDataType;
@@ -298,9 +307,10 @@ public static class SmartEventHandlerGenerator
         }
 
         sb.AppendLine($"            // ========== 零拷贝优化路径：Server Sent Event ==========");
-        sb.AppendLine($"            // 订阅 {methodName} 事件（零拷贝反序列化）");
+        sb.AppendLine($"            // 订阅 {methodName} 事件（使用协议号，零拷贝反序列化）");
+        sb.AppendLine($"            // Protocol ID: {constName}");
         sb.AppendLine($"            tokens.Add(channel.RegisterEventHandler(");
-        sb.AppendLine($"                eventName: \"{interfaceName}.{methodName}\",");
+        sb.AppendLine($"                protocolId: {constName},");
         sb.AppendLine($"                deserializeAndInvoke: (System.ReadOnlyMemory<byte> __rawEventData__) =>");
         sb.AppendLine($"                {{");
         sb.AppendLine($"                    // 显式反序列化（编译时已知类型）");
@@ -429,6 +439,36 @@ public static class SmartEventHandlerGenerator
         return interfaceName.StartsWith("I")
             ? interfaceName.Substring(1) + "Handler"
             : interfaceName + "Handler";
+    }
+
+    /// <summary>
+    /// 生成协议号常量
+    /// </summary>
+    private static void GenerateProtocolIdConstants(StringBuilder sb, INamedTypeSymbol interfaceSymbol, Dictionary<string, ushort> protocolIds)
+    {
+        sb.AppendLine("        // ==================== 事件协议号常量 ====================");
+        sb.AppendLine("        // 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
+
+        foreach (var member in interfaceSymbol.GetMembers())
+        {
+            if (member is not IMethodSymbol methodSymbol)
+                continue;
+
+            if (methodSymbol.DeclaredAccessibility != Accessibility.Public)
+                continue;
+
+            if (protocolIds.TryGetValue(methodSymbol.Name, out var protocolId))
+            {
+                var methodSignature = ProtocolIdGenerator.BuildMethodSignature(methodSymbol);
+                var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
+
+                sb.AppendLine($"        /// <summary>");
+                sb.AppendLine($"        /// 协议号: {methodSymbol.Name}");
+                sb.AppendLine($"        /// 方法签名: {methodSignature}");
+                sb.AppendLine($"        /// </summary>");
+                sb.AppendLine($"        private const ushort {constName} = 0x{protocolId:X4}; // {protocolId}");
+            }
+        }
     }
 
     private static string? GetChannelAttributeValue(ISymbol symbol)

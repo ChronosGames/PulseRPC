@@ -97,6 +97,7 @@ public static class ResponseSerializerGenerator
         sb.AppendLine();
 
         sb.AppendLine("        private static readonly Dictionary<string, Dictionary<string, IResponseSerializer>> s_map = BuildMap();");
+        sb.AppendLine("        private static readonly Dictionary<ushort, IResponseSerializer> s_protocolMap = BuildProtocolMap();");
         sb.AppendLine();
         sb.AppendLine("        private static Dictionary<string, Dictionary<string, IResponseSerializer>> BuildMap()");
         sb.AppendLine("        {");
@@ -124,6 +125,27 @@ public static class ResponseSerializerGenerator
         }
 
         sb.AppendLine("            return services;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine("        private static Dictionary<ushort, IResponseSerializer> BuildProtocolMap()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var protocols = new Dictionary<ushort, IResponseSerializer>();");
+        sb.AppendLine();
+
+        foreach (var info in serializerInfos)
+        {
+            sb.AppendLine($"            protocols[0x{info.ProtocolId:X4}] = Serializers.{info.ClassName}.Instance;");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("            return protocols;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        sb.AppendLine("        public bool TryGetSerializer(ushort protocolId, [NotNullWhen(true)] out IResponseSerializer? serializer)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return s_protocolMap.TryGetValue(protocolId, out serializer);");
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -175,6 +197,7 @@ public static class ResponseSerializerGenerator
         sb.AppendLine();
         sb.AppendLine($"            public string ServiceName => \"{info.ServiceName}\";");
         sb.AppendLine($"            public string MethodName => \"{info.MethodName}\";");
+        sb.AppendLine($"            public ushort ProtocolId => 0x{info.ProtocolId:X4}; // {info.ProtocolId}");
         sb.AppendLine();
 
         sb.AppendLine($"            // A {info.ResponseTypeName}");
@@ -273,6 +296,7 @@ public static class ResponseSerializerGenerator
                     className,
                     service.ServiceName ?? service.InterfaceName,
                     method.MethodName,
+                    method.ProtocolId,
                     responseType));
             }
         }
@@ -345,13 +369,15 @@ public static class ResponseSerializerGenerator
         public string ClassName { get; }
         public string ServiceName { get; }
         public string MethodName { get; }
+        public ushort ProtocolId { get; }
         public string? ResponseTypeName { get; }
 
-        public ResponseSerializerInfo(string className, string serviceName, string methodName, string? responseTypeName)
+        public ResponseSerializerInfo(string className, string serviceName, string methodName, ushort protocolId, string? responseTypeName)
         {
             ClassName = className;
             ServiceName = serviceName;
             MethodName = methodName;
+            ProtocolId = protocolId;
             ResponseTypeName = responseTypeName;
         }
     }
