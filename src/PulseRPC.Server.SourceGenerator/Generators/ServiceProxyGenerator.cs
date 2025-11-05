@@ -146,8 +146,36 @@ public static class ServiceProxyGenerator
         foreach (var method in serviceModel.Methods)
         {
             var parameterVariableNames = GetSafeParameterVariableNames(method);
+            
+            // 生成基于方法名的调用器（向后兼容）
             GenerateMethodInvoker(sb, method, serviceModel.InterfaceName, parameterVariableNames);
+            
+            // 生成基于协议号的调用器（推荐 - 高性能）
+            GenerateProtocolIdMethodInvoker(sb, method, serviceModel.InterfaceName, parameterVariableNames);
         }
+    }
+
+    /// <summary>
+    /// 生成单个方法的协议号调用器（用于路由表直接调用）
+    /// </summary>
+    private static void GenerateProtocolIdMethodInvoker(StringBuilder sb, MethodModel method, string serviceName, IReadOnlyList<string> parameterVariableNames)
+    {
+        sb.AppendLine($"    /// <summary>");
+        sb.AppendLine($"    /// Protocol ID invoker for {method.MethodName} (0x{method.ProtocolId:X4})");
+        sb.AppendLine($"    /// Called directly by ServiceRoutingTable for maximum performance");
+        sb.AppendLine($"    /// </summary>");
+        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine($"    public async ValueTask<object?> Invoke_{method.MethodName}_Async(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
+        sb.AppendLine("    {");
+
+        // 反序列化参数
+        GenerateParameterDeserialization(sb, method, parameterVariableNames);
+
+        // 调用服务方法
+        GenerateServiceMethodCall(sb, method, parameterVariableNames);
+
+        sb.AppendLine("    }");
+        sb.AppendLine();
     }
 
     /// <summary>

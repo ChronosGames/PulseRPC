@@ -31,6 +31,11 @@ public sealed class MethodModel
     public string? ChannelName { get; set; }
 
     /// <summary>
+    /// 协议号 - 用于高性能方法路由
+    /// </summary>
+    public ushort ProtocolId { get; set; }
+
+    /// <summary>
     /// 当方法返回 Task&lt;T&gt;/ValueTask&lt;T&gt; 时，该属性为泛型参数的完全限定名；否则为 null。
     /// </summary>
     public string? ResponseTypeFullName { get; set; }

@@ -542,6 +542,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 messageId: envelope.MessageId,
                 serviceName: envelope.Header.ServiceName,
                 methodName: envelope.Header.MethodName,
+                protocolId: envelope.Header.ProtocolId,
                 requestData: null, // 已处理完成，不需要再传递原始请求数据
                 messageType: envelope.Header.Type,
                 receivedTime: envelope.ReceivedTime,

@@ -183,22 +183,23 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
      {
          var callContext = eventArgs.CallContext;
 
-         // 只有需要响应的消息才处理
-         if (callContext.MessageType == MessageType.OneWay)
-         {
-             return ValueTask.CompletedTask; // 单向消息不需要响应
-         }
+        // 只有需要响应的消息才处理
+        if (callContext.MessageType == MessageType.OneWay)
+        {
+            return ValueTask.CompletedTask; // 单向消息不需要响应
+        }
 
-         // 创建响应任务
-         var responseTask = new ResponseTask(
-             callContext.ConnectionId,
-             callContext.MessageId,
-             callContext.ServiceName,
-             callContext.MethodName,
-             eventArgs.Result,
-             eventArgs.Success,
-             eventArgs.Exception,
-             DateTime.UtcNow);
+        // 创建响应任务
+        var responseTask = new ResponseTask(
+            callContext.ConnectionId,
+            callContext.MessageId,
+            callContext.ServiceName,
+            callContext.MethodName,
+            callContext.ProtocolId,
+            eventArgs.Result,
+            eventArgs.Success,
+            eventArgs.Exception,
+            DateTime.UtcNow);
 
          // 快速路径：尝试同步写入（零分配）
          if (_responseWriter.TryWrite(responseTask))
@@ -332,11 +333,15 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
 
              ReadOnlyMemory<byte> responsePayload;
 
-             if (responseTask.Success && responseTask.Result != null)
-             {
-                 // 序列化成功响应（普通业务消息）
-                 responsePayload = await SerializeResponseAsync(responseTask.Result, responseTask.ServiceName, responseTask.MethodName);
-             }
+            if (responseTask.Success && responseTask.Result != null)
+            {
+                // 序列化成功响应（普通业务消息）
+                responsePayload = await SerializeResponseAsync(
+                    responseTask.Result, 
+                    responseTask.ServiceName, 
+                    responseTask.MethodName,
+                    responseTask.ProtocolId);
+            }
              else if (!responseTask.Success && responseTask.Exception != null)
              {
                  // 序列化错误响应
@@ -420,35 +425,61 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
          }
     }
 
-    /// <summary>
-    /// 序列化成功响应
-    /// </summary>
-    private Task<ReadOnlyMemory<byte>> SerializeResponseAsync(object? result, string serviceName, string methodName)
-    {
-        if (result == null)
-        {
-            return Task.FromResult(ReadOnlyMemory<byte>.Empty);
-        }
+   /// <summary>
+   /// 序列化成功响应
+   /// </summary>
+   private Task<ReadOnlyMemory<byte>> SerializeResponseAsync(
+       object? result, 
+       string serviceName, 
+       string methodName, 
+       ushort protocolId)
+   {
+       if (result == null)
+       {
+           return Task.FromResult(ReadOnlyMemory<byte>.Empty);
+       }
 
-        // 优先尝试使用生成的零拷贝序列化器
-        if (_responseSerializerRegistry != null &&
-            _responseSerializerRegistry.TryGetSerializer(serviceName, methodName, out var responseSerializer))
-        {
-            try
-            {
-                var buffer = new ArrayBufferWriter<byte>();
-                responseSerializer.Serialize(result, buffer);
-                return Task.FromResult(buffer.WrittenMemory);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "生成的响应序列化器失败，降级到反射路径: {ServiceName}.{MethodName}",  serviceName, methodName);
-            }
-        }
+       // 优先尝试使用协议号查找序列化器（最快路径）
+       if (protocolId != 0 && _responseSerializerRegistry != null)
+       {
+           if (_responseSerializerRegistry.TryGetSerializer(protocolId, out var protocolSerializer))
+           {
+               try
+               {
+                   var buffer = new ArrayBufferWriter<byte>();
+                   protocolSerializer.Serialize(result, buffer);
+                   return Task.FromResult(buffer.WrittenMemory);
+               }
+               catch (Exception ex)
+               {
+                   _logger.LogWarning(ex, "协议号响应序列化器失败: ProtocolId=0x{ProtocolId:X4}", protocolId);
+               }
+           }
+       }
 
-        // 降级：记录错误日志
-        throw new ArgumentException($"未找到响应序列化器: {serviceName}.{methodName}");
-    }
+       // 回退：尝试使用方法名查找序列化器（向后兼容）
+       if (!string.IsNullOrEmpty(serviceName) && !string.IsNullOrEmpty(methodName) &&
+           _responseSerializerRegistry != null &&
+           _responseSerializerRegistry.TryGetSerializer(serviceName, methodName, out var responseSerializer))
+       {
+           try
+           {
+               var buffer = new ArrayBufferWriter<byte>();
+               responseSerializer.Serialize(result, buffer);
+               return Task.FromResult(buffer.WrittenMemory);
+           }
+           catch (Exception ex)
+           {
+               _logger.LogWarning(ex, "生成的响应序列化器失败: {ServiceName}.{MethodName}",  serviceName, methodName);
+           }
+       }
+
+       // 降级：记录错误日志
+       var identifier = protocolId != 0 
+           ? $"ProtocolId=0x{protocolId:X4}" 
+           : $"{serviceName}.{methodName}";
+       throw new ArgumentException($"未找到响应序列化器: {identifier}");
+   }
 
      /// <summary>
      /// 序列化错误响应
@@ -529,6 +560,7 @@ internal readonly struct ResponseTask
     public readonly Guid MessageId;
     public readonly string ServiceName;
     public readonly string MethodName;
+    public readonly ushort ProtocolId; // 协议号（0 表示使用方法名路径）
     public readonly object? Result;
     public readonly bool Success;
     public readonly Exception? Exception;
@@ -539,6 +571,7 @@ internal readonly struct ResponseTask
         Guid messageId,
         string serviceName,
         string methodName,
+        ushort protocolId,
         object? result,
         bool success,
         Exception? exception,
@@ -548,6 +581,7 @@ internal readonly struct ResponseTask
         MessageId = messageId;
         ServiceName = serviceName;
         MethodName = methodName;
+        ProtocolId = protocolId;
         Result = result;
         Success = success;
         Exception = exception;

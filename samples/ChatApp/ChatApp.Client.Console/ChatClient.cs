@@ -270,6 +270,3 @@ public class ChatClient
         return $"已加入房间: {_currentRoom} (用户: {_userName})";
     }
 }
-
-
-

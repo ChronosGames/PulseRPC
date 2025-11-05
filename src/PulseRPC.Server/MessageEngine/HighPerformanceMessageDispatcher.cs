@@ -162,23 +162,39 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
         var header = message.Header;
         Debug.Assert(header != null, "消息头不能为空");
 
+        // 优先使用协议号路由（最快路径，零字符串分配）
+        if (header.ProtocolId != 0)
+        {
+            try
+            {
+                _logger.LogTrace("使用协议号路由: ProtocolId=0x{ProtocolId:X4} ({ProtocolId})", header.ProtocolId, header.ProtocolId);
+                return await _serviceRoutingTable.RouteByProtocolIdAsync(serviceProvider, header.ProtocolId, message.Payload, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "协议号路由失败: ProtocolId=0x{ProtocolId:X4}", header.ProtocolId);
+                throw;
+            }
+        }
+
+        // 回退到方法名路由（向后兼容）
         var serviceName = header.ServiceName;
         var methodName = header.MethodName;
         if (string.IsNullOrEmpty(serviceName) || string.IsNullOrEmpty(methodName))
         {
-            _logger.LogWarning("消息缺少 ServiceName 或 MethodName，无法分发");
-            throw new ArgumentException("消息缺少 ServiceName 或 MethodName", nameof(message));
+            _logger.LogWarning("消息既没有 ProtocolId 也缺少 ServiceName 或 MethodName，无法分发");
+            throw new ArgumentException("消息缺少 ProtocolId 或 ServiceName/MethodName", nameof(message));
         }
 
         // 使用编译时生成的 ServiceRoutingTable（零反射，最快）
         try
         {
-            _logger.LogTrace("使用 ServiceRoutingTable 路由: Service={Service}, Method={Method}", serviceName, methodName);
+            _logger.LogTrace("使用方法名路由: Service={Service}, Method={Method}", serviceName, methodName);
             return await _serviceRoutingTable.RouteAsync(serviceProvider, serviceName, methodName, message.Payload, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "ServiceRoutingTable 路由失败: Service={Service}, Method={Method}", serviceName, methodName);
+            _logger.LogError(ex, "方法名路由失败: Service={Service}, Method={Method}", serviceName, methodName);
             // 重新抛出异常，让调用方处理，而不是返回匿名对象
             throw;
         }

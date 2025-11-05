@@ -265,4 +265,3 @@ public sealed class ResponseContextManager : IDisposable
         _cts.Dispose();
     }
 }
-

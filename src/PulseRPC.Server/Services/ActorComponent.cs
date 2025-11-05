@@ -266,21 +266,12 @@ public class ComponentManager<TActor> where TActor : IComponentHost
     /// <summary>
     /// 查找方法所在的组件
     /// </summary>
-    public object? FindComponentByMethod(string methodName)
+    public object? FindComponentByMethod(PulseRPC.Protocol.ProtocolId protocolId)
     {
-        foreach (var component in _components.Values)
-        {
-            var methodInfo = component.GetType().GetMethod(
-                methodName,
-                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-
-            if (methodInfo != null)
-            {
-                return component;
-            }
-        }
-
-        return null;
+        // TODO: 协议号到组件的映射将由 SourceGenerator 生成
+        throw new NotImplementedException(
+            $"Protocol ID to component mapping not yet implemented. " +
+            $"SourceGenerator will provide this mapping. ProtocolId: {protocolId}");
     }
 
     /// <summary>
@@ -430,38 +421,31 @@ public abstract class ComponentBasedService : BaseService, IComponentHost
     /// </summary>
     protected override async Task ProcessMethodInvocationAsync(MethodInvocationMessage message)
     {
-        // 先尝试在本类查找方法
-        var methodInfo = GetType().GetMethod(
-            message.MethodName,
-            BindingFlags.Public | BindingFlags.Instance);
-
-        if (methodInfo != null)
+        // TODO: 协议号到方法/组件的映射将由 SourceGenerator 生成
+        // 临时实现: 直接调用基类方法，会抛出 NotImplementedException
+        try
         {
             await base.ProcessMethodInvocationAsync(message);
-            return;
         }
-
-        // 尝试在组件中查找
-        if (_componentManager != null)
+        catch (NotImplementedException)
         {
-            var component = _componentManager.FindComponentByMethod(message.MethodName);
-            if (component != null)
+            // 尝试在组件中查找
+            if (_componentManager != null)
             {
-                methodInfo = component.GetType().GetMethod(
-                    message.MethodName,
-                    BindingFlags.Public | BindingFlags.Instance);
-
-                if (methodInfo != null)
+                var component = _componentManager.FindComponentByMethod(message.ProtocolId);
+                if (component != null)
                 {
-                    await InvokeMethodOnTargetAsync(component, methodInfo, message);
-                    return;
+                    // 这里也需要通过 SourceGenerator 生成的映射来获取 MethodInfo
+                    throw new NotImplementedException(
+                        $"Component-based protocol routing not yet implemented. " +
+                        $"SourceGenerator will provide this mapping. ProtocolId: {message.ProtocolId}");
                 }
             }
-        }
 
-        // 方法未找到
-        message.CompletionSource.TrySetException(
-            new InvalidOperationException($"Method '{message.MethodName}' not found"));
+            // 方法未找到
+            message.CompletionSource.TrySetException(
+                new InvalidOperationException($"Method with ProtocolId '{message.ProtocolId}' not found"));
+        }
     }
 
     private async Task InvokeMethodOnTargetAsync(

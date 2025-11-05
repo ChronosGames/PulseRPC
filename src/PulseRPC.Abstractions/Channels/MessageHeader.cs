@@ -132,6 +132,13 @@ public partial class MessageHeader
 
     [MemoryPackOrder(3)] public string MethodName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 协议号 - 用于高性能方法路由（替代 ServiceName+MethodName）
+    /// 值为 0 表示使用传统的 ServiceName+MethodName 路由
+    /// </summary>
+    [MemoryPackOrder(4)]
+    public ushort ProtocolId { get; set; }
+
     [MemoryPackOrder(5)]
     public MessageFlags Flags { get; set; }
 

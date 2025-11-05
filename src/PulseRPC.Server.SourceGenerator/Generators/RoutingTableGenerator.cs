@@ -150,6 +150,10 @@ public static class RoutingTableGenerator
     /// </summary>
     private static void GenerateRouteMethod(StringBuilder sb, List<ServiceModel> services)
     {
+        // 1. 生成基于协议号的路由方法（推荐）
+        GenerateProtocolIdBasedRouting(sb, services);
+
+        // 2. 生成基于方法名的路由方法（向后兼容）
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// High-performance service routing with compile-time optimization");
         sb.AppendLine("    /// </summary>");
@@ -194,6 +198,73 @@ public static class RoutingTableGenerator
     }
 
     /// <summary>
+    /// 生成基于协议号的路由（最快路径）
+    /// </summary>
+    private static void GenerateProtocolIdBasedRouting(StringBuilder sb, List<ServiceModel> services)
+    {
+        sb.AppendLine("    #region Protocol ID Based Routing (Recommended - Zero Allocation)");
+        sb.AppendLine();
+
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// [推荐] 基于协议号的超快速路由 - 零字符串分配");
+        sb.AppendLine("    /// 通过编译时生成的协议号直接定位到方法处理器");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("    public ValueTask<object?> RouteByProtocolIdAsync(IServiceProvider serviceProvider, ushort protocolId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        return protocolId switch");
+        sb.AppendLine("        {");
+
+        // 为所有服务的所有方法生成协议号路由
+        foreach (var service in services)
+        {
+            foreach (var method in service.Methods)
+            {
+                var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service.InterfaceName, method)}";
+                var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method.MethodName);
+                sb.AppendLine($"            {protocolIdConstantName} => {routerMethodName}(serviceProvider, data, cancellationToken),");
+            }
+        }
+
+        sb.AppendLine("            _ => ThrowProtocolIdNotFoundException(protocolId)");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // 生成协议号常量
+        GenerateProtocolIdConstants(sb, services);
+
+        sb.AppendLine("    #endregion");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// 生成协议号常量
+    /// </summary>
+    private static void GenerateProtocolIdConstants(StringBuilder sb, List<ServiceModel> services)
+    {
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// Protocol ID constants for all methods");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    public static class ProtocolIds");
+        sb.AppendLine("    {");
+
+        foreach (var service in services)
+        {
+            sb.AppendLine($"        // {service.InterfaceName}");
+            foreach (var method in service.Methods)
+            {
+                var constantName = GetProtocolIdConstantName(service.InterfaceName, method);
+                sb.AppendLine($"        public const ushort {constantName} = 0x{method.ProtocolId:X4};  // {service.InterfaceName}.{method.MethodName}");
+            }
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
     /// 生成基于哈希码的快速路由
     /// </summary>
     private static void GenerateHashBasedRouting(StringBuilder sb, List<ServiceModel> services)
@@ -235,6 +306,49 @@ public static class RoutingTableGenerator
         }
 
         sb.AppendLine("    #endregion");
+        sb.AppendLine();
+
+        // 生成基于协议号的方法路由器
+        GenerateProtocolIdMethodRouters(sb, services);
+    }
+
+    /// <summary>
+    /// 为每个方法生成专用的协议号路由器
+    /// </summary>
+    private static void GenerateProtocolIdMethodRouters(StringBuilder sb, List<ServiceModel> services)
+    {
+        sb.AppendLine("    #region Protocol ID Method Routers");
+        sb.AppendLine();
+
+        foreach (var service in services)
+        {
+            foreach (var method in service.Methods)
+            {
+                GenerateProtocolIdMethodRouter(sb, service, method);
+            }
+        }
+
+        sb.AppendLine("    #endregion");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// 生成单个方法的协议号路由器
+    /// </summary>
+    private static void GenerateProtocolIdMethodRouter(StringBuilder sb, ServiceModel service, MethodModel method)
+    {
+        var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method.MethodName);
+        var proxyClassName = $"{service.InterfaceName.TrimStart('I')}Proxy";
+
+        sb.AppendLine($"    /// <summary>");
+        sb.AppendLine($"    /// Protocol ID router for {service.InterfaceName}.{method.MethodName} (0x{method.ProtocolId:X4})");
+        sb.AppendLine($"    /// </summary>");
+        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine($"    private ValueTask<object?> {routerMethodName}(IServiceProvider serviceProvider, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        var proxy = GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy(serviceProvider);");
+        sb.AppendLine($"        return proxy.Invoke_{method.MethodName}_Async(data, cancellationToken);");
+        sb.AppendLine("    }");
         sb.AppendLine();
     }
 
@@ -357,6 +471,13 @@ public static class RoutingTableGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
+        sb.AppendLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
+        sb.AppendLine("    private static ValueTask<object?> ThrowProtocolIdNotFoundException(ushort protocolId)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        throw new ServiceNotFoundException($\"Method with protocol ID '0x{protocolId:X4}' ({protocolId}) not found\");");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
         // 服务提供者访问
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// Service provider access (must be set during application startup)");
@@ -403,6 +524,85 @@ public static class RoutingTableGenerator
     private static string GetServiceRouterName(string interfaceName)
     {
         return $"Route{interfaceName.TrimStart('I')}";
+    }
+
+    /// <summary>
+    /// 获取协议号常量名（旧版本 - 向后兼容）
+    /// </summary>
+    [Obsolete("Use GetProtocolIdConstantName(string, MethodModel) instead to support method overloading")]
+    private static string GetProtocolIdConstantName(string interfaceName, string methodName)
+    {
+        var serviceName = interfaceName.TrimStart('I').ToUpperInvariant();
+        var method = methodName.ToUpperInvariant();
+        return $"{serviceName}_{method}";
+    }
+
+    /// <summary>
+    /// 获取协议号常量名（支持方法重载）
+    /// </summary>
+    private static string GetProtocolIdConstantName(string interfaceName, MethodModel method)
+    {
+        var serviceName = interfaceName.TrimStart('I').ToUpperInvariant();
+        var methodName = method.MethodName.ToUpperInvariant();
+        var baseName = $"{serviceName}_{methodName}";
+
+        // 如果方法没有参数，直接返回基础名称
+        if (method.Parameters.Count == 0)
+        {
+            return baseName;
+        }
+
+        // 构建参数类型的简短描述
+        var paramParts = method.Parameters.Select(p => GetSimpleTypeNameServer(p.TypeName)).ToArray();
+        var paramSuffix = string.Join("_", paramParts);
+
+        return $"{baseName}_{paramSuffix}";
+    }
+
+    /// <summary>
+    /// 获取类型的简化名称（服务端版本）
+    /// </summary>
+    private static string GetSimpleTypeNameServer(string typeName)
+    {
+        // 移除命名空间
+        var lastDotIndex = typeName.LastIndexOf('.');
+        var simpleName = lastDotIndex >= 0 ? typeName.Substring(lastDotIndex + 1) : typeName;
+
+        // 处理数组类型
+        if (simpleName.EndsWith("[]"))
+        {
+            return simpleName.Replace("[]", "Array");
+        }
+
+        // 处理泛型类型（简化表示）
+        if (simpleName.Contains('<'))
+        {
+            // 例如: List<int> -> ListOfInt
+            simpleName = simpleName
+                .Replace("<", "Of")
+                .Replace(">", "")
+                .Replace(",", "And")
+                .Replace(" ", "");
+        }
+
+        // 移除常见的后缀以缩短名称
+        simpleName = simpleName
+            .Replace("Event", "Evt")
+            .Replace("Message", "Msg")
+            .Replace("Request", "Req")
+            .Replace("Response", "Rsp")
+            .Replace("Data", "")
+            .Replace("Info", "");
+
+        return simpleName.ToUpperInvariant();
+    }
+
+    /// <summary>
+    /// 获取基于协议号的路由器方法名
+    /// </summary>
+    private static string GetProtocolIdRouterMethodName(string interfaceName, string methodName)
+    {
+        return $"RouteById_{interfaceName.TrimStart('I')}_{methodName}";
     }
 
     /// <summary>

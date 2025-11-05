@@ -22,6 +22,7 @@ public sealed class ServiceCallContext
     public Guid MessageId { get; }
     public string ServiceName { get; }
     public string MethodName { get; }
+    public ushort ProtocolId { get; } // 协议号（0 表示使用方法名路径）
     public object? RequestData { get; }
     public MessageType MessageType { get; }
     public DateTime ReceivedTime { get; }
@@ -34,6 +35,7 @@ public sealed class ServiceCallContext
         Guid messageId,
         string serviceName,
         string methodName,
+        ushort protocolId,
         object? requestData,
         MessageType messageType,
         DateTime receivedTime,
@@ -44,6 +46,7 @@ public sealed class ServiceCallContext
         MessageId = messageId;
         ServiceName = serviceName;
         MethodName = methodName;
+        ProtocolId = protocolId;
         RequestData = requestData;
         MessageType = messageType;
         ReceivedTime = receivedTime;
