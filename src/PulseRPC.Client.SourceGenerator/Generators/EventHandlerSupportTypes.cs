@@ -26,7 +26,8 @@ public static class EventHandlerSupportTypes
         GenerateBatchEventItem(sb);
         GenerateBatchProcessor(sb);
         GenerateMonitoredEventReceiver(sb);
-        GenerateAsyncHelperMethods(sb);
+        GenerateCircuitBreakerState(sb);
+        GenerateAsyncHelpers(sb);
 
         return sb.ToString();
     }
@@ -623,7 +624,7 @@ public static class EventHandlerSupportTypes
         sb.AppendLine();
     }
 
-    private static void GenerateAsyncHelperMethods(StringBuilder sb)
+    private static void GenerateCircuitBreakerState(StringBuilder sb)
     {
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// 断路器状态");
@@ -680,6 +681,84 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("        public void Dispose()");
         sb.AppendLine("        {");
         sb.AppendLine("            // 清理资源");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    private static void GenerateAsyncHelpers(StringBuilder sb)
+    {
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// 异步方法辅助扩展 - 为监控包装器提供异步支持");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    internal static class AsyncMethodHelpers");
+        sb.AppendLine("    {");
+
+        // Task 包装方法
+        sb.AppendLine("        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("        public static async Task CompleteTaskWithMetrics(Task task, string methodName, System.Diagnostics.Stopwatch stopwatch)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
+        sb.AppendLine("                await task.ConfigureAwait(false);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            finally");
+        sb.AppendLine("            {");
+        sb.AppendLine("                stopwatch.Stop();");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // ValueTask 包装方法
+        sb.AppendLine("        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("        public static async System.Threading.Tasks.ValueTask CompleteValueTaskWithMetrics(System.Threading.Tasks.ValueTask valueTask, string methodName, System.Diagnostics.Stopwatch stopwatch)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
+        sb.AppendLine("                await valueTask.ConfigureAwait(false);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            finally");
+        sb.AppendLine("            {");
+        sb.AppendLine("                stopwatch.Stop();");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // 重试逻辑
+        sb.AppendLine("        public static async Task<T> WithRetryAsync<T>(Func<Task<T>> operation, int maxRetries, TimeSpan delay)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            Exception? lastException = null;");
+        sb.AppendLine("            ");
+        sb.AppendLine("            for (int attempt = 0; attempt <= maxRetries; attempt++)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                try");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    return await operation().ConfigureAwait(false);");
+        sb.AppendLine("                }");
+        sb.AppendLine("                catch (Exception ex)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    lastException = ex;");
+        sb.AppendLine("                    if (attempt == maxRetries)");
+        sb.AppendLine("                        break;");
+        sb.AppendLine("                    await Task.Delay(delay).ConfigureAwait(false);");
+        sb.AppendLine("                }");
+        sb.AppendLine("            }");
+        sb.AppendLine("            throw lastException!;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // 超时包装
+        sb.AppendLine("        public static async Task<T> WithTimeoutAsync<T>(Task<T> task, TimeSpan timeout)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            using var cts = new CancellationTokenSource(timeout);");
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
+        sb.AppendLine("                return await task.WaitAsync(cts.Token).ConfigureAwait(false);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                throw new TimeoutException($\"Operation timed out after {timeout.TotalMilliseconds}ms\");");
+        sb.AppendLine("            }");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
 

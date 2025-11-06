@@ -85,10 +85,10 @@ public static class EnhancedEventListenerExtensions
             sb.AppendLine($"        /// 创建 {interfaceName} 的智能事件处理器");
             sb.AppendLine($"        /// 包含性能监控、批量处理、错误恢复等高级功能");
             sb.AppendLine($"        /// </summary>");
-            sb.AppendLine($"        public static {namespaceName}.Smart{handlerClassName} CreateSmart{GetCleanTypeName(interfaceName)}Handler(this IPulseClient client)");
+            sb.AppendLine($"        public static {namespaceName}.{handlerClassName}SmartHandler CreateSmart{GetCleanTypeName(interfaceName)}Handler(this IPulseClient client)");
             sb.AppendLine("        {");
             sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
-            sb.AppendLine($"            return new {namespaceName}.Smart{handlerClassName}();");
+            sb.AppendLine($"            return new {namespaceName}.{handlerClassName}SmartHandler();");
             sb.AppendLine("        }");
             sb.AppendLine();
         }
@@ -351,7 +351,7 @@ public static class EnhancedEventListenerExtensions
 
             sb.AppendLine($"            if (listener is {GetFullTypeName(eventType)} {interfaceName.ToLower()}Listener)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                var handler = new {namespaceName}.Smart{handlerClassName}();");
+            sb.AppendLine($"                var handler = new {namespaceName}.{handlerClassName}SmartHandler();");
             sb.AppendLine($"                return await handler.SubscribeAsync({interfaceName.ToLower()}Listener, options);");
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -369,9 +369,10 @@ public static class EnhancedEventListenerExtensions
     // 辅助方法
     private static string GetSmartHandlerClassName(string interfaceName)
     {
+        // 移除 I 前缀，不添加 Handler 后缀（SmartHandler 已经包含Handler）
         return interfaceName.StartsWith("I")
-            ? interfaceName.Substring(1) + "Handler"
-            : interfaceName + "Handler";
+            ? interfaceName.Substring(1)
+            : interfaceName;
     }
 
     private static string GetCleanTypeName(string interfaceName)

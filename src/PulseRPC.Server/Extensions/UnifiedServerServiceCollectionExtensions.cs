@@ -42,9 +42,9 @@ public static class UnifiedServerServiceCollectionExtensions
         // 注册核心依赖（如果尚未注册）
         services.TryAddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
 
-        // 注册内置传输提供程序 - 使用 AddSingleton 确保所有提供程序都被注册
-        services.AddSingleton<ITransportProvider, TcpTransportProvider>();
-        services.AddSingleton<ITransportProvider, KcpTransportProvider>();
+        // 注册内置传输提供程序 - 重要：使用 AddSingleton 而非 TryAddSingleton，以注册多个 ITransportProvider 实例
+        services.AddSingleton<ITransportProvider>(new TcpTransportProvider());
+        services.AddSingleton<ITransportProvider>(new KcpTransportProvider());
 
         // 注册内部依赖
         RegisterInternalDependencies(services);
@@ -80,9 +80,9 @@ public static class UnifiedServerServiceCollectionExtensions
         // 注册核心依赖
         services.TryAddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
 
-        // 注册内置传输提供程序 - 使用 AddSingleton 确保所有提供程序都被注册
-        services.AddSingleton<ITransportProvider, TcpTransportProvider>();
-        services.AddSingleton<ITransportProvider, KcpTransportProvider>();
+        // 注册内置传输提供程序 - 重要：使用 AddSingleton 而非 TryAddSingleton，以注册多个 ITransportProvider 实例
+        services.AddSingleton<ITransportProvider>(new TcpTransportProvider());
+        services.AddSingleton<ITransportProvider>(new KcpTransportProvider());
 
         // 注册内部依赖
         RegisterInternalDependencies(services);
@@ -157,9 +157,9 @@ public static class UnifiedServerServiceCollectionExtensions
         // 注册核心依赖
         services.TryAddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
 
-        // 注册内置传输提供程序 - 使用 AddSingleton 确保所有提供程序都被注册
-        services.AddSingleton<ITransportProvider, TcpTransportProvider>();
-        services.AddSingleton<ITransportProvider, KcpTransportProvider>();
+        // 注册内置传输提供程序 - 重要：使用 AddSingleton 而非 TryAddSingleton，以注册多个 ITransportProvider 实例
+        services.AddSingleton<ITransportProvider>(new TcpTransportProvider());
+        services.AddSingleton<ITransportProvider>(new KcpTransportProvider());
 
         return new UnifiedPulseServerBuilder(services);
     }
@@ -291,9 +291,9 @@ public static class NamedPulseServerServiceCollectionExtensions
         // 注册核心依赖（如果尚未注册）- 这些依赖可以被多个服务器实例共享
         services.TryAddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
 
-        // 注册内置传输提供程序（共享）
-        services.TryAddSingleton<ITransportProvider, TcpTransportProvider>();
-        services.TryAddSingleton<ITransportProvider, KcpTransportProvider>();
+        // 注册内置传输提供程序（共享）- 重要：使用 AddSingleton 而非 TryAddSingleton，以注册多个 ITransportProvider 实例
+        services.AddSingleton<ITransportProvider>(new TcpTransportProvider());
+        services.AddSingleton<ITransportProvider>(new KcpTransportProvider());
 
         // 注册序列化器提供程序（共享）
         services.TryAddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);

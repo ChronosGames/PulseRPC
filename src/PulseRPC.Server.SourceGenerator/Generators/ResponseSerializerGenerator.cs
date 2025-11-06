@@ -48,7 +48,6 @@ public static class ResponseSerializerGenerator
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using MemoryPack;");
-        sb.AppendLine("using PulseRPC.Abstractions;");
         sb.AppendLine("using PulseRPC.Serialization;");
 
         foreach (var ns in CollectNamespaces(services))
@@ -66,7 +65,7 @@ public static class ResponseSerializerGenerator
         sb.AppendLine("/// <summary>");
         sb.AppendLine("/// 自动生成的响应序列化器注册表");
         sb.AppendLine("/// </summary>");
-        sb.AppendLine("public static partial class GeneratedResponseSerializers");
+        sb.AppendLine("public static partial class ResponseSerializers");
         sb.AppendLine("{");
 
         GenerateRegistry(sb, services);
@@ -291,6 +290,10 @@ public static class ResponseSerializerGenerator
 
                 // responseType 为 null 表示 void 返回，否则为 MemoryPackable 类型
                 var responseType = string.IsNullOrWhiteSpace(method.ResponseTypeFullName) ? null : method.ResponseTypeFullName;
+                if (!string.IsNullOrEmpty(responseType) && responseType.EndsWith('?'))
+                {
+                    responseType = responseType[..^1];
+                }
 
                 list.Add(new ResponseSerializerInfo(
                     className,
@@ -319,20 +322,115 @@ public static class ResponseSerializerGenerator
             {
                 if (!string.IsNullOrWhiteSpace(method.ResponseTypeFullName))
                 {
-                    var lastDot = method.ResponseTypeFullName!.LastIndexOf('.');
-                    if (lastDot > 0)
-                    {
-                        var ns = method.ResponseTypeFullName[..lastDot];
-                        if (!string.IsNullOrWhiteSpace(ns))
-                        {
-                            set.Add(ns);
-                        }
-                    }
+                    ExtractNamespacesFromType(method.ResponseTypeFullName!, set);
                 }
             }
         }
 
         return set.OrderBy(n => n);
+    }
+
+    /// <summary>
+    /// 从类型全名中提取所有命名空间（包括泛型参数）
+    /// </summary>
+    private static void ExtractNamespacesFromType(string typeFullName, HashSet<string> namespaces)
+    {
+        // 移除可能的可空标记
+        if (typeFullName.EndsWith('?'))
+        {
+            typeFullName = typeFullName[..^1];
+        }
+
+        // 检查是否是泛型类型
+        var genericStart = typeFullName.IndexOf('<');
+        if (genericStart > 0)
+        {
+            // 提取泛型定义的命名空间（如 System.Collections.Generic.List<T> 中的 System.Collections.Generic）
+            var genericDefinition = typeFullName[..genericStart];
+            var lastDot = genericDefinition.LastIndexOf('.');
+            if (lastDot > 0)
+            {
+                var ns = genericDefinition[..lastDot];
+                if (!string.IsNullOrWhiteSpace(ns))
+                {
+                    namespaces.Add(ns);
+                }
+            }
+
+            // 提取泛型参数的命名空间
+            var genericEnd = typeFullName.LastIndexOf('>');
+            if (genericEnd > genericStart)
+            {
+                var genericArgs = typeFullName.Substring(genericStart + 1, genericEnd - genericStart - 1);
+
+                // 处理多个泛型参数（用逗号分隔）
+                var args = SplitGenericArguments(genericArgs);
+                foreach (var arg in args)
+                {
+                    var trimmedArg = arg.Trim();
+                    if (!string.IsNullOrWhiteSpace(trimmedArg))
+                    {
+                        // 递归处理嵌套泛型
+                        ExtractNamespacesFromType(trimmedArg, namespaces);
+                    }
+                }
+            }
+        }
+        else
+        {
+            // 非泛型类型，直接提取命名空间
+            var lastDot = typeFullName.LastIndexOf('.');
+            if (lastDot > 0)
+            {
+                var ns = typeFullName[..lastDot];
+                if (!string.IsNullOrWhiteSpace(ns))
+                {
+                    namespaces.Add(ns);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 分割泛型参数，正确处理嵌套泛型
+    /// 例如：Dictionary&lt;string, List&lt;int&gt;&gt; 应该分割为 ["string", "List&lt;int&gt;"]
+    /// </summary>
+    private static List<string> SplitGenericArguments(string genericArgs)
+    {
+        var result = new List<string>();
+        var current = new StringBuilder();
+        var depth = 0;
+
+        foreach (var ch in genericArgs)
+        {
+            if (ch == '<')
+            {
+                depth++;
+                current.Append(ch);
+            }
+            else if (ch == '>')
+            {
+                depth--;
+                current.Append(ch);
+            }
+            else if (ch == ',' && depth == 0)
+            {
+                // 顶层逗号，分隔参数
+                result.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(ch);
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            result.Add(current.ToString());
+        }
+
+        return result;
     }
 
     /// <summary>

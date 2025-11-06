@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # MongoDB - 数据库
+  mongodb:
+    image: mongo:latest
+    container_name: distributedgame-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      MONGO_INITDB_DATABASE: game_accounts
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - distributedgame-network
+
+  # Consul - 服务注册与发现
+  consul:
+    image: hashicorp/consul:latest
+    container_name: distributedgame-consul
+    restart: unless-stopped
+    ports:
+      - "8500:8500"    # HTTP API
+      - "8600:8600/udp" # DNS
+    command: agent -server -ui -bootstrap-expect=1 -client=0.0.0.0
+    environment:
+      CONSUL_BIND_INTERFACE: eth0
+    volumes:
+      - consul_data:/consul/data
+    networks:
+      - distributedgame-network
+
+  # Redis（可选）- 缓存和队列
+  redis:
+    image: redis:latest
+    container_name: distributedgame-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - distributedgame-network
+
+  # Sentry（可选）- 错误追踪（需要单独配置）
+  # sentry:
+  #   image: getsentry/sentry:latest
+  #   container_name: distributedgame-sentry
+  #   restart: unless-stopped
+  #   ports:
+  #     - "9000:9000"
+  #   environment:
+  #     SENTRY_SECRET_KEY: 'your-secret-key-here'
+  #     SENTRY_POSTGRES_HOST: postgres
+  #     SENTRY_REDIS_HOST: redis
+  #   depends_on:
+  #     - redis
+  #   networks:
+  #     - distributedgame-network
+
+volumes:
+  mongodb_data:
+    driver: local
+  consul_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  distributedgame-network:
+    driver: bridge

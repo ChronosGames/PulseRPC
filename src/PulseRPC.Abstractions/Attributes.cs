@@ -62,37 +62,6 @@ public class PulseClientGenerationAttribute : Attribute
 }
 
 /// <summary>
-/// 标记需要生成服务端代理的类
-/// </summary>
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = true, Inherited = false)]
-public class PulseServerGenerationAttribute : Attribute
-{
-    /// <summary>
-    /// 要扫描的程序集中的任意类型
-    /// </summary>
-    public Type MarkerType { get; }
-
-    /// <summary>
-    /// 初始化 <see cref="PulseServerGenerationAttribute"/>
-    /// </summary>
-    /// <param name="markerType">要扫描的程序集中的任意类型</param>
-    public PulseServerGenerationAttribute(Type markerType)
-    {
-        MarkerType = markerType ?? throw new ArgumentNullException(nameof(markerType));
-    }
-
-    /// <summary>
-    /// 获取或设置优化级别
-    /// </summary>
-    public int OptimizationLevel { get; set; } = 1;
-
-    /// <summary>
-    /// 获取或设置是否启用性能监控代码生成
-    /// </summary>
-    public bool EnablePerformanceMonitoring { get; set; } = false;
-}
-
-/// <summary>
 /// 认证类型枚举（用于特性）
 /// </summary>
 public enum AuthType
