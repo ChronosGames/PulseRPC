@@ -22,12 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\PulseRPC.Server.SourceGenerator\PulseRPC.Server.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\src\PulseRPC.Server.SourceGenerator\PulseRPC.Server.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
+    <ProjectReference Include="..\..\src\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="true" />
     <ProjectReference Include="..\..\src\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Analyzer Include="..\..\src\PulseRPC.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.SourceGenerator.dll" />
   </ItemGroup>
 
 </Project>

@@ -30,7 +30,7 @@ public class Player
     /// <summary>
     /// 玩家旋转角度
     /// </summary>
-    public float RotationY { get; set; } = 0;
+    public float RotationY { get; set; }
 
     /// <summary>
     /// 是否在线

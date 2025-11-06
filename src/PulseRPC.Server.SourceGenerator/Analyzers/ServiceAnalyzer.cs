@@ -134,7 +134,6 @@ public static class ServiceAnalyzer
         var isAsync = IsAsyncMethod(returnType);
         var isGenericTask = IsGenericTaskType(returnType);
         var responseTypeFullName = GetResponseTypeFullName(returnType);
-        var isResponseMemoryPackable = responseTypeFullName != null && IsMemoryPackable(returnType, responseTypeFullName);
 
         var parameters = new List<ParameterModel>();
 
@@ -273,68 +272,5 @@ public static class ServiceAnalyzer
 
         // 其他同步返回类型
         return returnType.ToDisplayString();
-
-
-        // if (returnType is INamedTypeSymbol namedType)
-        // {
-        //     if (namedType.IsGenericType && namedType.ConstructedFrom.Name is "Task" or "ValueTask")
-        //     {
-        //         return namedType.TypeArguments.Length > 0 ? namedType.TypeArguments[0].ToDisplayString() : null;
-        //     }
-        //
-        //     if (!namedType.IsGenericType)
-        //     {
-        //         return returnType.SpecialType == SpecialType.System_Void ? null : returnType.ToDisplayString();
-        //     }
-        // }
-        //
-        // return returnType.ToDisplayString() == "void" ? null : returnType.ToDisplayString();
-    }
-
-    /// <summary>
-    /// 查找项目中所有的PulseService接口
-    /// </summary>
-    public static IEnumerable<InterfaceDeclarationSyntax> FindPulseServiceInterfaces(
-        IEnumerable<SyntaxNode> syntaxNodes)
-    {
-        return syntaxNodes
-            .OfType<InterfaceDeclarationSyntax>()
-            .Where(i => HasPulseServiceAttributeSyntax(i));
-    }
-
-    /// <summary>
-    /// 检查接口语法是否包含PulseService特性或继承IPulseHub
-    /// </summary>
-    private static bool HasPulseServiceAttributeSyntax(InterfaceDeclarationSyntax interfaceDeclaration)
-    {
-        // 检查特性
-        var hasAttribute = interfaceDeclaration.AttributeLists
-            .SelectMany(al => al.Attributes)
-            .Any(attr =>
-            {
-                var name = attr.Name.ToString();
-                return name == "PulseService" ||
-                       name == "PulseServiceAttribute" ||
-                       name.EndsWith("PulseService") ||
-                       name.EndsWith("PulseServiceAttribute");
-            });
-
-        if (hasAttribute)
-            return true;
-
-        // 检查是否继承IPulseHub接口
-        if (interfaceDeclaration.BaseList?.Types != null)
-        {
-            return interfaceDeclaration.BaseList.Types
-                .Any(baseType =>
-                {
-                    var typeName = baseType.Type.ToString();
-                    return typeName == "IPulseHub" ||
-                           typeName.EndsWith(".IPulseHub") ||
-                           typeName.Contains("IPulseHub");
-                });
-        }
-
-        return false;
     }
 }

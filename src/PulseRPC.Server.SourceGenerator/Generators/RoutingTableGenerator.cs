@@ -91,9 +91,6 @@ public static class RoutingTableGenerator
         sb.AppendLine("    private ServiceRoutingTable() { }");
         sb.AppendLine();
 
-        // 生成服务常量
-        GenerateServiceConstants(sb, services);
-
         // 生成路由方法
         GenerateRouteMethod(sb, services);
 
@@ -109,92 +106,14 @@ public static class RoutingTableGenerator
         sb.AppendLine("}");
     }
 
-    /// <summary>
-    /// 生成服务名称常量
-    /// </summary>
-    private static void GenerateServiceConstants(StringBuilder sb, List<ServiceModel> services)
-    {
-        sb.AppendLine("    #region Service Name Constants");
-        sb.AppendLine();
-
-        foreach (var service in services)
-        {
-            var constantName = GetServiceConstantName(service.InterfaceName);
-            sb.AppendLine($"    public const string {constantName} = \"{service.InterfaceFullName}\";");
-        }
-
-        sb.AppendLine();
-
-        // 生成预计算的哈希码
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// Pre-computed hash codes for fast service name lookup");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    public static class ServiceHashes");
-        sb.AppendLine("    {");
-
-        foreach (var service in services)
-        {
-            var constantName = GetServiceConstantName(service.InterfaceName);
-            var hashCode = (uint)service.InterfaceFullName.GetHashCode();
-            sb.AppendLine($"        public const uint {constantName} = {hashCode}u;");
-        }
-
-        sb.AppendLine("    }");
-        sb.AppendLine();
-        sb.AppendLine("    #endregion");
-        sb.AppendLine();
-    }
 
     /// <summary>
-    /// 生成主路由方法
+    /// 生成主路由方法（仅 Protocol ID 版本）
     /// </summary>
     private static void GenerateRouteMethod(StringBuilder sb, List<ServiceModel> services)
     {
-        // 1. 生成基于协议号的路由方法（推荐）
+        // 生成基于协议号的路由方法
         GenerateProtocolIdBasedRouting(sb, services);
-
-        // 2. 生成基于方法名的路由方法（向后兼容）
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// High-performance service routing with compile-time optimization");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    public ValueTask<object?> RouteAsync(IServiceProvider serviceProvider, string serviceName, string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
-        sb.AppendLine("    {");
-        
-        // 使用switch表达式进行快速服务分发
-        // 支持多种服务名称格式：完整名称、接口名、自定义ServiceName
-        sb.AppendLine("        return serviceName switch");
-        sb.AppendLine("        {");
-
-        foreach (var service in services)
-        {
-            var routerMethodName = GetServiceRouterName(service.InterfaceName);
-
-            // 1. 匹配完整接口名称（带命名空间）
-            sb.AppendLine($"            \"{service.InterfaceFullName}\" => {routerMethodName}(serviceProvider, methodName, data, cancellationToken),");
-
-            // 2. 匹配接口名称（不带命名空间）
-            if (service.InterfaceFullName != service.InterfaceName)
-            {
-                sb.AppendLine($"            \"{service.InterfaceName}\" => {routerMethodName}(serviceProvider, methodName, data, cancellationToken),");
-            }
-
-            // 3. 匹配自定义 ServiceName（如果有）
-            if (!string.IsNullOrEmpty(service.ServiceName) &&
-                service.ServiceName != service.InterfaceFullName &&
-                service.ServiceName != service.InterfaceName)
-            {
-                sb.AppendLine($"            \"{service.ServiceName}\" => {routerMethodName}(serviceProvider, methodName, data, cancellationToken),");
-            }
-        }
-
-        sb.AppendLine("            _ => ThrowServiceNotFoundException(serviceName)");
-        sb.AppendLine("        };");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // 生成哈希码优化版本
-        GenerateHashBasedRouting(sb, services);
     }
 
     /// <summary>
@@ -264,52 +183,24 @@ public static class RoutingTableGenerator
         sb.AppendLine();
     }
 
-    /// <summary>
-    /// 生成基于哈希码的快速路由
-    /// </summary>
-    private static void GenerateHashBasedRouting(StringBuilder sb, List<ServiceModel> services)
-    {
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// Ultra-fast routing using pre-computed hash codes");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    public ValueTask<object?> RouteByHashAsync(IServiceProvider serviceProvider, uint serviceNameHash, string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
-        sb.AppendLine("    {");
-
-        sb.AppendLine("        return serviceNameHash switch");
-        sb.AppendLine("        {");
-
-        foreach (var service in services)
-        {
-            var constantName = GetServiceConstantName(service.InterfaceName);
-            var routerMethodName = GetServiceRouterName(service.InterfaceName);
-            sb.AppendLine($"            ServiceHashes.{constantName} => {routerMethodName}(serviceProvider, methodName, data, cancellationToken),");
-        }
-
-        sb.AppendLine("            _ => ThrowServiceNotFoundByHashException(serviceNameHash)");
-        sb.AppendLine("        };");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-    }
 
     /// <summary>
-    /// 为每个服务生成专用路由器
+    /// 为每个方法生成专用的 Protocol ID 路由器，并生成代理获取方法
     /// </summary>
     private static void GenerateServiceRouters(StringBuilder sb, List<ServiceModel> services)
     {
-        sb.AppendLine("    #region Service-Specific Routers");
-        sb.AppendLine();
-
-        foreach (var service in services)
-        {
-            GenerateServiceRouter(sb, service);
-        }
-
-        sb.AppendLine("    #endregion");
-        sb.AppendLine();
-
         // 生成基于协议号的方法路由器
         GenerateProtocolIdMethodRouters(sb, services);
+
+        // 为每个服务生成代理获取方法
+        sb.AppendLine("    #region Proxy Getters");
+        sb.AppendLine();
+        foreach (var service in services)
+        {
+            GenerateProxyGetter(sb, service);
+        }
+        sb.AppendLine("    #endregion");
+        sb.AppendLine();
     }
 
     /// <summary>
@@ -352,31 +243,6 @@ public static class RoutingTableGenerator
         sb.AppendLine();
     }
 
-    /// <summary>
-    /// 生成单个服务的路由器
-    /// </summary>
-    private static void GenerateServiceRouter(StringBuilder sb, ServiceModel service)
-    {
-        var routerMethodName = GetServiceRouterName(service.InterfaceName);
-        var proxyClassName = $"{service.InterfaceName.TrimStart('I')}Proxy";
-
-        sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// Optimized router for {service.InterfaceName}");
-        sb.AppendLine($"    /// </summary>");
-        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine($"    private ValueTask<object?> {routerMethodName}(IServiceProvider serviceProvider, string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
-        sb.AppendLine("    {");
-
-        // 从 ServiceProvider 获取服务实例并创建代理
-        sb.AppendLine($"        var proxy = GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy(serviceProvider);");
-        sb.AppendLine("        return proxy.InvokeAsync(methodName, data, cancellationToken);");
-
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // 生成代理实例获取方法
-        GenerateProxyGetter(sb, service);
-    }
 
     /// <summary>
     /// 生成代理实例获取方法
@@ -414,31 +280,12 @@ public static class RoutingTableGenerator
         sb.AppendLine("    {");
         sb.AppendLine($"        public const int TotalServices = {services.Count};");
         sb.AppendLine($"        public const int TotalMethods = {services.Sum(s => s.Methods.Count)};");
-        
+
         sb.AppendLine("        public static readonly Dictionary<string, int> MethodCountByService = new()");
         sb.AppendLine("        {");
         foreach (var service in services)
         {
             sb.AppendLine($"            [\"{service.InterfaceFullName}\"] = {service.Methods.Count},");
-        }
-        sb.AppendLine("        };");
-
-        sb.AppendLine();
-        sb.AppendLine("        public static readonly string[] AllServiceNames = new[]");
-        sb.AppendLine("        {");
-        foreach (var service in services)
-        {
-            sb.AppendLine($"            \"{service.InterfaceFullName}\",  // Full name");
-            if (service.InterfaceFullName != service.InterfaceName)
-            {
-                sb.AppendLine($"            \"{service.InterfaceName}\",  // Short name");
-            }
-            if (!string.IsNullOrEmpty(service.ServiceName) &&
-                service.ServiceName != service.InterfaceFullName &&
-                service.ServiceName != service.InterfaceName)
-            {
-                sb.AppendLine($"            \"{service.ServiceName}\",  // Custom ServiceName");
-            }
         }
         sb.AppendLine("        };");
 
@@ -456,25 +303,11 @@ public static class RoutingTableGenerator
         sb.AppendLine("    #region Helper Methods");
         sb.AppendLine();
 
-        // 异常抛出方法
-        sb.AppendLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
-        sb.AppendLine("    private static ValueTask<object?> ThrowServiceNotFoundException(string serviceName)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        throw new ServiceNotFoundException($\"Service '{serviceName}' not found. Available services: {string.Join(\", \", Statistics.AllServiceNames)}\");");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        sb.AppendLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
-        sb.AppendLine("    private static ValueTask<object?> ThrowServiceNotFoundByHashException(uint serviceNameHash)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        throw new ServiceNotFoundException($\"Service with hash '{serviceNameHash}' not found\");");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
+        // 异常抛出方法（仅 Protocol ID 版本）
         sb.AppendLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
         sb.AppendLine("    private static ValueTask<object?> ThrowProtocolIdNotFoundException(ushort protocolId)");
         sb.AppendLine("    {");
-        sb.AppendLine("        throw new ServiceNotFoundException($\"Method with protocol ID '0x{protocolId:X4}' ({protocolId}) not found\");");
+        sb.AppendLine("        throw new ProtocolIdNotFoundException($\"Method with protocol ID '0x{protocolId:X4}' ({protocolId}) not found. Total methods: {Statistics.TotalMethods}\");");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -510,21 +343,6 @@ public static class RoutingTableGenerator
         sb.AppendLine();
     }
 
-    /// <summary>
-    /// 获取服务常量名称
-    /// </summary>
-    private static string GetServiceConstantName(string interfaceName)
-    {
-        return interfaceName.TrimStart('I').ToUpperInvariant() + "_SERVICE";
-    }
-
-    /// <summary>
-    /// 获取服务路由器方法名
-    /// </summary>
-    private static string GetServiceRouterName(string interfaceName)
-    {
-        return $"Route{interfaceName.TrimStart('I')}";
-    }
 
     /// <summary>
     /// 获取协议号常量名（旧版本 - 向后兼容）
