@@ -14,8 +14,10 @@
 
   <ItemGroup>
     <PackageReference Include="Consul" />
+    <PackageReference Include="dotnet-etcd" />
     <PackageReference Include="MemoryPack.Core" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />

@@ -70,8 +70,8 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine($"    /// 使用协议号进行高性能事件路由");
         sb.AppendLine($"    /// </summary>");
         var smartClassName = interfaceSymbol.Name.StartsWith("I")
-            ? $"Smart{interfaceSymbol.Name.Substring(1)}Handler"
-            : $"Smart{interfaceSymbol.Name}Handler";
+            ? $"{interfaceSymbol.Name.Substring(1)}SmartHandler"
+            : $"{interfaceSymbol.Name}SmartHandler";
         sb.AppendLine($"    public sealed class {smartClassName} : IDisposable");
         sb.AppendLine("    {");
         sb.AppendLine($"        private readonly ConcurrentDictionary<{interfaceName}, SubscriptionContext> _subscriptions = new();");
@@ -210,7 +210,7 @@ public static class SmartEventHandlerGenerator
 
         if (isAsync)
         {
-            sb.AppendLine("                if (context.Options.UseBatchProcessing)");
+            sb.AppendLine("                if (context.Options.EnableBatchProcessing)");
             sb.AppendLine("                {");
             sb.AppendLine($"                    await _batchProcessor.QueueEventAsync(\"{methodName}\", new object[] {{ {parameterNames} }}, ");
             sb.AppendLine($"                        async data => ");

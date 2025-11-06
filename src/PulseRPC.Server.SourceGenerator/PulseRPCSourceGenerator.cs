@@ -41,6 +41,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             // 分析PulseServerGeneration特性标记的类
             var serviceModels = new List<ServiceModel>();
             var serverGenerationClasses = new List<ClassDeclarationSyntax>();
+            var scannedAssemblies = new HashSet<IAssemblySymbol>(SymbolEqualityComparer.Default);
 
             // 收集带有PulseServerGeneration特性的类
             foreach (var classDeclaration in syntaxReceiver.CandidateClasses)
@@ -57,16 +58,38 @@ public class PulseRPCSourceGenerator : ISourceGenerator
 
                     foreach (var markerType in typesToScan)
                     {
-                        // 扫描标记类型所在程序集中的所有服务接口
-                        var assemblyServiceModels = ScanAssemblyForServices(markerType, context.Compilation);
-
-                        // 去重：只添加不存在的服务模型
-                        foreach (var serviceModel in assemblyServiceModels)
+                        var assembly = markerType.ContainingAssembly;
+                        if (scannedAssemblies.Add(assembly))
                         {
-                            if (!serviceModels.Any(s => s.InterfaceFullName == serviceModel.InterfaceFullName))
+                            // 扫描标记类型所在程序集中的所有服务接口
+                            var assemblyServiceModels = ScanAssemblyForServices(assembly, context.Compilation);
+
+                            // 去重：只添加不存在的服务模型
+                            foreach (var serviceModel in assemblyServiceModels)
                             {
-                                serviceModels.Add(serviceModel);
+                                if (!serviceModels.Any(s => s.InterfaceFullName == serviceModel.InterfaceFullName))
+                                {
+                                    serviceModels.Add(serviceModel);
+                                }
                             }
+                        }
+                    }
+                }
+            }
+
+            // 自动扫描直接引用的用户项目程序集（新增功能）
+            var autoScanAssemblies = GetUserProjectAssemblies(context.Compilation);
+            foreach (var assembly in autoScanAssemblies)
+            {
+                if (scannedAssemblies.Add(assembly))
+                {
+                    var assemblyServiceModels = ScanAssemblyForServices(assembly, context.Compilation);
+
+                    foreach (var serviceModel in assemblyServiceModels)
+                    {
+                        if (!serviceModels.Any(s => s.InterfaceFullName == serviceModel.InterfaceFullName))
+                        {
+                            serviceModels.Add(serviceModel);
                         }
                     }
                 }
@@ -133,23 +156,8 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             // 生成全局路由表
             GenerateGlobalRoutingTable(context, serviceModels);
 
-            // 生成事件订阅管理器
-            GenerateEventSubscriptionManager(context, serviceModels);
-
-            // 生成智能事件路由器
-            GenerateSmartEventRouter(context, serviceModels);
-
-            // 生成性能优化代码
-            GeneratePerformanceOptimizations(context, serviceModels);
-
             // 生成响应序列化器注册表
             GenerateResponseSerializers(context, serviceModels);
-
-            // 生成抽象接口
-            GenerateAbstractionInterfaces(context);
-
-            // 生成性能报告
-            GeneratePerformanceReport(context, serviceModels);
 
             // 报告成功信息
             ReportGenerationSuccess(context, serviceModels);
@@ -187,33 +195,6 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     {
         var sourceText = RoutingTableGenerator.GenerateSourceText(serviceModels);
         context.AddSource("ServiceRoutingTable.g.cs", sourceText);
-    }
-
-    /// <summary>
-    /// 生成事件订阅管理器
-    /// </summary>
-    private static void GenerateEventSubscriptionManager(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
-    {
-        var sourceText = EventSubscriptionManagerGenerator.GenerateSourceText(serviceModels);
-        context.AddSource("EventSubscriptionManager.g.cs", sourceText);
-    }
-
-    /// <summary>
-    /// 生成智能事件路由器
-    /// </summary>
-    private static void GenerateSmartEventRouter(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
-    {
-        var sourceText = SmartEventRouterGenerator.GenerateSourceText(serviceModels);
-        context.AddSource("SmartEventRouter.g.cs", sourceText);
-    }
-
-    /// <summary>
-    /// 生成性能优化代码
-    /// </summary>
-    private static void GeneratePerformanceOptimizations(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
-    {
-        var sourceText = PerformanceOptimizationGenerator.GenerateSourceText(serviceModels);
-        context.AddSource("PerformanceOptimizations.g.cs", sourceText);
     }
 
     /// <summary>
@@ -273,104 +254,6 @@ public static class ProtocolIdMapping
     }
 
     /// <summary>
-    /// 生成抽象接口
-    /// </summary>
-    private static void GenerateAbstractionInterfaces(GeneratorExecutionContext context)
-    {
-        var code = @"// <auto-generated />
-#nullable enable
-
-namespace PulseRPC.Abstractions;
-
-
-/// <summary>
-/// Marker attribute for PulseRPC services
-/// </summary>
-[System.AttributeUsage(System.AttributeTargets.Interface)]
-public sealed class PulseServiceAttribute : System.Attribute
-{
-}
-
-/// <summary>
-/// Channel attribute for service or method-level routing
-/// </summary>
-[System.AttributeUsage(System.AttributeTargets.Interface | System.AttributeTargets.Method)]
-public sealed class ChannelAttribute : System.Attribute
-{
-    public string ChannelName { get; }
-
-    public ChannelAttribute(string channelName)
-    {
-        ChannelName = channelName ?? throw new System.ArgumentNullException(nameof(channelName));
-    }
-}
-
-/// <summary>
-/// Optimization level hints for code generation
-/// </summary>
-public enum OptimizationLevel
-{
-    None = 0,
-    Basic = 1,
-    Maximum = 2
-}";
-
-        context.AddSource("PulseRPC.Abstractions.g.cs", code);
-    }
-
-    /// <summary>
-    /// 生成性能报告
-    /// </summary>
-    private static void GeneratePerformanceReport(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
-    {
-        var totalMethods = serviceModels.Sum(s => s.Methods.Count);
-        var asyncMethods = serviceModels.SelectMany(s => s.Methods).Count(m => m.IsAsync);
-
-        var report = $@"// <auto-generated />
-// PulseRPC Source Generator Performance Report
-// Generated at: {System.DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC
-
-namespace PulseRPC.Generated;
-
-/// <summary>
-/// Performance and optimization report from PulseRPC Source Generator
-/// </summary>
-public static class GenerationReport
-{{
-    public const string GeneratedAt = ""{System.DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC"";
-    public const int TotalServices = {serviceModels.Count};
-    public const int TotalMethods = {totalMethods};
-    public const int AsyncMethods = {asyncMethods};
-    public const int SyncMethods = {totalMethods - asyncMethods};
-
-    /// <summary>
-    /// Estimated performance improvements from source generation
-    /// </summary>
-    public static class EstimatedImprovements
-    {{
-        // Based on eliminating reflection overhead
-        public const double MethodCallLatencyReduction = 0.80; // 80% reduction
-        public const double SerializationThroughputIncrease = 1.50; // 150% increase
-        public const double RoutingPerformanceIncrease = 2.00; // 200% increase
-        public const double OverallLatencyReduction = 0.60; // 60% reduction
-    }}
-
-    /// <summary>
-    /// Generated code statistics
-    /// </summary>
-    public static class Statistics
-    {{
-        public const int GeneratedProxyClasses = {serviceModels.Count};
-        public const int GeneratedMethods = {totalMethods};
-        public const int StaticRoutingEntries = {serviceModels.Count};
-        public const int PrecomputedHashes = {serviceModels.Count};
-    }}
-}}";
-
-        context.AddSource("GenerationReport.g.cs", report);
-    }
-
-    /// <summary>
     /// 报告生成成功信息
     /// </summary>
     private static void ReportGenerationSuccess(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
@@ -381,9 +264,7 @@ public static class GenerationReport
             "PULSE100",
             "PulseRPC source generation completed successfully",
             $"Generated optimized code for {serviceModels.Count} services with {totalMethods} methods. " +
-            $"Generated smart event handlers, subscription managers, intelligent routers, and performance optimizations. " +
-            $"Expected performance improvements: 80% latency reduction, 150% serialization throughput increase, " +
-            $"90% reduction in event routing overhead.",
+            $"Generated service proxies, routing table, and response serializers.",
             "PulseRPC.Server.SourceGenerator",
             DiagnosticSeverity.Info,
             true);
@@ -428,12 +309,69 @@ public static class GenerationReport
     }
 
     /// <summary>
+    /// 获取用户项目程序集（排除框架库和NuGet包）
+    /// </summary>
+    private static List<IAssemblySymbol> GetUserProjectAssemblies(Compilation compilation)
+    {
+        var userAssemblies = new List<IAssemblySymbol>();
+
+        foreach (var referencedAssembly in compilation.References)
+        {
+            var assembly = compilation.GetAssemblyOrModuleSymbol(referencedAssembly) as IAssemblySymbol;
+            if (assembly == null)
+                continue;
+
+            // 过滤掉框架库和常见 NuGet 包
+            var assemblyName = assembly.Name;
+            if (IsFrameworkOrNuGetAssembly(assemblyName))
+                continue;
+
+            userAssemblies.Add(assembly);
+        }
+
+        return userAssemblies;
+    }
+
+    /// <summary>
+    /// 判断是否为框架库或 NuGet 包
+    /// </summary>
+    private static bool IsFrameworkOrNuGetAssembly(string assemblyName)
+    {
+        // 排除常见的框架和 NuGet 包前缀
+        var excludedPrefixes = new[]
+        {
+            "System.",
+            "Microsoft.",
+            "netstandard",
+            "mscorlib",
+            "Newtonsoft.",
+            "MessagePack",
+            "MemoryPack",
+            "Cysharp.",
+            "NuGet.",
+            "NSubstitute",
+            "xunit",
+            "FluentAssertions",
+            "Testcontainers",
+            "Consul",
+            "dotnet-etcd",
+        };
+
+        foreach (var prefix in excludedPrefixes)
+        {
+            if (assemblyName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 扫描程序集中的所有服务接口
     /// </summary>
-    private static List<ServiceModel> ScanAssemblyForServices(ITypeSymbol markerType, Compilation compilation)
+    private static List<ServiceModel> ScanAssemblyForServices(IAssemblySymbol assembly, Compilation compilation)
     {
         var serviceModels = new List<ServiceModel>();
-        var assembly = markerType.ContainingAssembly;
 
         // 遍历程序集中的所有类型
         foreach (var type in GetAllTypesInAssembly(assembly))

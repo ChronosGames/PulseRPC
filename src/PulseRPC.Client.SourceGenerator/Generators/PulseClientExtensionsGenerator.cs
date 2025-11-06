@@ -372,12 +372,11 @@ public static class PulseClientExtensionsGenerator
 
     private static string GetSmartHandlerClassName(string interfaceName)
     {
-        // 根据用户要求：生成完整命名空间+不带I的版本
-        // 对于 IPlayerLoginEvents，应该生成 SmartPlayerLoginEventsHandler
+        // 对于 IPlayerLoginEvents，应该生成 PlayerLoginEventsSmartHandler
         var baseName = interfaceName.StartsWith("I")
             ? interfaceName.Substring(1)
             : interfaceName;
-        return $"Smart{baseName}Handler";
+        return $"{baseName}SmartHandler";
     }
 
     private static string GetFullTypeName(INamedTypeSymbol typeSymbol)

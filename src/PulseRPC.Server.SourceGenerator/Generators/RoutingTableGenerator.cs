@@ -50,18 +50,17 @@ public static class RoutingTableGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Buffers;");
-        sb.AppendLine("using PulseRPC.Abstractions;");
         sb.AppendLine("using PulseRPC.Server.Abstractions;");
         sb.AppendLine("using PulseRPC.Server.Routing;");
         sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
-        
+
         // 添加服务命名空间
         var namespaces = services.Select(s => s.Namespace).Where(ns => !string.IsNullOrEmpty(ns)).Distinct().ToList();
         foreach (var ns in namespaces)
         {
             sb.AppendLine($"using {ns};");
         }
-        
+
         sb.AppendLine();
     }
 
