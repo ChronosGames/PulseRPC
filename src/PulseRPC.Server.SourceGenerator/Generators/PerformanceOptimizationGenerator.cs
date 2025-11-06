@@ -69,7 +69,6 @@ public static class PerformanceOptimizationGenerator
         sb.AppendLine("        private readonly PerformanceMetricsCollector _metrics;");
         sb.AppendLine("        private readonly ArrayPool<byte> _arrayPool = ArrayPool<byte>.Shared;");
         sb.AppendLine("        private readonly ConcurrentQueue<PendingEvent> _hotPathQueue = new();");
-        sb.AppendLine("        private readonly Timer _hotPathProcessor;");
         sb.AppendLine("        private bool _disposed;");
         sb.AppendLine();
 
@@ -87,9 +86,6 @@ public static class PerformanceOptimizationGenerator
         sb.AppendLine("            _serializer = new PooledEventSerializer();");
         sb.AppendLine("            _batchProcessor = new BatchEventProcessor(_metrics = new PerformanceMetricsCollector());");
         sb.AppendLine("            ");
-        sb.AppendLine("            // 热路径处理器：每1ms处理一次");
-        sb.AppendLine("            _hotPathProcessor = new Timer(ProcessHotPathEvents, null,");
-        sb.AppendLine("                TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1));");
         sb.AppendLine("        }");
         sb.AppendLine();
 
@@ -123,13 +119,6 @@ public static class PerformanceOptimizationGenerator
         sb.AppendLine("            ");
         sb.AppendLine("            try");
         sb.AppendLine("            {");
-        sb.AppendLine("                // 对于高频事件，使用热路径优化");
-        sb.AppendLine("                if (IsHotPathEvent(eventName))");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    await PublishHotPathEventAsync(eventName, eventData);");
-        sb.AppendLine("                    return;");
-        sb.AppendLine("                }");
-        sb.AppendLine("                ");
         sb.AppendLine("                // 智能路由");
         sb.AppendLine("                var context = CreateRoutingContext();");
         sb.AppendLine("                var publishedCount = await _eventRouter.RouteAndPublishAsync(eventName, eventData, context);");
@@ -192,26 +181,6 @@ public static class PerformanceOptimizationGenerator
 
     private static void GenerateHotPathMethods(StringBuilder sb)
     {
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 热路径事件发布 - 极致性能优化");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("        private async ValueTask PublishHotPathEventAsync<T>(string eventName, T eventData)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            // 使用无锁队列进行预处理");
-        sb.AppendLine("            var pendingEvent = new PendingEvent(eventName, eventData!, typeof(T));");
-        sb.AppendLine("            _hotPathQueue.Enqueue(pendingEvent);");
-        sb.AppendLine("            ");
-        sb.AppendLine("            // 如果队列过长，立即处理");
-        sb.AppendLine("            if (_hotPathQueue.Count > 100)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                ProcessHotPathEvents(null);");
-        sb.AppendLine("            }");
-        sb.AppendLine("            ");
-        sb.AppendLine("            await ValueTask.CompletedTask;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
         sb.AppendLine("        private void ProcessHotPathEvents(object? state)");
         sb.AppendLine("        {");
         sb.AppendLine("            var events = new List<PendingEvent>();");
@@ -334,7 +303,6 @@ public static class PerformanceOptimizationGenerator
         sb.AppendLine("        {");
         sb.AppendLine("            if (_disposed) return;");
         sb.AppendLine("            ");
-        sb.AppendLine("            _hotPathProcessor?.Dispose();");
         sb.AppendLine("            _batchProcessor?.Dispose();");
         sb.AppendLine("            _serializer?.Dispose();");
         sb.AppendLine("            ");

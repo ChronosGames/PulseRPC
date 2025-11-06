@@ -177,3 +177,49 @@ public class AuthorizeAttribute : Attribute
 public class AllowAnonymousAttribute : Attribute
 {
 }
+
+/// <summary>
+/// 消息优先级枚举（Service 方法级别）
+/// </summary>
+public enum MessagePriority : byte
+{
+    /// <summary>关键消息 - 最高优先级（如GM命令、紧急操作）</summary>
+    Critical = 0,
+
+    /// <summary>高优先级消息</summary>
+    High = 1,
+
+    /// <summary>普通优先级消息（默认）</summary>
+    Normal = 2,
+
+    /// <summary>低优先级消息</summary>
+    Low = 3,
+
+    /// <summary>批量处理消息 - 最低优先级</summary>
+    Bulk = 4
+}
+
+/// <summary>
+/// 优先级特性，标记方法的消息处理优先级
+/// </summary>
+/// <remarks>
+/// 用于 Service 内部的方法优先级控制。同一 Service 实例内，高优先级消息优先处理。
+/// 同优先级消息按 FIFO 顺序处理。
+/// </remarks>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+public class PriorityAttribute : Attribute
+{
+    /// <summary>
+    /// 消息优先级，默认为 Normal
+    /// </summary>
+    public MessagePriority Priority { get; }
+
+    /// <summary>
+    /// 创建优先级特性
+    /// </summary>
+    /// <param name="priority">消息优先级</param>
+    public PriorityAttribute(MessagePriority priority = MessagePriority.Normal)
+    {
+        Priority = priority;
+    }
+}

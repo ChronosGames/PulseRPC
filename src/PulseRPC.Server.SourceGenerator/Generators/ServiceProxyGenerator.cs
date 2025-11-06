@@ -67,8 +67,9 @@ public static class ServiceProxyGenerator
 
         sb.AppendLine($"/// <summary>");
         sb.AppendLine($"/// Generated high-performance proxy for {serviceModel.InterfaceName}");
+        sb.AppendLine($"/// Uses Protocol ID based routing - zero string allocation");
         sb.AppendLine($"/// </summary>");
-        sb.AppendLine($"public sealed partial class {proxyClassName} : IGeneratedServiceProxy");
+        sb.AppendLine($"public sealed partial class {proxyClassName}");
         sb.AppendLine("{");
 
         // 服务实现字段
@@ -77,10 +78,7 @@ public static class ServiceProxyGenerator
         // 构造函数
         GenerateConstructor(sb, serviceModel, proxyClassName);
 
-        // 主要调用方法
-        GenerateInvokeAsync(sb, serviceModel);
-
-        // 为每个方法生成专用调用方法
+        // 为每个方法生成专用调用方法（仅 Protocol ID 版本）
         GenerateMethodInvokers(sb, serviceModel);
 
         // 辅助方法
@@ -112,45 +110,15 @@ public static class ServiceProxyGenerator
     }
 
     /// <summary>
-    /// 生成主要的InvokeAsync方法
-    /// </summary>
-    private static void GenerateInvokeAsync(StringBuilder sb, ServiceModel serviceModel)
-    {
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// High-performance method dispatcher with compile-time optimization");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    public ValueTask<object?> InvokeAsync(string methodName, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
-        sb.AppendLine("    {");
-
-        // 使用switch表达式进行快速方法分发
-        sb.AppendLine("        return methodName switch");
-        sb.AppendLine("        {");
-
-        foreach (var method in serviceModel.Methods)
-        {
-            sb.AppendLine($"            \"{method.MethodName}\" => Invoke{method.MethodName}Async(data, cancellationToken),");
-        }
-
-        sb.AppendLine($"            _ => throw new MethodNotFoundException($\"Method {{methodName}} not found in service {serviceModel.InterfaceName}\")");
-        sb.AppendLine("        };");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-    }
-
-    /// <summary>
-    /// 为每个方法生成专用调用器
+    /// 为每个方法生成专用调用器（仅 Protocol ID 版本）
     /// </summary>
     private static void GenerateMethodInvokers(StringBuilder sb, ServiceModel serviceModel)
     {
         foreach (var method in serviceModel.Methods)
         {
             var parameterVariableNames = GetSafeParameterVariableNames(method);
-            
-            // 生成基于方法名的调用器（向后兼容）
-            GenerateMethodInvoker(sb, method, serviceModel.InterfaceName, parameterVariableNames);
-            
-            // 生成基于协议号的调用器（推荐 - 高性能）
+
+            // 生成基于协议号的调用器（零字符串分配）
             GenerateProtocolIdMethodInvoker(sb, method, serviceModel.InterfaceName, parameterVariableNames);
         }
     }
@@ -178,27 +146,6 @@ public static class ServiceProxyGenerator
         sb.AppendLine();
     }
 
-    /// <summary>
-    /// 生成单个方法的调用器
-    /// </summary>
-    private static void GenerateMethodInvoker(StringBuilder sb, MethodModel method, string serviceName, IReadOnlyList<string> parameterVariableNames)
-    {
-        sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// Optimized invoker for {method.MethodName}");
-        sb.AppendLine($"    /// </summary>");
-        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine($"    private async ValueTask<object?> Invoke{method.MethodName}Async(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
-        sb.AppendLine("    {");
-
-        // 反序列化参数
-        GenerateParameterDeserialization(sb, method, parameterVariableNames);
-
-        // 调用服务方法
-        GenerateServiceMethodCall(sb, method, parameterVariableNames);
-
-        sb.AppendLine("    }");
-        sb.AppendLine();
-    }
 
     /// <summary>
     /// 生成参数反序列化代码

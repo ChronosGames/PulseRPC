@@ -266,6 +266,9 @@ public abstract class ServiceMessage
 
     /// <summary>认证上下文</summary>
     public AuthenticationContext? AuthContext { get; set; }
+
+    /// <summary>消息优先级（默认为 Normal）</summary>
+    public PulseRPC.MessagePriority Priority { get; set; } = PulseRPC.MessagePriority.Normal;
 }
 
 /// <summary>
@@ -479,11 +482,46 @@ public class PermissionValidator
 }
 
 // ========================
-// 7. 增强的Actor消息队列（带认证）
+// 7. 优先级消息包装
 // ========================
 
 /// <summary>
-/// 带认证的Actor消息队列
+/// 优先级消息包装类 - 用于优先级队列排序
+/// </summary>
+internal sealed class PriorityServiceMessage : IComparable<PriorityServiceMessage>
+{
+    public ServiceMessage Message { get; }
+    public long Sequence { get; } // 序列号，用于同优先级 FIFO
+
+    public PriorityServiceMessage(ServiceMessage message, long sequence)
+    {
+        Message = message;
+        Sequence = sequence;
+    }
+
+    /// <summary>
+    /// 比较优先级：优先级高的优先（Critical=0 最高），同优先级按序列号排序（FIFO）
+    /// </summary>
+    public int CompareTo(PriorityServiceMessage? other)
+    {
+        if (other == null) return 1;
+
+        // 优先级数值越小，优先级越高（Critical=0, High=1, Normal=2, Low=3, Bulk=4）
+        // PriorityQueue 是最小堆，所以较小值优先出队
+        var priorityCompare = Message.Priority.CompareTo(other.Message.Priority);
+        if (priorityCompare != 0) return priorityCompare;
+
+        // 同优先级按序列号排序（FIFO）
+        return Sequence.CompareTo(other.Sequence);
+    }
+}
+
+// ========================
+// 8. 增强的Actor消息队列（带认证 + 优先级）
+// ========================
+
+/// <summary>
+/// 带认证的Actor消息队列（支持优先级）
 /// </summary>
 internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
 {
@@ -491,7 +529,12 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     // TODO: 协议号到方法的映射将由 SourceGenerator 生成
     private static readonly ConcurrentDictionary<(Type ServiceType, PulseRPC.Protocol.ProtocolId ProtocolId), System.Reflection.MethodInfo?> _methodInfoCache = new();
 
-    private readonly Channel<ServiceMessage> _messageChannel;
+    private readonly PriorityQueue<PriorityServiceMessage, PriorityServiceMessage> _priorityQueue;
+    private readonly SemaphoreSlim _signal; // 信号量，通知有新消息
+    private readonly object _queueLock = new(); // 队列锁（PriorityQueue 不是线程安全的）
+    private long _sequenceCounter; // 序列号计数器，确保同优先级 FIFO
+    private readonly int _capacity; // 队列容量
+
     private readonly ILogger _logger;
     private readonly string _actorName;
     private readonly PID _actorPID;
@@ -499,6 +542,16 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     private readonly PermissionValidator _permissionValidator;
 
     private readonly ConcurrentDictionary<string, ServiceTimer> _timers = new();
+
+    // 并发控制
+    private readonly int _maxConcurrency; // 最大并发度（1 表示单线程模型）
+    private readonly SemaphoreSlim? _concurrencySemaphore; // 并发槽位信号量
+    private readonly List<Task>? _runningTasks; // 运行中的任务列表（并发模式）
+    private readonly object? _tasksLock; // 任务列表锁
+
+    // 背压策略与监控
+    private readonly Configuration.BackpressureStrategy _backpressureStrategy; // 背压策略
+    private readonly ServiceQueueMetrics _metrics; // 队列监控指标
 
     private long _totalProcessed;
     private long _totalFailed;
@@ -514,22 +567,46 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
         Type actorType,
         ILogger logger,
         PermissionValidator permissionValidator,
-        int capacity = 10000)
+        int capacity = 10000,
+        int maxConcurrency = 1, // 默认单线程模型
+        Configuration.BackpressureStrategy backpressureStrategy = Configuration.BackpressureStrategy.Block) // 默认阻塞策略
     {
         _actorName = actorName;
         _actorPID = actorPID;
         _actorType = actorType ?? throw new ArgumentNullException(nameof(actorType));
         _logger = logger;
         _permissionValidator = permissionValidator;
+        _capacity = capacity;
+        _maxConcurrency = maxConcurrency;
+        _backpressureStrategy = backpressureStrategy;
 
-        var options = new BoundedChannelOptions(capacity)
+        if (_maxConcurrency < 1)
+            throw new ArgumentException("MaxConcurrency must be at least 1", nameof(maxConcurrency));
+
+        _priorityQueue = new PriorityQueue<PriorityServiceMessage, PriorityServiceMessage>();
+        _signal = new SemaphoreSlim(0);
+        _sequenceCounter = 0;
+
+        // 初始化监控指标
+        _metrics = new ServiceQueueMetrics(capacity);
+
+        // 并发模式初始化
+        if (_maxConcurrency > 1)
         {
-            FullMode = BoundedChannelFullMode.Wait,
-            SingleReader = true,
-            SingleWriter = false
-        };
+            _concurrencySemaphore = new SemaphoreSlim(_maxConcurrency, _maxConcurrency);
+            _runningTasks = new List<Task>();
+            _tasksLock = new object();
 
-        _messageChannel = Channel.CreateBounded<ServiceMessage>(options);
+            _logger.LogInformation(
+                "Concurrent message queue initialized - Actor: {ActorName}, MaxConcurrency: {MaxConcurrency}, BackpressureStrategy: {Strategy}",
+                _actorName, _maxConcurrency, _backpressureStrategy);
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Sequential message queue initialized - Actor: {ActorName}, BackpressureStrategy: {Strategy}",
+                _actorName, _backpressureStrategy);
+        }
     }
 
     public void Start(Func<ServiceMessage, Task> messageHandler)
@@ -537,15 +614,23 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
         if (_processingTask != null)
             throw new InvalidOperationException("Message queue processing is already started");
 
-        _processingTask = Task.Run(async () => await ProcessMessagesAsync(messageHandler));
+        // 根据并发模式选择不同的处理循环
+        if (_maxConcurrency > 1)
+        {
+            _processingTask = Task.Run(async () => await ProcessMessagesConcurrentlyAsync(messageHandler));
+        }
+        else
+        {
+            _processingTask = Task.Run(async () => await ProcessMessagesAsync(messageHandler));
+        }
 
         _logger.LogInformation(
-            "Authenticated message queue started - Actor: {ActorName}, PID: {PID}",
-            _actorName, _actorPID);
+            "Authenticated message queue started - Actor: {ActorName}, PID: {PID}, Mode: {Mode}",
+            _actorName, _actorPID, _maxConcurrency > 1 ? "Concurrent" : "Sequential");
     }
 
     /// <summary>
-    /// 发送方法调用消息（带认证上下文）
+    /// 发送方法调用消息（带认证上下文 + 优先级）
     /// </summary>
     public async Task<TResult> SendMethodInvocationAsync<TResult>(
         PulseRPC.Protocol.ProtocolId protocolId,
@@ -559,10 +644,12 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
             Arguments = arguments,
             ReturnType = typeof(TResult),
             CancellationToken = cancellationToken,
-            AuthContext = authContext
+            AuthContext = authContext,
+            Priority = ExtractMethodPriority(protocolId) // ✅ 从方法特性中提取优先级
         };
 
-        await _messageChannel.Writer.WriteAsync(message, cancellationToken);
+        // 入队消息（带优先级）
+        EnqueueMessage(message);
 
         var result = await message.CompletionSource.Task;
 
@@ -587,15 +674,219 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
             Arguments = arguments,
             ReturnType = null,
             CancellationToken = cancellationToken,
-            AuthContext = authContext
+            AuthContext = authContext,
+            Priority = ExtractMethodPriority(protocolId) // ✅ 从方法特性中提取优先级
         };
 
-        await _messageChannel.Writer.WriteAsync(message, cancellationToken);
+        // 入队消息（带优先级）
+        EnqueueMessage(message);
+
         await message.CompletionSource.Task;
     }
 
     /// <summary>
-    /// 消息处理循环（带权限验证）
+    /// 入队消息（线程安全）
+    /// </summary>
+    private void EnqueueMessage(ServiceMessage message)
+    {
+        lock (_queueLock)
+        {
+            var currentCount = _priorityQueue.Count;
+
+            // 检查队列容量
+            if (currentCount >= _capacity)
+            {
+                // 根据背压策略处理队列满的情况
+                switch (_backpressureStrategy)
+                {
+                    case Configuration.BackpressureStrategy.Block:
+                        // Block 策略：抛出异常，让调用者决定是否重试
+                        _metrics.RecordRejected();
+                        _logger.LogWarning(
+                            "Message queue is full (capacity: {Capacity}) - Strategy: Block, MessageId: {MessageId}",
+                            _capacity, message.MessageId);
+                        throw new InvalidOperationException($"Message queue is full (capacity: {_capacity})");
+
+                    case Configuration.BackpressureStrategy.DropOldest:
+                        // DropOldest 策略：移除最旧消息，插入新消息
+                        if (_priorityQueue.TryDequeue(out var droppedOldest, out _))
+                        {
+                            _metrics.RecordDroppedOldest();
+                            _logger.LogWarning(
+                                "Dropping oldest message - Queue full, Strategy: DropOldest, DroppedMessageId: {DroppedMessageId}, NewMessageId: {NewMessageId}",
+                                droppedOldest.Message.MessageId, message.MessageId);
+
+                            // 如果被丢弃的消息有 CompletionSource，设置为取消
+                            if (droppedOldest.Message is MethodInvocationMessage droppedMethod)
+                            {
+                                droppedMethod.CompletionSource.TrySetCanceled();
+                            }
+                        }
+                        break;
+
+                    case Configuration.BackpressureStrategy.DropNewest:
+                        // DropNewest 策略：拒绝新消息，保留队列中的消息
+                        _metrics.RecordDroppedNewest();
+                        _logger.LogWarning(
+                            "Dropping newest message - Queue full, Strategy: DropNewest, DroppedMessageId: {MessageId}",
+                            message.MessageId);
+
+                        // 如果消息有 CompletionSource，设置为取消
+                        if (message is MethodInvocationMessage methodMsg)
+                        {
+                            methodMsg.CompletionSource.TrySetCanceled();
+                        }
+                        return; // 不入队，直接返回
+
+                    case Configuration.BackpressureStrategy.Reject:
+                        // Reject 策略：拒绝新消息并抛出异常
+                        _metrics.RecordRejected();
+                        _logger.LogWarning(
+                            "Rejecting message - Queue full, Strategy: Reject, MessageId: {MessageId}",
+                            message.MessageId);
+                        throw new InvalidOperationException($"Message rejected - queue is full (capacity: {_capacity})");
+
+                    default:
+                        throw new NotSupportedException($"Backpressure strategy '{_backpressureStrategy}' is not supported");
+                }
+            }
+
+            // 生成序列号（确保同优先级 FIFO）
+            var sequence = Interlocked.Increment(ref _sequenceCounter);
+            var priorityMessage = new PriorityServiceMessage(message, sequence);
+
+            // 入队
+            _priorityQueue.Enqueue(priorityMessage, priorityMessage);
+
+            // 记录入队指标
+            _metrics.RecordEnqueue();
+        }
+
+        // 释放信号量，通知有新消息
+        _signal.Release();
+    }
+
+    /// <summary>
+    /// 消息处理循环（并发模式）
+    /// </summary>
+    private async Task ProcessMessagesConcurrentlyAsync(Func<ServiceMessage, Task> messageHandler)
+    {
+        _logger.LogInformation("Concurrent message processing loop started - Actor: {ActorName}, MaxConcurrency: {MaxConcurrency}",
+            _actorName, _maxConcurrency);
+
+        try
+        {
+            while (!_disposalCts.Token.IsCancellationRequested)
+            {
+                // 等待新消息
+                await _signal.WaitAsync(_disposalCts.Token);
+
+                PriorityServiceMessage? priorityMessage;
+                lock (_queueLock)
+                {
+                    // 从优先级队列中出队
+                    if (!_priorityQueue.TryDequeue(out priorityMessage, out _))
+                        continue;
+
+                    // 记录出队指标
+                    _metrics.RecordDequeue();
+                }
+
+                // 等待并发槽位
+                await _concurrencySemaphore!.WaitAsync(_disposalCts.Token);
+
+                var message = priorityMessage.Message;
+
+                // 启动并发处理任务
+                var task = Task.Run(async () =>
+                {
+                    try
+                    {
+                        // 设置认证上下文
+                        using (AuthenticationContextProvider.SetContext(message.AuthContext!))
+                        {
+                            // 对于方法调用消息，进行权限验证
+                            if (message is MethodInvocationMessage methodMsg)
+                            {
+                                if (!await ValidateMethodCallAsync(methodMsg))
+                                {
+                                    Interlocked.Increment(ref _authorizationFailures);
+                                    _metrics.RecordError(); // 记录权限验证失败
+                                    return; // 验证失败，跳过处理
+                                }
+                            }
+
+                            await messageHandler(message);
+                            Interlocked.Increment(ref _totalProcessed);
+                            _metrics.RecordProcessed(); // 记录处理成功
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.Increment(ref _totalFailed);
+                        _metrics.RecordError(); // 记录处理错误
+
+                        _logger.LogError(ex,
+                            "Message processing failed - Actor: {ActorName}, Type: {Type}, MessageId: {MessageId}, Priority: {Priority}",
+                            _actorName, message.Type, message.MessageId, message.Priority);
+
+                        if (message is MethodInvocationMessage methodMsg)
+                        {
+                            methodMsg.CompletionSource.TrySetException(ex);
+                        }
+                    }
+                    finally
+                    {
+                        // 释放并发槽位
+                        _concurrencySemaphore!.Release();
+                    }
+                }, _disposalCts.Token);
+
+                // 添加到运行中的任务列表
+                lock (_tasksLock!)
+                {
+                    _runningTasks!.Add(task);
+
+                    // 清理已完成的任务（每 10 个任务清理一次，避免频繁锁）
+                    if (_runningTasks.Count > _maxConcurrency * 2)
+                    {
+                        _runningTasks.RemoveAll(t => t.IsCompleted);
+                    }
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Concurrent message processing cancelled - Actor: {ActorName}", _actorName);
+        }
+        finally
+        {
+            // 等待所有运行中的任务完成
+            Task[]? tasksToWait;
+            lock (_tasksLock!)
+            {
+                tasksToWait = _runningTasks!.ToArray();
+            }
+
+            if (tasksToWait.Length > 0)
+            {
+                _logger.LogInformation("Waiting for {Count} running tasks to complete - Actor: {ActorName}",
+                    tasksToWait.Length, _actorName);
+
+                try
+                {
+                    await Task.WhenAll(tasksToWait);
+                }
+                catch
+                {
+                    // 忽略任务异常（已在任务内部处理）
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 消息处理循环（单线程模式 + 权限验证 + 优先级）
     /// </summary>
     private async Task ProcessMessagesAsync(Func<ServiceMessage, Task> messageHandler)
     {
@@ -603,8 +894,23 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
 
         try
         {
-            await foreach (var message in _messageChannel.Reader.ReadAllAsync(_disposalCts.Token))
+            while (!_disposalCts.Token.IsCancellationRequested)
             {
+                // 等待新消息
+                await _signal.WaitAsync(_disposalCts.Token);
+
+                PriorityServiceMessage? priorityMessage;
+                lock (_queueLock)
+                {
+                    // 从优先级队列中出队（优先级高的优先）
+                    if (!_priorityQueue.TryDequeue(out priorityMessage, out _))
+                        continue;
+
+                    // 记录出队指标
+                    _metrics.RecordDequeue();
+                }
+
+                var message = priorityMessage.Message;
                 var processingStart = Stopwatch.GetTimestamp();
 
                 try
@@ -618,21 +924,24 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
                             if (!await ValidateMethodCallAsync(methodMsg))
                             {
                                 Interlocked.Increment(ref _authorizationFailures);
+                                _metrics.RecordError(); // 记录权限验证失败
                                 continue; // 验证失败，跳过处理
                             }
                         }
 
                         await messageHandler(message);
                         Interlocked.Increment(ref _totalProcessed);
+                        _metrics.RecordProcessed(); // 记录处理成功
                     }
                 }
                 catch (Exception ex)
                 {
                     Interlocked.Increment(ref _totalFailed);
+                    _metrics.RecordError(); // 记录处理错误
 
                     _logger.LogError(ex,
-                        "Message processing failed - Actor: {ActorName}, Type: {Type}, MessageId: {MessageId}",
-                        _actorName, message.Type, message.MessageId);
+                        "Message processing failed - Actor: {ActorName}, Type: {Type}, MessageId: {MessageId}, Priority: {Priority}",
+                        _actorName, message.Type, message.MessageId, message.Priority);
 
                     if (message is MethodInvocationMessage methodMsg)
                     {
@@ -648,7 +957,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     }
 
     /// <summary>
-    /// 验证方法调用权限
+    /// 验证方法调用权限 + 提取优先级
     /// </summary>
     private async Task<bool> ValidateMethodCallAsync(MethodInvocationMessage message)
     {
@@ -693,6 +1002,36 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// 从方法中提取优先级特性
+    /// </summary>
+    private PulseRPC.MessagePriority ExtractMethodPriority(PulseRPC.Protocol.ProtocolId protocolId)
+    {
+        try
+        {
+            var actorType = GetActorType();
+            var methodInfo = _methodInfoCache.GetOrAdd(
+                (actorType, protocolId),
+                key => PulseRPC.Generated.ProtocolIdMapping.GetMethod(key.ServiceType, key.ProtocolId));
+
+            if (methodInfo == null)
+                return PulseRPC.MessagePriority.Normal; // 默认优先级
+
+            // 查找 PriorityAttribute
+            var priorityAttr = methodInfo.GetCustomAttribute<PriorityAttribute>();
+            if (priorityAttr != null)
+            {
+                return priorityAttr.Priority;
+            }
+
+            return PulseRPC.MessagePriority.Normal; // 默认优先级
+        }
+        catch
+        {
+            return PulseRPC.MessagePriority.Normal;
+        }
+    }
+
     private Type GetActorType()
     {
         return _actorType;
@@ -714,9 +1053,27 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
         };
     }
 
+    /// <summary>
+    /// 获取队列监控指标快照
+    /// </summary>
+    public ServiceQueueMetricsSnapshot GetMetricsSnapshot()
+    {
+        return _metrics.GetSnapshot();
+    }
+
+    /// <summary>
+    /// 获取当前队列深度
+    /// </summary>
+    public int GetCurrentQueueDepth()
+    {
+        lock (_queueLock)
+        {
+            return _priorityQueue.Count;
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
-        _messageChannel.Writer.Complete();
         _disposalCts.Cancel();
 
         if (_processingTask != null)
@@ -726,5 +1083,22 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
         }
 
         _disposalCts.Dispose();
+        _signal.Dispose();
+        _concurrencySemaphore?.Dispose(); // 并发模式的信号量
+
+        // 清空优先级队列
+        lock (_queueLock)
+        {
+            _priorityQueue.Clear();
+        }
+
+        // 清空任务列表（并发模式）
+        if (_runningTasks != null)
+        {
+            lock (_tasksLock!)
+            {
+                _runningTasks.Clear();
+            }
+        }
     }
 }

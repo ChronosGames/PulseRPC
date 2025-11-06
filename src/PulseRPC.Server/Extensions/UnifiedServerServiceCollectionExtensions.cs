@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -9,7 +10,9 @@ using PulseRPC.Server.Integration;
 using PulseRPC.Server.MessageEngine;
 using PulseRPC.Server.Pipeline;
 using PulseRPC.Server.Processing;
+using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Transport;
+using PulseRPC.Scheduling;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
 
@@ -102,7 +105,7 @@ public static class UnifiedServerServiceCollectionExtensions
         // 1. 首先注册基础依赖（不依赖其他服务）
         services.TryAddSingleton<IMessageDispatcher, HighPerformanceMessageDispatcher>();
         services.TryAddSingleton<IResponseProcessor, HighPerformanceResponseProcessor>();
-        
+
         // 1.5. 注册序列化提供程序（EventPublisher 的依赖）
         services.TryAddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
 
@@ -258,6 +261,143 @@ internal class UnifiedPulseServerBuilder : IUnifiedPulseServerBuilder
         // Services.AddHostedService<UnifiedPulseServerHostedService>();
 
         return Services;
+    }
+}
+
+/// <summary>
+/// 命名服务器扩展方法（方案1实现）
+/// </summary>
+public static class NamedPulseServerServiceCollectionExtensions
+{
+    /// <summary>
+    /// 添加命名的 PulseRPC 服务器（支持多实例）
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="serverName">服务器名称（唯一标识）</param>
+    /// <param name="configureOptions">配置选项的委托</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddNamedPulseServer(
+        this IServiceCollection services,
+        string serverName,
+        Action<UnifiedServerOptions> configureOptions)
+    {
+        if (services == null) throw new ArgumentNullException(nameof(services));
+        if (string.IsNullOrWhiteSpace(serverName)) throw new ArgumentException("Server name cannot be null or whitespace", nameof(serverName));
+        if (configureOptions == null) throw new ArgumentNullException(nameof(configureOptions));
+
+        // 使用命名方式注册配置
+        services.Configure<UnifiedServerOptions>(serverName, configureOptions);
+
+        // 注册核心依赖（如果尚未注册）- 这些依赖可以被多个服务器实例共享
+        services.TryAddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
+
+        // 注册内置传输提供程序（共享）
+        services.TryAddSingleton<ITransportProvider, TcpTransportProvider>();
+        services.TryAddSingleton<ITransportProvider, KcpTransportProvider>();
+
+        // 注册序列化器提供程序（共享）
+        services.TryAddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
+
+        // 注册响应序列化器注册表（如果存在）
+        if (ResponseSerializerRegistry.Instance != null)
+        {
+            services.TryAddSingleton(ResponseSerializerRegistry.Instance);
+        }
+
+        // 为每个命名服务器注册独立的依赖（使用 Keyed Services）
+        // 注意：依赖创建顺序很重要
+
+        // 1. 通道管理器（每个服务器独立）
+        services.AddKeyedSingleton<IServerChannelManager>(serverName, (sp, key) =>
+        {
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var logger = loggerFactory.CreateLogger<ServerChannelManager>();
+            return new ServerChannelManager(logger, loggerFactory);
+        });
+
+        // 2. 消息分发器（每个服务器独立）
+        services.AddKeyedSingleton<IMessageDispatcher>(serverName, (sp, key) =>
+            new HighPerformanceMessageDispatcher());
+
+        // 3. 响应处理器（每个服务器独立）
+        services.AddKeyedSingleton<IResponseProcessor>(serverName, (sp, key) =>
+        {
+            var channelManager = sp.GetRequiredKeyedService<IServerChannelManager>(key);
+            var serializerProvider = sp.GetService<ISerializerProvider>();
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var logger = loggerFactory.CreateLogger<HighPerformanceResponseProcessor>();
+            var responseSerializerRegistry = sp.GetService<IResponseSerializerRegistry>();
+
+            return new HighPerformanceResponseProcessor(
+                channelManager,
+                serializerProvider,
+                null, // options
+                logger,
+                responseSerializerRegistry);
+        });
+
+        // 4. 消息引擎（每个服务器独立）
+        services.AddKeyedSingleton<ITieredMessageEngine>(serverName, (sp, key) =>
+        {
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var logger = loggerFactory.CreateLogger<HighPerformanceMessageEngine>();
+            var dispatcher = sp.GetRequiredKeyedService<IMessageDispatcher>(key);
+            var channelManager = sp.GetRequiredKeyedService<IServerChannelManager>(key);
+            var responseProcessor = sp.GetRequiredKeyedService<IResponseProcessor>(key);
+            var scheduler = sp.GetService<IServiceScheduler>();
+
+            var engineOptions = Options.Create(new MessageEngineConfiguration());
+
+            return new HighPerformanceMessageEngine(
+                dispatcher,
+                sp, // IServiceProvider
+                engineOptions,
+                logger,
+                channelManager,
+                responseProcessor,
+                scheduler);
+        });
+
+        // 5. 注册命名服务器（使用 Keyed Service）
+        services.AddKeyedSingleton<INamedPulseServer>(
+            serverName,
+            (sp, key) =>
+            {
+                var options = sp.GetRequiredService<IOptionsMonitor<UnifiedServerOptions>>()
+                    .Get(serverName);
+
+                var messageEngine = sp.GetRequiredKeyedService<ITieredMessageEngine>(key);
+                var channelManager = sp.GetRequiredKeyedService<IServerChannelManager>(key);
+                var transportIntegrationManager = sp.GetRequiredService<ITransportIntegrationManager>();
+                var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+
+                return new NamedUnifiedPulseServer(
+                    serverName,
+                    messageEngine,
+                    channelManager,
+                    transportIntegrationManager,
+                    loggerFactory,
+                    Options.Create(options));
+            });
+
+        return services;
+    }
+
+    /// <summary>
+    /// 添加命名的 PulseRPC 服务器（使用 IConfiguration）
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="serverName">服务器名称（唯一标识）</param>
+    /// <param name="configuration">配置节</param>
+    /// <returns>服务集合</returns>
+    public static IServiceCollection AddNamedPulseServer(
+        this IServiceCollection services,
+        string serverName,
+        IConfiguration configuration)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(serverName);
+
+        return services.AddNamedPulseServer(serverName, configuration.Bind);
     }
 }
 

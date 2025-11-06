@@ -2,7 +2,6 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
-using PulseRPC.Client;
 using PulseRPC.Transport;
 using ISubscriptionToken = PulseRPC.ISubscriptionToken;
 

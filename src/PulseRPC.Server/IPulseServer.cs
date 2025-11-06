@@ -107,6 +107,18 @@ public interface IPulseServer : IAsyncDisposable, IDisposable
 }
 
 /// <summary>
+/// 命名 PulseRPC 服务器接口
+/// 支持在同一进程中运行多个服务器实例
+/// </summary>
+public interface INamedPulseServer : IPulseServer
+{
+    /// <summary>
+    /// 服务器名称（唯一标识）
+    /// </summary>
+    string ServerName { get; }
+}
+
+/// <summary>
 /// 服务器状态枚举
 /// </summary>
 public enum ServerState
