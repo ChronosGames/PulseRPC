@@ -5,6 +5,7 @@ using PulseRPC.Serialization;
 using PulseRPC.Client;
 using PulseRPC.Client.ConnectionPool;
 using PulseRPC.Messaging;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Client;
 
@@ -249,6 +250,37 @@ internal sealed class PulseClient : IPulseClient
         _connectionRegistry.RegisterConnection(connection);
 
         return connection;
+    }
+
+    /// <summary>
+    /// 运行时动态连接到服务器
+    /// </summary>
+    public async Task<IClientChannel> ConnectToServerAsync(
+        string host,
+        int port,
+        string? serverId = null,
+        string? name = null,
+        TransportType transport = TransportType.TCP,
+        ConnectionStrategy strategy = ConnectionStrategy.Session,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+        EnsureRunning();
+
+        // 生成 ID 和 Name
+        var id = serverId ?? Guid.NewGuid().ToString("N");
+        var connectionName = name ?? $"{transport}-{host}:{port}";
+
+        // 创建连接描述符
+        var descriptor = transport switch
+        {
+            TransportType.TCP => ConnectionDescriptor.CreateTcp(id, connectionName, host, port, strategy),
+            TransportType.KCP => ConnectionDescriptor.CreateKcp(id, connectionName, host, port, strategy),
+            _ => throw new NotSupportedException($"不支持的传输类型: {transport}")
+        };
+
+        // 使用现有的 ConnectAsync 方法
+        return await ConnectAsync(descriptor, cancellationToken);
     }
 
     /// <summary>

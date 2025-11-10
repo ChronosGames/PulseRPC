@@ -203,6 +203,100 @@ class Program
                         await client.BattleReadyAsync();
                         break;
 
+                    case "attack":
+                        if (parts.Length < 2)
+                        {
+                            Console.WriteLine("用法: attack <目标角色ID>");
+                        }
+                        else
+                        {
+                            await client.PerformAttackAsync(parts[1]);
+                        }
+                        break;
+
+                    case "skill":
+                        if (parts.Length < 3)
+                        {
+                            Console.WriteLine("用法: skill <技能ID> <目标角色ID>");
+                        }
+                        else
+                        {
+                            await client.UseSkillAsync(parts[1], parts[2]);
+                        }
+                        break;
+
+                    case "servers":
+                    case "listservers":
+                        client.ListServers();
+                        break;
+
+                    case "switch":
+                        if (parts.Length < 2)
+                        {
+                            Console.WriteLine("用法: switch <服务器ID>");
+                        }
+                        else
+                        {
+                            var success = client.SwitchServer(parts[1]);
+                            if (success)
+                            {
+                                Console.WriteLine($"已切换到服务器: {parts[1]}");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"切换失败: 服务器 {parts[1]} 不存在或未连接");
+                            }
+                        }
+                        break;
+
+                    case "connectgame":
+                        if (parts.Length < 4)
+                        {
+                            Console.WriteLine("用法: connectgame <服务器ID> <名称> <主机> <端口>");
+                        }
+                        else if (int.TryParse(parts[3], out var gamePort))
+                        {
+                            await client.ConnectToGameServerAsync(parts[1], parts[2], parts[2], gamePort);
+                        }
+                        else
+                        {
+                            Console.WriteLine("无效的端口号");
+                        }
+                        break;
+
+                    case "connectbattle":
+                        if (parts.Length < 4)
+                        {
+                            Console.WriteLine("用法: connectbattle <战斗ID> <主机> <端口>");
+                        }
+                        else if (int.TryParse(parts[3], out var battlePort))
+                        {
+                            await client.ConnectToBattleServerAsync(parts[1], parts[2], battlePort);
+                        }
+                        else
+                        {
+                            Console.WriteLine("无效的端口号");
+                        }
+                        break;
+
+                    case "scenario":
+                    case "runscenario":
+                        if (parts.Length < 2)
+                        {
+                            Console.WriteLine("用法: scenario fullbattle <账号> <角色名> <职业>");
+                            Console.WriteLine("职业: Warrior, Mage, Archer, Assassin, Priest");
+                        }
+                        else
+                        {
+                            await RunScenarioCommandAsync(client, parts);
+                        }
+                        break;
+
+                    case "leave":
+                    case "leavebattle":
+                        await client.LeaveBattleAsync();
+                        break;
+
                     case "exit":
                     case "quit":
                         running = false;
@@ -226,8 +320,14 @@ class Program
     {
         Console.WriteLine("\n=== 命令列表 ===");
         Console.WriteLine("账号管理:");
-        Console.WriteLine("  login <账号> <密码>                  - 登录账号");
-        Console.WriteLine("  create <名称> <职业> <性别>          - 创建角色");
+        Console.WriteLine("  login <账号> <密码>                   - 登录账号");
+        Console.WriteLine("  create <名称> <职业> <性别>           - 创建角色");
+        Console.WriteLine();
+        Console.WriteLine("服务器管理:");
+        Console.WriteLine("  servers | listservers                 - 列出所有已连接的服务器");
+        Console.WriteLine("  switch <服务器ID>                     - 切换到指定服务器");
+        Console.WriteLine("  connectgame <ID> <名称> <主机> <端口> - 连接到额外的 GameServer");
+        Console.WriteLine("  connectbattle <战斗ID> <主机> <端口>  - 连接到 BattleServer");
         Console.WriteLine();
         Console.WriteLine("玩家操作:");
         Console.WriteLine("  info | status                         - 显示客户端状态");
@@ -242,6 +342,12 @@ class Program
         Console.WriteLine("  match <模式>                          - 开始匹配 (OneVsOne/ThreeVsThree/FiveVsFive)");
         Console.WriteLine("  battle <战斗ID>                       - 加入战斗");
         Console.WriteLine("  ready                                 - 战斗准备");
+        Console.WriteLine("  attack <目标角色ID>                   - 攻击目标");
+        Console.WriteLine("  skill <技能ID> <目标角色ID>           - 使用技能");
+        Console.WriteLine("  leave | leavebattle                   - 离开战斗");
+        Console.WriteLine();
+        Console.WriteLine("场景模式:");
+        Console.WriteLine("  scenario fullbattle <账号> <角色名> <职业> - 运行完整战斗流程场景");
         Console.WriteLine();
         Console.WriteLine("其他:");
         Console.WriteLine("  help | h                              - 显示帮助");

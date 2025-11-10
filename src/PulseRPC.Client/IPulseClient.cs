@@ -63,8 +63,35 @@ public interface IPulseClient : IDisposable
     /// </summary>
     Task<IClientChannel> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
 
-    // 注意：GetServiceAsync<T> 和 RegisterEventListenerAsync<T> 方法现在通过
-    // PulseClientFactoryExtensions 扩展方法提供，以支持源代码生成器工厂模式
+    /// <summary>
+    /// 运行时动态连接到服务器
+    /// </summary>
+    Task<IClientChannel> ConnectToServerAsync(
+        string host,
+        int port,
+        string? serverId = null,
+        string? name = null,
+        TransportType transport = TransportType.TCP,
+        ConnectionStrategy strategy = ConnectionStrategy.Session,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 获取服务代理（使用当前连接或路由选择）
+    /// 注意：此方法通过 PulseClientServiceExtensions 扩展方法提供，以支持源代码生成器
+    /// </summary>
+    // Task<TService> GetServiceAsync<TService>(CancellationToken cancellationToken = default) where TService : class;
+
+    /// <summary>
+    /// 从指定连接获取服务代理
+    /// 注意：此方法通过 PulseClientServiceExtensions 扩展方法提供，以支持源代码生成器
+    /// </summary>
+    // Task<TService> GetServiceAsync<TService>(string connectionId, CancellationToken cancellationToken = default) where TService : class;
+
+    /// <summary>
+    /// 注册事件监听器
+    /// 注意：此方法通过 PulseClientServiceExtensions 扩展方法提供，以支持源代码生成器
+    /// </summary>
+    // Task<ISubscriptionToken> RegisterEventListenerAsync<TListener>(TListener listener, string? connectionId = null, CancellationToken cancellationToken = default) where TListener : class;
 
     /// <summary>
     /// 断开连接

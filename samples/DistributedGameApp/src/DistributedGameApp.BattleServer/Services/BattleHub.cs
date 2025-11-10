@@ -3,57 +3,94 @@ using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Server;
-using PulseRPC.Server.Abstractions;
 
 namespace DistributedGameApp.BattleServer.Services;
 
 /// <summary>
-/// 战斗服务 Hub 实现 - 基于 BaseService 架构
+/// 战斗服务 Hub 实现 - 改进版
 /// </summary>
 /// <remarks>
-/// <para><strong>改进点</strong>:</para>
-/// <list type="bullet">
-/// <item><description>继承 BaseService，获得消息队列和线程安全保证</description></item>
-/// <item><description>实现 IPulseService，支持全局单例调度</description></item>
-/// <item><description>使用 GetCurrentCaller() 获取认证上下文，替代 AsyncLocal</description></item>
-/// <item><description>获得表达式树编译优化（性能提升 50 倍）</description></item>
-/// <item><description>获得监控指标和灾难隔离能力</description></item>
-/// </list>
+/// 改进点：
+/// 1. 使用 BattleConnectionContext 替代 AsyncLocal 进行状态管理
+/// 2. 实现访问令牌验证，确保安全性
+/// 3. 使用 CharacterId 作为会话标识（一个角色同一时间只能有一个连接）
 /// </remarks>
-public class BattleHub : BaseService, IBattleHub, IPulseService
+public class BattleHub : IBattleHub
 {
     private readonly BattleRoomManager _battleRoomManager;
+    private readonly BattleConnectionContext _connectionContext;
+    private readonly IAuthenticationService _authenticationService;
+    private readonly ILogger<BattleHub> _logger;
 
-    // ServiceId 用于标识全局单例
-    public string ServiceName => "BattleHub";
-    public string ServiceId => "BattleHub:Global";
-
-    // 用于跟踪角色到战斗的映射（替代 AsyncLocal）
-    private readonly Dictionary<string, string> _characterToBattleMap = new();
+    // 使用 AsyncLocal 在当前请求上下文中存储 CharacterId
+    private static readonly AsyncLocal<string?> _currentCharacterId = new();
 
     public BattleHub(
         BattleRoomManager battleRoomManager,
-        ILogger<BattleHub> logger,
+        BattleConnectionContext connectionContext,
         IAuthenticationService authenticationService,
-        PermissionValidator permissionValidator)
-        : base(logger, authenticationService, permissionValidator)
+        ILogger<BattleHub> logger)
     {
         _battleRoomManager = battleRoomManager;
+        _connectionContext = connectionContext;
+        _authenticationService = authenticationService;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// 获取当前会话的标识（使用 CharacterId）
+    /// </summary>
+    /// <remarks>
+    /// 设计说明：
+    /// 1. 使用 CharacterId 作为会话标识符
+    /// 2. 假设：一个角色在同一时间只能有一个活跃连接
+    /// 3. 这样可以确保状态的一致性和可追踪性
+    ///
+    /// 替代方案：
+    /// - 如果 PulseRPC 提供 ServerChannelContext，可以使用真实的 ConnectionId
+    /// - 例如：ServerChannelContext.Current?.ConnectionId
+    /// </remarks>
+    private string GetSessionId()
+    {
+        var characterId = _currentCharacterId.Value;
+        if (string.IsNullOrEmpty(characterId))
+        {
+            throw new InvalidOperationException("无法获取会话标识，请先调用 JoinBattleAsync");
+        }
+        return characterId;
     }
 
     /// <summary>
     /// 加入战斗房间
     /// </summary>
-    /// <remarks>
-    /// ✅ BaseService 保证单线程顺序执行，无需加锁
-    /// ✅ 使用 Dictionary 追踪映射关系（替代 AsyncLocal）
-    /// </remarks>
     public async Task<BattleInfo> JoinBattleAsync(JoinBattleRequest request)
     {
         try
         {
-            // TODO: 验证访问令牌
-            // 可以通过 GetCurrentCaller() 获取认证信息
+            // ✅ 验证访问令牌
+            if (string.IsNullOrEmpty(request.AccessToken))
+            {
+                throw new UnauthorizedAccessException("访问令牌不能为空");
+            }
+
+            var authContext = await _authenticationService.AuthenticateUserAsync(request.AccessToken);
+            if (authContext == null || authContext.IsExpired)
+            {
+                _logger.LogWarning("无效或过期的访问令牌: CharacterId={CharacterId}", request.CharacterId);
+                throw new UnauthorizedAccessException("访问令牌无效或已过期");
+            }
+
+            // 验证角色ID是否与令牌匹配
+            // 注意：这里假设 UserId 就是 CharacterId，实际应用中可能需要额外查询
+            if (authContext.UserId != request.CharacterId)
+            {
+                _logger.LogWarning("令牌与角色ID不匹配: Token UserId={UserId}, Request CharacterId={CharacterId}",
+                    authContext.UserId, request.CharacterId);
+                throw new UnauthorizedAccessException("访问令牌与角色ID不匹配");
+            }
+
+            _logger.LogInformation("访问令牌验证成功: CharacterId={CharacterId}, BattleId={BattleId}",
+                request.CharacterId, request.BattleId);
 
             var battleRoom = await _battleRoomManager.GetOrCreateBattleRoomAsync(request.BattleId);
 
@@ -70,17 +107,22 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
                 throw new InvalidOperationException("加入战斗失败，房间已满或角色已在战斗中");
             }
 
-            // ✅ 使用 Dictionary 记录映射关系（BaseService 保证线程安全）
-            _characterToBattleMap[request.CharacterId] = request.BattleId;
+            // ✅ 设置当前会话的 CharacterId
+            _currentCharacterId.Value = request.CharacterId;
 
-            Logger.LogInformation("角色 {CharacterId} 加入战斗房间 {BattleId}",
+            // ✅ 使用 ConnectionContext 替代全局 AsyncLocal
+            // 使用 CharacterId 作为会话标识（一个角色同一时间只有一个连接）
+            _connectionContext.JoinBattle(request.CharacterId, request.BattleId, request.CharacterId);
+
+            _logger.LogInformation("角色 {CharacterId} 加入战斗房间 {BattleId}",
                 request.CharacterId, request.BattleId);
 
             return battleRoom.GetBattleInfo();
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "加入战斗房间失败: {BattleId}", request.BattleId);
+            _logger.LogError(ex, "加入战斗房间失败: BattleId={BattleId}, CharacterId={CharacterId}",
+                request.BattleId, request.CharacterId);
             throw;
         }
     }
@@ -88,55 +130,44 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
     /// <summary>
     /// 离开战斗房间
     /// </summary>
-    /// <remarks>
-    /// ✅ 从认证上下文获取角色ID，从映射表获取战斗ID
-    /// </remarks>
     public async Task<bool> LeaveBattleAsync()
     {
         try
         {
-            // ✅ 从认证上下文获取角色ID
-            var caller = GetCurrentCaller();
-            var characterId = caller.Claims.TryGetValue("CharacterId", out var charIdFromClaim)
-                ? charIdFromClaim
-                : caller.UserId;
+            // ✅ 从 ConnectionContext 获取状态
+            var sessionId = GetSessionId();
+            var state = _connectionContext.GetState(sessionId);
 
-            if (string.IsNullOrEmpty(characterId))
+            if (state == null)
             {
-                Logger.LogWarning("无法获取角色ID");
+                _logger.LogWarning("角色未加入任何战斗: CharacterId={CharacterId}", sessionId);
                 return false;
             }
 
-            // ✅ 从映射表获取战斗ID
-            if (!_characterToBattleMap.TryGetValue(characterId, out var battleId))
-            {
-                Logger.LogWarning("角色 {CharacterId} 未加入任何战斗", characterId);
-                return false;
-            }
-
-            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(battleId);
+            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(state.BattleId);
 
             if (battleRoom == null)
             {
                 return false;
             }
 
-            var success = await battleRoom.RemovePlayerAsync(characterId);
+            var success = await battleRoom.RemovePlayerAsync(state.CharacterId);
 
             if (success)
             {
-                // ✅ 移除映射关系
-                _characterToBattleMap.Remove(characterId);
+                // ✅ 清除连接状态
+                _connectionContext.LeaveBattle(sessionId);
+                _currentCharacterId.Value = null;
 
-                Logger.LogInformation("角色 {CharacterId} 离开战斗房间 {BattleId}",
-                    characterId, battleId);
+                _logger.LogInformation("角色 {CharacterId} 离开战斗房间 {BattleId}",
+                    state.CharacterId, state.BattleId);
             }
 
             return success;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "离开战斗房间失败");
+            _logger.LogError(ex, "离开战斗房间失败");
             return false;
         }
     }
@@ -146,21 +177,20 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
     /// </summary>
     public async Task<BattleInfo> GetBattleInfoAsync()
     {
-        var caller = GetCurrentCaller();
-        var characterId = caller.Claims.TryGetValue("CharacterId", out var charIdFromClaim)
-            ? charIdFromClaim
-            : caller.UserId;
+        // ✅ 从 ConnectionContext 获取状态
+        var sessionId = GetSessionId();
+        var state = _connectionContext.GetState(sessionId);
 
-        if (string.IsNullOrEmpty(characterId) || !_characterToBattleMap.TryGetValue(characterId, out var battleId))
+        if (state == null)
         {
             throw new InvalidOperationException("未加入任何战斗");
         }
 
-        var battleRoom = await _battleRoomManager.GetBattleRoomAsync(battleId);
+        var battleRoom = await _battleRoomManager.GetBattleRoomAsync(state.BattleId);
 
         if (battleRoom == null)
         {
-            throw new InvalidOperationException($"战斗房间不存在: {battleId}");
+            throw new InvalidOperationException($"战斗房间不存在: {state.BattleId}");
         }
 
         return battleRoom.GetBattleInfo();
@@ -173,36 +203,35 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
     {
         try
         {
-            var caller = GetCurrentCaller();
-            var characterId = caller.Claims.TryGetValue("CharacterId", out var charIdFromClaim)
-                ? charIdFromClaim
-                : caller.UserId;
+            // ✅ 从 ConnectionContext 获取状态
+            var sessionId = GetSessionId();
+            var state = _connectionContext.GetState(sessionId);
 
-            if (string.IsNullOrEmpty(characterId) || !_characterToBattleMap.TryGetValue(characterId, out var battleId))
+            if (state == null)
             {
                 throw new InvalidOperationException("未加入任何战斗");
             }
 
-            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(battleId);
+            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(state.BattleId);
 
             if (battleRoom == null)
             {
-                throw new InvalidOperationException($"战斗房间不存在: {battleId}");
+                throw new InvalidOperationException($"战斗房间不存在: {state.BattleId}");
             }
 
-            var success = await battleRoom.SetPlayerReadyAsync(characterId);
+            var success = await battleRoom.SetPlayerReadyAsync(state.CharacterId);
 
             if (success)
             {
-                Logger.LogInformation("角色 {CharacterId} 在战斗 {BattleId} 中准备就绪",
-                    characterId, battleId);
+                _logger.LogInformation("角色 {CharacterId} 在战斗 {BattleId} 中准备就绪",
+                    state.CharacterId, state.BattleId);
             }
 
             return success;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "设置准备状态失败");
+            _logger.LogError(ex, "设置准备状态失败");
             return false;
         }
     }
@@ -214,12 +243,11 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
     {
         try
         {
-            var caller = GetCurrentCaller();
-            var characterId = caller.Claims.TryGetValue("CharacterId", out var charIdFromClaim)
-                ? charIdFromClaim
-                : caller.UserId;
+            // ✅ 从 ConnectionContext 获取状态
+            var sessionId = GetSessionId();
+            var state = _connectionContext.GetState(sessionId);
 
-            if (string.IsNullOrEmpty(characterId) || !_characterToBattleMap.TryGetValue(characterId, out var battleId))
+            if (state == null)
             {
                 return new BattleActionResult
                 {
@@ -229,9 +257,12 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
                 };
             }
 
-            // 验证动作是否来自当前角色
-            if (action.CharacterId != characterId)
+            // ✅ 验证动作是否来自当前会话的角色
+            if (action.CharacterId != state.CharacterId)
             {
+                _logger.LogWarning("安全警告：角色 {CharacterId} 尝试执行其他角色 {ActionCharacterId} 的动作",
+                    state.CharacterId, action.CharacterId);
+
                 return new BattleActionResult
                 {
                     ActionId = action.ActionId,
@@ -240,7 +271,7 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
                 };
             }
 
-            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(battleId);
+            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(state.BattleId);
 
             if (battleRoom == null)
             {
@@ -248,21 +279,21 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
                 {
                     ActionId = action.ActionId,
                     Success = false,
-                    ErrorMessage = $"战斗房间不存在: {battleId}"
+                    ErrorMessage = $"战斗房间不存在: {state.BattleId}"
                 };
             }
 
             // 执行战斗动作
             var result = await battleRoom.PerformActionAsync(action);
 
-            Logger.LogDebug("角色 {CharacterId} 在战斗 {BattleId} 中执行动作 {ActionType}",
-                characterId, battleId, action.Type);
+            _logger.LogDebug("角色 {CharacterId} 在战斗 {BattleId} 中执行动作 {ActionType}",
+                state.CharacterId, state.BattleId, action.Type);
 
             return result;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "执行战斗动作失败");
+            _logger.LogError(ex, "执行战斗动作失败");
             return new BattleActionResult
             {
                 ActionId = action.ActionId,
@@ -279,36 +310,35 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
     {
         try
         {
-            var caller = GetCurrentCaller();
-            var characterId = caller.Claims.TryGetValue("CharacterId", out var charIdFromClaim)
-                ? charIdFromClaim
-                : caller.UserId;
+            // ✅ 从 ConnectionContext 获取状态
+            var sessionId = GetSessionId();
+            var state = _connectionContext.GetState(sessionId);
 
-            if (string.IsNullOrEmpty(characterId) || !_characterToBattleMap.TryGetValue(characterId, out var battleId))
+            if (state == null)
             {
                 return false;
             }
 
-            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(battleId);
+            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(state.BattleId);
 
             if (battleRoom == null)
             {
                 return false;
             }
 
-            var success = await battleRoom.SurrenderAsync(characterId);
+            var success = await battleRoom.SurrenderAsync(state.CharacterId);
 
             if (success)
             {
-                Logger.LogInformation("角色 {CharacterId} 在战斗 {BattleId} 中投降",
-                    characterId, battleId);
+                _logger.LogInformation("角色 {CharacterId} 在战斗 {BattleId} 中投降",
+                    state.CharacterId, state.BattleId);
             }
 
             return success;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "投降失败");
+            _logger.LogError(ex, "投降失败");
             return false;
         }
     }
@@ -320,17 +350,16 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
     {
         try
         {
-            var caller = GetCurrentCaller();
-            var characterId = caller.Claims.TryGetValue("CharacterId", out var charIdFromClaim)
-                ? charIdFromClaim
-                : caller.UserId;
+            // ✅ 从 ConnectionContext 获取状态
+            var sessionId = GetSessionId();
+            var state = _connectionContext.GetState(sessionId);
 
-            if (string.IsNullOrEmpty(characterId) || !_characterToBattleMap.TryGetValue(characterId, out var battleId))
+            if (state == null)
             {
                 return Array.Empty<BattleAction>();
             }
 
-            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(battleId);
+            var battleRoom = await _battleRoomManager.GetBattleRoomAsync(state.BattleId);
 
             if (battleRoom == null)
             {
@@ -341,7 +370,7 @@ public class BattleHub : BaseService, IBattleHub, IPulseService
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "获取战斗历史失败");
+            _logger.LogError(ex, "获取战斗历史失败");
             return Array.Empty<BattleAction>();
         }
     }

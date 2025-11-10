@@ -179,12 +179,3 @@ PulseRPC.Transport.ChannelManager.RegisterChannel(string! name, PulseRPC.Messagi
 PulseRPC.Transport.ChannelManager.RegisterChannel(string! name, PulseRPC.Transport.TransportType type, PulseRPC.Transport.TransportOptions! options, bool isDefault = false) -> void
 PulseRPC.Transport.ChannelManager.RegisterEventListener<T>(T! listener) -> PulseRPC.ISubscriptionToken!
 PulseRPC.Transport.ChannelManager.UnregisterChannel(string! channelName) -> void
-static PulseRPC.Client.ClientTransportConfiguration.Kcp(string! name, string! host, int port, PulseRPC.Transport.TransportOptions? options = null, bool isDefault = false) -> PulseRPC.Client.ClientTransportConfiguration!
-static PulseRPC.Client.ClientTransportConfiguration.Tcp(string! name, string! host, int port, PulseRPC.Transport.TransportOptions? options = null, bool isDefault = false) -> PulseRPC.Client.ClientTransportConfiguration!
-static PulseRPC.Client.ClientTransportConfiguration.WebSocket(string! name, string! host, int port, PulseRPC.Transport.TransportOptions? options = null, bool isDefault = false) -> PulseRPC.Client.ClientTransportConfiguration!
-static PulseRPC.Client.PulseReceiverBuilderExtensions.WithCriticalSettings<T>(this PulseRPC.Client.PulseReceiverBuilder<T!>! builder) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
-static PulseRPC.Client.PulseReceiverBuilderExtensions.WithGameSettings<T>(this PulseRPC.Client.PulseReceiverBuilder<T!>! builder) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
-static PulseRPC.Client.PulseReceiverBuilderExtensions.WithResilience<T>(this PulseRPC.Client.PulseReceiverBuilder<T!>! builder, PulseRPC.ErrorHandlingStrategy errorStrategy = PulseRPC.ErrorHandlingStrategy.RetryThenSkip, PulseRPC.RetryConfiguration? retryConfig = null) -> PulseRPC.Client.PulseReceiverBuilder<T!>!
-static PulseRPC.Client.EventListenerRegistrar.RegisterWithConfiguration<T>(PulseRPC.IPulseClient! client, T! listener, PulseRPC.EventListenerConfiguration! configuration) -> PulseRPC.ISubscriptionToken!
-static PulseRPC.Client.EventListenerRegistrar.RegisterWithConfigurationDelegate.get -> System.Func<PulseRPC.IPulseClient!, object!, PulseRPC.EventListenerConfiguration!, PulseRPC.ISubscriptionToken!>?
-static PulseRPC.Client.EventListenerRegistrar.RegisterWithConfigurationDelegate.set -> void

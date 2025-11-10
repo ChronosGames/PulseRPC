@@ -15,6 +15,13 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
+// #if DEBUG
+//         if (!System.Diagnostics.Debugger.IsAttached)
+//         {
+//             System.Diagnostics.Debugger.Launch();
+//         }
+// #endif
+
         // 获取配置选项
         var configProvider = context.AnalyzerConfigOptionsProvider;
 
@@ -649,48 +656,6 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         }
     }
 
-    /// <summary>
-    /// 获取类型的安全名称，用于生成方法名
-    /// </summary>
-    private static string GetSafeTypeName(INamedTypeSymbol typeSymbol)
-    {
-        var name = typeSymbol.Name;
-        if (name.StartsWith("I"))
-        {
-            name = name.Substring(1);
-        }
-        return name;
-    }
-
-    /// <summary>
-    /// 生成方法参数名称列表
-    /// </summary>
-    private static string GetParameterNames(ImmutableArray<IParameterSymbol> parameters, string? excludeTokenParam = null)
-    {
-        var paramNames = new List<string>();
-
-        foreach (var param in parameters)
-        {
-            // 跳过CancellationToken参数，因为它将单独处理
-            if (excludeTokenParam != null && param.Name == excludeTokenParam.Replace("CancellationToken.None", "").Trim())
-                continue;
-
-            if (param.Type.ToDisplayString() == "System.Threading.CancellationToken" ||
-                param.Type.ToDisplayString() == "CancellationToken")
-                continue;
-
-            paramNames.Add(param.Name);
-        }
-
-        // 如果有CancellationToken参数，添加到最后
-        if (excludeTokenParam != null && excludeTokenParam != "CancellationToken.None")
-        {
-            paramNames.Add(excludeTokenParam);
-        }
-
-        return string.Join(", ", paramNames);
-    }
-
     private static void GenerateConnectionContextMethodImplementation(
         StringBuilder sb,
         IMethodSymbol methodSymbol,
@@ -795,7 +760,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         ushort protocolId)
     {
         var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
-        
+
         sb.AppendLine($"            // ========== 零拷贝优化路径：Request/Response ==========");
         sb.AppendLine($"            // 使用协议号: {constName} = 0x{protocolId:X4} ({protocolId})");
         sb.AppendLine($"            // Step 1: 租借序列化缓冲区");
@@ -874,7 +839,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         ushort protocolId)
     {
         var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
-        
+
         sb.AppendLine($"            // ========== 零拷贝优化路径：Command/OneWay ==========");
         sb.AppendLine($"            // 使用协议号: {constName} = 0x{protocolId:X4} ({protocolId})");
         sb.AppendLine($"            // Step 1: 租借序列化缓冲区");
@@ -922,17 +887,6 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"            }}");
     }
 
-    private static string GetEventDataType(IMethodSymbol method)
-    {
-        // 获取方法的第一个参数类型作为事件数据类型
-        var parameters = method.Parameters;
-        if (parameters.Length > 0)
-        {
-            return parameters[0].Type.ToDisplayString();
-        }
-        return "object";
-    }
-
     /// <summary>
     /// 从接口方法中收集所有需要的命名空间（包括参数和返回值类型）
     /// 使用 Roslyn 的语义模型正确处理泛型类型
@@ -971,14 +925,14 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     /// <summary>
     /// 从类型符号中递归收集命名空间（使用 Roslyn 语义模型，正确处理泛型）
     /// </summary>
-    private static void CollectNamespacesFromType(ITypeSymbol typeSymbol, HashSet<string> namespaces)
+    private static void CollectNamespacesFromType(ITypeSymbol? typeSymbol, HashSet<string> namespaces)
     {
         // 跳过特殊类型
         if (typeSymbol == null || typeSymbol.SpecialType != SpecialType.None)
             return;
 
         // 添加类型本身的命名空间
-        if (!typeSymbol.ContainingNamespace.IsGlobalNamespace)
+        if (typeSymbol.ContainingNamespace != null && !typeSymbol.ContainingNamespace.IsGlobalNamespace)
         {
             var ns = typeSymbol.ContainingNamespace.ToDisplayString();
             if (!string.IsNullOrWhiteSpace(ns))

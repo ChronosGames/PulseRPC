@@ -1,6 +1,8 @@
 version: '3.8'
 
 services:
+  # ==================== 基础设施服务 ====================
+
   # MongoDB - 数据库
   mongodb:
     image: mongo:latest
@@ -17,6 +19,11 @@ services:
       - ./mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Consul - 服务注册与发现
   consul:
@@ -33,8 +40,13 @@ services:
       - consul_data:/consul/data
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Redis（可选）- 缓存和队列
+  # Redis - 缓存和队列
   redis:
     image: redis:latest
     container_name: distributedgame-redis
@@ -46,22 +58,404 @@ services:
       - redis_data:/data
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Sentry（可选）- 错误追踪（需要单独配置）
-  # sentry:
-  #   image: getsentry/sentry:latest
-  #   container_name: distributedgame-sentry
-  #   restart: unless-stopped
-  #   ports:
-  #     - "9000:9000"
-  #   environment:
-  #     SENTRY_SECRET_KEY: 'your-secret-key-here'
-  #     SENTRY_POSTGRES_HOST: postgres
-  #     SENTRY_REDIS_HOST: redis
-  #   depends_on:
-  #     - redis
-  #   networks:
-  #     - distributedgame-network
+  # ==================== LoginServer 实例 ====================
+
+  login-server-1:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.LoginServer/Dockerfile
+    container_name: login-server-1
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "5000:5000"  # HTTP API
+    environment:
+      - ServerIdentity__ServiceType=LoginServer
+      - ServerIdentity__NodeId=1
+      - ServerIdentity__NodeName=LoginServer-Node1
+      - ServerIdentity__MaxCapacity=10000
+      - Network__External__Host=login-server-1
+      - Network__External__Enabled=true
+      - Network__External__Tcp__Port=5000
+      - Network__External__Tcp__Enabled=true
+      - Kestrel__Endpoints__Http__Url=http://0.0.0.0:5000
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
+      - Consul__Address=http://consul:8500
+      - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
+    networks:
+      - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  login-server-2:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.LoginServer/Dockerfile
+    container_name: login-server-2
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "5001:5000"  # HTTP API
+    environment:
+      - ServerIdentity__ServiceType=LoginServer
+      - ServerIdentity__NodeId=2
+      - ServerIdentity__NodeName=LoginServer-Node2
+      - ServerIdentity__MaxCapacity=10000
+      - Network__External__Host=login-server-2
+      - Network__External__Enabled=true
+      - Network__External__Tcp__Port=5000
+      - Network__External__Tcp__Enabled=true
+      - Kestrel__Endpoints__Http__Url=http://0.0.0.0:5000
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
+      - Consul__Address=http://consul:8500
+      - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
+    networks:
+      - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ==================== BackendServer 实例 ====================
+
+  backend-server-1:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BackendServer/Dockerfile
+    container_name: backend-server-1
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "10080:10080"  # TCP
+    environment:
+      - ServerIdentity__ServiceType=BackendServer
+      - ServerIdentity__NodeId=1
+      - ServerIdentity__NodeName=BackendServer-Node1
+      - ServerIdentity__MaxCapacity=50000
+      - Network__External__Enabled=false
+      - Network__Internal__Host=backend-server-1
+      - Network__Internal__Enabled=true
+      - Network__Internal__Transports__0__Port=10080
+      - ServiceRegistration__ServiceId=backend-server-1
+      - ServiceRegistration__NodeId=1
+      - ServiceRegistration__NodeName=BackendServer-Node1
+      - ServiceRegistration__Host=backend-server-1
+      - ServiceRegistration__TcpPort=10080
+      - ServiceRegistration__MaxCapacity=50000
+      - Consul__Address=http://consul:8500
+      - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
+      - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+    networks:
+      - distributedgame-network
+
+  backend-server-2:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BackendServer/Dockerfile
+    container_name: backend-server-2
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "10082:10080"  # TCP
+    environment:
+      - ServerIdentity__ServiceType=BackendServer
+      - ServerIdentity__NodeId=2
+      - ServerIdentity__NodeName=BackendServer-Node2
+      - ServerIdentity__MaxCapacity=50000
+      - Network__External__Enabled=false
+      - Network__Internal__Host=backend-server-2
+      - Network__Internal__Enabled=true
+      - Network__Internal__Transports__0__Port=10080
+      - ServiceRegistration__ServiceId=backend-server-2
+      - ServiceRegistration__NodeId=2
+      - ServiceRegistration__NodeName=BackendServer-Node2
+      - ServiceRegistration__Host=backend-server-2
+      - ServiceRegistration__TcpPort=10080
+      - ServiceRegistration__MaxCapacity=50000
+      - Consul__Address=http://consul:8500
+      - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
+      - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+    networks:
+      - distributedgame-network
+
+  backend-server-3:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BackendServer/Dockerfile
+    container_name: backend-server-3
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "10084:10080"  # TCP
+    environment:
+      - ServerIdentity__ServiceType=BackendServer
+      - ServerIdentity__NodeId=3
+      - ServerIdentity__NodeName=BackendServer-Node3
+      - ServerIdentity__MaxCapacity=50000
+      - Network__External__Enabled=false
+      - Network__Internal__Host=backend-server-3
+      - Network__Internal__Enabled=true
+      - Network__Internal__Transports__0__Port=10080
+      - ServiceRegistration__ServiceId=backend-server-3
+      - ServiceRegistration__NodeId=3
+      - ServiceRegistration__NodeName=BackendServer-Node3
+      - ServiceRegistration__Host=backend-server-3
+      - ServiceRegistration__TcpPort=10080
+      - ServiceRegistration__MaxCapacity=50000
+      - Consul__Address=http://consul:8500
+      - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
+      - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+    networks:
+      - distributedgame-network
+
+  # ==================== GameServer 实例 ====================
+
+  game-server-1:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.GameServer/Dockerfile
+    container_name: game-server-1
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      backend-server-1:
+        condition: service_started
+    ports:
+      - "8080:8080"  # TCP
+      - "8081:8081/udp"  # KCP
+    environment:
+      - ServerIdentity__ServiceType=GameServer
+      - ServerIdentity__NodeId=1
+      - ServerIdentity__NodeName=GameServer-Node1
+      - ServerIdentity__MaxCapacity=5000
+      - Network__External__Host=game-server-1
+      - Network__External__Enabled=true
+      - Network__External__Transports__0__Port=8080
+      - Network__External__Transports__1__Port=8081
+      - Network__Internal__Host=game-server-1
+      - Network__Internal__Enabled=true
+      - Network__Internal__Transports__0__Port=10100
+      - ServiceRegistration__ServiceId=game-server-1
+      - ServiceRegistration__NodeId=1
+      - ServiceRegistration__NodeName=GameServer-Node1
+      - ServiceRegistration__Host=game-server-1
+      - ServiceRegistration__TcpPort=8080
+      - ServiceRegistration__KcpPort=8081
+      - ServiceRegistration__MaxCapacity=5000
+      - Consul__Address=http://consul:8500
+      - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
+      - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+    networks:
+      - distributedgame-network
+
+  game-server-2:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.GameServer/Dockerfile
+    container_name: game-server-2
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      backend-server-1:
+        condition: service_started
+    ports:
+      - "8082:8080"  # TCP
+      - "8083:8081/udp"  # KCP
+    environment:
+      - ServerIdentity__ServiceType=GameServer
+      - ServerIdentity__NodeId=2
+      - ServerIdentity__NodeName=GameServer-Node2
+      - ServerIdentity__MaxCapacity=5000
+      - Network__External__Host=game-server-2
+      - Network__External__Enabled=true
+      - Network__External__Transports__0__Port=8080
+      - Network__External__Transports__1__Port=8081
+      - Network__Internal__Host=game-server-2
+      - Network__Internal__Enabled=true
+      - Network__Internal__Transports__0__Port=10100
+      - ServiceRegistration__ServiceId=game-server-2
+      - ServiceRegistration__NodeId=2
+      - ServiceRegistration__NodeName=GameServer-Node2
+      - ServiceRegistration__Host=game-server-2
+      - ServiceRegistration__TcpPort=8080
+      - ServiceRegistration__KcpPort=8081
+      - ServiceRegistration__MaxCapacity=5000
+      - Consul__Address=http://consul:8500
+      - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
+      - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+    networks:
+      - distributedgame-network
+
+  game-server-3:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.GameServer/Dockerfile
+    container_name: game-server-3
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      backend-server-1:
+        condition: service_started
+    ports:
+      - "8084:8080"  # TCP
+      - "8085:8081/udp"  # KCP
+    environment:
+      - ServerIdentity__ServiceType=GameServer
+      - ServerIdentity__NodeId=3
+      - ServerIdentity__NodeName=GameServer-Node3
+      - ServerIdentity__MaxCapacity=5000
+      - Network__External__Host=game-server-3
+      - Network__External__Enabled=true
+      - Network__External__Transports__0__Port=8080
+      - Network__External__Transports__1__Port=8081
+      - Network__Internal__Host=game-server-3
+      - Network__Internal__Enabled=true
+      - Network__Internal__Transports__0__Port=10100
+      - ServiceRegistration__ServiceId=game-server-3
+      - ServiceRegistration__NodeId=3
+      - ServiceRegistration__NodeName=GameServer-Node3
+      - ServiceRegistration__Host=game-server-3
+      - ServiceRegistration__TcpPort=8080
+      - ServiceRegistration__KcpPort=8081
+      - ServiceRegistration__MaxCapacity=5000
+      - Consul__Address=http://consul:8500
+      - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
+      - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+    networks:
+      - distributedgame-network
+
+  # ==================== BattleServer 实例 ====================
+
+  battle-server-1:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BattleServer/Dockerfile
+    container_name: battle-server-1
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      backend-server-1:
+        condition: service_started
+    ports:
+      - "9080:9080"  # TCP
+      - "9081:9081/udp"  # KCP
+    environment:
+      - ServerIdentity__ServiceType=BattleServer
+      - ServerIdentity__NodeId=1
+      - ServerIdentity__NodeName=BattleServer-Node1
+      - ServerIdentity__MaxCapacity=10000
+      - Network__External__Host=battle-server-1
+      - Network__External__Enabled=true
+      - Network__External__Transports__0__Port=9080
+      - Network__External__Transports__1__Port=9081
+      - Network__Internal__Host=battle-server-1
+      - Network__Internal__Enabled=true
+      - Network__Internal__Transports__0__Port=10200
+      - ServiceRegistration__ServiceId=battle-server-1
+      - ServiceRegistration__NodeId=1
+      - ServiceRegistration__NodeName=BattleServer-Node1
+      - ServiceRegistration__Host=battle-server-1
+      - ServiceRegistration__TcpPort=9080
+      - ServiceRegistration__KcpPort=9081
+      - ServiceRegistration__MaxCapacity=10000
+      - Consul__Address=http://consul:8500
+      - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+    networks:
+      - distributedgame-network
+
+  battle-server-2:
+    build:
+      context: ../../..
+      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BattleServer/Dockerfile
+    container_name: battle-server-2
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+      backend-server-1:
+        condition: service_started
+    ports:
+      - "9082:9080"  # TCP
+      - "9083:9081/udp"  # KCP
+    environment:
+      - ServerIdentity__ServiceType=BattleServer
+      - ServerIdentity__NodeId=2
+      - ServerIdentity__NodeName=BattleServer-Node2
+      - ServerIdentity__MaxCapacity=10000
+      - Network__External__Host=battle-server-2
+      - Network__External__Enabled=true
+      - Network__External__Transports__0__Port=9080
+      - Network__External__Transports__1__Port=9081
+      - Network__Internal__Host=battle-server-2
+      - Network__Internal__Enabled=true
+      - Network__Internal__Transports__0__Port=10200
+      - ServiceRegistration__ServiceId=battle-server-2
+      - ServiceRegistration__NodeId=2
+      - ServiceRegistration__NodeName=BattleServer-Node2
+      - ServiceRegistration__Host=battle-server-2
+      - ServiceRegistration__TcpPort=9080
+      - ServiceRegistration__KcpPort=9081
+      - ServiceRegistration__MaxCapacity=10000
+      - Consul__Address=http://consul:8500
+      - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+    networks:
+      - distributedgame-network
 
 volumes:
   mongodb_data:
