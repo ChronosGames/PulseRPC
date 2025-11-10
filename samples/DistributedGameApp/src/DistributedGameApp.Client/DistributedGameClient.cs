@@ -10,6 +10,7 @@ namespace DistributedGameApp.Client;
 
 /// <summary>
 /// 分布式游戏客户端 - 演示如何使用 PulseRPC 客户端功能
+/// 支持多 GameServer 和 BattleServer 连接
 /// </summary>
 [PulseClientGeneration(typeof(IPlayerHub))]
 [PulseClientGeneration(typeof(IChatRoomHub))]
@@ -23,16 +24,10 @@ public class DistributedGameClient
 {
     private readonly ILogger<DistributedGameClient> _logger;
     private readonly ILoggerFactory _loggerFactory;
-    private IPulseClient? _client;
-    private IPlayerHub? _playerHub;
-    private IChatRoomHub? _chatRoomHub;
-    private IBattleHub? _battleHub;
-    private IGameHub? _gameHub;
-    private ISubscriptionToken? _eventSubscription;
+    private readonly ServerConnectionManager _connectionManager;
     private CancellationTokenSource? _cts;
 
     // 客户端状态
-    private bool _isConnected;
     private string _currentPlayerId = string.Empty;
     private string _currentPlayerName = string.Empty;
     private string? _currentRoomId;
@@ -43,12 +38,23 @@ public class DistributedGameClient
     {
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<DistributedGameClient>();
+        _connectionManager = new ServerConnectionManager(loggerFactory);
     }
 
     /// <summary>
-    /// 初始化客户端并连接到服务器
+    /// 获取当前连接
     /// </summary>
-    public async Task InitializeAsync(string host = "localhost", int port = 8080)
+    public ServerConnection? CurrentConnection => _connectionManager.CurrentConnection;
+
+    /// <summary>
+    /// 获取所有连接
+    /// </summary>
+    public IReadOnlyDictionary<string, ServerConnection> AllConnections => _connectionManager.AllConnections;
+
+    /// <summary>
+    /// 初始化客户端并连接到 GameServer
+    /// </summary>
+    public async Task InitializeAsync(string host, int port, string serverId = "GameServer01")
     {
         _logger.LogInformation("正在初始化分布式游戏客户端...");
         _logger.LogInformation("连接地址: {Host}:{Port}", host, port);
@@ -57,37 +63,18 @@ public class DistributedGameClient
 
         try
         {
-            // 使用 PulseRPC 客户端构建器 API
-            _client = new PulseClientBuilder()
-                .AddConnection(ConnectionDescriptor.CreateTcp(
-                    "GameServer01",
-                    "DistributedGameApp",
-                    host,
-                    port,
-                    ConnectionStrategy.Persistent))
-                .WithTransportOptions(TransportType.TCP, new TcpTransportOptions
-                {
-                    ConnectionTimeout = 30000,
-                    NoDelay = true,
-                    SendBufferSize = 8192,
-                    RecvBufferSize = 8192,
-                })
-                .Build();
-
-            // 初始化客户端
-            await _client.InitializeAsync(_cts.Token);
-
-            // 获取服务代理
-            _playerHub = await _client.GetServiceAsync<IPlayerHub>("GameServer01");
-            _chatRoomHub = await _client.GetServiceAsync<IChatRoomHub>("GameServer01");
-            _battleHub = await _client.GetServiceAsync<IBattleHub>("GameServer01");
-            _gameHub = await _client.GetServiceAsync<IGameHub>("GameServer01");
+            // 连接到第一个 GameServer
+            await _connectionManager.ConnectToGameServerAsync(
+                serverId,
+                serverId,
+                host,
+                port,
+                _cts.Token);
 
             // 注册事件监听器
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
-            _eventSubscription = await _client.RegisterEventListenerAsync(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync(eventHandler);
 
-            _isConnected = true;
             _logger.LogInformation("客户端初始化完成");
         }
         catch (Exception ex)
@@ -98,13 +85,120 @@ public class DistributedGameClient
     }
 
     /// <summary>
+    /// 连接到额外的 GameServer
+    /// </summary>
+    public async Task ConnectToGameServerAsync(string serverId, string serverName, string host, int port)
+    {
+        try
+        {
+            await _connectionManager.ConnectToGameServerAsync(serverId, serverName, host, port, _cts?.Token ?? default);
+            _logger.LogInformation("成功连接到 GameServer: {ServerName}", serverName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "连接到 GameServer 失败: {ServerName}", serverName);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 连接到 BattleServer
+    /// </summary>
+    public async Task ConnectToBattleServerAsync(string battleId, string host, int port)
+    {
+        try
+        {
+            var serverId = $"BattleServer-{battleId}";
+            var connection = await _connectionManager.ConnectToBattleServerAsync(
+                serverId,
+                battleId,
+                host,
+                port,
+                _cts?.Token ?? default);
+
+            // 切换到 BattleServer
+            _connectionManager.SwitchToServer(serverId);
+
+            // 注册事件监听器
+            var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
+            await _connectionManager.RegisterEventListenerAsync(eventHandler);
+
+            _logger.LogInformation("成功连接到 BattleServer: {BattleId}", battleId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "连接到 BattleServer 失败: {BattleId}", battleId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 切换到指定的服务器
+    /// </summary>
+    public bool SwitchServer(string serverId)
+    {
+        return _connectionManager.SwitchToServer(serverId);
+    }
+
+    /// <summary>
+    /// 列出所有已连接的服务器
+    /// </summary>
+    public void ListServers()
+    {
+        Console.WriteLine("\n=== 已连接的服务器 ===");
+
+        if (!_connectionManager.AllConnections.Any())
+        {
+            Console.WriteLine("暂无已连接的服务器");
+            return;
+        }
+
+        foreach (var (serverId, connection) in _connectionManager.AllConnections)
+        {
+            var current = serverId == _connectionManager.CurrentServerId ? " [当前]" : "";
+            var connectedTime = DateTime.UtcNow - connection.ConnectedAt;
+
+            Console.WriteLine($"[{connection.ServerType}] {connection.ServerName}{current}");
+            Console.WriteLine($"  ID: {serverId}");
+            Console.WriteLine($"  地址: {connection.Host}:{connection.Port}");
+            Console.WriteLine($"  状态: {(connection.IsConnected ? "已连接" : "未连接")}");
+            Console.WriteLine($"  连接时长: {connectedTime.TotalMinutes:F1} 分钟");
+
+            if (connection.BattleId != null)
+            {
+                Console.WriteLine($"  战斗ID: {connection.BattleId}");
+            }
+
+            Console.WriteLine();
+        }
+    }
+
+    /// <summary>
+    /// 注册事件处理器到当前连接
+    /// </summary>
+    public async Task RegisterEventHandlerAsync<T>(T eventHandler)
+        where T : class, IPulseReceiver
+    {
+        await _connectionManager.RegisterEventListenerAsync(eventHandler);
+    }
+
+    /// <summary>
+    /// 断开指定服务器连接
+    /// </summary>
+    public async Task DisconnectServerAsync(string serverId)
+    {
+        await _connectionManager.DisconnectServerAsync(serverId);
+    }
+
+    /// <summary>
     /// 登录
     /// </summary>
     public async Task<bool> LoginAsync(string account, string password)
     {
-        if (!_isConnected || _gameHub == null)
+        var gameHub = _connectionManager.CurrentConnection?.GameHub;
+        if (gameHub == null)
         {
-            _logger.LogWarning("客户端未连接");
+            _logger.LogWarning("未连接到 GameServer");
             return false;
         }
 
@@ -120,7 +214,7 @@ public class DistributedGameClient
                 ClientVersion = "1.0.0"
             };
 
-            var response = await _gameHub.LoginAsync(request);
+            var response = await gameHub.LoginAsync(request);
 
             if (response.Success)
             {
@@ -146,9 +240,10 @@ public class DistributedGameClient
     /// </summary>
     public async Task<CharacterInfo?> CreateCharacterAsync(string name, CharacterClass characterClass, Gender gender)
     {
-        if (!_isConnected || _gameHub == null)
+        var gameHub = _connectionManager.CurrentConnection?.GameHub;
+        if (gameHub == null)
         {
-            _logger.LogWarning("客户端未连接");
+            _logger.LogWarning("未连接到 GameServer");
             return null;
         }
 
@@ -163,7 +258,7 @@ public class DistributedGameClient
                 Gender = gender
             };
 
-            var character = await _gameHub.CreateCharacterAsync(request);
+            var character = await gameHub.CreateCharacterAsync(request);
 
             if (character != null)
             {
@@ -182,148 +277,43 @@ public class DistributedGameClient
     }
 
     /// <summary>
-    /// 获取玩家信息
+    /// 获取玩家信息 - 已移除，请使用 GameHub 的方法
     /// </summary>
-    public async Task<PlayerInfo?> GetPlayerInfoAsync()
+    [Obsolete("IPlayerHub 已废弃，请使用 IGameHub")]
+    public Task<PlayerInfo?> GetPlayerInfoAsync()
     {
-        if (!_isConnected || _playerHub == null)
-        {
-            _logger.LogWarning("客户端未连接");
-            return null;
-        }
-
-        try
-        {
-            var info = await _playerHub.GetPlayerInfoAsync();
-            if (info != null)
-            {
-                _logger.LogInformation("玩家信息: {Name}, Level: {Level}, Exp: {Exp}",
-                    info.PlayerName, info.Level, info.Exp);
-            }
-            return info;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "获取玩家信息失败");
-            return null;
-        }
+        _logger.LogWarning("IPlayerHub 已废弃，此方法不再可用");
+        return Task.FromResult<PlayerInfo?>(null);
     }
 
     /// <summary>
-    /// 移动玩家
+    /// 移动玩家 - 已移除，请使用 GameHub 的方法
     /// </summary>
-    public async Task<bool> MoveAsync(float x, float y, float z, float speed = 5.0f)
+    [Obsolete("IPlayerHub 已废弃，请使用 IGameHub")]
+    public Task<bool> MoveAsync(float x, float y, float z, float speed = 5.0f)
     {
-        if (!_isConnected || _playerHub == null)
-        {
-            _logger.LogWarning("客户端未连接");
-            return false;
-        }
-
-        try
-        {
-            var request = new MoveRequest
-            {
-                TargetX = x,
-                TargetY = y,
-                TargetZ = z,
-                Speed = speed
-            };
-
-            var result = await _playerHub.MoveAsync(request);
-
-            if (result.Success)
-            {
-                _logger.LogInformation("移动成功: ({X}, {Y}, {Z})", result.CurrentX, result.CurrentY, result.CurrentZ);
-                return true;
-            }
-            else
-            {
-                _logger.LogWarning("移动失败: {ErrorMessage}", result.ErrorMessage);
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "移动失败");
-            return false;
-        }
+        _logger.LogWarning("IPlayerHub 已废弃，此方法不再可用");
+        return Task.FromResult(false);
     }
 
     /// <summary>
-    /// 加入聊天室
+    /// 加入聊天室 - 已移除，请使用 GameHub 的聊天方法
     /// </summary>
-    public async Task<bool> JoinChatRoomAsync(string roomId, string playerName)
+    [Obsolete("IChatRoomHub 已废弃，请使用 IGameHub 的聊天功能")]
+    public Task<bool> JoinChatRoomAsync(string roomId, string playerName)
     {
-        if (!_isConnected || _chatRoomHub == null)
-        {
-            _logger.LogWarning("客户端未连接");
-            return false;
-        }
-
-        try
-        {
-            _logger.LogInformation("正在加入聊天室: {RoomId}", roomId);
-
-            var success = await _chatRoomHub.JoinRoomAsync(_currentPlayerId, playerName);
-
-            if (success)
-            {
-                _currentRoomId = roomId;
-                _currentPlayerName = playerName;
-                _logger.LogInformation("成功加入聊天室");
-                return true;
-            }
-            else
-            {
-                _logger.LogWarning("加入聊天室失败");
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "加入聊天室失败");
-            return false;
-        }
+        _logger.LogWarning("IChatRoomHub 已废弃，此方法不再可用");
+        return Task.FromResult(false);
     }
 
     /// <summary>
-    /// 发送聊天消息
+    /// 发送聊天消息 - 已移除，请使用 GameHub 的聊天方法
     /// </summary>
-    public async Task<bool> SendMessageAsync(string content)
+    [Obsolete("IChatRoomHub 已废弃，请使用 IGameHub 的聊天功能")]
+    public Task<bool> SendMessageAsync(string content)
     {
-        if (!_isConnected || _chatRoomHub == null || _currentRoomId == null)
-        {
-            _logger.LogWarning("未加入聊天室");
-            return false;
-        }
-
-        try
-        {
-            var request = new SendMessageRequest
-            {
-                Content = content,
-                Channel = ChatChannel.Room
-            };
-
-            var result = await _chatRoomHub.SendMessageAsync(request);
-
-            if (result.Success)
-            {
-                _logger.LogDebug("消息发送成功: {MessageId}", result.MessageId);
-                return true;
-            }
-            else
-            {
-                _logger.LogWarning("消息发送失败: {ErrorMessage}", result.ErrorMessage);
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "发送消息失败");
-            return false;
-        }
+        _logger.LogWarning("IChatRoomHub 已废弃，此方法不再可用");
+        return Task.FromResult(false);
     }
 
     /// <summary>
@@ -331,9 +321,10 @@ public class DistributedGameClient
     /// </summary>
     public async Task<bool> RequestMatchAsync(MatchMode mode, int teamSize = 1)
     {
-        if (!_isConnected || _gameHub == null)
+        var gameHub = _connectionManager.CurrentConnection?.GameHub;
+        if (gameHub == null)
         {
-            _logger.LogWarning("客户端未连接");
+            _logger.LogWarning("未连接到 GameServer");
             return false;
         }
 
@@ -348,7 +339,7 @@ public class DistributedGameClient
                 IsPartyMatch = false
             };
 
-            var response = await _gameHub.RequestMatchAsync(request);
+            var response = await gameHub.RequestMatchAsync(request);
 
             if (response.Success)
             {
@@ -374,9 +365,10 @@ public class DistributedGameClient
     /// </summary>
     public async Task<BattleInfo?> JoinBattleAsync(string battleId)
     {
-        if (!_isConnected || _battleHub == null)
+        var battleHub = _connectionManager.CurrentConnection?.BattleHub;
+        if (battleHub == null)
         {
-            _logger.LogWarning("客户端未连接");
+            _logger.LogWarning("未连接到 BattleServer");
             return null;
         }
 
@@ -389,7 +381,7 @@ public class DistributedGameClient
                 BattleId = battleId
             };
 
-            var battleInfo = await _battleHub.JoinBattleAsync(request);
+            var battleInfo = await battleHub.JoinBattleAsync(request);
 
             if (battleInfo != null)
             {
@@ -411,7 +403,8 @@ public class DistributedGameClient
     /// </summary>
     public async Task<bool> BattleReadyAsync()
     {
-        if (!_isConnected || _battleHub == null || _currentBattleId == null)
+        var battleHub = _connectionManager.CurrentConnection?.BattleHub;
+        if (battleHub == null || _currentBattleId == null)
         {
             _logger.LogWarning("未在战斗中");
             return false;
@@ -419,7 +412,7 @@ public class DistributedGameClient
 
         try
         {
-            var success = await _battleHub.ReadyAsync();
+            var success = await battleHub.ReadyAsync();
             if (success)
             {
                 _logger.LogInformation("已准备就绪");
@@ -434,12 +427,144 @@ public class DistributedGameClient
     }
 
     /// <summary>
+    /// 执行战斗行动（攻击）
+    /// </summary>
+    public async Task<BattleActionResult?> PerformAttackAsync(string targetCharacterId)
+    {
+        var battleHub = _connectionManager.CurrentConnection?.BattleHub;
+        if (battleHub == null || _currentCharacter == null)
+        {
+            _logger.LogWarning("未在战斗中或未选择角色");
+            return null;
+        }
+
+        try
+        {
+            var action = new BattleAction
+            {
+                ActionId = Guid.NewGuid().ToString(),
+                Type = ActionType.Attack,
+                CharacterId = _currentCharacter.CharacterId,
+                TargetIds = new List<string> { targetCharacterId },
+                Timestamp = DateTime.UtcNow
+            };
+
+            var result = await battleHub.PerformActionAsync(action);
+
+            if (result.Success)
+            {
+                var totalDamage = result.DamageRecords.Sum(d => d.Damage);
+                _logger.LogInformation("攻击成功! 伤害: {Damage}", totalDamage);
+            }
+            else
+            {
+                _logger.LogWarning("攻击失败: {Message}", result.ErrorMessage);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "执行攻击失败");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 使用技能
+    /// </summary>
+    public async Task<BattleActionResult?> UseSkillAsync(string skillId, string targetCharacterId)
+    {
+        var battleHub = _connectionManager.CurrentConnection?.BattleHub;
+        if (battleHub == null || _currentCharacter == null)
+        {
+            _logger.LogWarning("未在战斗中或未选择角色");
+            return null;
+        }
+
+        try
+        {
+            var action = new BattleAction
+            {
+                ActionId = Guid.NewGuid().ToString(),
+                Type = ActionType.Skill,
+                CharacterId = _currentCharacter.CharacterId,
+                SkillId = skillId,
+                TargetIds = new List<string> { targetCharacterId },
+                Timestamp = DateTime.UtcNow
+            };
+
+            var result = await battleHub.PerformActionAsync(action);
+
+            if (result.Success)
+            {
+                _logger.LogInformation("技能释放成功! 技能: {SkillId}", skillId);
+            }
+            else
+            {
+                _logger.LogWarning("技能释放失败: {Message}", result.ErrorMessage);
+            }
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "使用技能失败");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 离开战斗
+    /// </summary>
+    public async Task<bool> LeaveBattleAsync()
+    {
+        var battleHub = _connectionManager.CurrentConnection?.BattleHub;
+        if (battleHub == null)
+        {
+            _logger.LogWarning("未连接到 BattleServer");
+            return false;
+        }
+
+        try
+        {
+            _logger.LogInformation("正在离开战斗...");
+            var success = await battleHub.LeaveBattleAsync();
+
+            if (success)
+            {
+                _currentBattleId = null;
+                _logger.LogInformation("已离开战斗");
+            }
+
+            return success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "离开战斗失败");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// 显示状态
     /// </summary>
     public void DisplayStatus()
     {
         Console.WriteLine("\n=== 客户端状态 ===");
-        Console.WriteLine($"连接状态: {(_isConnected ? "已连接" : "未连接")}");
+
+        var currentConnection = _connectionManager.CurrentConnection;
+        if (currentConnection != null)
+        {
+            Console.WriteLine($"当前服务器: {currentConnection.ServerName} ({currentConnection.ServerType})");
+            Console.WriteLine($"服务器地址: {currentConnection.Host}:{currentConnection.Port}");
+        }
+        else
+        {
+            Console.WriteLine("当前服务器: 未连接");
+        }
+
+        Console.WriteLine($"已连接服务器数: {_connectionManager.AllConnections.Count}");
         Console.WriteLine($"玩家ID: {_currentPlayerId}");
         Console.WriteLine($"玩家名称: {_currentPlayerName}");
         Console.WriteLine($"当前房间: {_currentRoomId ?? "未加入"}");
@@ -464,9 +589,6 @@ public class DistributedGameClient
     {
         _logger.LogInformation("正在关闭客户端...");
 
-        // 取消订阅
-        _eventSubscription?.Dispose();
-
         // 取消操作
         if (_cts != null)
         {
@@ -475,10 +597,9 @@ public class DistributedGameClient
             _cts = null;
         }
 
-        // 释放资源
-        _client?.Dispose();
+        // 释放连接管理器
+        _connectionManager?.Dispose();
 
-        _isConnected = false;
         _logger.LogInformation("客户端已关闭");
     }
 

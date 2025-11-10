@@ -92,7 +92,11 @@ public static class PulseClientExtensionsGenerator
             if (serviceType == null) continue;
 
             var interfaceName = serviceType.Name;
+            if (string.IsNullOrEmpty(interfaceName)) continue;
+
             var fullTypeName = GetFullTypeName(serviceType);
+            if (string.IsNullOrEmpty(fullTypeName)) continue;
+
             var proxyTypeName = $"{fullTypeName}Proxy";
 
             sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务");
@@ -143,7 +147,11 @@ public static class PulseClientExtensionsGenerator
             if (serviceType == null) continue;
 
             var interfaceName = serviceType.Name;
+            if (string.IsNullOrEmpty(interfaceName)) continue;
+
             var fullTypeName = GetFullTypeName(serviceType);
+            if (string.IsNullOrEmpty(fullTypeName)) continue;
+
             var proxyTypeName = $"{fullTypeName}Proxy";
 
             sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务");
@@ -167,6 +175,11 @@ public static class PulseClientExtensionsGenerator
     {
         sb.AppendLine("        #region Event Listener Factory Methods");
         sb.AppendLine();
+
+        // 生成具象的 Register{ReceiverName}Async 方法
+        // 临时禁用以定位问题
+        // GenerateConcreteEventListenerMethods(sb, eventTypes);
+        // sb.AppendLine();
 
         // 生成通用的 RegisterEventListenerAsync<T> 实现（自动路由）
         sb.AppendLine("        /// <summary>");
@@ -192,7 +205,10 @@ public static class PulseClientExtensionsGenerator
             if (eventType == null) continue;
 
             var interfaceName = eventType.Name;
+            if (string.IsNullOrEmpty(interfaceName)) continue;
+
             var fullTypeName = GetFullTypeName(eventType);
+            if (string.IsNullOrEmpty(fullTypeName)) continue;
 
             sb.AppendLine($"            // 检查是否实现了 {interfaceName}");
             sb.AppendLine($"            if (listener is {fullTypeName} {interfaceName.ToLower()}Listener)");
@@ -205,9 +221,17 @@ public static class PulseClientExtensionsGenerator
             sb.AppendLine($"                    throw new InvalidOperationException($\"无法找到 {interfaceName} 事件监听的可用连接\");");
             sb.AppendLine("                }");
             sb.AppendLine($"                // 创建智能事件处理器并连接到通道");
-            var namespaceName = GetFullTypeName(eventType).Replace($".{interfaceName}", "");
-            var handlerClassName = GetSmartHandlerClassName(interfaceName);
-            var fullHandlerClassName = $"{namespaceName}.{handlerClassName}";
+
+            // 安全地提取命名空间
+            var namespaceName = fullTypeName!.Contains(".")
+                ? fullTypeName.Substring(0, fullTypeName.LastIndexOf('.'))
+                : string.Empty;
+
+            var handlerClassName = GetReceiverClassName(interfaceName);
+            var fullHandlerClassName = string.IsNullOrEmpty(namespaceName)
+                ? handlerClassName
+                : $"{namespaceName}.{handlerClassName}";
+
             sb.AppendLine($"                var smartHandler = new {fullHandlerClassName}();");
             sb.AppendLine($"                smartHandler.Subscribe({interfaceName.ToLower()}Listener);");
             sb.AppendLine($"                var channelToken = await smartHandler.ConnectToChannelAsync(connectionContext);");
@@ -258,7 +282,10 @@ public static class PulseClientExtensionsGenerator
             if (eventType == null) continue;
 
             var interfaceName = eventType.Name;
+            if (string.IsNullOrEmpty(interfaceName)) continue;
+
             var fullTypeName = GetFullTypeName(eventType);
+            if (string.IsNullOrEmpty(fullTypeName)) continue;
 
             sb.AppendLine($"            // 检查是否实现了 {interfaceName}");
             sb.AppendLine($"            if (listener is {fullTypeName} {interfaceName.ToLower()}Listener)");
@@ -370,7 +397,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("        #endregion");
     }
 
-    private static string GetSmartHandlerClassName(string interfaceName)
+    private static string GetReceiverClassName(string interfaceName)
     {
         // 对于 IPlayerLoginEvents，应该生成 PlayerLoginEventsSmartHandler
         var baseName = interfaceName.StartsWith("I")
@@ -379,12 +406,13 @@ public static class PulseClientExtensionsGenerator
         return $"{baseName}SmartHandler";
     }
 
-    private static string GetFullTypeName(INamedTypeSymbol typeSymbol)
+    private static string? GetFullTypeName(INamedTypeSymbol? typeSymbol)
     {
-        if (typeSymbol.ContainingNamespace.IsGlobalNamespace)
-        {
-            return typeSymbol.Name;
-        }
-        return $"{typeSymbol.ContainingNamespace.ToDisplayString()}.{typeSymbol.Name}";
+        if (typeSymbol == null) return null;
+        if (typeSymbol.ContainingNamespace == null) return typeSymbol.Name;
+
+        return typeSymbol.ContainingNamespace.IsGlobalNamespace
+            ? typeSymbol.Name
+            : $"{typeSymbol.ContainingNamespace.ToDisplayString()}.{typeSymbol.Name}";
     }
 }

@@ -31,6 +31,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DistributedGameApp.Shared\DistributedGameApp.Shared.csproj" />
     <ProjectReference Include="..\DistributedGameApp.Infrastructure\DistributedGameApp.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
     <ProjectReference Include="..\..\..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
     <ProjectReference Include="..\..\..\..\src\PulseRPC.Server.SourceGenerator\PulseRPC.Server.SourceGenerator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>

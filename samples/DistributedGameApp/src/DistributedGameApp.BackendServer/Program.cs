@@ -3,6 +3,7 @@ using DistributedGameApp.Infrastructure.Hosting;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using PulseRPC.Server;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -16,6 +17,11 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
     EnableSentry = true,                // Sentry 错误追踪（根据配置启用）
     ConfigureServices = services =>
     {
+        // 注册认证和权限服务
+        services.AddSingleton<IJwtTokenService, JwtTokenService>();
+        services.AddSingleton<IAuthenticationService, AuthenticationService>();
+        services.AddSingleton<PermissionValidator>();
+
         // 添加应用特定服务
         services.AddSingleton<SocialService>();
         services.AddSingleton<GuildService>();

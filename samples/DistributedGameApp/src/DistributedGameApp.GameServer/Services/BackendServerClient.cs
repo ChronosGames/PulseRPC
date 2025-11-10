@@ -1,37 +1,34 @@
+using DistributedGameApp.GameServer.Services.Backend;
 using DistributedGameApp.Shared.Domain.Matchmaking;
 using DistributedGameApp.Shared.Hubs;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using PulseRPC;
-using PulseRPC.Client;
-using PulseRPC.Transport;
-using PulseRPC.Messaging;
 
 namespace DistributedGameApp.GameServer.Services;
 
 /// <summary>
-/// BackendServer 客户端 - 用于从 GameServer 连接到 BackendServer
+/// BackendServer 客户端 - 生产级实现
+/// 支持从 Consul 动态发现、基于一致性哈希的分片路由、连接池管理
 /// </summary>
-public class BackendServerClient : IDisposable, IAsyncDisposable
+public class BackendServerClient : IAsyncDisposable
 {
+    private readonly BackendServerConnectionManager _connectionManager;
+    private readonly BackendServerRouter _router;
     private readonly ILogger<BackendServerClient> _logger;
-    private readonly IConfiguration _configuration;
-    private IPulseClient? _client;
-    private IClientChannel? _channel;
     private bool _isInitialized;
     private bool _isDisposed;
-    private CancellationTokenSource? _cts;
 
     public BackendServerClient(
-        IConfiguration configuration,
+        BackendServerConnectionManager connectionManager,
+        BackendServerRouter router,
         ILogger<BackendServerClient> logger)
     {
-        _configuration = configuration;
-        _logger = logger;
+        _connectionManager = connectionManager ?? throw new ArgumentNullException(nameof(connectionManager));
+        _router = router ?? throw new ArgumentNullException(nameof(router));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     /// <summary>
-    /// 初始化客户端连接
+    /// 初始化客户端
     /// </summary>
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
@@ -45,41 +42,17 @@ public class BackendServerClient : IDisposable, IAsyncDisposable
         {
             _logger.LogInformation("正在初始化 BackendServerClient...");
 
-            // 从配置读取 BackendServer 连接信息
-            var backendConfig = _configuration.GetSection("BackendServer");
-            var host = backendConfig.GetValue<string>("Host") ?? "localhost";
-            var port = backendConfig.GetValue<int>("Port", 10080);
-
-            _logger.LogInformation("连接到 BackendServer: {Host}:{Port}", host, port);
-
-            _cts = new CancellationTokenSource();
-
-            // 创建客户端（不预先添加连接）
-            _client = new PulseClientBuilder()
-                .WithTransportOptions(TransportType.TCP, new TcpTransportOptions
-                {
-                    ConnectionTimeout = 30000,
-                    NoDelay = true,
-                    SendBufferSize = 8192,
-                    RecvBufferSize = 8192,
-                })
-                .Build();
-
-            // 初始化客户端
-            await _client.InitializeAsync(cancellationToken);
-
-            // 手动连接到BackendServer
-            var descriptor = ConnectionDescriptor.CreateTcp(
-                "BackendServer",
-                "DistributedGameApp",
-                host,
-                port,
-                ConnectionStrategy.Persistent);
-
-            _channel = await _client.ConnectAsync(descriptor, cancellationToken);
+            // 初始化连接管理器（自动从 Consul 发现并连接所有 BackendServer）
+            await _connectionManager.InitializeAsync(cancellationToken);
 
             _isInitialized = true;
-            _logger.LogInformation("BackendServerClient 初始化完成");
+
+            var stats = _connectionManager.GetStats();
+            var routerStats = _router.GetStats();
+
+            _logger.LogInformation(
+                "BackendServerClient 初始化完成 - 连接数: {Connected}/{Total}, 路由策略: {Strategy}, 虚拟节点: {VNodes}",
+                stats.ConnectedCount, stats.TotalConnections, routerStats.Strategy, routerStats.VirtualNodesPerNode);
         }
         catch (Exception ex)
         {
@@ -89,42 +62,45 @@ public class BackendServerClient : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// 确保客户端已初始化
-    /// </summary>
-    private void EnsureInitialized()
-    {
-        if (!_isInitialized || _channel == null)
-        {
-            throw new InvalidOperationException("BackendServerClient 未初始化，请先调用 InitializeAsync");
-        }
-
-        if (_isDisposed)
-        {
-            throw new ObjectDisposedException(nameof(BackendServerClient));
-        }
-    }
-
-    /// <summary>
-    /// 开始匹配
+    /// 开始匹配（使用一致性哈希路由）
     /// </summary>
     public async Task<MatchmakingResponse> StartMatchmakingAsync(MatchmakingRequest request)
     {
         EnsureInitialized();
 
+        if (string.IsNullOrEmpty(request.PlayerId))
+        {
+            throw new ArgumentException("PlayerId cannot be null or empty", nameof(request));
+        }
+
         try
         {
-            _logger.LogInformation("调用 BackendServer 开始匹配: PlayerId={PlayerId}, Type={MatchType}",
-                request.PlayerId, request.MatchType);
+            // 使用 PlayerId 作为路由键，确保同一玩家的请求总是路由到同一个 BackendServer
+            var connection = _router.GetConnection(request.PlayerId);
 
-            // 使用 InvokeAsync 调用远程方法
-            var response = await _channel!.InvokeAsync<MatchmakingRequest, MatchmakingResponse>(
+            if (connection == null)
+            {
+                _logger.LogError("无法获取 BackendServer 连接: PlayerId={PlayerId}", request.PlayerId);
+                return new MatchmakingResponse
+                {
+                    Success = false,
+                    Message = "BackendServer 不可用"
+                };
+            }
+
+            _logger.LogInformation("调用 BackendServer 开始匹配: PlayerId={PlayerId}, ServiceId={ServiceId}",
+                request.PlayerId, connection.ServiceInfo.ServiceId);
+
+            // 调用远程方法
+            var response = await connection.InvokeAsync<MatchmakingRequest, MatchmakingResponse>(
                 nameof(IBackendHub),
                 nameof(IBackendHub.StartMatchmakingAsync),
                 request);
 
             if (response.Success)
             {
-                _logger.LogInformation("匹配请求已提交: PlayerId={PlayerId}", request.PlayerId);
+                _logger.LogInformation("匹配请求已提交: PlayerId={PlayerId}, ServiceId={ServiceId}",
+                    request.PlayerId, connection.ServiceInfo.ServiceId);
             }
             else
             {
@@ -146,62 +122,135 @@ public class BackendServerClient : IDisposable, IAsyncDisposable
     }
 
     /// <summary>
-    /// 取消匹配
+    /// 取消匹配（需要路由到相同的 BackendServer）
     /// </summary>
-    public async Task<bool> CancelMatchmakingAsync()
+    public async Task<bool> CancelMatchmakingAsync(string playerId)
     {
         EnsureInitialized();
 
+        if (string.IsNullOrEmpty(playerId))
+        {
+            throw new ArgumentException("PlayerId cannot be null or empty", nameof(playerId));
+        }
+
         try
         {
-            _logger.LogInformation("调用 BackendServer 取消匹配");
+            // 使用相同的 PlayerId 路由，确保取消请求发送到相同的服务器
+            var connection = _router.GetConnection(playerId);
 
-            // 使用 InvokeAsync 调用远程方法（无参数方法）
-            var result = await _channel!.InvokeAsync<object?, bool>(
+            if (connection == null)
+            {
+                _logger.LogError("无法获取 BackendServer 连接: PlayerId={PlayerId}", playerId);
+                return false;
+            }
+
+            _logger.LogInformation("调用 BackendServer 取消匹配: PlayerId={PlayerId}, ServiceId={ServiceId}",
+                playerId, connection.ServiceInfo.ServiceId);
+
+            // 调用远程方法
+            var result = await connection.InvokeAsync<object?, bool>(
                 nameof(IBackendHub),
                 nameof(IBackendHub.CancelMatchmakingAsync),
                 null);
 
             if (result)
             {
-                _logger.LogInformation("取消匹配成功");
+                _logger.LogInformation("取消匹配成功: PlayerId={PlayerId}", playerId);
             }
             else
             {
-                _logger.LogWarning("取消匹配失败");
+                _logger.LogWarning("取消匹配失败: PlayerId={PlayerId}", playerId);
             }
 
             return result;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "调用 BackendServer 取消匹配失败");
+            _logger.LogError(ex, "调用 BackendServer 取消匹配失败: PlayerId={PlayerId}", playerId);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// 广播消息到所有 BackendServer
+    /// </summary>
+    public async Task<Dictionary<string, bool>> BroadcastAsync<TRequest>(
+        string hubName,
+        string methodName,
+        TRequest? request)
+    {
+        EnsureInitialized();
+
+        var connections = _router.GetAllConnections();
+        var results = new Dictionary<string, bool>();
+
+        _logger.LogInformation("广播消息到 {Count} 个 BackendServer: {Method}", connections.Count, methodName);
+
+        var tasks = connections.Select(async connection =>
+        {
+            try
+            {
+                await connection.InvokeAsync<TRequest, object>(hubName, methodName, request);
+                return (connection.ServiceInfo.ServiceId, Success: true);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "广播失败: ServiceId={ServiceId}, Method={Method}",
+                    connection.ServiceInfo.ServiceId, methodName);
+                return (connection.ServiceInfo.ServiceId, Success: false);
+            }
+        });
+
+        var taskResults = await Task.WhenAll(tasks);
+
+        foreach (var (serviceId, success) in taskResults)
+        {
+            results[serviceId] = success;
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// 获取客户端统计信息
+    /// </summary>
+    public BackendServerClientStats GetStats()
+    {
+        var managerStats = _connectionManager.GetStats();
+        var routerStats = _router.GetStats();
+
+        return new BackendServerClientStats
+        {
+            IsInitialized = _isInitialized,
+            TotalConnections = managerStats.TotalConnections,
+            ConnectedCount = managerStats.ConnectedCount,
+            DisconnectedCount = managerStats.DisconnectedCount,
+            TotalRequests = managerStats.TotalRequests,
+            RoutingStrategy = routerStats.Strategy,
+            VirtualNodesPerNode = routerStats.VirtualNodesPerNode
+        };
+    }
+
+    /// <summary>
+    /// 确保客户端已初始化
+    /// </summary>
+    private void EnsureInitialized()
+    {
+        if (!_isInitialized)
+        {
+            throw new InvalidOperationException("BackendServerClient 未初始化，请先调用 InitializeAsync");
+        }
+
+        if (_isDisposed)
+        {
+            throw new ObjectDisposedException(nameof(BackendServerClient));
         }
     }
 
     /// <summary>
     /// 检查连接状态
     /// </summary>
-    public bool IsConnected => _isInitialized && !_isDisposed && _client != null;
-
-    /// <summary>
-    /// 释放资源
-    /// </summary>
-    public void Dispose()
-    {
-        if (_isDisposed)
-            return;
-
-        _logger.LogInformation("正在释放 BackendServerClient...");
-
-        _cts?.Cancel();
-        _cts?.Dispose();
-        _client?.Dispose();
-
-        _isDisposed = true;
-        _logger.LogInformation("BackendServerClient 已释放");
-    }
+    public bool IsConnected => _isInitialized && !_isDisposed && _connectionManager.ConnectionCount > 0;
 
     /// <summary>
     /// 异步释放资源
@@ -211,17 +260,54 @@ public class BackendServerClient : IDisposable, IAsyncDisposable
         if (_isDisposed)
             return;
 
-        _logger.LogInformation("正在异步释放 BackendServerClient...");
-
-        if (_cts != null)
-        {
-            await _cts.CancelAsync();
-            _cts.Dispose();
-        }
-
-        _client?.Dispose();
-
         _isDisposed = true;
+
+        _logger.LogInformation("正在释放 BackendServerClient...");
+
+        _router.Dispose();
+        await _connectionManager.DisposeAsync();
+
         _logger.LogInformation("BackendServerClient 已释放");
     }
+}
+
+/// <summary>
+/// BackendServerClient 统计信息
+/// </summary>
+public class BackendServerClientStats
+{
+    /// <summary>
+    /// 是否已初始化
+    /// </summary>
+    public bool IsInitialized { get; init; }
+
+    /// <summary>
+    /// 总连接数
+    /// </summary>
+    public int TotalConnections { get; init; }
+
+    /// <summary>
+    /// 已连接数
+    /// </summary>
+    public int ConnectedCount { get; init; }
+
+    /// <summary>
+    /// 断开连接数
+    /// </summary>
+    public int DisconnectedCount { get; init; }
+
+    /// <summary>
+    /// 总请求数
+    /// </summary>
+    public long TotalRequests { get; init; }
+
+    /// <summary>
+    /// 路由策略
+    /// </summary>
+    public RoutingStrategy RoutingStrategy { get; init; }
+
+    /// <summary>
+    /// 每个物理节点的虚拟节点数
+    /// </summary>
+    public int VirtualNodesPerNode { get; init; }
 }

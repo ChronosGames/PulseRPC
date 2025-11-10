@@ -146,11 +146,6 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     /// </summary>
     private void ValidateConfiguration()
     {
-        if (_connections.Count == 0)
-        {
-            throw new InvalidOperationException("必须至少添加一个连接");
-        }
-
         // 验证所有连接描述符
         foreach (var connection in _connections)
         {
