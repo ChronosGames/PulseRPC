@@ -971,8 +971,8 @@ public class ChatService : IChatService
 ### 🐳 容器化部署
 
 ```dockerfile
-# ✅ 优化的 Dockerfile for .NET 9
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
+# ✅ 优化的 Dockerfile for .NET 10
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
 EXPOSE 8080
 

@@ -279,19 +279,6 @@ class Program
                         }
                         break;
 
-                    case "scenario":
-                    case "runscenario":
-                        if (parts.Length < 2)
-                        {
-                            Console.WriteLine("用法: scenario fullbattle <账号> <角色名> <职业>");
-                            Console.WriteLine("职业: Warrior, Mage, Archer, Assassin, Priest");
-                        }
-                        else
-                        {
-                            await RunScenarioCommandAsync(client, parts);
-                        }
-                        break;
-
                     case "leave":
                     case "leavebattle":
                         await client.LeaveBattleAsync();
