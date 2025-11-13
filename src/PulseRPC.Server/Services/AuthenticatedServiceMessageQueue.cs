@@ -527,7 +527,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
 {
     // MethodInfo 缓存 - 用于优化权限验证时的反射性能
     // TODO: 协议号到方法的映射将由 SourceGenerator 生成
-    private static readonly ConcurrentDictionary<(Type ServiceType, PulseRPC.Protocol.ProtocolId ProtocolId), System.Reflection.MethodInfo?> _methodInfoCache = new();
+    private static readonly ConcurrentDictionary<(Type ServiceType, Protocol.ProtocolId ProtocolId), MethodInfo?> _methodInfoCache = new();
 
     private readonly PriorityQueue<PriorityServiceMessage, PriorityServiceMessage> _priorityQueue;
     private readonly SemaphoreSlim _signal; // 信号量，通知有新消息

@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,7 +14,6 @@
 
   <ItemGroup>
     <PackageReference Include="Consul" />
-    <PackageReference Include="dotnet-etcd" />
     <PackageReference Include="MemoryPack.Core" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
@@ -33,6 +32,6 @@
 
   <!-- 包含 Source Generator -->
   <ItemGroup>
-    <None Include="..\PulseRPC.Server.SourceGenerator\bin\$(Configuration)\net9.0\PulseRPC.Server.SourceGenerator.dll" PackagePath="analyzers\dotnet\cs" Pack="true" Visible="false" />
+    <None Include="..\PulseRPC.Server.SourceGenerator\bin\$(Configuration)\net10.0\PulseRPC.Server.SourceGenerator.dll" PackagePath="analyzers\dotnet\cs" Pack="true" Visible="false" />
   </ItemGroup>
 </Project>

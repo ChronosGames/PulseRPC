@@ -1,6 +1,5 @@
 ﻿using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
 
 // 类型别名 - 服务间认证上下文
 using AuthenticationContext = PulseRPC.Server.ServiceAuthenticationContext;
@@ -34,7 +33,15 @@ public interface IService : IAsyncDisposable
 /// <summary>
 /// 带认证的Actor服务基类
 /// </summary>
-public abstract class BaseService : IService, IPulseHub
+/// <remarks>
+/// 支持灵活配置：
+/// - 单线程/并发处理
+/// - 优先级队列
+/// - 背压流控
+///
+/// 默认配置：单线程 Actor 模型（严格有序）
+/// </remarks>
+public abstract class BaseService : IService
 {
     // MethodInfo 缓存 - 用于优化反射性能
     // TODO: 协议号到方法的映射将由 SourceGenerator 生成
@@ -43,6 +50,7 @@ public abstract class BaseService : IService, IPulseHub
     public PID ServicePID { get; private set; }
 
     protected readonly ILogger Logger;
+    protected readonly ServiceQueueOptions Options;
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private bool _isRunning;
     private AuthenticatedServiceMessageQueue? _messageQueue;
@@ -53,11 +61,14 @@ public abstract class BaseService : IService, IPulseHub
     protected BaseService(
         ILogger logger,
         IAuthenticationService authenticationService,
-        PermissionValidator permissionValidator)
+        PermissionValidator permissionValidator,
+        ServiceQueueOptions? options = null)
     {
         Logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _authenticationService = authenticationService;
         _permissionValidator = permissionValidator;
+        Options = options ?? ServiceQueueOptions.Default;
+        Options.Validate();
     }
 
     internal void SetPID(PID pid)
@@ -67,15 +78,23 @@ public abstract class BaseService : IService, IPulseHub
         // 生成服务密钥
         _serviceSecret = _authenticationService.GenerateServiceSecret(pid);
 
+        // 根据配置创建消息队列（支持并发、优先级、背压策略）
         _messageQueue = new AuthenticatedServiceMessageQueue(
             GetType().Name,
             pid,
             GetType(),
             Logger,
-            _permissionValidator);
+            _permissionValidator,
+            capacity: Options.QueueCapacity,
+            maxConcurrency: Options.MaxConcurrency,
+            backpressureStrategy: Options.BackpressureStrategy);
 
-        // 传递Actor Type用于反射
+        // 启动消息处理循环
         _messageQueue.Start(ProcessMessageAsync);
+
+        Logger.LogInformation(
+            "Service initialized - Service: {ServiceName}, PID: {PID}, MaxConcurrency: {MaxConcurrency}, BackpressureStrategy: {Strategy}",
+            GetType().Name, pid, Options.MaxConcurrency, Options.BackpressureStrategy);
     }
 
     // 启动/停止方法（省略）
@@ -140,6 +159,22 @@ public abstract class BaseService : IService, IPulseHub
     protected string ScheduleOnce(TimeSpan delay, Func<Task> callback) => string.Empty;
     protected string ScheduleRecurring(TimeSpan initialDelay, TimeSpan interval, Func<Task> callback) => string.Empty;
     protected bool CancelTimer(string timerId) => false;
+
+    /// <summary>
+    /// 获取队列监控指标快照
+    /// </summary>
+    public ServiceQueueMetricsSnapshot? GetMetricsSnapshot()
+    {
+        return _messageQueue?.GetMetricsSnapshot();
+    }
+
+    /// <summary>
+    /// 获取当前队列深度
+    /// </summary>
+    public int GetCurrentQueueDepth()
+    {
+        return _messageQueue?.GetCurrentQueueDepth() ?? 0;
+    }
 
 
     // public virtual async Task BroadcastAsync(string method, object?[] args, CancellationToken cancellationToken = default)

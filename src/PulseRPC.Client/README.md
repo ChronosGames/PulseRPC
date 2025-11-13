@@ -704,7 +704,7 @@ client.Registry.ConnectionRegistered += (sender, args) =>
 ## Platform Support
 
 ### .NET Applications
-- **.NET 9.0+**: Full feature set with latest performance optimizations
+- **.NET 10.0+**: Full feature set with latest performance optimizations
 - **ASP.NET Core**: Seamless integration with dependency injection
 - **Worker Services**: Background service and long-running application support
 
