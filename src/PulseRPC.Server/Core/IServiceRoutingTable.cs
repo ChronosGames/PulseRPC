@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace PulseRPC.Server.Routing;
+namespace PulseRPC.Server;
 
 /// <summary>
 /// 服务路由表接口 - 由源生成器生成的 ServiceRoutingTable 实现

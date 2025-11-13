@@ -50,8 +50,8 @@ public static class RoutingTableGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Buffers;");
+        sb.AppendLine("using PulseRPC.Server;");
         sb.AppendLine("using PulseRPC.Server.Abstractions;");
-        sb.AppendLine("using PulseRPC.Server.Routing;");
         sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
 
         // 添加服务命名空间
@@ -336,7 +336,7 @@ public static class RoutingTableGenerator
         sb.AppendLine("    internal static void Initialize()");
         sb.AppendLine("    {");
         sb.AppendLine("        // 自动注册路由表实例到全局注册中心");
-        sb.AppendLine("        PulseRPC.Server.Routing.ServiceRoutingTableRegistry.Register(Instance);");
+        sb.AppendLine("        PulseRPC.Server.ServiceRoutingTableRegistry.Register(Instance);");
         sb.AppendLine("        System.Diagnostics.Debug.WriteLine(\"[PulseRPC] ServiceRoutingTable registered to global registry\");");
         sb.AppendLine("    }");
         sb.AppendLine();

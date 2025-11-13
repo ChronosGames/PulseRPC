@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 
-namespace PulseRPC.Server.Routing;
+namespace PulseRPC.Server;
 
 /// <summary>
 /// 服务路由表注册中心 - 用于桥接编译时生成的 ServiceRoutingTable
