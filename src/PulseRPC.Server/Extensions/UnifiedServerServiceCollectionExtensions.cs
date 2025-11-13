@@ -138,9 +138,9 @@ public static class UnifiedServerServiceCollectionExtensions
 
         // 7. 注册 ServiceRoutingTable（由源代码生成器生成）
         // ServiceRoutingTableRegistry 在程序集加载时由 ModuleInitializer 自动注册
-        if (Routing.ServiceRoutingTableRegistry.Instance != null)
+        if (ServiceRoutingTableRegistry.Instance != null)
         {
-            services.TryAddSingleton<Routing.IServiceRoutingTable>(Routing.ServiceRoutingTableRegistry.Instance);
+            services.TryAddSingleton<IServiceRoutingTable>(ServiceRoutingTableRegistry.Instance);
         }
     }
 

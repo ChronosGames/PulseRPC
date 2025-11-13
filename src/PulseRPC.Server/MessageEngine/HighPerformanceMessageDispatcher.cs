@@ -11,7 +11,7 @@ using PulseRPC.Messaging;
 using PulseRPC.Server.Scheduling;
 using PulseRPC.Server.Serialization;
 using PulseRPC.Server.MessageEngine;
-using PulseRPC.Server.Routing;
+using PulseRPC.Server.Core;
 using MemoryPack;
 
 namespace PulseRPC.Server.MessageEngine;
