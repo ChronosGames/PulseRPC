@@ -88,6 +88,9 @@ public static class ServerBootstrapper
         // 5. 应用特定服务
         options.ConfigureServices?.Invoke(services);
 
+        // 6. 注册命名服务器托管服务（自动启动 External 和 Internal 服务器）
+        services.AddHostedService<NamedPulseServersHostedService>();
+
         return services;
     }
 
