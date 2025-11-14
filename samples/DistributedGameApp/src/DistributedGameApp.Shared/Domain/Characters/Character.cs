@@ -16,7 +16,7 @@ public partial class Character
     /// MongoDB 主键
     /// </summary>
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
+    // [BsonRepresentation(BsonType.ObjectId)]
     public string Id { get; set; } = string.Empty;
 
     /// <summary>
