@@ -94,53 +94,78 @@ public sealed class ConsulServiceRegistrationService : BackgroundService
         var internalConfig = networkConfig.GetSection("Internal");
         var externalConfig = networkConfig.GetSection("External");
 
-        var tcpPort = 0;
-        var host = "localhost";
-        int? kcpPort = null;
-
-        // 优先使用外网配置（如果有）
-        if (externalConfig.Exists() && externalConfig.GetValue<bool>("Enabled"))
-        {
-            var tcpConfig = externalConfig.GetSection("Tcp");
-            if (tcpConfig.Exists() && tcpConfig.GetValue<bool>("Enabled"))
-            {
-                tcpPort = tcpConfig.GetValue<int>("Port");
-            }
-
-            var kcpConfig = externalConfig.GetSection("Kcp");
-            if (kcpConfig.Exists() && kcpConfig.GetValue<bool>("Enabled"))
-            {
-                kcpPort = kcpConfig.GetValue<int>("Port");
-            }
-
-            host = externalConfig.GetValue<string>("Host") ?? "localhost";
-        }
-        // 如果没有外网配置，使用内网配置
-        else if (internalConfig.Exists() && internalConfig.GetValue<bool>("Enabled"))
-        {
-            tcpPort = internalConfig.GetValue<int>("Port");
-            host = internalConfig.GetValue<string>("Host") ?? "localhost";
-        }
-
-        // Consul 不支持 0.0.0.0，转换为 localhost
-        if (host == "0.0.0.0")
-        {
-            host = "localhost";
-        }
-
-        return new ServiceRegistration
+        var registration = new ServiceRegistration
         {
             ServiceId = $"{_identity.ServiceType.ToLower()}-{_identity.NodeId}",
             ServiceType = _identity.ServiceType,
             NodeId = _identity.NodeId,
             NodeName = _identity.NodeName,
-            Host = host,
-            TcpPort = tcpPort,
-            KcpPort = kcpPort,
             CurrentLoad = 0,
             MaxCapacity = _identity.MaxCapacity,
             Status = "Online"
         };
+
+        // 解析内网端点
+        if (internalConfig.Exists() && internalConfig.GetValue<bool>("Enabled"))
+        {
+            var internalHost = internalConfig.GetValue<string>("Host") ?? "localhost";
+            var internalTcpPort = internalConfig.GetValue<int>("Port");
+            int? internalKcpPort = null;
+
+            var kcpConfig = internalConfig.GetSection("Kcp");
+            if (kcpConfig.Exists() && kcpConfig.GetValue<bool>("Enabled"))
+            {
+                internalKcpPort = kcpConfig.GetValue<int>("Port");
+            }
+
+            registration.InternalEndpoint = new Infrastructure.ServiceClient.NetworkEndpoint
+            {
+                Host = internalHost == "0.0.0.0" ? "localhost" : internalHost,
+                TcpPort = internalTcpPort,
+                KcpPort = internalKcpPort,
+                Enabled = true
+            };
+        }
+
+        // 解析外网端点
+        if (externalConfig.Exists() && externalConfig.GetValue<bool>("Enabled"))
+        {
+            var externalHost = externalConfig.GetValue<string>("Host") ?? "localhost";
+            var tcpConfig = externalConfig.GetSection("Tcp");
+            var kcpConfig = externalConfig.GetSection("Kcp");
+
+            int externalTcpPort = 0;
+            int? externalKcpPort = null;
+
+            if (tcpConfig.Exists() && tcpConfig.GetValue<bool>("Enabled"))
+            {
+                externalTcpPort = tcpConfig.GetValue<int>("Port");
+            }
+
+            if (kcpConfig.Exists() && kcpConfig.GetValue<bool>("Enabled"))
+            {
+                externalKcpPort = kcpConfig.GetValue<int>("Port");
+            }
+
+            registration.ExternalEndpoint = new Infrastructure.ServiceClient.NetworkEndpoint
+            {
+                Host = externalHost == "0.0.0.0" ? "localhost" : externalHost,
+                TcpPort = externalTcpPort,
+                KcpPort = externalKcpPort,
+                Enabled = externalTcpPort > 0
+            };
+        }
+
+        // 向后兼容：设置旧字段（优先使用内网）
+        var preferredEndpoint = registration.GetPreferredEndpoint(preferInternal: true);
+        if (preferredEndpoint != null)
+        {
+            registration.Host = preferredEndpoint.Host;
+            registration.TcpPort = preferredEndpoint.TcpPort;
+            registration.KcpPort = preferredEndpoint.KcpPort;
+        }
+
+        return registration;
     }
 
     private ServiceRegistration BuildFromServiceConfig(IConfigurationSection serviceConfig)

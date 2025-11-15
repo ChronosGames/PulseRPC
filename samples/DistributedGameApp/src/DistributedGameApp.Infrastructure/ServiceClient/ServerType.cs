@@ -1,4 +1,4 @@
-namespace DistributedGameApp.GameServer.Services.Generic;
+namespace DistributedGameApp.Infrastructure.ServiceClient;
 
 /// <summary>
 /// 服务器类型枚举
@@ -28,7 +28,12 @@ public enum ServerType
     /// <summary>
     /// MailServer - 邮件服务
     /// </summary>
-    Mail
+    Mail,
+
+    /// <summary>
+    /// GameServer - 游戏服务
+    /// </summary>
+    Game
 }
 
 /// <summary>
@@ -48,6 +53,7 @@ public static class ServerTypeExtensions
             ServerType.Battle => "BattleServer",
             ServerType.Guild => "GuildServer",
             ServerType.Mail => "MailServer",
+            ServerType.Game => "GameServer",
             _ => throw new ArgumentException($"Unknown server type: {serverType}")
         };
     }

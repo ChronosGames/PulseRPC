@@ -1,3 +1,4 @@
+using DistributedGameApp.BackendServer.Repositories;
 using DistributedGameApp.BackendServer.Services;
 using DistributedGameApp.Infrastructure.Hosting;
 using DistributedGameApp.Shared.Hubs;
@@ -21,6 +22,9 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         services.AddSingleton<IJwtTokenService, JwtTokenService>();
         services.AddSingleton<IAuthenticationService, AuthenticationService>();
         services.AddSingleton<PermissionValidator>();
+
+        // 注册仓储
+        services.AddSingleton<GuildRepository>();
 
         // 添加应用特定服务
         services.AddSingleton<SocialService>();

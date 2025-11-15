@@ -38,7 +38,7 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         services.AddSingleton<MailService>();
 
         // 注册 Hub 服务（必须使用接口 + 实现的方式）
-        services.AddSingleton<IGameHub, GameHubYielding>();
+        services.AddSingleton<IGameHub, GameHub>();
 
         // 添加后台服务：BackendServerClient 初始化
         services.AddHostedService<BackendServerClientInitializationService>();

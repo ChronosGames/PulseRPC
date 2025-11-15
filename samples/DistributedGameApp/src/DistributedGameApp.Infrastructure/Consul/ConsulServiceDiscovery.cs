@@ -277,6 +277,50 @@ public class ConsulServiceDiscovery
             lastHeartbeat = hb;
         }
 
+        // 解析内网端点
+        ServiceClient.NetworkEndpoint? internalEndpoint = null;
+        if (meta.TryGetValue("Internal_Host", out var internalHost) &&
+            meta.TryGetValue("Internal_TcpPort", out var internalTcpPortStr) &&
+            int.TryParse(internalTcpPortStr, out var internalTcpPort))
+        {
+            int? internalKcpPort = null;
+            if (meta.TryGetValue("Internal_KcpPort", out var internalKcpPortStr) &&
+                int.TryParse(internalKcpPortStr, out var internalKcp))
+            {
+                internalKcpPort = internalKcp;
+            }
+
+            internalEndpoint = new ServiceClient.NetworkEndpoint
+            {
+                Host = internalHost,
+                TcpPort = internalTcpPort,
+                KcpPort = internalKcpPort,
+                Enabled = true
+            };
+        }
+
+        // 解析外网端点
+        ServiceClient.NetworkEndpoint? externalEndpoint = null;
+        if (meta.TryGetValue("External_Host", out var externalHost) &&
+            meta.TryGetValue("External_TcpPort", out var externalTcpPortStr) &&
+            int.TryParse(externalTcpPortStr, out var externalTcpPort))
+        {
+            int? externalKcpPort = null;
+            if (meta.TryGetValue("External_KcpPort", out var externalKcpPortStr) &&
+                int.TryParse(externalKcpPortStr, out var externalKcp))
+            {
+                externalKcpPort = externalKcp;
+            }
+
+            externalEndpoint = new ServiceClient.NetworkEndpoint
+            {
+                Host = externalHost,
+                TcpPort = externalTcpPort,
+                KcpPort = externalKcpPort,
+                Enabled = true
+            };
+        }
+
         return new ServiceRegistration
         {
             ServiceId = service.ID,
@@ -286,6 +330,8 @@ public class ConsulServiceDiscovery
             Host = service.Address,
             TcpPort = service.Port,
             KcpPort = kcpPort,
+            InternalEndpoint = internalEndpoint,
+            ExternalEndpoint = externalEndpoint,
             CurrentLoad = currentLoad,
             MaxCapacity = maxCapacity,
             Status = meta.TryGetValue("Status", out var status) ? status : "Online",
@@ -341,6 +387,50 @@ public class ConsulServiceDiscovery
             lastHeartbeat = hb;
         }
 
+        // 解析内网端点
+        ServiceClient.NetworkEndpoint? internalEndpoint = null;
+        if (meta.TryGetValue("Internal_Host", out var internalHost) &&
+            meta.TryGetValue("Internal_TcpPort", out var internalTcpPortStr) &&
+            int.TryParse(internalTcpPortStr, out var internalTcpPort))
+        {
+            int? internalKcpPort = null;
+            if (meta.TryGetValue("Internal_KcpPort", out var internalKcpPortStr) &&
+                int.TryParse(internalKcpPortStr, out var internalKcp))
+            {
+                internalKcpPort = internalKcp;
+            }
+
+            internalEndpoint = new ServiceClient.NetworkEndpoint
+            {
+                Host = internalHost,
+                TcpPort = internalTcpPort,
+                KcpPort = internalKcpPort,
+                Enabled = true
+            };
+        }
+
+        // 解析外网端点
+        ServiceClient.NetworkEndpoint? externalEndpoint = null;
+        if (meta.TryGetValue("External_Host", out var externalHost) &&
+            meta.TryGetValue("External_TcpPort", out var externalTcpPortStr) &&
+            int.TryParse(externalTcpPortStr, out var externalTcpPort))
+        {
+            int? externalKcpPort = null;
+            if (meta.TryGetValue("External_KcpPort", out var externalKcpPortStr) &&
+                int.TryParse(externalKcpPortStr, out var externalKcp))
+            {
+                externalKcpPort = externalKcp;
+            }
+
+            externalEndpoint = new ServiceClient.NetworkEndpoint
+            {
+                Host = externalHost,
+                TcpPort = externalTcpPort,
+                KcpPort = externalKcpPort,
+                Enabled = true
+            };
+        }
+
         return new ServiceRegistration
         {
             ServiceId = serviceId,
@@ -350,6 +440,8 @@ public class ConsulServiceDiscovery
             Host = service.Address,
             TcpPort = service.Port,
             KcpPort = kcpPort,
+            InternalEndpoint = internalEndpoint,
+            ExternalEndpoint = externalEndpoint,
             CurrentLoad = currentLoad,
             MaxCapacity = maxCapacity,
             Status = meta.TryGetValue("Status", out var status) ? status : "Online",

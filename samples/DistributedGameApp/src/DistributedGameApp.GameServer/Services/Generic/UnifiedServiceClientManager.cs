@@ -1,7 +1,9 @@
 using DistributedGameApp.GameServer.Services.Backend;
 using DistributedGameApp.Infrastructure.Consul;
+using DistributedGameApp.Infrastructure.ServiceClient;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using InfraServerType = DistributedGameApp.Infrastructure.ServiceClient.ServerType;
 
 namespace DistributedGameApp.GameServer.Services.Generic;
 
@@ -13,6 +15,8 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     private readonly ConsulServiceDiscovery _serviceDiscovery;
     private readonly ILoggerFactory _loggerFactory;
     private readonly ILogger<UnifiedServiceClientManager> _logger;
+    private readonly HubTypeRegistry _hubTypeRegistry;
+    private readonly LocalServiceRegistry _localServiceRegistry;
 
     // 每种服务类型一个连接管理器 + 路由器
     private readonly ConcurrentDictionary<ServerType, (BackendServerConnectionManager Manager, BackendServerRouter Router)> _serverManagers = new();
@@ -22,11 +26,29 @@ public class UnifiedServiceClientManager : IAsyncDisposable
 
     public UnifiedServiceClientManager(
         ConsulServiceDiscovery serviceDiscovery,
-        ILoggerFactory loggerFactory)
+        ILoggerFactory loggerFactory,
+        LocalServiceRegistry localServiceRegistry)
     {
         _serviceDiscovery = serviceDiscovery ?? throw new ArgumentNullException(nameof(serviceDiscovery));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
+        _localServiceRegistry = localServiceRegistry ?? throw new ArgumentNullException(nameof(localServiceRegistry));
         _logger = loggerFactory.CreateLogger<UnifiedServiceClientManager>();
+        _hubTypeRegistry = new HubTypeRegistry();
+        InitializeHubTypeRegistry();
+    }
+
+    /// <summary>
+    /// 初始化 Hub 类型注册表
+    /// </summary>
+    private void InitializeHubTypeRegistry()
+    {
+        // 注册所有 Hub 类型到服务名称的映射
+        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IBackendHub>("BackendServer");
+        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IBattleHub>("BattleServer");
+        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGameHub>("GameServer");
+        // IGuildHub 已合并到 BackendServer（IBackendHub 继承了 IGuildHub）
+        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGuildHub>("BackendServer");
+        // 可以在这里继续添加其他 Hub 类型映射
     }
 
     /// <summary>
@@ -93,7 +115,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// </summary>
     /// <param name="serverType">服务器类型</param>
     /// <param name="shardId">分片ID（通常是 UserId/PlayerId）</param>
-    public IServerConnection? GetServer(ServerType serverType, string shardId)
+    public IServiceConnection? GetServer(ServerType serverType, string shardId)
     {
         EnsureInitialized();
 
@@ -124,20 +146,20 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// <summary>
     /// 获取所有可用连接
     /// </summary>
-    public List<IServerConnection> GetAllServers(ServerType serverType)
+    public List<IServiceConnection> GetAllServers(ServerType serverType)
     {
         EnsureInitialized();
 
         if (!_serverManagers.TryGetValue(serverType, out var managerAndRouter))
         {
             _logger.LogError("服务类型未注册: {ServerType}", serverType);
-            return new List<IServerConnection>();
+            return new List<IServiceConnection>();
         }
 
         var (manager, router) = managerAndRouter;
         var connections = router.GetAllConnections();
 
-        return connections.Select(c => (IServerConnection)new ServerConnectionAdapter(c)).ToList();
+        return connections.Select(c => (IServiceConnection)new ServerConnectionAdapter(c)).ToList();
     }
 
     /// <summary>
@@ -178,6 +200,164 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// 获取 Hub 代理（通过服务ID/分片键路由）
+    /// </summary>
+    /// <typeparam name="THub">Hub 接口类型</typeparam>
+    /// <param name="serviceId">服务ID/分片键 (如 userId, roomId 等)，为空时使用自动路由</param>
+    /// <returns>Hub 代理实例，可以直接调用 Hub 方法</returns>
+    public THub? GetHub<THub>(string serviceId = "") where THub : class
+    {
+        EnsureInitialized();
+
+        // 从 Hub 类型获取服务名称
+        var serviceName = _hubTypeRegistry.GetServiceName<THub>();
+        if (string.IsNullOrEmpty(serviceName))
+        {
+            _logger.LogError("无法找到 Hub 类型 {HubType} 对应的服务名称", typeof(THub).Name);
+            return null;
+        }
+
+        // 将服务名称转换为 ServerType
+        var serverType = GetServerTypeFromServiceName(serviceName);
+        if (serverType == null)
+        {
+            _logger.LogError("无法将服务名称 {ServiceName} 转换为 ServerType", serviceName);
+            return null;
+        }
+
+        // 如果 serviceId 为空，使用自动路由（基于 Hub 类型的哈希）
+        if (string.IsNullOrEmpty(serviceId))
+        {
+            // 先尝试本地查询
+            var localServiceId = TryGetLocalServiceId<THub>();
+            if (!string.IsNullOrEmpty(localServiceId))
+            {
+                serviceId = localServiceId;
+                _logger.LogDebug("使用本地服务: Hub={HubType}, ServiceId={ServiceId}",
+                    typeof(THub).Name, serviceId);
+            }
+            else
+            {
+                // 使用 Hub 类型名作为默认路由键（确保同类型 Hub 路由到同一节点）
+                serviceId = $"auto-{typeof(THub).FullName}";
+                _logger.LogDebug("使用自动路由: Hub={HubType}, RoutingKey={RoutingKey}",
+                    typeof(THub).Name, serviceId);
+            }
+        }
+
+        // 获取服务连接
+        var connection = GetServer(serverType.Value, serviceId);
+        if (connection == null)
+        {
+            _logger.LogWarning("无法获取服务连接: Hub={HubType}, ServiceId={ServiceId}",
+                typeof(THub).Name, serviceId);
+            return null;
+        }
+
+        // ServerConnectionAdapter 实现了 IRemoteInvoker 接口
+        if (connection is not IRemoteInvoker invoker)
+        {
+            _logger.LogError("服务连接不支持 IRemoteInvoker 接口: Hub={HubType}", typeof(THub).Name);
+            return null;
+        }
+
+        // 创建并返回 Hub 代理
+        return HubProxy<THub>.Create(invoker);
+    }
+
+    /// <summary>
+    /// 尝试从本地服务注册表获取 ServiceId
+    /// </summary>
+    private string? TryGetLocalServiceId<THub>() where THub : class
+    {
+        // 获取当前进程ID
+        var currentPid = System.Environment.ProcessId;
+
+        // 从本地注册表查询
+        var serviceId = _localServiceRegistry.GetServiceId(currentPid);
+
+        if (!string.IsNullOrEmpty(serviceId))
+        {
+            var metadata = _localServiceRegistry.GetMetadata(serviceId);
+
+            // 只有启用一致性哈希的服务才能通过本地查询
+            if (metadata?.EnableConsistentHash == true)
+            {
+                return serviceId;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 获取 Hub 代理（通过节点ID路由到特定节点）
+    /// </summary>
+    /// <typeparam name="THub">Hub 接口类型</typeparam>
+    /// <param name="nodeId">节点ID</param>
+    /// <returns>Hub 代理实例，可以直接调用 Hub 方法</returns>
+    public THub? GetHub<THub>(int nodeId) where THub : class
+    {
+        // 使用节点ID作为分片键
+        var serviceId = $"node-{nodeId}";
+        return GetHub<THub>(serviceId);
+    }
+
+    /// <summary>
+    /// 注册本地服务（PID 与 ServiceId 的映射）
+    /// </summary>
+    /// <param name="serviceId">服务ID</param>
+    /// <param name="enableConsistentHash">是否启用一致性哈希</param>
+    /// <param name="syncToConsul">是否同步到 Consul</param>
+    public void RegisterLocalService(
+        string serviceId,
+        bool enableConsistentHash = true,
+        bool syncToConsul = true)
+    {
+        var pid = System.Environment.ProcessId;
+
+        var metadata = new ServiceMetadata
+        {
+            ServiceType = "Local",
+            EnableConsistentHash = enableConsistentHash,
+            SyncToConsul = syncToConsul,
+            RegisteredAt = DateTime.UtcNow
+        };
+
+        _localServiceRegistry.Register(pid, serviceId, metadata);
+
+        _logger.LogInformation(
+            "本地服务已注册: PID={Pid}, ServiceId={ServiceId}, ConsistentHash={ConsistentHash}, SyncToConsul={SyncToConsul}",
+            pid, serviceId, enableConsistentHash, syncToConsul);
+    }
+
+    /// <summary>
+    /// 注销本地服务
+    /// </summary>
+    public void UnregisterLocalService(string serviceId)
+    {
+        _localServiceRegistry.Unregister(serviceId);
+        _logger.LogInformation("本地服务已注销: ServiceId={ServiceId}", serviceId);
+    }
+
+    /// <summary>
+    /// 将服务名称转换为 ServerType
+    /// </summary>
+    private ServerType? GetServerTypeFromServiceName(string serviceName)
+    {
+        return serviceName switch
+        {
+            "BackendServer" => ServerType.Backend,
+            "BattleServer" => ServerType.Battle,
+            "GameServer" => ServerType.Game,
+            "ChatServer" => ServerType.Chat,
+            // GuildServer 已合并到 BackendServer
+            "MailServer" => ServerType.Mail,
+            _ => null
+        };
     }
 
     /// <summary>
@@ -249,9 +429,9 @@ public class UnifiedServiceClientManager : IAsyncDisposable
 }
 
 /// <summary>
-/// 服务连接适配器 - 将 BackendServerConnection 适配为 IServerConnection
+/// 服务连接适配器 - 将 BackendServerConnection 适配为 IServiceConnection / IRemoteInvoker
 /// </summary>
-internal class ServerConnectionAdapter : IServerConnection
+internal class ServerConnectionAdapter : IServiceConnection
 {
     private readonly BackendServerConnection _connection;
 

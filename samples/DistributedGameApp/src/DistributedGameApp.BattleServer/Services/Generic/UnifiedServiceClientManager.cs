@@ -2,6 +2,7 @@ using DistributedGameApp.BattleServer.Services.Backend;
 using DistributedGameApp.Infrastructure.Consul;
 using Microsoft.Extensions.Logging;
 using System.Collections.Concurrent;
+using DistributedGameApp.Infrastructure.ServiceClient;
 
 namespace DistributedGameApp.BattleServer.Services.Generic;
 
@@ -93,7 +94,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// </summary>
     /// <param name="serverType">服务器类型</param>
     /// <param name="shardId">分片ID（通常是 UserId/PlayerId）</param>
-    public IServerConnection? GetServer(ServerType serverType, string shardId)
+    public IServiceConnection? GetServer(ServerType serverType, string shardId)
     {
         EnsureInitialized();
 
@@ -124,20 +125,20 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// <summary>
     /// 获取所有可用连接
     /// </summary>
-    public List<IServerConnection> GetAllServers(ServerType serverType)
+    public List<IServiceConnection> GetAllServers(ServerType serverType)
     {
         EnsureInitialized();
 
         if (!_serverManagers.TryGetValue(serverType, out var managerAndRouter))
         {
             _logger.LogError("服务类型未注册: {ServerType}", serverType);
-            return new List<IServerConnection>();
+            return new List<IServiceConnection>();
         }
 
         var (manager, router) = managerAndRouter;
         var connections = router.GetAllConnections();
 
-        return connections.Select(c => (IServerConnection)new ServerConnectionAdapter(c)).ToList();
+        return connections.Select(c => (IServiceConnection)new ServerConnectionAdapter(c)).ToList();
     }
 
     /// <summary>
@@ -251,7 +252,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
 /// <summary>
 /// 服务连接适配器 - 将 BackendServerConnection 适配为 IServerConnection
 /// </summary>
-internal class ServerConnectionAdapter : IServerConnection
+internal class ServerConnectionAdapter : IServiceConnection
 {
     private readonly BackendServerConnection _connection;
 
