@@ -17,15 +17,17 @@ namespace PulseRPC.Transport.Tcp;
 
 /// <summary>
 /// 传输层消息头结构（用于大包拆解）
+/// 格式: [Magic:2][Length:4][MessageId:2][Flags:2] = 10 bytes
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public readonly struct MessageHeader
 {
-    public readonly int Length;
-    public readonly ushort MessageId;
-    public readonly ushort Flags;  // 扩展为2字节以更好对齐
+    public readonly ushort Magic;      // 协议魔数 0x5052 ('PR')
+    public readonly int Length;        // 消息体长度
+    public readonly ushort MessageId;  // 消息ID
+    public readonly ushort Flags;      // 消息标志
 
-    public const int Size = 8;
+    public const int Size = 10; // 2 + 4 + 2 + 2
 
     // 标志位定义
     public const ushort FlagNone = 0x0000;
@@ -35,12 +37,20 @@ public readonly struct MessageHeader
     public const ushort FlagEndOfChunk = 0x0008;
 
     public MessageHeader(int length, ushort messageId, ushort flags = FlagNone)
+        : this(ProtocolConstants.ProtocolMagic, length, messageId, flags)
     {
+    }
+
+    public MessageHeader(ushort magic, int length, ushort messageId, ushort flags)
+    {
+        Magic = magic;
         Length = length;
         MessageId = messageId;
         Flags = flags;
     }
 
+    public bool IsValid => Magic == ProtocolConstants.ProtocolMagic;
+    public bool IsHandshake => MessageId == ProtocolConstants.HandshakeMessageId;
     public bool IsLargePacket => (Flags & FlagLargePacket) != 0;
     public bool IsChunked => (Flags & FlagChunked) != 0;
     public bool IsEndOfChunk => (Flags & FlagEndOfChunk) != 0;
@@ -91,6 +101,7 @@ public abstract class TcpTransport : ITransport
     protected long _totalBytesSent;
     protected long _totalBytesReceived;
     protected bool _disposed;
+    protected bool _handshakeCompleted;
 
     public virtual string Id => throw new NotImplementedException();
     public TransportType Type => TransportType.TCP;
@@ -249,11 +260,24 @@ public abstract class TcpTransport : ITransport
 
                 var header = AsyncSpanHelper.ReadMessageHeaderSync(headerBuffer.AsSpan());
 
+                // 验证魔数
+                if (!header.IsValid)
+                {
+                    var remoteEndpoint = _socket?.RemoteEndPoint?.ToString() ?? "Unknown";
+                    _logger.LogWarning(
+                        "收到无效的协议魔数: 0x{Magic:X4} (期望: 0x{Expected:X4}) 来自 {RemoteEndpoint}，可能是协议不匹配或探针连接，断开连接",
+                        header.Magic, ProtocolConstants.ProtocolMagic, remoteEndpoint);
+                    break;  // 断开连接
+                }
+
                 // 验证长度
                 if (header.Length <= 0 || header.Length > _options.RecvBufferSize * 2)
                 {
-                    _logger.LogWarning("收到无效的消息长度: {Length}", header.Length);
-                    continue;
+                    var remoteEndpoint = _socket?.RemoteEndPoint?.ToString() ?? "Unknown";
+                    _logger.LogWarning(
+                        "收到无效的消息长度: {Length} 来自 {RemoteEndpoint}，断开连接",
+                        header.Length, remoteEndpoint);
+                    break;  // 断开连接
                 }
 
                 // 读取消息内容
@@ -266,6 +290,20 @@ public abstract class TcpTransport : ITransport
                 }
 
                 Interlocked.Add(ref _totalBytesReceived, MessageHeader.Size + header.Length);
+
+                // 检查是否为握手消息
+                if (header.IsHandshake)
+                {
+                    await HandleHandshakeMessageAsync(header, new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length));
+                    continue;
+                }
+
+                // 如果握手未完成，拒绝处理业务消息
+                if (!_handshakeCompleted)
+                {
+                    _logger.LogWarning("收到业务消息但握手未完成，断开连接");
+                    break;
+                }
 
                 // 处理消息
                 if (header.IsChunked)
@@ -334,6 +372,92 @@ public abstract class TcpTransport : ITransport
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 处理握手消息 - 由子类实现
+    /// </summary>
+    protected virtual Task HandleHandshakeMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
+    {
+        // 默认实现：忽略握手消息（用于不需要握手的场景）
+        _handshakeCompleted = true;
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 发送握手请求
+    /// </summary>
+    protected async Task<bool> SendHandshakeRequestAsync(string clientName, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var handshake = new HandshakeMessage(ProtocolConstants.CurrentProtocolVersion, clientName);
+            var handshakeData = handshake.ToBytes();
+
+            var header = new MessageHeader(
+                handshakeData.Length,
+                ProtocolConstants.HandshakeMessageId,
+                ProtocolConstants.HandshakeRequestFlag);
+
+            await SendMessageAsync(header, handshakeData, cancellationToken);
+            _logger.LogDebug("已发送握手请求: ClientName={ClientName}, ProtocolVersion={Version}",
+                clientName, ProtocolConstants.CurrentProtocolVersion);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "发送握手请求失败");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 发送握手响应
+    /// </summary>
+    protected async Task SendHandshakeResponseAsync(bool accepted, string? reason = null, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var response = new HandshakeResponse(accepted, ProtocolConstants.CurrentProtocolVersion, reason);
+            var responseData = response.ToBytes();
+
+            var header = new MessageHeader(
+                responseData.Length,
+                ProtocolConstants.HandshakeMessageId,
+                ProtocolConstants.HandshakeResponseFlag);
+
+            await SendMessageAsync(header, responseData, cancellationToken);
+            _logger.LogDebug("已发送握手响应: Accepted={Accepted}, Reason={Reason}", accepted, reason ?? "N/A");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "发送握手响应失败");
+        }
+    }
+
+    /// <summary>
+    /// 发送消息（带消息头）
+    /// </summary>
+    private async Task SendMessageAsync(MessageHeader header, byte[] data, CancellationToken cancellationToken = default)
+    {
+        await _sendLock.WaitAsync(cancellationToken);
+        try
+        {
+            // 发送消息头
+            var headerBytes = new byte[MessageHeader.Size];
+            AsyncSpanHelper.WriteMessageHeaderSync(headerBytes, header);
+            await _stream!.WriteAsync(headerBytes, 0, MessageHeader.Size, cancellationToken);
+
+            // 发送消息体
+            await _stream.WriteAsync(data, 0, data.Length, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+
+            Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + data.Length);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
     }
 
     /// <summary>

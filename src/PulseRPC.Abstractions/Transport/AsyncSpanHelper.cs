@@ -99,13 +99,15 @@ internal static class AsyncSpanHelper
 
     /// <summary>
     /// 从缓冲区读取消息头 - 同步版本
+    /// 格式: [Magic:2][Length:4][MessageId:2][Flags:2]
     /// </summary>
     public static MessageHeader ReadMessageHeaderSync(ReadOnlySpan<byte> buffer)
     {
-        var length = BitConverter.ToInt32(buffer[..4]);
-        var messageId = BitConverter.ToUInt16(buffer.Slice(4, 2));
-        var flags = BitConverter.ToUInt16(buffer.Slice(6, 2));
-        return new MessageHeader(length, messageId, flags);
+        var magic = BitConverter.ToUInt16(buffer[..2]);
+        var length = BitConverter.ToInt32(buffer.Slice(2, 4));
+        var messageId = BitConverter.ToUInt16(buffer.Slice(6, 2));
+        var flags = BitConverter.ToUInt16(buffer.Slice(8, 2));
+        return new MessageHeader(magic, length, messageId, flags);
     }
 
     /// <summary>
@@ -120,13 +122,18 @@ internal static class AsyncSpanHelper
         return new ChunkHeader(chunkId, chunkIndex, totalChunks, chunkSize);
     }
 
-    #region 私有同步方法
+    #region 同步方法
 
-    private static void WriteMessageHeaderSync(Span<byte> buffer, MessageHeader header)
+    /// <summary>
+    /// 将消息头写入缓冲区 - 同步版本
+    /// 格式: [Magic:2][Length:4][MessageId:2][Flags:2]
+    /// </summary>
+    public static void WriteMessageHeaderSync(Span<byte> buffer, MessageHeader header)
     {
-        BitConverter.GetBytes(header.Length).CopyTo(buffer);
-        BitConverter.GetBytes(header.MessageId).CopyTo(buffer[4..]);
-        BitConverter.GetBytes(header.Flags).CopyTo(buffer[6..]);
+        BitConverter.GetBytes(header.Magic).CopyTo(buffer);
+        BitConverter.GetBytes(header.Length).CopyTo(buffer[2..]);
+        BitConverter.GetBytes(header.MessageId).CopyTo(buffer[6..]);
+        BitConverter.GetBytes(header.Flags).CopyTo(buffer[8..]);
     }
 
     private static void WriteChunkHeaderSync(Span<byte> buffer, ChunkHeader header)

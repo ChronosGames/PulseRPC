@@ -15,6 +15,9 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     private DateTime _connectedAt;
     private DateTime _lastActivityAt;
     private string _id;
+    private readonly SemaphoreSlim _handshakeSemaphore = new SemaphoreSlim(0, 1);
+    private bool _handshakeAccepted;
+    private string? _handshakeRejectReason;
 
     public TcpClientTransport(string id, TcpTransportOptions? options = null, ILogger? logger = null)
         : base(options, logger)
@@ -77,7 +80,25 @@ public class TcpClientTransport : TcpTransport, IClientTransport
             // 启动接收循环
             _receiveTask = ReceiveLoopAsync();
 
-            _logger.LogInformation("已连接到服务器: {Host}:{Port}", host, port);
+            // 发送握手请求
+            var handshakeSuccess = await SendHandshakeRequestAsync($"PulseRPC-Client-{_id}", linkedCts.Token);
+            if (!handshakeSuccess)
+            {
+                _logger.LogError("发送握手请求失败");
+                ChangeStateWithConnectionEvents(ConnectionState.Failed, "握手失败");
+                throw new InvalidOperationException("握手失败");
+            }
+
+            // 等待握手完成（服务端返回握手响应）
+            var handshakeCompleted = await WaitForHandshakeAsync(linkedCts.Token);
+            if (!handshakeCompleted)
+            {
+                _logger.LogError("握手超时或被拒绝");
+                ChangeStateWithConnectionEvents(ConnectionState.Failed, "握手超时或被拒绝");
+                throw new InvalidOperationException("握手超时或被拒绝");
+            }
+
+            _logger.LogInformation("已连接到服务器并完成握手: {Host}:{Port}", host, port);
         }
         catch (Exception ex)
         {
@@ -167,6 +188,88 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     }
 
     /// <summary>
+    /// 处理握手消息（服务端响应）
+    /// </summary>
+    protected override async Task HandleHandshakeMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
+    {
+        try
+        {
+            if (header.Flags == ProtocolConstants.HandshakeResponseFlag)
+            {
+                // 解析握手响应
+                var response = HandshakeResponse.FromBytes(data.Span);
+
+                _logger.LogInformation(
+                    "收到握手响应: Accepted={Accepted}, ServerVersion={Version}, Reason={Reason}",
+                    response.Accepted, response.ServerProtocolVersion, response.Reason ?? "N/A");
+
+                _handshakeAccepted = response.Accepted;
+                _handshakeRejectReason = response.Reason;
+
+                if (response.Accepted)
+                {
+                    _handshakeCompleted = true;
+                }
+
+                // 释放等待握手的信号量
+                try
+                {
+                    _handshakeSemaphore.Release();
+                }
+                catch (SemaphoreFullException)
+                {
+                    // 信号量已经释放过，忽略
+                }
+            }
+            else if (header.Flags == ProtocolConstants.HandshakeRequestFlag)
+            {
+                _logger.LogWarning("客户端不应该收到握手请求");
+            }
+            else
+            {
+                _logger.LogWarning("未知的握手消息类型: Flags=0x{Flags:X4}", header.Flags);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "处理握手响应异常");
+        }
+
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 等待握手完成
+    /// </summary>
+    private async Task<bool> WaitForHandshakeAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            // 等待握手响应（最多等待5秒）
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(ProtocolConstants.HandshakeTimeoutMs);
+
+            await _handshakeSemaphore.WaitAsync(cts.Token);
+
+            if (_handshakeAccepted)
+            {
+                _logger.LogInformation("握手成功");
+                return true;
+            }
+            else
+            {
+                _logger.LogWarning("握手被拒绝: {Reason}", _handshakeRejectReason ?? "未知原因");
+                return false;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("握手超时");
+            return false;
+        }
+    }
+
+    /// <summary>
     /// 重写状态变更方法以触发正确的事件类型
     /// </summary>
     protected void ChangeStateWithConnectionEvents(ConnectionState newState, string? reason = null, Exception? exception = null)
@@ -188,5 +291,6 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     {
         base.Dispose();
         _reconnectTimer?.Dispose();
+        _handshakeSemaphore.Dispose();
     }
 }

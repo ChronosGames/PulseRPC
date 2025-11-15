@@ -80,6 +80,71 @@ public class TcpServerTransport : TcpTransport, IServerTransport
     }
 
     /// <summary>
+    /// 处理握手消息
+    /// </summary>
+    protected override async Task HandleHandshakeMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
+    {
+        try
+        {
+            // 检查是否为握手请求
+            if (header.Flags == ProtocolConstants.HandshakeRequestFlag)
+            {
+                // 解析握手请求
+                var handshake = HandshakeMessage.FromBytes(data.Span);
+
+                _logger.LogInformation(
+                    "收到握手请求: ClientName={ClientName}, ProtocolVersion={Version}, ConnectionId={ConnectionId}",
+                    handshake.ClientName, handshake.ProtocolVersion, _id);
+
+                // 验证协议版本
+                bool accepted = handshake.ProtocolVersion >= ProtocolConstants.MinSupportedProtocolVersion &&
+                                handshake.ProtocolVersion <= ProtocolConstants.CurrentProtocolVersion;
+
+                string? reason = null;
+                if (!accepted)
+                {
+                    reason = $"不支持的协议版本 {handshake.ProtocolVersion}，支持的版本范围: " +
+                             $"{ProtocolConstants.MinSupportedProtocolVersion}-{ProtocolConstants.CurrentProtocolVersion}";
+                    _logger.LogWarning(reason + $", ConnectionId={_id}");
+                }
+
+                // 发送握手响应
+                await SendHandshakeResponseAsync(accepted, reason);
+
+                if (accepted)
+                {
+                    _handshakeCompleted = true;
+                    _logger.LogInformation("握手成功: ConnectionId={ConnectionId}, ClientName={ClientName}",
+                        _id, handshake.ClientName);
+                }
+                else
+                {
+                    // 握手失败，延迟断开连接以确保响应发送成功
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(100);
+                        await CloseAsync();
+                    });
+                }
+            }
+            else if (header.Flags == ProtocolConstants.HandshakeResponseFlag)
+            {
+                _logger.LogWarning("服务端不应该收到握手响应，ConnectionId={ConnectionId}", _id);
+            }
+            else
+            {
+                _logger.LogWarning("未知的握手消息类型: Flags=0x{Flags:X4}, ConnectionId={ConnectionId}",
+                    header.Flags, _id);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "处理握手消息异常, ConnectionId={ConnectionId}", _id);
+            await CloseAsync();
+        }
+    }
+
+    /// <summary>
     /// 关闭连接
     /// </summary>
     public Task CloseAsync(CancellationToken cancellationToken = default)
