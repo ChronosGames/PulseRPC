@@ -1,5 +1,6 @@
 using DistributedGameApp.GameServer.Services.Backend;
 using DistributedGameApp.GameServer.Services.Generic;
+using DistributedGameApp.Infrastructure.ServiceClient;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 

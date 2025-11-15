@@ -1,3 +1,5 @@
+using DistributedGameApp.Infrastructure.ServiceClient;
+
 namespace DistributedGameApp.Infrastructure.Consul;
 
 /// <summary>
@@ -37,6 +39,27 @@ public class ConsulOptions
 }
 
 /// <summary>
+/// 服务发现配置选项
+/// </summary>
+public class ServiceDiscoveryOptions
+{
+    /// <summary>
+    /// 是否启用一致性哈希
+    /// </summary>
+    public bool EnableConsistentHash { get; set; } = true;
+
+    /// <summary>
+    /// 是否同步到 Consul（如果为 false，只在本地查询）
+    /// </summary>
+    public bool SyncToConsul { get; set; } = true;
+
+    /// <summary>
+    /// 优先使用内网地址（服务器间通信）
+    /// </summary>
+    public bool PreferInternalNetwork { get; set; } = true;
+}
+
+/// <summary>
 /// 服务注册信息
 /// </summary>
 public class ServiceRegistration
@@ -62,19 +85,29 @@ public class ServiceRegistration
     public string NodeName { get; set; } = string.Empty;
 
     /// <summary>
-    /// 主机地址
+    /// 主机地址（保留用于向后兼容）
     /// </summary>
     public string Host { get; set; } = string.Empty;
 
     /// <summary>
-    /// TCP 端口
+    /// TCP 端口（保留用于向后兼容）
     /// </summary>
     public int TcpPort { get; set; }
 
     /// <summary>
-    /// KCP 端口（可选）
+    /// KCP 端口（可选，保留用于向后兼容）
     /// </summary>
     public int? KcpPort { get; set; }
+
+    /// <summary>
+    /// 内网端点（服务器间通信优先使用）
+    /// </summary>
+    public NetworkEndpoint? InternalEndpoint { get; set; }
+
+    /// <summary>
+    /// 外网端点（客户端连接使用）
+    /// </summary>
+    public NetworkEndpoint? ExternalEndpoint { get; set; }
 
     /// <summary>
     /// 当前负载（连接数或房间数）
@@ -105,4 +138,30 @@ public class ServiceRegistration
     /// 额外元数据（JSON）
     /// </summary>
     public Dictionary<string, string> Metadata { get; set; } = new();
+
+    /// <summary>
+    /// 获取优先使用的端点（内网优先）
+    /// </summary>
+    public NetworkEndpoint? GetPreferredEndpoint(bool preferInternal = true)
+    {
+        if (preferInternal && InternalEndpoint?.Enabled == true)
+            return InternalEndpoint;
+
+        if (ExternalEndpoint?.Enabled == true)
+            return ExternalEndpoint;
+
+        // 向后兼容：如果没有新端点，使用旧字段
+        if (!string.IsNullOrEmpty(Host) && TcpPort > 0)
+        {
+            return new NetworkEndpoint
+            {
+                Host = Host,
+                TcpPort = TcpPort,
+                KcpPort = KcpPort,
+                Enabled = true
+            };
+        }
+
+        return null;
+    }
 }

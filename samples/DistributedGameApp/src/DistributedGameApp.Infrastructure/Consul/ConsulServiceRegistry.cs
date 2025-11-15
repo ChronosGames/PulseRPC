@@ -195,6 +195,30 @@ public class ConsulServiceRegistry : IAsyncDisposable
             meta["NodeName"] = registration.NodeName;
         }
 
+        // 添加内网端点信息
+        if (registration.InternalEndpoint != null && registration.InternalEndpoint.Enabled)
+        {
+            meta["Internal_Host"] = registration.InternalEndpoint.Host;
+            meta["Internal_TcpPort"] = registration.InternalEndpoint.TcpPort.ToString();
+
+            if (registration.InternalEndpoint.KcpPort.HasValue)
+            {
+                meta["Internal_KcpPort"] = registration.InternalEndpoint.KcpPort.Value.ToString();
+            }
+        }
+
+        // 添加外网端点信息
+        if (registration.ExternalEndpoint != null && registration.ExternalEndpoint.Enabled)
+        {
+            meta["External_Host"] = registration.ExternalEndpoint.Host;
+            meta["External_TcpPort"] = registration.ExternalEndpoint.TcpPort.ToString();
+
+            if (registration.ExternalEndpoint.KcpPort.HasValue)
+            {
+                meta["External_KcpPort"] = registration.ExternalEndpoint.KcpPort.Value.ToString();
+            }
+        }
+
         // 合并自定义元数据
         foreach (var kvp in registration.Metadata)
         {

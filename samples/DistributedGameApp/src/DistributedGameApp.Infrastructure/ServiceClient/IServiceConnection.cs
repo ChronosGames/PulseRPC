@@ -1,25 +1,16 @@
 using DistributedGameApp.Infrastructure.Consul;
 
-namespace DistributedGameApp.BattleServer.Services.Generic;
+namespace DistributedGameApp.Infrastructure.ServiceClient;
 
 /// <summary>
 /// 服务连接接口
 /// </summary>
-public interface IServerConnection
+public interface IServiceConnection : IRemoteInvoker
 {
     /// <summary>
     /// 服务信息
     /// </summary>
     ServiceRegistration ServiceInfo { get; }
-
-    /// <summary>
-    /// 调用远程方法
-    /// </summary>
-    Task<TResponse> InvokeAsync<TRequest, TResponse>(
-        string hubName,
-        string methodName,
-        TRequest? request,
-        CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 请求计数

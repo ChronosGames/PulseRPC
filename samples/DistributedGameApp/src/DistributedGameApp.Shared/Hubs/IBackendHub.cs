@@ -11,7 +11,10 @@ namespace DistributedGameApp.Shared.Hubs;
 /// <summary>
 /// 后台服务器 Hub 接口（社交、帮派、排行榜、匹配）
 /// </summary>
-public interface IBackendHub : IPulseHub
+/// <remarks>
+/// 继承 IGuildHub 以提供完整的公会功能
+/// </remarks>
+public interface IBackendHub : IPulseHub, IGuildHub
 {
     // ========== 社交系统 ==========
 
@@ -51,41 +54,7 @@ public interface IBackendHub : IPulseHub
     Task<bool> SendWorldMessageAsync(string content);
 
     // ========== 帮派系统 ==========
-
-    /// <summary>
-    /// 创建帮派
-    /// </summary>
-    Task<Guild?> CreateGuildAsync(CreateGuildRequest request);
-
-    /// <summary>
-    /// 加入帮派
-    /// </summary>
-    Task<bool> JoinGuildAsync(string guildId);
-
-    /// <summary>
-    /// 离开帮派
-    /// </summary>
-    Task<bool> LeaveGuildAsync();
-
-    /// <summary>
-    /// 踢出成员（需要权限）
-    /// </summary>
-    Task<bool> KickGuildMemberAsync(string userId);
-
-    /// <summary>
-    /// 获取帮派信息
-    /// </summary>
-    Task<Guild?> GetGuildAsync(string guildId);
-
-    /// <summary>
-    /// 获取帮派成员列表
-    /// </summary>
-    Task<GuildMember[]> GetGuildMembersAsync(string guildId);
-
-    /// <summary>
-    /// 发送帮派消息
-    /// </summary>
-    Task<bool> SendGuildMessageAsync(string content);
+    // 已从 IGuildHub 继承，不再重复定义
 
     // ========== 排行榜系统 ==========
 

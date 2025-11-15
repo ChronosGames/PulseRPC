@@ -14,6 +14,36 @@ public class CharacterRepository : MongoRepository<Character>
     }
 
     /// <summary>
+    /// 初始化索引
+    /// </summary>
+    public async Task EnsureIndexesAsync()
+    {
+        // CharacterId 唯一索引（主键查询）
+        await Collection.Indexes.CreateOneAsync(new CreateIndexModel<Character>(
+            Builders<Character>.IndexKeys.Ascending(c => c.CharacterId),
+            new CreateIndexOptions { Unique = true }));
+
+        // UserId 索引（查询玩家的所有角色）
+        await Collection.Indexes.CreateOneAsync(new CreateIndexModel<Character>(
+            Builders<Character>.IndexKeys.Ascending(c => c.UserId)));
+
+        // Name 唯一索引（角色名称唯一性校验、查询）
+        await Collection.Indexes.CreateOneAsync(new CreateIndexModel<Character>(
+            Builders<Character>.IndexKeys.Ascending(c => c.Name),
+            new CreateIndexOptions { Unique = true }));
+
+        // Level + Exp 复合索引（倒序，用于排行榜）
+        await Collection.Indexes.CreateOneAsync(new CreateIndexModel<Character>(
+            Builders<Character>.IndexKeys
+                .Descending(c => c.Level)
+                .Descending(c => c.Exp)));
+
+        // LastOnlineAt 索引（用于查询在线/离线角色、数据清理）
+        await Collection.Indexes.CreateOneAsync(new CreateIndexModel<Character>(
+            Builders<Character>.IndexKeys.Descending(c => c.LastOnlineAt)));
+    }
+
+    /// <summary>
     /// 根据角色ID获取角色
     /// </summary>
     public async Task<Character?> GetByCharacterIdAsync(string characterId, CancellationToken cancellationToken = default)

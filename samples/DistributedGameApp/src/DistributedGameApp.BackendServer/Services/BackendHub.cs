@@ -106,18 +106,69 @@ public class BackendHub : BaseService, IBackendHub, IPulseService
 
     #endregion
 
-    #region 帮派系统
+    #region 公会系统（IGuildHub）
 
-    public async Task<Guild?> CreateGuildAsync(CreateGuildRequest request)
+    // ========== 公会管理 ==========
+
+    public async Task<CreateGuildResponse> CreateGuildAsync(CreateGuildRequest request)
     {
-        var userId = GetCurrentUserId();
-        return await _guildService.CreateGuildAsync(userId, request);
+        var caller = GetCurrentCaller();
+        var userId = caller.UserId ?? caller.CallerId ?? throw new InvalidOperationException("无法获取用户ID");
+        // 从 Claims 中获取 username，如果没有则使用 userId
+        var username = caller.Claims.TryGetValue("username", out var name) ? name : userId;
+        return await _guildService.CreateGuildAsync(userId, username, request);
     }
 
-    public async Task<bool> JoinGuildAsync(string guildId)
+    public async Task<bool> DisbandGuildAsync(string guildId)
     {
         var userId = GetCurrentUserId();
-        return await _guildService.JoinGuildAsync(userId, guildId);
+        return await _guildService.DisbandGuildAsync(userId, guildId);
+    }
+
+    public async Task<Guild?> GetGuildAsync(string guildId)
+    {
+        return await _guildService.GetGuildAsync(guildId);
+    }
+
+    public async Task<GuildListResponse> GetGuildsAsync(GetGuildListRequest request)
+    {
+        return await _guildService.GetGuildsAsync(request);
+    }
+
+    public async Task<Guild[]> SearchGuildsAsync(string keyword)
+    {
+        return await _guildService.SearchGuildsAsync(keyword);
+    }
+
+    public async Task<bool> UpdateGuildInfoAsync(UpdateGuildInfoRequest request)
+    {
+        var userId = GetCurrentUserId();
+        return await _guildService.UpdateGuildInfoAsync(userId, request);
+    }
+
+    // ========== 成员管理 ==========
+
+    public async Task<bool> ApplyToJoinAsync(string guildId)
+    {
+        var caller = GetCurrentCaller();
+        var userId = caller.UserId ?? caller.CallerId ?? throw new InvalidOperationException("无法获取用户ID");
+        // 从 Claims 中获取 username，如果没有则使用 userId
+        var username = caller.Claims.TryGetValue("username", out var name) ? name : userId;
+        // TODO: 从用户服务获取 level，这里先用默认值
+        int level = 1;
+        return await _guildService.ApplyToJoinAsync(userId, username, level, guildId);
+    }
+
+    public async Task<bool> ApproveJoinRequestAsync(string guildId, string userId)
+    {
+        var operatorId = GetCurrentUserId();
+        return await _guildService.ApproveJoinRequestAsync(operatorId, guildId, userId);
+    }
+
+    public async Task<bool> RejectJoinRequestAsync(string guildId, string userId)
+    {
+        var operatorId = GetCurrentUserId();
+        return await _guildService.RejectJoinRequestAsync(operatorId, guildId, userId);
     }
 
     public async Task<bool> LeaveGuildAsync()
@@ -126,26 +177,105 @@ public class BackendHub : BaseService, IBackendHub, IPulseService
         return await _guildService.LeaveGuildAsync(userId);
     }
 
-    public async Task<bool> KickGuildMemberAsync(string targetUserId)
+    public async Task<bool> KickMemberAsync(string guildId, string userId)
+    {
+        var operatorId = GetCurrentUserId();
+        return await _guildService.KickMemberAsync(operatorId, guildId, userId);
+    }
+
+    public async Task<bool> PromoteMemberAsync(string guildId, string userId, string newRole)
+    {
+        var operatorId = GetCurrentUserId();
+        return await _guildService.PromoteMemberAsync(operatorId, guildId, userId, newRole);
+    }
+
+    public async Task<bool> DemoteMemberAsync(string guildId, string userId)
+    {
+        var operatorId = GetCurrentUserId();
+        return await _guildService.DemoteMemberAsync(operatorId, guildId, userId);
+    }
+
+    public async Task<bool> TransferLeadershipAsync(string guildId, string newLeaderId)
+    {
+        var currentLeaderId = GetCurrentUserId();
+        return await _guildService.TransferLeadershipAsync(currentLeaderId, guildId, newLeaderId);
+    }
+
+    public async Task<GuildMember[]> GetMembersAsync(string guildId)
+    {
+        return await _guildService.GetMembersAsync(guildId);
+    }
+
+    public async Task<MyGuildInfo?> GetMyGuildAsync()
     {
         var userId = GetCurrentUserId();
-        return await _guildService.KickMemberAsync(userId, targetUserId);
+        return await _guildService.GetMyGuildAsync(userId);
     }
 
-    public async Task<Guild?> GetGuildAsync(string guildId)
+    public async Task<JoinRequest[]> GetJoinRequestsAsync(string guildId)
     {
-        return await _guildService.GetGuildAsync(guildId);
+        var operatorId = GetCurrentUserId();
+        return await _guildService.GetJoinRequestsAsync(operatorId, guildId);
     }
 
-    public async Task<GuildMember[]> GetGuildMembersAsync(string guildId)
+    // ========== 公会聊天 ==========
+
+    public async Task<bool> SendMessageAsync(string content)
     {
-        return await _guildService.GetGuildMembersAsync(guildId);
+        var caller = GetCurrentCaller();
+        var userId = caller.UserId ?? caller.CallerId ?? throw new InvalidOperationException("无法获取用户ID");
+        // 从 Claims 中获取 username，如果没有则使用 userId
+        var username = caller.Claims.TryGetValue("username", out var name) ? name : userId;
+        return await _guildService.SendMessageAsync(userId, username, content);
     }
 
-    public async Task<bool> SendGuildMessageAsync(string content)
+    public async Task<GuildMessage[]> GetChatHistoryAsync(int limit = 50)
     {
         var userId = GetCurrentUserId();
-        return await _guildService.SendGuildMessageAsync(userId, content);
+        return await _guildService.GetChatHistoryAsync(userId, limit);
+    }
+
+    // ========== 公会贡献 ==========
+
+    public async Task<bool> DonateAsync(DonateRequest request)
+    {
+        var userId = GetCurrentUserId();
+        return await _guildService.DonateAsync(userId, request);
+    }
+
+    public async Task<GuildMember[]> GetContributionRankingAsync(string guildId)
+    {
+        return await _guildService.GetContributionRankingAsync(guildId);
+    }
+
+    // ========== 公会活动 ==========
+
+    public async Task<bool> CheckInAsync()
+    {
+        var caller = GetCurrentCaller();
+        var userId = caller.UserId ?? caller.CallerId ?? throw new InvalidOperationException("无法获取用户ID");
+        // 从 Claims 中获取 username，如果没有则使用 userId
+        var username = caller.Claims.TryGetValue("username", out var name) ? name : userId;
+        return await _guildService.CheckInAsync(userId, username);
+    }
+
+    public async Task<GuildActivity[]> GetActivitiesAsync(string guildId)
+    {
+        return await _guildService.GetActivitiesAsync(guildId);
+    }
+
+    // ========== 公会公告 ==========
+
+    public async Task<bool> PostAnnouncementAsync(string guildId, string content)
+    {
+        var operatorId = GetCurrentUserId();
+        return await _guildService.PostAnnouncementAsync(operatorId, guildId, content);
+    }
+
+    public async Task<GuildAnnouncement[]> GetAnnouncementsAsync(string guildId)
+    {
+        var userId = GetCurrentUserId();
+        return await _guildService.GetAnnouncementsAsync(userId, guildId);
     }
 
     #endregion
