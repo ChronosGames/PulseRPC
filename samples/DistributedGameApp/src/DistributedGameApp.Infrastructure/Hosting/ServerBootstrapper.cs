@@ -1,5 +1,6 @@
 using DistributedGameApp.Infrastructure.Consul;
 using DistributedGameApp.Infrastructure.Consul.Extensions;
+using DistributedGameApp.Infrastructure.Health;
 using DistributedGameApp.Infrastructure.MongoDB.Extensions;
 using DistributedGameApp.Infrastructure.Sentry.Extensions;
 using Microsoft.Extensions.Configuration;
@@ -78,6 +79,9 @@ public static class ServerBootstrapper
         {
             services.AddMongoDb(configuration);
         }
+
+        // 4.5 健康检查（在 Consul 注册之前注册）
+        services.AddSingleton<IHealthCheckProvider, ServerHealthCheckProvider>();
 
         if (options.EnableServiceDiscovery)
         {

@@ -1,4 +1,5 @@
 using Consul;
+using DistributedGameApp.Infrastructure.Health;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
@@ -13,19 +14,28 @@ public class ConsulServiceRegistry : IAsyncDisposable
     private readonly IConsulClient _client;
     private readonly ConsulOptions _options;
     private readonly ILogger<ConsulServiceRegistry> _logger;
+    private readonly IHealthCheckProvider? _healthCheckProvider;
     private readonly List<string> _registeredServiceIds = new();
     private readonly CancellationTokenSource _cts = new();
+    private Task? _healthReportTask;
 
     public ConsulServiceRegistry(
         IOptions<ConsulOptions> options,
-        ILogger<ConsulServiceRegistry> logger)
+        ILogger<ConsulServiceRegistry> logger,
+        IHealthCheckProvider? healthCheckProvider = null)
     {
         _options = options.Value;
         _logger = logger;
+        _healthCheckProvider = healthCheckProvider;
         _client = new ConsulClient(config =>
         {
             config.Address = new Uri(_options.Address);
         });
+
+        if (_healthCheckProvider == null)
+        {
+            _logger.LogWarning("未提供 IHealthCheckProvider，将使用默认健康检查（总是返回健康）");
+        }
     }
 
     /// <summary>
@@ -40,12 +50,10 @@ public class ConsulServiceRegistry : IAsyncDisposable
             // 构建服务名称
             var serviceName = $"{_options.ServiceBasePath}-{registration.ServiceType.ToLower()}";
 
-            // 构建健康检查端点 (使用 TCP 检查)
+            // 构建健康检查端点 (使用 TTL 检查 - 服务器主动报告健康状态)
             var healthCheck = new AgentServiceCheck
             {
-                TCP = $"{registration.Host}:{registration.TcpPort}",
-                Interval = TimeSpan.FromSeconds(_options.HealthCheckInterval),
-                Timeout = TimeSpan.FromSeconds(_options.HealthCheckTimeout),
+                TTL = TimeSpan.FromSeconds(_options.HealthCheckInterval * 3), // TTL 设为 3 倍间隔
                 DeregisterCriticalServiceAfter = TimeSpan.FromSeconds(_options.DeregisterCriticalServiceAfter)
             };
 
@@ -73,6 +81,12 @@ public class ConsulServiceRegistry : IAsyncDisposable
                 registration.ServiceId,
                 registration.Host,
                 registration.TcpPort);
+
+            // 启动健康状态定期上报（TTL 模式）
+            if (_healthReportTask == null)
+            {
+                _healthReportTask = StartHealthReportLoopAsync(_cts.Token);
+            }
 
             return true;
         }
@@ -228,9 +242,102 @@ public class ConsulServiceRegistry : IAsyncDisposable
         return meta;
     }
 
+    /// <summary>
+    /// 启动健康状态定期上报循环
+    /// </summary>
+    private async Task StartHealthReportLoopAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("启动 TTL 健康状态上报循环，间隔: {Interval}秒", _options.HealthCheckInterval);
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                // 等待一段时间
+                await Task.Delay(TimeSpan.FromSeconds(_options.HealthCheckInterval), cancellationToken);
+
+                // 执行健康检查（如果提供了健康检查提供者）
+                HealthCheckResult? healthCheckResult = null;
+                if (_healthCheckProvider != null)
+                {
+                    try
+                    {
+                        healthCheckResult = await _healthCheckProvider.CheckHealthAsync(cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "健康检查失败，将上报不健康状态");
+                        healthCheckResult = HealthCheckResult.Unhealthy("HealthCheckException", new Dictionary<string, object>
+                        {
+                            ["Exception"] = ex.Message
+                        });
+                    }
+                }
+
+                // 为所有已注册的服务发送健康状态
+                foreach (var serviceId in _registeredServiceIds.ToList())
+                {
+                    try
+                    {
+                        if (healthCheckResult == null || healthCheckResult.IsHealthy)
+                        {
+                            // 发送健康状态（pass）
+                            var message = healthCheckResult?.Status ?? "Healthy";
+                            await _client.Agent.PassTTL($"service:{serviceId}", message, cancellationToken);
+
+                            _logger.LogDebug("已上报健康状态: {ServiceId} - {Status}", serviceId, message);
+                        }
+                        else
+                        {
+                            // 发送不健康状态（fail）
+                            var message = $"Unhealthy: {healthCheckResult.Status}";
+                            if (healthCheckResult.Details.Count > 0)
+                            {
+                                var detailsJson = JsonSerializer.Serialize(healthCheckResult.Details);
+                                message += $" | Details: {detailsJson}";
+                            }
+
+                            await _client.Agent.FailTTL($"service:{serviceId}", message, cancellationToken);
+
+                            _logger.LogWarning("已上报不健康状态: {ServiceId} - {Status}", serviceId, healthCheckResult.Status);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "上报健康状态失败: {ServiceId}", serviceId);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // 正常取消
+                break;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "健康状态上报循环异常");
+            }
+        }
+
+        _logger.LogInformation("健康状态上报循环已停止");
+    }
+
     public async ValueTask DisposeAsync()
     {
         _cts.Cancel();
+
+        // 等待健康上报任务结束
+        if (_healthReportTask != null)
+        {
+            try
+            {
+                await _healthReportTask;
+            }
+            catch
+            {
+                // Ignore
+            }
+        }
 
         // 注销所有已注册的服务
         foreach (var serviceId in _registeredServiceIds.ToList())
