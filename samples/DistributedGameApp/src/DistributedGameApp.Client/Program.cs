@@ -333,9 +333,6 @@ class Program
         Console.WriteLine("  skill <技能ID> <目标角色ID>           - 使用技能");
         Console.WriteLine("  leave | leavebattle                   - 离开战斗");
         Console.WriteLine();
-        Console.WriteLine("场景模式:");
-        Console.WriteLine("  scenario fullbattle <账号> <角色名> <职业> - 运行完整战斗流程场景");
-        Console.WriteLine();
         Console.WriteLine("其他:");
         Console.WriteLine("  help | h                              - 显示帮助");
         Console.WriteLine("  exit | quit                           - 退出程序");
