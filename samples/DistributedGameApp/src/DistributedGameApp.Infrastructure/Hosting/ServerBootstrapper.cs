@@ -1,6 +1,7 @@
 using DistributedGameApp.Infrastructure.Consul;
 using DistributedGameApp.Infrastructure.Consul.Extensions;
 using DistributedGameApp.Infrastructure.Health;
+using DistributedGameApp.Infrastructure.Hosting.Bootstrap;
 using DistributedGameApp.Infrastructure.MongoDB.Extensions;
 using DistributedGameApp.Infrastructure.Sentry.Extensions;
 using Microsoft.Extensions.Configuration;
@@ -44,6 +45,11 @@ public sealed class ServerBootstrapperOptions
     /// 配置应用特定服务
     /// </summary>
     public Action<IServiceCollection>? ConfigureServices { get; set; }
+
+    /// <summary>
+    /// 启用统一启动流程编排器（默认: true）
+    /// </summary>
+    public bool EnableBootstrapOrchestrator { get; set; } = true;
 }
 
 /// <summary>
@@ -86,14 +92,28 @@ public static class ServerBootstrapper
         if (options.EnableServiceDiscovery)
         {
             services.AddConsul(configuration);
-            services.AddHostedService<ConsulServiceRegistrationService>();
+
+            // 如果使用统一启动流程编排器，则不单独注册 ConsulServiceRegistrationService
+            if (!options.EnableBootstrapOrchestrator)
+            {
+                services.AddHostedService<ConsulServiceRegistrationService>();
+            }
         }
 
         // 5. 应用特定服务
         options.ConfigureServices?.Invoke(services);
 
-        // 6. 注册命名服务器托管服务（自动启动 External 和 Internal 服务器）
-        services.AddHostedService<NamedPulseServersHostedService>();
+        // 6. 注册启动流程托管服务
+        if (options.EnableBootstrapOrchestrator)
+        {
+            // 使用统一的启动流程编排器
+            services.AddHostedService<ServerBootstrapOrchestrator>();
+        }
+        else
+        {
+            // 使用原来的分散启动方式
+            services.AddHostedService<NamedPulseServersHostedService>();
+        }
 
         return services;
     }

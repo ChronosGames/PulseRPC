@@ -1,0 +1,163 @@
+using DistributedGameApp.Infrastructure.Consul;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+namespace DistributedGameApp.Infrastructure.Hosting.Bootstrap;
+
+/// <summary>
+/// 阶段6: 注册自己的节点信息到 Consul
+/// </summary>
+public class Phase6_RegisterToConsul : IBootstrapPhase
+{
+    private readonly ILogger<Phase6_RegisterToConsul> _logger;
+
+    public string PhaseName => "Phase 6: Register to Consul";
+
+    public Phase6_RegisterToConsul(ILogger<Phase6_RegisterToConsul> logger)
+    {
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    public async Task<bool> ExecuteAsync(BootstrapContext context, CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("========== {PhaseName} ==========", PhaseName);
+
+        try
+        {
+            // 获取 Consul 服务注册
+            var consulRegistry = context.ServiceProvider.GetService<ConsulServiceRegistry>();
+            if (consulRegistry == null)
+            {
+                _logger.LogWarning("ConsulServiceRegistry 未配置，跳过服务注册");
+                return true;
+            }
+
+            // 获取配置和身份信息
+            var configuration = context.ServiceProvider.GetRequiredService<IConfiguration>();
+            var identity = context.ServiceProvider.GetRequiredService<ServerIdentityOptions>();
+
+            _logger.LogInformation("正在注册服务到 Consul...");
+
+            // 构建服务注册信息
+            var registration = BuildServiceRegistration(configuration, identity, context);
+
+            // 注册到 Consul
+            var success = await consulRegistry.RegisterServiceAsync(registration, cancellationToken);
+
+            if (success)
+            {
+                context.ServiceId = registration.ServiceId;
+
+                _logger.LogInformation(
+                    "✓ 服务注册成功: {ServiceId} ({ServiceType}) @ Node {NodeId}",
+                    registration.ServiceId,
+                    registration.ServiceType,
+                    registration.NodeId);
+
+                // 记录端点信息
+                if (registration.ExternalEndpoint?.Enabled == true)
+                {
+                    _logger.LogInformation(
+                        "  - External: {Host}:{TcpPort}{KcpInfo}",
+                        registration.ExternalEndpoint.Host,
+                        registration.ExternalEndpoint.TcpPort,
+                        registration.ExternalEndpoint.KcpPort.HasValue
+                            ? $" (KCP: {registration.ExternalEndpoint.KcpPort})"
+                            : "");
+                }
+
+                if (registration.InternalEndpoint?.Enabled == true)
+                {
+                    _logger.LogInformation(
+                        "  - Internal: {Host}:{TcpPort}{KcpInfo}",
+                        registration.InternalEndpoint.Host,
+                        registration.InternalEndpoint.TcpPort,
+                        registration.InternalEndpoint.KcpPort.HasValue
+                            ? $" (KCP: {registration.InternalEndpoint.KcpPort})"
+                            : "");
+                }
+
+                return true;
+            }
+            else
+            {
+                _logger.LogError("✗ 服务注册失败: {ServiceId}", registration.ServiceId);
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "服务注册阶段失败");
+            return false;
+        }
+    }
+
+    private ServiceRegistration BuildServiceRegistration(
+        IConfiguration configuration,
+        ServerIdentityOptions identity,
+        BootstrapContext context)
+    {
+        var networkConfig = configuration.GetSection("Network");
+        if (!networkConfig.Exists())
+        {
+            throw new InvalidOperationException("Network configuration section not found");
+        }
+
+        var registration = new ServiceRegistration
+        {
+            ServiceId = $"{identity.ServiceType.ToLower()}-{identity.NodeId}",
+            ServiceType = identity.ServiceType,
+            NodeId = identity.NodeId,
+            NodeName = identity.NodeName,
+            CurrentLoad = 0,
+            MaxCapacity = identity.MaxCapacity,
+            Status = "Online"
+        };
+
+        // 解析内网端点（从上下文中获取实际监听端口）
+        var internalConfig = networkConfig.GetSection("Internal");
+        if (internalConfig.Exists() && internalConfig.GetValue<bool>("Enabled") && context.InternalServer != null)
+        {
+            var defaultTransport = context.InternalServer.GetDefaultTransport();
+            if (defaultTransport != null)
+            {
+                var host = internalConfig.GetValue<string>("Host") ?? "localhost";
+                registration.InternalEndpoint = new ServiceClient.NetworkEndpoint
+                {
+                    Host = host == "0.0.0.0" ? "localhost" : host,
+                    TcpPort = defaultTransport.Port,
+                    Enabled = true
+                };
+            }
+        }
+
+        // 解析外网端点（从上下文中获取实际监听端口）
+        var externalConfig = networkConfig.GetSection("External");
+        if (externalConfig.Exists() && externalConfig.GetValue<bool>("Enabled") && context.ExternalServer != null)
+        {
+            var defaultTransport = context.ExternalServer.GetDefaultTransport();
+            if (defaultTransport != null)
+            {
+                var host = externalConfig.GetValue<string>("Host") ?? "localhost";
+                registration.ExternalEndpoint = new ServiceClient.NetworkEndpoint
+                {
+                    Host = host == "0.0.0.0" ? "localhost" : host,
+                    TcpPort = defaultTransport.Port,
+                    Enabled = true
+                };
+            }
+        }
+
+        // 向后兼容：设置旧字段（优先使用内网）
+        var preferredEndpoint = registration.GetPreferredEndpoint(preferInternal: true);
+        if (preferredEndpoint != null)
+        {
+            registration.Host = preferredEndpoint.Host;
+            registration.TcpPort = preferredEndpoint.TcpPort;
+            registration.KcpPort = preferredEndpoint.KcpPort;
+        }
+
+        return registration;
+    }
+}

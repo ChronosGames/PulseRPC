@@ -28,6 +28,7 @@
   <ItemGroup>
     <ProjectReference Include="..\DistributedGameApp.Shared\DistributedGameApp.Shared.csproj" />
     <ProjectReference Include="..\..\..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
+    <ProjectReference Include="..\..\..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
   </ItemGroup>
 
 </Project>
