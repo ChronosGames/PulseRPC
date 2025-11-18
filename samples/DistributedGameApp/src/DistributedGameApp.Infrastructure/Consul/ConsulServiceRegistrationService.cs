@@ -134,21 +134,51 @@ public sealed class ConsulServiceRegistrationService : BackgroundService
             var tcpConfig = externalConfig.GetSection("Tcp");
             var kcpConfig = externalConfig.GetSection("Kcp");
 
+            _logger.LogInformation(
+                "[Config] External config exists. Host: {Host}, tcpConfig.Exists: {TcpExists}, kcpConfig.Exists: {KcpExists}",
+                externalHost, tcpConfig.Exists(), kcpConfig.Exists());
+
             int externalTcpPort = 0;
             int? externalKcpPort = null;
             int? publicTcpPort = null;
             int? publicKcpPort = null;
 
-            if (tcpConfig.Exists() && tcpConfig.GetValue<bool>("Enabled"))
+            // 尝试读取 TCP 配置（支持新格式）
+            var tcpEnabled = tcpConfig.GetValue<bool?>("Enabled");
+            var tcpPort = tcpConfig.GetValue<int?>("Port");
+            var tcpPublicPort = tcpConfig.GetValue<int?>("PublicPort");
+
+            _logger.LogInformation(
+                "[Config] TCP Config - Enabled: {Enabled}, Port: {Port}, PublicPort: {PublicPort}",
+                tcpEnabled, tcpPort, tcpPublicPort);
+
+            if (tcpEnabled == true && tcpPort.HasValue)
             {
-                externalTcpPort = tcpConfig.GetValue<int>("Port");
-                publicTcpPort = tcpConfig.GetValue<int?>("PublicPort");
+                externalTcpPort = tcpPort.Value;
+                publicTcpPort = tcpPublicPort;
+
+                _logger.LogInformation(
+                    "[Config] Using TCP - Port: {Port}, PublicPort: {PublicPort}",
+                    externalTcpPort, publicTcpPort);
             }
 
-            if (kcpConfig.Exists() && kcpConfig.GetValue<bool>("Enabled"))
+            // 尝试读取 KCP 配置（支持新格式）
+            var kcpEnabled = kcpConfig.GetValue<bool?>("Enabled");
+            var kcpPort = kcpConfig.GetValue<int?>("Port");
+            var kcpPublicPortVal = kcpConfig.GetValue<int?>("PublicPort");
+
+            _logger.LogInformation(
+                "[Config] KCP Config - Enabled: {Enabled}, Port: {Port}, PublicPort: {PublicPort}",
+                kcpEnabled, kcpPort, kcpPublicPortVal);
+
+            if (kcpEnabled == true && kcpPort.HasValue)
             {
-                externalKcpPort = kcpConfig.GetValue<int>("Port");
-                publicKcpPort = kcpConfig.GetValue<int?>("PublicPort");
+                externalKcpPort = kcpPort.Value;
+                publicKcpPort = kcpPublicPortVal;
+
+                _logger.LogInformation(
+                    "[Config] Using KCP - Port: {Port}, PublicPort: {PublicPort}",
+                    externalKcpPort, publicKcpPort);
             }
 
             registration.ExternalEndpoint = new Infrastructure.ServiceClient.NetworkEndpoint
