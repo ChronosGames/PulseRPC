@@ -230,6 +230,13 @@ public class ConsulServiceRegistry : IAsyncDisposable
             var tcpPort = registration.ExternalEndpoint.PublicTcpPort ?? registration.ExternalEndpoint.TcpPort;
             meta["External_TcpPort"] = tcpPort.ToString();
 
+            _logger.LogInformation(
+                "[Consul] Registering External Endpoint - Host: {Host}, TcpPort: {TcpPort}, PublicTcpPort: {PublicTcpPort}, Using: {UsingPort}",
+                registration.ExternalEndpoint.Host,
+                registration.ExternalEndpoint.TcpPort,
+                registration.ExternalEndpoint.PublicTcpPort,
+                tcpPort);
+
             var kcpPort = registration.ExternalEndpoint.PublicKcpPort ?? registration.ExternalEndpoint.KcpPort;
             if (kcpPort.HasValue)
             {
@@ -328,7 +335,7 @@ public class ConsulServiceRegistry : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        _cts.Cancel();
+        await _cts.CancelAsync();
 
         // 等待健康上报任务结束
         if (_healthReportTask != null)

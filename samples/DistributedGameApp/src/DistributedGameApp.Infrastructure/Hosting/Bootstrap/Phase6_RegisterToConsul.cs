@@ -140,10 +140,24 @@ public class Phase6_RegisterToConsul : IBootstrapPhase
             if (defaultTransport != null)
             {
                 var host = externalConfig.GetValue<string>("Host") ?? "localhost";
+
+                // 读取 TCP 和 KCP 的公网端口配置
+                var tcpConfig = externalConfig.GetSection("Tcp");
+                var kcpConfig = externalConfig.GetSection("Kcp");
+
+                var publicTcpPort = tcpConfig.GetValue<int?>("PublicPort");
+                var publicKcpPort = kcpConfig.GetValue<int?>("PublicPort");
+
+                _logger.LogInformation(
+                    "[Phase6] External endpoint - ListenPort: {ListenPort}, PublicTcpPort: {PublicTcpPort}, PublicKcpPort: {PublicKcpPort}",
+                    defaultTransport.Port, publicTcpPort, publicKcpPort);
+
                 registration.ExternalEndpoint = new ServiceClient.NetworkEndpoint
                 {
                     Host = host == "0.0.0.0" ? "localhost" : host,
                     TcpPort = defaultTransport.Port,
+                    PublicTcpPort = publicTcpPort,
+                    PublicKcpPort = publicKcpPort,
                     Enabled = true
                 };
             }
