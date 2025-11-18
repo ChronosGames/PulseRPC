@@ -1,8 +1,10 @@
 using System.Collections.Immutable;
+using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using PulseRPC.Generator.Generators;
 
@@ -78,6 +80,10 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         {
             var serviceTypes = combined.Left.Left;
             var eventTypes = combined.Left.Right;
+            var configOptions = combined.Right;
+
+            // 读取 MSBuild 配置：PulseRPC_ClientChannels
+            var channelNames = ReadChannelNamesFromConfig(configOptions);
 
             // 去重服务类型（同一个接口可能被多个类的 PulseClientGeneration 特性引用）
             var uniqueServiceTypes = serviceTypes
@@ -134,6 +140,25 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var factoryExtensionsCode = PulseClientExtensionsGenerator.GeneratePulseClientExtensions(serviceNamedTypes, eventNamedTypes);
                 var factoryFileName = "PulseClientFactoryExtensions.g.cs";
                 spc.AddSource(factoryFileName, SourceText.From(factoryExtensionsCode, Encoding.UTF8));
+            }
+
+            // 生成服务处理器（用于 RegisterHub）
+            foreach (var serviceTypeInfo in uniqueServiceTypes)
+            {
+                if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
+                {
+                    var handlerCode = ServiceHandlerGenerator.GenerateServiceHandler(namedType);
+                    var handlerFileName = $"{GetSafeFileName(namedType)}ServiceHandler.g.cs";
+                    spc.AddSource(handlerFileName, SourceText.From(handlerCode, Encoding.UTF8));
+                }
+            }
+
+            // 生成 ITransportChannel 扩展方法（用于 GetHubAsync 和 RegisterHub）
+            if (serviceNamedTypes.Length > 0)
+            {
+                var channelExtensionsCode = TransportChannelExtensionsGenerator.GenerateExtensions(serviceNamedTypes, channelNames);
+                var channelExtensionsFileName = "TransportChannelExtensions.g.cs";
+                spc.AddSource(channelExtensionsFileName, SourceText.From(channelExtensionsCode, Encoding.UTF8));
             }
         });
 
@@ -240,8 +265,27 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
     private static bool IsEventReceiver(INamedTypeSymbol typeSymbol)
     {
-        // 检查是否实现了 IPulseReceiver 接口
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseReceiver");
+        // 方式 1（向后兼容）：检查是否实现了 IPulseReceiver 接口
+        if (typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseReceiver"))
+        {
+            return true;
+        }
+
+        // 方式 2（新方式）：检查是否标记了 [Channel("CLIENT")] 特性
+        var channelAttr = typeSymbol.GetAttributes()
+            .FirstOrDefault(attr => attr.AttributeClass?.Name is "ChannelAttribute" or "Channel");
+
+        if (channelAttr?.ConstructorArguments.Length > 0)
+        {
+            var channelName = channelAttr.ConstructorArguments[0].Value?.ToString();
+            // 约定：Channel 为 "CLIENT" 的接口视为客户端实现的事件接收器
+            if (string.Equals(channelName, "CLIENT", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string GenerateServiceProxy(INamedTypeSymbol interfaceSymbol, SourceProductionContext context)
@@ -995,5 +1039,30 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         {
             CollectNamespacesFromType(arrayType.ElementType, namespaces);
         }
+    }
+
+    /// <summary>
+    /// 从 MSBuild 配置中读取 Channel 名称列表
+    /// </summary>
+    /// <param name="configOptions">配置选项提供器</param>
+    /// <returns>Channel 名称数组，如果未配置则返回空数组</returns>
+    private static string[] ReadChannelNamesFromConfig(AnalyzerConfigOptionsProvider configOptions)
+    {
+        // 尝试读取全局配置
+        if (configOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_ClientChannels", out var channelsValue))
+        {
+            if (!string.IsNullOrWhiteSpace(channelsValue))
+            {
+                // 按分号或逗号分割
+                return channelsValue
+                    .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .ToArray();
+            }
+        }
+
+        // 返回空数组
+        return Array.Empty<string>();
     }
 }

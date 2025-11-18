@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using PulseRPC.Server.SourceGenerator.Helpers;
 using PulseRPC.Server.SourceGenerator.Models;
 
 namespace PulseRPC.Server.SourceGenerator.Analyzers;
@@ -42,6 +43,8 @@ public static class ServiceAnalyzer
             }
         }
 
+        var authorization = AuthorizationHelper.GetAuthorization(interfaceSymbol);
+
         return new ServiceModel
         {
             InterfaceName = interfaceName,
@@ -49,7 +52,8 @@ public static class ServiceAnalyzer
             Namespace = namespaceName,
             ChannelName = channelName,
             ServiceName = serviceName,
-            Methods = methods
+            Methods = methods,
+            Authorization = authorization
         };
     }
 
@@ -150,6 +154,7 @@ public static class ServiceAnalyzer
         }
 
         var methodChannelName = GetMethodChannelName(methodSymbol);
+        var authorization = AuthorizationHelper.GetAuthorization(methodSymbol);
 
         return new MethodModel
         {
@@ -162,6 +167,7 @@ public static class ServiceAnalyzer
             ChannelName = methodChannelName,
             ResponseTypeFullName = responseTypeFullName,
             IsResponseMemoryPackable = responseTypeFullName != null,
+            Authorization = authorization
         };
     }
 
@@ -273,4 +279,5 @@ public static class ServiceAnalyzer
         // 其他同步返回类型
         return returnType.ToDisplayString();
     }
+
 }

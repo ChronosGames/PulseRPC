@@ -15,6 +15,11 @@ public sealed class ServiceModel
     public string? ServiceName { get; set; }
     public List<MethodModel> Methods { get; set; } = null!;
     public bool HasAsyncMethods => Methods.Any(m => m.IsAsync);
+
+    /// <summary>
+    /// 接口级别的授权信息
+    /// </summary>
+    public AuthorizationModel? Authorization { get; set; }
 }
 
 /// <summary>
@@ -44,6 +49,11 @@ public sealed class MethodModel
     /// 响应类型是否标记为 MemoryPackable，用于生成序列化优化路径。
     /// </summary>
     public bool IsResponseMemoryPackable { get; set; }
+
+    /// <summary>
+    /// 方法级别的授权信息
+    /// </summary>
+    public AuthorizationModel? Authorization { get; set; }
 
     public bool HasParameters => Parameters.Count > 0;
     public bool IsSingleParameter => Parameters.Count == 1;
@@ -83,4 +93,40 @@ public sealed class PropertyModel
     public string TypeFullName { get; set; } = "";
     public bool HasGetter { get; set; }
     public bool HasSetter { get; set; }
+}
+
+/// <summary>
+/// 授权元数据模型
+/// </summary>
+public sealed class AuthorizationModel
+{
+    /// <summary>
+    /// 是否允许匿名访问
+    /// </summary>
+    public bool AllowAnonymous { get; set; }
+
+    /// <summary>
+    /// 认证类型（Client, Service, Internal, Any）
+    /// </summary>
+    public string? AuthType { get; set; }
+
+    /// <summary>
+    /// 角色类型（External, Internal, GM, System, 或自定义）
+    /// </summary>
+    public string? Role { get; set; }
+
+    /// <summary>
+    /// 所需角色列表（逗号分隔）
+    /// </summary>
+    public string? Roles { get; set; }
+
+    /// <summary>
+    /// 授权策略
+    /// </summary>
+    public string? Policy { get; set; }
+
+    /// <summary>
+    /// 权限范围（用于服务间认证）
+    /// </summary>
+    public string[]? Scopes { get; set; }
 }

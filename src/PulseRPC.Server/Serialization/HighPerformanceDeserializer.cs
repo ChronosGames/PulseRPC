@@ -30,6 +30,11 @@ public sealed class ServiceCallContext
     public MessageFlags Flags { get; }
     public DateTime DeserializedTime { get; }
 
+    /// <summary>
+    /// 服务器传输连接（用于 RequestContext）
+    /// </summary>
+    public PulseRPC.Transport.IServerTransport? Transport { get; }
+
     public ServiceCallContext(
         string connectionId,
         Guid messageId,
@@ -40,7 +45,8 @@ public sealed class ServiceCallContext
         MessageType messageType,
         DateTime receivedTime,
         int processorId,
-        MessageFlags flags)
+        MessageFlags flags,
+        PulseRPC.Transport.IServerTransport? transport = null)
     {
         ConnectionId = connectionId;
         MessageId = messageId;
@@ -53,5 +59,6 @@ public sealed class ServiceCallContext
         ProcessorId = processorId;
         Flags = flags;
         DeserializedTime = DateTime.UtcNow;
+        Transport = transport;
     }
 }

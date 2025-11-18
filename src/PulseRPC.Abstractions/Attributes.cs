@@ -77,9 +77,39 @@ public enum AuthType
 }
 
 /// <summary>
+/// 预定义的角色类型常量 - 用于基于角色的访问控制
+/// </summary>
+/// <remarks>
+/// 提供常用的角色类型常量，但不限制用户自定义角色类型。
+/// 用户可以在 AuthorizeAttribute 中使用这些预定义常量，也可以定义自己的角色字符串。
+/// </remarks>
+public static class RoleTypes
+{
+    /// <summary>外部角色 - 来自客户端的普通用户/玩家</summary>
+    /// <remarks>通常用于标记客户端调用的服务接口</remarks>
+    public const string External = "External";
+
+    /// <summary>内部角色 - 服务器之间的内部调用</summary>
+    /// <remarks>用于服务间通信，如 GameServer 调用 BattleServer</remarks>
+    public const string Internal = "Internal";
+
+    /// <summary>GM角色 - 游戏管理员或运维人员</summary>
+    /// <remarks>具有特殊权限的管理人员，可以执行管理操作</remarks>
+    public const string GM = "GM";
+
+    /// <summary>系统角色 - 系统级别的调用</summary>
+    /// <remarks>最高权限，用于系统内部的关键操作</remarks>
+    public const string System = "System";
+
+    /// <summary>匿名角色 - 无需认证的公开访问</summary>
+    /// <remarks>用于标记可以公开访问的接口，不需要任何认证</remarks>
+    public const string Anonymous = "Anonymous";
+}
+
+/// <summary>
 /// 授权特性，标记需要认证的方法或类
 /// </summary>
-[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class, AllowMultiple = false)]
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Class | AttributeTargets.Interface, AllowMultiple = false)]
 public class AuthorizeAttribute : Attribute
 {
     /// <summary>
@@ -103,6 +133,25 @@ public class AuthorizeAttribute : Attribute
     public string[]? Scopes { get; set; }
 
     /// <summary>
+    /// 角色类型（基于角色的访问控制）
+    /// </summary>
+    /// <remarks>
+    /// 当指定 Role 时，会基于角色类型进行访问控制。
+    /// 这是比 AuthType 更细粒度的权限控制方式。
+    /// 可以使用 <see cref="RoleTypes"/> 中的预定义常量，也可以使用自定义的角色字符串。
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// // 使用预定义角色
+    /// [Authorize(Role = RoleTypes.External)]
+    ///
+    /// // 使用自定义角色
+    /// [Authorize(Role = "CustomAdminRole")]
+    /// </code>
+    /// </example>
+    public string? Role { get; set; }
+
+    /// <summary>
     /// 创建授权特性
     /// </summary>
     public AuthorizeAttribute()
@@ -119,9 +168,14 @@ public class AuthorizeAttribute : Attribute
     }
 
     /// <summary>
-    /// 创建授权特性，指定所需角色
+    /// 创建授权特性，指定所需角色（逗号分隔的角色列表）
     /// </summary>
     /// <param name="roles">所需的角色，多个角色用逗号分隔</param>
+    /// <remarks>
+    /// 此构造函数用于传统的基于角色名称列表的认证（Roles 属性）。
+    /// 若要使用新的 Role 属性（细粒度角色类型），请使用属性初始化器：
+    /// <code>[Authorize(Role = RoleTypes.External)]</code>
+    /// </remarks>
     public AuthorizeAttribute(string roles)
     {
         Roles = roles;

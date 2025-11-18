@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using PulseRPC.Channels;
 using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Core;
 using PulseRPC.Server.MessageEngine;
@@ -34,6 +35,7 @@ public sealed class UnifiedPulseServer : IPulseServer
 
     private readonly ConcurrentDictionary<string, IServerListener> _listeners = new();
     private readonly ConcurrentDictionary<string, TransportChannelConfiguration> _transports = new();
+    private readonly ITransportChannelPool _channelPool = new TransportChannelPool();
 
     private volatile ServerState _state = ServerState.Stopped;
     private readonly Lock _stateLock = new();
@@ -433,6 +435,29 @@ public sealed class UnifiedPulseServer : IPulseServer
         }
         return false;
     }
+
+    // === Transport Channel Management (双向RPC支持) ===
+
+    /// <inheritdoc />
+    public ITransportChannel? GetChannel(string connectionId)
+    {
+        // TODO: 在第一阶段实现 IServerChannel 到 ITransportChannel 的适配器
+        // 目前返回 null，因为 IServerChannel 还未实现 ITransportChannel
+        _logger.LogDebug("GetChannel called for {ConnectionId} - returning null (adapter not yet implemented)", connectionId);
+        return null;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<ITransportChannel> GetAllChannels()
+    {
+        // TODO: 在第一阶段实现 IServerChannel 到 ITransportChannel 的适配器
+        // 目前返回空列表，因为 IServerChannel 还未实现 ITransportChannel
+        _logger.LogDebug("GetAllChannels called - returning empty list (adapter not yet implemented)");
+        return Array.Empty<ITransportChannel>();
+    }
+
+    /// <inheritdoc />
+    public ITransportChannelPool ChannelPool => _channelPool;
 
     // === State Management ===
 

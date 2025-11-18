@@ -383,6 +383,9 @@ public abstract class YieldingService : IService, IPulseHub
         {
             message.CancellationToken.ThrowIfCancellationRequested();
 
+            // ✅ 设置 RequestContext（用于方法内访问连接信息）
+            RequestContext.SetCurrent(message.Sender);
+
             // 从缓存获取 MethodInfo
             var serviceType = GetType();
             var methodInfo = _methodInfoCache.GetOrAdd(
@@ -407,6 +410,11 @@ public abstract class YieldingService : IService, IPulseHub
 
             message.CompletionSource.TrySetException(actualException);
             throw actualException;
+        }
+        finally
+        {
+            // ✅ 清除 RequestContext
+            RequestContext.SetCurrent(null);
         }
     }
 

@@ -446,28 +446,43 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
                 object? dispatchResult = null;
 
-                if (_scheduler != null)
+                // ✅ 设置 RequestContext（用于服务方法内访问连接信息）
+                var channel = _channelManager.GetChannel(envelope.ConnectionId);
+                if (channel is ServerTransportChannel serverChannel)
                 {
-                    // 获取服务上下文（用于调度）
-                    var serviceContext = GetServiceContextForConnection(envelope.ConnectionId);
-                    await _scheduler.InvokeWithSchedulerAsync(
-                        serviceContext,
-                        serviceName,
-                        async () =>
-                        {
-                            dispatchResult = await _messageDispatcher.DispatchAsync(
-                                envelope,
-                                _serviceProvider,
-                                CancellationToken.None);
-                        },
-                        CancellationToken.None);
+                    RequestContext.SetCurrent(serverChannel.Transport);
                 }
-                else
+
+                try
                 {
-                    dispatchResult = await _messageDispatcher.DispatchAsync(
-                        envelope,
-                        _serviceProvider,
-                        CancellationToken.None);
+                    if (_scheduler != null)
+                    {
+                        // 获取服务上下文（用于调度）
+                        var serviceContext = GetServiceContextForConnection(envelope.ConnectionId);
+                        await _scheduler.InvokeWithSchedulerAsync(
+                            serviceContext,
+                            serviceName,
+                            async () =>
+                            {
+                                dispatchResult = await _messageDispatcher.DispatchAsync(
+                                    envelope,
+                                    _serviceProvider,
+                                    CancellationToken.None);
+                            },
+                            CancellationToken.None);
+                    }
+                    else
+                    {
+                        dispatchResult = await _messageDispatcher.DispatchAsync(
+                            envelope,
+                            _serviceProvider,
+                            CancellationToken.None);
+                    }
+                }
+                finally
+                {
+                    // ✅ 清理 RequestContext
+                    RequestContext.SetCurrent(null);
                 }
 
                 result = dispatchResult;

@@ -1,4 +1,5 @@
 using System.Net;
+using PulseRPC.Channels;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 using TransportContext = System.Net.TransportContext;
@@ -71,6 +72,25 @@ public interface IPulseServer : IAsyncDisposable, IDisposable
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>是否发送成功</returns>
     Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
+
+    // === 传输通道管理（双向RPC支持）===
+    /// <summary>
+    /// 获取指定连接的传输通道
+    /// </summary>
+    /// <param name="connectionId">连接ID</param>
+    /// <returns>传输通道实例，如果连接不存在返回 null</returns>
+    ITransportChannel? GetChannel(string connectionId);
+
+    /// <summary>
+    /// 获取所有活动连接的传输通道
+    /// </summary>
+    /// <returns>所有活动通道的只读列表</returns>
+    IReadOnlyList<ITransportChannel> GetAllChannels();
+
+    /// <summary>
+    /// 获取连接池（用于高级场景）
+    /// </summary>
+    ITransportChannelPool ChannelPool { get; }
 
     // === 服务管理 ===
     /// <summary>

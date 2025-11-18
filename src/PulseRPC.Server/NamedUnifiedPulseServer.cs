@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using PulseRPC.Channels;
 using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Integration;
 using PulseRPC.Server.MessageEngine;
@@ -109,6 +110,19 @@ internal sealed class NamedUnifiedPulseServer : INamedPulseServer
     /// <inheritdoc />
     public Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
         => _innerServer.SendAsync(connectionId, data, cancellationToken);
+
+    // === Transport Channel Management (双向RPC支持) ===
+
+    /// <inheritdoc />
+    public ITransportChannel? GetChannel(string connectionId)
+        => _innerServer.GetChannel(connectionId);
+
+    /// <inheritdoc />
+    public IReadOnlyList<ITransportChannel> GetAllChannels()
+        => _innerServer.GetAllChannels();
+
+    /// <inheritdoc />
+    public ITransportChannelPool ChannelPool => _innerServer.ChannelPool;
 
     /// <inheritdoc />
     public IReadOnlyList<ServiceInfo> GetRegisteredServices()

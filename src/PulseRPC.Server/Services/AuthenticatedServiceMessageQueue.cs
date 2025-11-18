@@ -7,6 +7,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Models;
+using PulseRPC.Transport;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -120,12 +121,15 @@ public class AuthenticationService : IAuthenticationService
                 return null;
             }
 
-            var userId = claims.FirstOrDefault(c => c.Type is "sub" or "userId")?.Value;
+            // 提取用户 ID (JWT 的 sub claim 会被自动映射为 ClaimTypes.NameIdentifier)
+            var userId = claims.FirstOrDefault(c => c.Type == System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+
             if (string.IsNullOrEmpty(userId))
             {
                 _logger.LogWarning("Token missing user ID");
                 return null;
             }
+
 
             // 提取权限和角色
             var permissions = claims
@@ -270,6 +274,9 @@ public abstract class ServiceMessage
 
     /// <summary>认证上下文</summary>
     public AuthenticationContext? AuthContext { get; set; }
+
+    /// <summary>发送者连接（用于 RequestContext）</summary>
+    public IServerTransport? Sender { get; set; }
 
     /// <summary>消息优先级（默认为 Normal）</summary>
     public PulseRPC.MessagePriority Priority { get; set; } = PulseRPC.MessagePriority.Normal;
