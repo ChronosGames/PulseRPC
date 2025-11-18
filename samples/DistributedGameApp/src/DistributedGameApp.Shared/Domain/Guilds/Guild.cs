@@ -15,7 +15,7 @@ public partial class Guild
     /// MongoDB 主键
     /// </summary>
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
+    // [BsonRepresentation(BsonType.ObjectId)]
     public string Id { get; set; } = string.Empty;
 
     /// <summary>
@@ -89,7 +89,7 @@ public partial class GuildMember
     /// MongoDB 主键
     /// </summary>
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
+    // [BsonRepresentation(BsonType.ObjectId)]
     public string Id { get; set; } = string.Empty;
 
     /// <summary>

@@ -21,6 +21,16 @@ public class NetworkEndpoint
     public int? KcpPort { get; set; }
 
     /// <summary>
+    /// 公网 TCP 端口（用于 Docker 端口映射等场景，如果未设置则使用 TcpPort）
+    /// </summary>
+    public int? PublicTcpPort { get; set; }
+
+    /// <summary>
+    /// 公网 KCP 端口（用于 Docker 端口映射等场景，如果未设置则使用 KcpPort）
+    /// </summary>
+    public int? PublicKcpPort { get; set; }
+
+    /// <summary>
     /// 是否启用
     /// </summary>
     public bool Enabled { get; set; } = true;

@@ -36,17 +36,27 @@ public class ServerController : ControllerBase
             var serverList = services
                 .Where(s => s.Status == "Online")
                 .OrderBy(s => (double)s.CurrentLoad / s.MaxCapacity)
-                .Select(s => new ServerInfo
+                .Select(s =>
                 {
-                    ServerId = s.ServiceId,
-                    ServerName = s.NodeName,
-                    Host = s.Host,
-                    TcpPort = s.TcpPort,
-                    KcpPort = s.KcpPort,
-                    CurrentPlayers = s.CurrentLoad,
-                    MaxPlayers = s.MaxCapacity,
-                    Status = s.Status,
-                    LoadPercentage = s.MaxCapacity > 0 ? (int)((double)s.CurrentLoad / s.MaxCapacity * 100) : 0
+                    // 客户端连接应优先使用外网端点
+                    var endpoint = s.ExternalEndpoint?.Enabled == true
+                        ? s.ExternalEndpoint
+                        : s.InternalEndpoint?.Enabled == true
+                            ? s.InternalEndpoint
+                            : null;
+
+                    return new ServerInfo
+                    {
+                        ServerId = s.ServiceId,
+                        ServerName = s.NodeName,
+                        Host = endpoint?.Host ?? s.Host,
+                        TcpPort = endpoint?.TcpPort ?? s.TcpPort,
+                        KcpPort = endpoint?.KcpPort ?? s.KcpPort,
+                        CurrentPlayers = s.CurrentLoad,
+                        MaxPlayers = s.MaxCapacity,
+                        Status = s.Status,
+                        LoadPercentage = s.MaxCapacity > 0 ? (int)((double)s.CurrentLoad / s.MaxCapacity * 100) : 0
+                    };
                 })
                 .ToList();
 
@@ -72,17 +82,27 @@ public class ServerController : ControllerBase
             var serverList = services
                 .Where(s => s.Status == "Online")
                 .OrderBy(s => (double)s.CurrentLoad / s.MaxCapacity)
-                .Select(s => new ServerInfo
+                .Select(s =>
                 {
-                    ServerId = s.ServiceId,
-                    ServerName = s.NodeName,
-                    Host = s.Host,
-                    TcpPort = s.TcpPort,
-                    KcpPort = s.KcpPort,
-                    CurrentPlayers = s.CurrentLoad,
-                    MaxPlayers = s.MaxCapacity,
-                    Status = s.Status,
-                    LoadPercentage = s.MaxCapacity > 0 ? (int)((double)s.CurrentLoad / s.MaxCapacity * 100) : 0
+                    // 客户端连接应优先使用外网端点
+                    var endpoint = s.ExternalEndpoint?.Enabled == true
+                        ? s.ExternalEndpoint
+                        : s.InternalEndpoint?.Enabled == true
+                            ? s.InternalEndpoint
+                            : null;
+
+                    return new ServerInfo
+                    {
+                        ServerId = s.ServiceId,
+                        ServerName = s.NodeName,
+                        Host = endpoint?.Host ?? s.Host,
+                        TcpPort = endpoint?.TcpPort ?? s.TcpPort,
+                        KcpPort = endpoint?.KcpPort ?? s.KcpPort,
+                        CurrentPlayers = s.CurrentLoad,
+                        MaxPlayers = s.MaxCapacity,
+                        Status = s.Status,
+                        LoadPercentage = s.MaxCapacity > 0 ? (int)((double)s.CurrentLoad / s.MaxCapacity * 100) : 0
+                    };
                 })
                 .ToList();
 
@@ -108,17 +128,27 @@ public class ServerController : ControllerBase
             var serverList = services
                 .Where(s => s.Status == "Online")
                 .OrderBy(s => (double)s.CurrentLoad / s.MaxCapacity)
-                .Select(s => new ServerInfo
+                .Select(s =>
                 {
-                    ServerId = s.ServiceId,
-                    ServerName = s.NodeName,
-                    Host = s.Host,
-                    TcpPort = s.TcpPort,
-                    KcpPort = s.KcpPort,
-                    CurrentPlayers = s.CurrentLoad,
-                    MaxPlayers = s.MaxCapacity,
-                    Status = s.Status,
-                    LoadPercentage = s.MaxCapacity > 0 ? (int)((double)s.CurrentLoad / s.MaxCapacity * 100) : 0
+                    // 客户端连接应优先使用外网端点
+                    var endpoint = s.ExternalEndpoint?.Enabled == true
+                        ? s.ExternalEndpoint
+                        : s.InternalEndpoint?.Enabled == true
+                            ? s.InternalEndpoint
+                            : null;
+
+                    return new ServerInfo
+                    {
+                        ServerId = s.ServiceId,
+                        ServerName = s.NodeName,
+                        Host = endpoint?.Host ?? s.Host,
+                        TcpPort = endpoint?.TcpPort ?? s.TcpPort,
+                        KcpPort = endpoint?.KcpPort ?? s.KcpPort,
+                        CurrentPlayers = s.CurrentLoad,
+                        MaxPlayers = s.MaxCapacity,
+                        Status = s.Status,
+                        LoadPercentage = s.MaxCapacity > 0 ? (int)((double)s.CurrentLoad / s.MaxCapacity * 100) : 0
+                    };
                 })
                 .ToList();
 
@@ -146,13 +176,20 @@ public class ServerController : ControllerBase
                 return NotFound(new { message = "当前没有可用的游戏服务器" });
             }
 
+            // 客户端连接应优先使用外网端点
+            var endpoint = bestServer.ExternalEndpoint?.Enabled == true
+                ? bestServer.ExternalEndpoint
+                : bestServer.InternalEndpoint?.Enabled == true
+                    ? bestServer.InternalEndpoint
+                    : null;
+
             var serverInfo = new ServerInfo
             {
                 ServerId = bestServer.ServiceId,
                 ServerName = bestServer.NodeName,
-                Host = bestServer.Host,
-                TcpPort = bestServer.TcpPort,
-                KcpPort = bestServer.KcpPort,
+                Host = endpoint?.Host ?? bestServer.Host,
+                TcpPort = endpoint?.TcpPort ?? bestServer.TcpPort,
+                KcpPort = endpoint?.KcpPort ?? bestServer.KcpPort,
                 CurrentPlayers = bestServer.CurrentLoad,
                 MaxPlayers = bestServer.MaxCapacity,
                 Status = bestServer.Status,
@@ -183,13 +220,20 @@ public class ServerController : ControllerBase
                 return NotFound(new { message = "当前没有可用的战斗服务器" });
             }
 
+            // 客户端连接应优先使用外网端点
+            var endpoint = bestServer.ExternalEndpoint?.Enabled == true
+                ? bestServer.ExternalEndpoint
+                : bestServer.InternalEndpoint?.Enabled == true
+                    ? bestServer.InternalEndpoint
+                    : null;
+
             var serverInfo = new ServerInfo
             {
                 ServerId = bestServer.ServiceId,
                 ServerName = bestServer.NodeName,
-                Host = bestServer.Host,
-                TcpPort = bestServer.TcpPort,
-                KcpPort = bestServer.KcpPort,
+                Host = endpoint?.Host ?? bestServer.Host,
+                TcpPort = endpoint?.TcpPort ?? bestServer.TcpPort,
+                KcpPort = endpoint?.KcpPort ?? bestServer.KcpPort,
                 CurrentPlayers = bestServer.CurrentLoad,
                 MaxPlayers = bestServer.MaxCapacity,
                 Status = bestServer.Status,

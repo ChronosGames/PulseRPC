@@ -206,7 +206,7 @@ public class DistributedGameClient
         {
             _logger.LogInformation("正在登录: {Account}", account);
 
-            var request = new LoginRequest
+            var request = new DistributedGameApp.Shared.Messages.LoginRequest
             {
                 Account = account,
                 Password = password,

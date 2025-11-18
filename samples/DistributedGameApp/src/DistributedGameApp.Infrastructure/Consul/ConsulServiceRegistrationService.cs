@@ -136,15 +136,19 @@ public sealed class ConsulServiceRegistrationService : BackgroundService
 
             int externalTcpPort = 0;
             int? externalKcpPort = null;
+            int? publicTcpPort = null;
+            int? publicKcpPort = null;
 
             if (tcpConfig.Exists() && tcpConfig.GetValue<bool>("Enabled"))
             {
                 externalTcpPort = tcpConfig.GetValue<int>("Port");
+                publicTcpPort = tcpConfig.GetValue<int?>("PublicPort");
             }
 
             if (kcpConfig.Exists() && kcpConfig.GetValue<bool>("Enabled"))
             {
                 externalKcpPort = kcpConfig.GetValue<int>("Port");
+                publicKcpPort = kcpConfig.GetValue<int?>("PublicPort");
             }
 
             registration.ExternalEndpoint = new Infrastructure.ServiceClient.NetworkEndpoint
@@ -152,6 +156,8 @@ public sealed class ConsulServiceRegistrationService : BackgroundService
                 Host = externalHost == "0.0.0.0" ? "localhost" : externalHost,
                 TcpPort = externalTcpPort,
                 KcpPort = externalKcpPort,
+                PublicTcpPort = publicTcpPort,
+                PublicKcpPort = publicKcpPort,
                 Enabled = externalTcpPort > 0
             };
         }

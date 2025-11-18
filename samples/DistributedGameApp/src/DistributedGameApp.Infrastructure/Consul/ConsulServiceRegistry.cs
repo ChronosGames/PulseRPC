@@ -225,11 +225,15 @@ public class ConsulServiceRegistry : IAsyncDisposable
         if (registration.ExternalEndpoint != null && registration.ExternalEndpoint.Enabled)
         {
             meta["External_Host"] = registration.ExternalEndpoint.Host;
-            meta["External_TcpPort"] = registration.ExternalEndpoint.TcpPort.ToString();
 
-            if (registration.ExternalEndpoint.KcpPort.HasValue)
+            // 使用公网端口（如果有配置），否则使用监听端口
+            var tcpPort = registration.ExternalEndpoint.PublicTcpPort ?? registration.ExternalEndpoint.TcpPort;
+            meta["External_TcpPort"] = tcpPort.ToString();
+
+            var kcpPort = registration.ExternalEndpoint.PublicKcpPort ?? registration.ExternalEndpoint.KcpPort;
+            if (kcpPort.HasValue)
             {
-                meta["External_KcpPort"] = registration.ExternalEndpoint.KcpPort.Value.ToString();
+                meta["External_KcpPort"] = kcpPort.Value.ToString();
             }
         }
 
