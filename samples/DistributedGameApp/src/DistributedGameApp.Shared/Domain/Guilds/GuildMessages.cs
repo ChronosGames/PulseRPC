@@ -71,7 +71,7 @@ public partial class MyGuildInfo
 public partial class JoinRequest
 {
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
+    // [BsonRepresentation(BsonType.ObjectId)]
     public string Id { get; set; } = string.Empty;
 
     [BsonElement("guildId")]
@@ -106,7 +106,7 @@ public partial class JoinRequest
 public partial class GuildMessage
 {
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
+    // [BsonRepresentation(BsonType.ObjectId)]
     public string Id { get; set; } = string.Empty;
 
     [BsonElement("guildId")]
@@ -143,7 +143,7 @@ public partial class DonateRequest
 public partial class GuildActivity
 {
     [BsonId]
-    [BsonRepresentation(BsonType.ObjectId)]
+    // [BsonRepresentation(BsonType.ObjectId)]
     public string Id { get; set; } = string.Empty;
 
     [BsonElement("guildId")]
