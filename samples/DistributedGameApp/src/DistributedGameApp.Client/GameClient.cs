@@ -290,6 +290,29 @@ public class GameClient : IDisposable
                 server.TcpPort,
                 _cts.Token);
 
+            // ✅ 使用 Ticket 在 GameServer 上进行身份验证
+            var gameHub = _connectionManager.CurrentConnection!.GameHub!;
+
+            // 优先使用 Ticket（从 LoginServer 获取的 AccessToken）
+            var loginRequest = new Shared.Messages.LoginRequest
+            {
+                DeviceId = Environment.MachineName,
+                Ticket = AccessToken!,
+            };
+
+            var loginResult = await gameHub.LoginAsync(loginRequest);
+
+            if (!loginResult.Success)
+            {
+                _logger.LogError("GameServer 身份验证失败: {ErrorCode} - {ErrorMessage}",
+                    loginResult.ErrorCode, loginResult.ErrorMessage);
+                return false;
+            }
+
+            _logger.LogInformation("GameServer 身份验证成功: {PlayerId} (使用 {Method})",
+                loginResult.PlayerId,
+                !string.IsNullOrEmpty(loginRequest.Ticket) ? "Ticket" : "Account");
+
             // 注册事件监听器
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
             await _connectionManager.RegisterEventListenerAsync(eventHandler);
