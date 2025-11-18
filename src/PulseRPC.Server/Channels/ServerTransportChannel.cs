@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using PulseRPC.Authentication;
+using PulseRPC.Channels;
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
 using System.Net;
@@ -42,9 +43,6 @@ public sealed class MessageParsedEventArgs : EventArgs
         ProcessorId = processorId;
     }
 }
-
-// 旧的 MessageProcessedEventArgs 已移除，统一使用 PulseRPC.Server.Dispatch.MessageProcessedEventArgs
-// 该事件参数已通过 using 别名导入
 
 public interface IServerChannel : IDisposable
 {
@@ -103,7 +101,7 @@ public interface IServerChannel : IDisposable
 /// 服务器传输通道实现，包装 IServerListener 并提供认证和会话管理
 /// 现在继承三层抽象架构中的ITransportChannel接口
 /// </summary>
-public class ServerTransportChannel : IServerChannel
+public sealed class ServerTransportChannel : TransportChannelBase, IServerChannel
 {
     private readonly IServerTransport _transport;
     private readonly ConcurrentDictionary<string, object> _properties;
@@ -114,7 +112,43 @@ public class ServerTransportChannel : IServerChannel
     private DateTime _lastActiveTime;
     private bool _disposed;
 
-    public string Id => ((ITransport)_transport).Id;
+    // === TransportChannelBase 抽象成员实现 ===
+
+    /// <inheritdoc />
+    public override string ConnectionId => _transport.Id;
+
+    /// <inheritdoc />
+    public override bool IsConnected => _transport.IsConnected;
+
+    /// <inheritdoc />
+    public override EndPoint? RemoteEndPoint => _transport.RemoteEndPoint!;
+
+    /// <inheritdoc />
+    public override EndPoint? LocalEndPoint => _transport.LocalEndPoint!;
+
+    /// <inheritdoc />
+    public override DateTime ConnectedAt => ConnectedTime;
+
+    /// <inheritdoc />
+    public override DateTime LastActivityAt => _lastActiveTime;
+
+    /// <inheritdoc />
+    public override Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    {
+        if (_disposed) return Task.FromResult(false);
+
+        LastActiveTime = DateTime.UtcNow;
+        return _transport.SendAsync(data, cancellationToken);
+    }
+
+    // === IServerChannel 显式实现（处理非空要求）===
+
+    EndPoint IServerChannel.RemoteEndPoint => RemoteEndPoint!;
+    EndPoint IServerChannel.LocalEndPoint => LocalEndPoint!;
+
+    // === IServerChannel 实现（向后兼容）===
+
+    public string Id => ConnectionId;
     public TransportType Type => _transport.Type;
 
     /// <summary>
@@ -138,9 +172,6 @@ public class ServerTransportChannel : IServerChannel
     }
 
     /// <inheritdoc />
-    public string ConnectionId => ((ITransport)_transport).Id;
-
-    /// <inheritdoc />
     public IServerTransport Transport => _transport;
 
     #region ITransportConnection Implementation
@@ -148,22 +179,7 @@ public class ServerTransportChannel : IServerChannel
     public ConnectionState State => _transport.State;
 
     /// <inheritdoc />
-    public EndPoint RemoteEndPoint => _transport.RemoteEndPoint;
-
-    /// <inheritdoc />
-    public EndPoint LocalEndPoint => _transport.LocalEndPoint;
-
-    /// <inheritdoc />
-    public DateTime ConnectedAt => ConnectedTime;
-
-    /// <inheritdoc />
-    public DateTime LastActivityAt => _lastActiveTime;
-
-    /// <inheritdoc />
     public TransportType TransportType => _transport.Type;
-
-    /// <inheritdoc />
-    public bool IsConnected => _transport.IsConnected;
 
     /// <inheritdoc />
     public event EventHandler<TransportStateEventArgs>? StateChanged;
@@ -273,15 +289,6 @@ public class ServerTransportChannel : IServerChannel
             _authenticationContext?.Clear();
             _authenticationContext = null;
         }
-    }
-
-    /// <inheritdoc />
-    public Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
-    {
-        if (_disposed) return Task.FromResult(false);
-
-        LastActiveTime = DateTime.UtcNow;
-        return _transport.SendAsync(data, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -427,7 +434,7 @@ public class ServerTransportChannel : IServerChannel
 
 
     /// <inheritdoc />
-    public void Dispose()
+    public new void Dispose()
     {
         if (_disposed) return;
 
@@ -445,5 +452,8 @@ public class ServerTransportChannel : IServerChannel
 
         // 释放传输资源
         _transport.Dispose();
+
+        // 调用基类释放
+        base.Dispose();
     }
 }

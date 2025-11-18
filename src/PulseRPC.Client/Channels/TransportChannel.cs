@@ -2,11 +2,13 @@ using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Channels;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
@@ -16,7 +18,7 @@ namespace PulseRPC.Client.Channels;
 /// <summary>
 /// 优化的传输通道 - 减少热路径内存分配
 /// </summary>
-internal class TransportChannel : IClientChannel
+internal class TransportChannel : TransportChannelBase, IClientChannel
 {
     private readonly IClientTransport _transport;
     private readonly ISerializerProvider _serializerProvider;
@@ -60,8 +62,35 @@ internal class TransportChannel : IClientChannel
     // 事件回调
     private Action<string, byte[]>? _eventCallback;
 
-    public string Id => Descriptor.Id;
-    public bool IsConnected => _transport.IsConnected;
+    // === TransportChannelBase 抽象成员实现 ===
+
+    /// <inheritdoc />
+    public override string ConnectionId => Descriptor.Id;
+
+    /// <inheritdoc />
+    public override bool IsConnected => _transport.IsConnected;
+
+    /// <inheritdoc />
+    public override EndPoint? RemoteEndPoint => _transport.RemoteEndPoint;
+
+    /// <inheritdoc />
+    public override EndPoint? LocalEndPoint => _transport.LocalEndPoint;
+
+    /// <inheritdoc />
+    public override DateTime ConnectedAt => Statistics.ConnectedAt ?? DateTime.UtcNow;
+
+    /// <inheritdoc />
+    public override DateTime LastActivityAt => Statistics.LastActiveAt;
+
+    /// <inheritdoc />
+    public override Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
+    {
+        return _transport.SendAsync(data, cancellationToken);
+    }
+
+    // === IClientChannel 实现（向后兼容）===
+
+    public string Id => ConnectionId;
 
     // IClientChannel properties that integrate IConnection functionality
     public ConnectionDescriptor Descriptor { get; private set; }
@@ -156,6 +185,10 @@ internal class TransportChannel : IClientChannel
             header.MessageId = Guid.NewGuid();
             header.ServiceName = serviceName;
             header.MethodName = methodName;
+
+            // 计算并设置 ProtocolId (使用与服务端相同的 FNV-1a 算法)
+            // 传递请求参数类型以生成正确的签名
+            header.ProtocolId = ComputeProtocolId(serviceName, methodName, typeof(TRequest));
 
             // 创建待处理请求
             var tcs = new TaskCompletionSource<NetworkMessage>();
@@ -846,7 +879,8 @@ internal class TransportChannel : IClientChannel
                 var header = new MessageHeader(MessageType.Request, serviceName, methodName)
                 {
                     MessageId = messageId,
-                    Flags = MessageFlags.RequireResponse
+                    Flags = MessageFlags.RequireResponse,
+                    ProtocolId = ComputeProtocolId(serviceName, methodName)
                 };
 
                 var headerBytes = MemoryPack.MemoryPackSerializer.Serialize(header);
@@ -893,7 +927,8 @@ internal class TransportChannel : IClientChannel
             var header = new MessageHeader(MessageType.OneWay, serviceName, methodName)
             {
                 MessageId = Guid.NewGuid(),
-                Flags = MessageFlags.None
+                Flags = MessageFlags.None,
+                ProtocolId = ComputeProtocolId(serviceName, methodName)
             };
 
             var headerBytes = MemoryPack.MemoryPackSerializer.Serialize(header);
@@ -1193,6 +1228,16 @@ internal class TransportChannel : IClientChannel
     private static void ResetBufferWriter(ArrayBufferWriter<byte> writer)
     {
         writer.Clear();
+    }
+
+    /// <summary>
+    /// 计算协议号 - 委托给 ProtocolIdHelper
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ushort ComputeProtocolId(string serviceName, string methodName, Type? requestType = null)
+    {
+        var paramTypes = requestType != null ? new[] { requestType } : null;
+        return ProtocolIdHelper.ComputeProtocolId(serviceName, methodName, paramTypes);
     }
 
     // 内部类：事件订阅基类和泛型实现保持不变

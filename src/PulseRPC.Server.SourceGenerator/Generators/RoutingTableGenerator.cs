@@ -15,7 +15,9 @@ public static class RoutingTableGenerator
     /// <summary>
     /// 为所有服务生成统一的路由表
     /// </summary>
-    public static string GenerateRoutingTable(List<ServiceModel> services)
+    /// <param name="services">服务列表</param>
+    /// <param name="channelNames">配置的 Channel 名称列表（来自 MSBuild 配置）</param>
+    public static string GenerateRoutingTable(List<ServiceModel> services, string[] channelNames)
     {
         var sb = new StringBuilder();
 
@@ -33,8 +35,8 @@ public static class RoutingTableGenerator
         // Using statements
         GenerateUsingStatements(sb, services);
 
-        // 生成全局路由表
-        GenerateGlobalRoutingTable(sb, services);
+        // 生成全局路由表（传入 channelNames）
+        GenerateGlobalRoutingTable(sb, services, channelNames);
 
         return sb.ToString();
     }
@@ -67,7 +69,7 @@ public static class RoutingTableGenerator
     /// <summary>
     /// 生成全局路由表类
     /// </summary>
-    private static void GenerateGlobalRoutingTable(StringBuilder sb, List<ServiceModel> services)
+    private static void GenerateGlobalRoutingTable(StringBuilder sb, List<ServiceModel> services, string[] channelNames)
     {
         sb.AppendLine("namespace PulseRPC.Generated;");
         sb.AppendLine();
@@ -95,6 +97,9 @@ public static class RoutingTableGenerator
 
         // 生成每个服务的专用路由器
         GenerateServiceRouters(sb, services);
+
+        // 生成 Channel 特定的路由方法
+        GenerateChannelSpecificRouting(sb, services, channelNames);
 
         // 生成统计信息
         GenerateStatistics(sb, services);
@@ -423,11 +428,85 @@ public static class RoutingTableGenerator
     }
 
     /// <summary>
+    /// 生成 Channel 特定的路由方法
+    /// </summary>
+    private static void GenerateChannelSpecificRouting(StringBuilder sb, List<ServiceModel> services, string[] channelNames)
+    {
+        if (channelNames == null || channelNames.Length == 0)
+            return;
+
+        sb.AppendLine("    #region Channel-Specific Routing");
+        sb.AppendLine();
+
+        // 按 Channel 分组服务
+        var servicesByChannel = new Dictionary<string, List<ServiceModel>>();
+        foreach (var service in services)
+        {
+            var channelName = service.ChannelName ?? "default";
+            if (!servicesByChannel.ContainsKey(channelName))
+            {
+                servicesByChannel[channelName] = new List<ServiceModel>();
+            }
+            servicesByChannel[channelName].Add(service);
+        }
+
+        // 为每个配置的 Channel 生成路由方法
+        foreach (var channelName in channelNames)
+        {
+            if (!servicesByChannel.TryGetValue(channelName, out var channelServices) || channelServices.Count == 0)
+                continue;
+
+            var methodName = $"RouteBy{ToPascalCase(channelName)}ProtocolIdAsync";
+
+            sb.AppendLine($"    /// <summary>");
+            sb.AppendLine($"    /// 路由 {channelName} Channel 的协议号");
+            sb.AppendLine($"    /// 仅处理标记为 [Channel(\"{channelName}\")] 的服务");
+            sb.AppendLine($"    /// </summary>");
+            sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+            sb.AppendLine($"    public ValueTask<object?> {methodName}(IServiceProvider serviceProvider, ushort protocolId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        return protocolId switch");
+            sb.AppendLine("        {");
+
+            // 为该 Channel 的所有服务的所有方法生成协议号路由
+            foreach (var service in channelServices)
+            {
+                foreach (var method in service.Methods)
+                {
+                    var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service.InterfaceName, method)}";
+                    var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method.MethodName);
+                    sb.AppendLine($"            {protocolIdConstantName} => {routerMethodName}(serviceProvider, data, cancellationToken),");
+                }
+            }
+
+            sb.AppendLine($"            _ => ThrowProtocolIdNotFoundException(protocolId)");
+            sb.AppendLine("        };");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("    #endregion");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// 将字符串转换为 PascalCase（首字母大写）
+    /// </summary>
+    private static string ToPascalCase(string input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return input;
+
+        // 简单实现：首字母大写，其余保持不变
+        return char.ToUpperInvariant(input[0]) + input.Substring(1);
+    }
+
+    /// <summary>
     /// 生成SourceText用于编译器集成
     /// </summary>
-    public static SourceText GenerateSourceText(List<ServiceModel> services)
+    public static SourceText GenerateSourceText(List<ServiceModel> services, string[] channelNames)
     {
-        var code = GenerateRoutingTable(services);
+        var code = GenerateRoutingTable(services, channelNames);
         return SourceText.From(code, Encoding.UTF8);
     }
 }

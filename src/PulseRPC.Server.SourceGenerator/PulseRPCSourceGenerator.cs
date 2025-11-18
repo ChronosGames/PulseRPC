@@ -1,10 +1,9 @@
-using System.Collections.Generic;
-using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using PulseRPC.Server.SourceGenerator.Analyzers;
 using PulseRPC.Server.SourceGenerator.Generators;
+using PulseRPC.Server.SourceGenerator.Helpers;
 using PulseRPC.Server.SourceGenerator.Models;
 
 namespace PulseRPC.Server.SourceGenerator;
@@ -34,6 +33,9 @@ public class PulseRPCSourceGenerator : ISourceGenerator
 
         try
         {
+            // 读取 MSBuild 配置：PulseRPC_ServerChannels
+            var channelNames = ReadChannelNamesFromConfig(context);
+
             // 获取语法接收器
             if (context.SyntaxReceiver is not ServiceSyntaxReceiver syntaxReceiver)
                 return;
@@ -67,7 +69,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                             // 去重：只添加不存在的服务模型
                             foreach (var serviceModel in assemblyServiceModels)
                             {
-                                if (!serviceModels.Any(s => s.InterfaceFullName == serviceModel.InterfaceFullName))
+                                if (serviceModels.All(s => s.InterfaceFullName != serviceModel.InterfaceFullName))
                                 {
                                     serviceModels.Add(serviceModel);
                                 }
@@ -87,7 +89,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
 
                     foreach (var serviceModel in assemblyServiceModels)
                     {
-                        if (!serviceModels.Any(s => s.InterfaceFullName == serviceModel.InterfaceFullName))
+                        if (serviceModels.All(s => s.InterfaceFullName != serviceModel.InterfaceFullName))
                         {
                             serviceModels.Add(serviceModel);
                         }
@@ -101,7 +103,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                 var semanticModel = context.Compilation.GetSemanticModel(interfaceDeclaration.SyntaxTree);
                 var serviceModel = ServiceAnalyzer.AnalyzeInterface(interfaceDeclaration, semanticModel);
 
-                if (serviceModel != null && !serviceModels.Any(s => s.InterfaceName == serviceModel.InterfaceName))
+                if (serviceModel != null && serviceModels.All(s => s.InterfaceName != serviceModel.InterfaceName))
                 {
                     serviceModels.Add(serviceModel);
                 }
@@ -153,8 +155,8 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                 GenerateServiceProxy(context, serviceModel);
             }
 
-            // 生成全局路由表
-            GenerateGlobalRoutingTable(context, serviceModels);
+            // 生成全局路由表（传入 channelNames）
+            GenerateGlobalRoutingTable(context, serviceModels, channelNames);
 
             // 生成响应序列化器注册表
             GenerateResponseSerializers(context, serviceModels);
@@ -191,9 +193,9 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     /// <summary>
     /// 生成全局路由表
     /// </summary>
-    private static void GenerateGlobalRoutingTable(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
+    private static void GenerateGlobalRoutingTable(GeneratorExecutionContext context, List<ServiceModel> serviceModels, string[] channelNames)
     {
-        var sourceText = RoutingTableGenerator.GenerateSourceText(serviceModels);
+        var sourceText = RoutingTableGenerator.GenerateSourceText(serviceModels, channelNames);
         context.AddSource("ServiceRoutingTable.g.cs", sourceText);
     }
 
@@ -429,6 +431,10 @@ public static class ProtocolIdMapping
             return true;
         }
 
+        // TODO: 排除IPulseReceiver接口本身（历史原因）
+        if (typeSymbol.Name is "IPulseReceiver")
+            return false;
+
         // 检查是否实现了IPulseHub接口
         return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
     }
@@ -451,7 +457,9 @@ public static class ProtocolIdMapping
                     var responseTypeFullName = GetResponseTypeFullName(returnType);
 
                     // 尝试读取 [Protocol] 特性
-                    ushort? manualProtocolId = TryGetProtocolIdFromAttribute(methodSymbol);
+                    var manualProtocolId = TryGetProtocolIdFromAttribute(methodSymbol);
+
+                    var methodAuthorization = AuthorizationHelper.GetAuthorization(methodSymbol);
 
                     var method = new MethodModel
                     {
@@ -470,6 +478,7 @@ public static class ProtocolIdMapping
                         ResponseTypeFullName = responseTypeFullName,
                         IsResponseMemoryPackable = responseTypeFullName != null,
                         ProtocolId = manualProtocolId ?? 0, // 0 表示需要自动生成
+                        Authorization = methodAuthorization
                     };
 
                     methods.Add(method);
@@ -508,6 +517,9 @@ public static class ProtocolIdMapping
             // If ServiceName is not specified, use interface name as fallback
             serviceName ??= typeSymbol.Name;
 
+            // Extract authorization information from interface
+            var authorization = AuthorizationHelper.GetAuthorization(typeSymbol);
+
             return new ServiceModel
             {
                 InterfaceName = typeSymbol.Name,
@@ -515,7 +527,8 @@ public static class ProtocolIdMapping
                 Namespace = typeSymbol.ContainingNamespace.ToDisplayString(),
                 ChannelName = channelName,
                 ServiceName = serviceName,
-                Methods = methods
+                Methods = methods,
+                Authorization = authorization
             };
         }
         catch
@@ -569,15 +582,6 @@ public static class ProtocolIdMapping
     }
 
     /// <summary>
-    /// 检查类型是否标记为MemoryPackable
-    /// </summary>
-    private static bool IsMemoryPackable(ITypeSymbol typeSymbol)
-    {
-        return typeSymbol.GetAttributes()
-            .Any(attr => attr.AttributeClass?.Name is "MemoryPackableAttribute" or "MemoryPackable");
-    }
-
-    /// <summary>
     /// 尝试从方法的 [Protocol] 特性读取协议号
     /// </summary>
     private static ushort? TryGetProtocolIdFromAttribute(IMethodSymbol methodSymbol)
@@ -616,6 +620,31 @@ public static class ProtocolIdMapping
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// 从 MSBuild 配置中读取 Channel 名称列表
+    /// </summary>
+    /// <param name="context">生成器执行上下文</param>
+    /// <returns>Channel 名称数组，如果未配置则返回空数组</returns>
+    private static string[] ReadChannelNamesFromConfig(GeneratorExecutionContext context)
+    {
+        // 尝试读取全局配置
+        if (context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_ServerChannels", out var channelsValue))
+        {
+            if (!string.IsNullOrWhiteSpace(channelsValue))
+            {
+                // 按分号或逗号分割
+                return channelsValue
+                    .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrEmpty(s))
+                    .ToArray();
+            }
+        }
+
+        // 返回空数组
+        return Array.Empty<string>();
     }
 }
 
@@ -701,4 +730,5 @@ internal class ServiceSyntaxReceiver : ISyntaxReceiver
                        name == "PulseServerGenerationAttribute";
             });
     }
+
 }
