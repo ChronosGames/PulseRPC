@@ -5,16 +5,18 @@ using System.Collections.Generic;
 namespace DistributedGameApp.Shared.Messages;
 
 /// <summary>
-/// 登录请求
+/// 登录请求 - 基于 JWT Token 认证
 /// </summary>
+/// <remarks>
+/// GameServer 登录要求必须提供 JWT Token（从 LoginServer 获取的 AccessToken）
+/// </remarks>
 [MemoryPackable]
 public partial class LoginRequest
 {
-    /// <summary>账号</summary>
-    public string Account { get; set; } = string.Empty;
-
-    /// <summary>密码（实际应该加密）</summary>
-    public string Password { get; set; } = string.Empty;
+    /// <summary>
+    /// JWT 访问令牌 - 从 LoginServer 登录后获取的 AccessToken
+    /// </summary>
+    public string Ticket { get; set; } = string.Empty;
 
     /// <summary>设备ID</summary>
     public string DeviceId { get; set; } = string.Empty;

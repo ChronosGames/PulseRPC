@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using DistributedGameApp.Infrastructure.MongoDB.Repositories;
 using DistributedGameApp.Shared.Domain.Mail;
 using DistributedGameApp.Shared.Hubs;
@@ -29,9 +30,10 @@ public class GameHub : YieldingService, IGameHub
     private readonly CharacterService _characterService;
     private readonly MailService _mailService;
     private readonly BackendServerClient _backendServerClient;
+    private readonly IAuthenticationService _authenticationService;
 
-    // 存储玩家ID (由于继承自 YieldingService，状态修改在队列线程，无需 AsyncLocal)
-    private string? _playerId;
+    // 连接ID到玩家ID的映射（参考 ChatHub 的模式）
+    private readonly ConcurrentDictionary<string, string> _connectionPlayerMap = new();
 
     public GameHub(
         CharacterRepository characterRepository,
@@ -49,45 +51,85 @@ public class GameHub : YieldingService, IGameHub
         _characterService = characterService ?? throw new ArgumentNullException(nameof(characterService));
         _mailService = mailService ?? throw new ArgumentNullException(nameof(mailService));
         _backendServerClient = backendServerClient ?? throw new ArgumentNullException(nameof(backendServerClient));
+        _authenticationService = authenticationService ?? throw new ArgumentNullException(nameof(authenticationService));
     }
 
     /// <summary>
-    /// 玩家登录（这里是从 LoginServer 获取 token 后连接到 GameServer）
+    /// 玩家登录 - 基于 JWT Token 的会话级认证
     /// </summary>
+    /// <remarks>
+    /// 认证流程：
+    /// 1. 验证 JWT Token（从 LoginServer 获取的 AccessToken）
+    /// 2. 提取用户信息（UserId, Username, Permissions, Roles）
+    /// 3. 建立会话级认证映射
+    /// </remarks>
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
     {
         try
         {
-            // ✅ 数据库查询 - await 自动让出队列，其他消息可以处理
-            Logger.LogDebug("Loading account from database: {Account}", request.Account);
-            var account = await _accountRepository.GetByUserIdAsync(request.Account);
-
-            if (account == null)
+            // 获取当前连接
+            var connection = RequestContext.Current;
+            if (connection == null)
             {
+                Logger.LogWarning("Login attempt without connection context");
                 return new LoginResponse
                 {
                     Success = false,
-                    ErrorCode = 1001,
-                    ErrorMessage = "账号不存在"
+                    ErrorCode = 1002,
+                    ErrorMessage = "无效的连接上下文"
                 };
             }
 
-            // ✅ IO 完成后自动回到队列线程，可以安全修改状态
-            _playerId = account.UserId;
+            var connectionId = connection.Id.ToString();
 
-            Logger.LogInformation("Player logged in: {PlayerId}", _playerId);
+            // ✅ JWT Token 认证（要求必须提供 Ticket）
+            if (string.IsNullOrEmpty(request.Ticket))
+            {
+                Logger.LogWarning("Login request missing JWT Token, ConnectionId: {ConnectionId}", connectionId);
+                return new LoginResponse
+                {
+                    Success = false,
+                    ErrorCode = 1004,
+                    ErrorMessage = "请提供有效的 JWT Token"
+                };
+            }
+
+            Logger.LogDebug("JWT-based login attempt, ConnectionId: {ConnectionId}", connectionId);
+
+            // 使用 IAuthenticationService 验证 JWT Token
+            var authContext = await _authenticationService.AuthenticateUserAsync(request.Ticket);
+            if (authContext == null)
+            {
+                Logger.LogWarning("JWT authentication failed, ConnectionId: {ConnectionId}", connectionId);
+                return new LoginResponse
+                {
+                    Success = false,
+                    ErrorCode = 1003,
+                    ErrorMessage = "JWT Token 验证失败或已过期"
+                };
+            }
+
+            var userId = authContext.UserId;
+            Logger.LogInformation("JWT authentication successful: {UserId}, ConnectionId: {ConnectionId}",
+                userId, connectionId);
+
+            // ✅ 建立会话级认证映射（所有 Hub 都能使用）
+            _connectionPlayerMap[connectionId] = userId;
+
+            Logger.LogInformation("Session established: UserId={UserId}, ConnectionId={ConnectionId}",
+                userId, connectionId);
 
             return new LoginResponse
             {
                 Success = true,
-                PlayerId = account.UserId,
-                AccessToken = "temp_token",
+                PlayerId = userId,
+                AccessToken = request.Ticket, // 回传 Ticket
                 TokenExpireAt = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()
             };
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Login failed for account: {Account}", request.Account);
+            Logger.LogError(ex, "Login failed");
             return new LoginResponse
             {
                 Success = false,
@@ -98,16 +140,39 @@ public class GameHub : YieldingService, IGameHub
     }
 
     /// <summary>
+    /// 获取当前调用者的玩家ID（模仿 ChatHub 的模式）
+    /// </summary>
+    private string? GetCurrentPlayerId()
+    {
+        var connection = RequestContext.Current;
+        if (connection == null)
+        {
+            Logger.LogWarning("GetCurrentPlayerId: No connection context");
+            return null;
+        }
+
+        var connectionId = connection.Id.ToString();
+        if (_connectionPlayerMap.TryGetValue(connectionId, out var playerId))
+        {
+            return playerId;
+        }
+
+        Logger.LogWarning("GetCurrentPlayerId: No player ID found for connection {ConnectionId}", connectionId);
+        return null;
+    }
+
+    /// <summary>
     /// 创建新角色
     /// </summary>
     public async Task<CharacterInfo> CreateCharacterAsync(CreateCharacterRequest request)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             throw new InvalidOperationException("Player not authenticated");
         }
 
-        return await _characterService.CreateCharacterAsync(_playerId, request);
+        return await _characterService.CreateCharacterAsync(playerId, request);
     }
 
     /// <summary>
@@ -115,7 +180,8 @@ public class GameHub : YieldingService, IGameHub
     /// </summary>
     public async Task<CharacterInfo?> GetCharacterAsync(string characterId)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             throw new InvalidOperationException("Player not authenticated");
         }
@@ -123,7 +189,7 @@ public class GameHub : YieldingService, IGameHub
         // ✅ await 自动让出队列
         var character = await _characterRepository.GetByCharacterIdAsync(characterId);
 
-        if (character == null || character.UserId != _playerId)
+        if (character == null || character.UserId != playerId)
         {
             return null;
         }
@@ -136,13 +202,14 @@ public class GameHub : YieldingService, IGameHub
     /// </summary>
     public async Task<CharacterInfo[]> GetCharacterListAsync()
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             throw new InvalidOperationException("Player not authenticated");
         }
 
         // ✅ await 自动让出队列
-        var characters = await _characterRepository.GetByUserIdAsync(_playerId);
+        var characters = await _characterRepository.GetByUserIdAsync(playerId);
 
         return characters.Select(MapToCharacterInfo).ToArray();
     }
@@ -152,7 +219,8 @@ public class GameHub : YieldingService, IGameHub
     /// </summary>
     public async Task<bool> DeleteCharacterAsync(string characterId)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             throw new InvalidOperationException("Player not authenticated");
         }
@@ -163,7 +231,7 @@ public class GameHub : YieldingService, IGameHub
         {
             var character = await _characterRepository.GetByCharacterIdAsync(characterId);
 
-            if (character == null || character.UserId != _playerId)
+            if (character == null || character.UserId != playerId)
             {
                 return false;
             }
@@ -177,7 +245,8 @@ public class GameHub : YieldingService, IGameHub
     /// </summary>
     public async Task<MatchmakingResponse> RequestMatchAsync(MatchmakingRequest request)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             Logger.LogWarning("玩家未登录，无法请求匹配");
             return new MatchmakingResponse
@@ -190,7 +259,7 @@ public class GameHub : YieldingService, IGameHub
         try
         {
             Logger.LogInformation("Player {PlayerId} 请求匹配: Mode={Mode}",
-                _playerId, request.Mode);
+                playerId, request.Mode);
 
             // 确保 BackendServerClient 已连接
             if (!_backendServerClient.IsConnected)
@@ -201,7 +270,7 @@ public class GameHub : YieldingService, IGameHub
 
             var backendRequest = new Shared.Domain.Matchmaking.MatchmakingRequest
             {
-                PlayerId = _playerId,
+                PlayerId = playerId,
                 CharacterId = "",
                 MatchType = request.Mode.ToString(),
                 LevelRange = 5
@@ -221,19 +290,19 @@ public class GameHub : YieldingService, IGameHub
             if (response.Success)
             {
                 Logger.LogInformation("玩家 {PlayerId} 匹配请求成功, TicketId={TicketId}",
-                    _playerId, response.TicketId);
+                    playerId, response.TicketId);
             }
             else
             {
                 Logger.LogWarning("玩家 {PlayerId} 匹配请求失败: {Message}",
-                    _playerId, response.ErrorMessage);
+                    playerId, response.ErrorMessage);
             }
 
             return response;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "玩家 {PlayerId} 请求匹配时发生异常", _playerId);
+            Logger.LogError(ex, "玩家 {PlayerId} 请求匹配时发生异常", playerId);
             return new MatchmakingResponse
             {
                 Success = false,
@@ -247,7 +316,8 @@ public class GameHub : YieldingService, IGameHub
     /// </summary>
     public async Task<bool> CancelMatchAsync(string ticketId)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             Logger.LogWarning("玩家未登录，无法取消匹配");
             return false;
@@ -256,7 +326,7 @@ public class GameHub : YieldingService, IGameHub
         try
         {
             Logger.LogInformation("Player {PlayerId} 取消匹配: TicketId={TicketId}",
-                _playerId, ticketId);
+                playerId, ticketId);
 
             if (!_backendServerClient.IsConnected)
             {
@@ -264,22 +334,22 @@ public class GameHub : YieldingService, IGameHub
                 return false;
             }
 
-            var result = await _backendServerClient.CancelMatchmakingAsync(_playerId);
+            var result = await _backendServerClient.CancelMatchmakingAsync(playerId);
 
             if (result)
             {
-                Logger.LogInformation("玩家 {PlayerId} 成功取消匹配", _playerId);
+                Logger.LogInformation("玩家 {PlayerId} 成功取消匹配", playerId);
             }
             else
             {
-                Logger.LogWarning("玩家 {PlayerId} 取消匹配失败", _playerId);
+                Logger.LogWarning("玩家 {PlayerId} 取消匹配失败", playerId);
             }
 
             return result;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "玩家 {PlayerId} 取消匹配时发生异常", _playerId);
+            Logger.LogError(ex, "玩家 {PlayerId} 取消匹配时发生异常", playerId);
             return false;
         }
     }
@@ -289,7 +359,8 @@ public class GameHub : YieldingService, IGameHub
     /// </summary>
     public Task<bool> ConfirmBattleAsync(string battleId)
     {
-        Logger.LogInformation("Player {PlayerId} confirmed battle: {BattleId}", _playerId, battleId);
+        var playerId = GetCurrentPlayerId();
+        Logger.LogInformation("Player {PlayerId} confirmed battle: {BattleId}", playerId, battleId);
         return Task.FromResult(true);
     }
 
@@ -307,7 +378,8 @@ public class GameHub : YieldingService, IGameHub
     /// </summary>
     public Task<bool> UpdateOnlineStatusAsync(OnlineStatus status)
     {
-        Logger.LogDebug("Player {PlayerId} status updated to: {Status}", _playerId, status);
+        var playerId = GetCurrentPlayerId();
+        Logger.LogDebug("Player {PlayerId} status updated to: {Status}", playerId, status);
         return Task.FromResult(true);
     }
 
@@ -315,7 +387,8 @@ public class GameHub : YieldingService, IGameHub
 
     public async Task<SendMailResponse> SendMailAsync(SendMailRequest request)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             Logger.LogWarning("未登录玩家尝试发送邮件");
             return new SendMailResponse
@@ -327,9 +400,9 @@ public class GameHub : YieldingService, IGameHub
 
         try
         {
-            Logger.LogInformation("玩家 {PlayerId} 发送邮件给 {ReceiverId}", _playerId, request.ReceiverId);
+            Logger.LogInformation("玩家 {PlayerId} 发送邮件给 {ReceiverId}", playerId, request.ReceiverId);
 
-            var response = await _mailService.SendMailAsync(_playerId, request);
+            var response = await _mailService.SendMailAsync(playerId, request);
 
             if (response.Success)
             {
@@ -340,7 +413,7 @@ public class GameHub : YieldingService, IGameHub
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "发送邮件时发生异常 - SenderId={PlayerId}", _playerId);
+            Logger.LogError(ex, "发送邮件时发生异常 - SenderId={PlayerId}", playerId);
             return new SendMailResponse
             {
                 Success = false,
@@ -351,7 +424,8 @@ public class GameHub : YieldingService, IGameHub
 
     public async Task<MailListResponse> GetMailListAsync(GetMailListRequest request)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             Logger.LogWarning("未登录玩家尝试获取邮件列表");
             return new MailListResponse
@@ -365,13 +439,13 @@ public class GameHub : YieldingService, IGameHub
         try
         {
             Logger.LogDebug("玩家 {PlayerId} 获取邮件列表 - Page={Page}, PageSize={PageSize}",
-                _playerId, request.Page, request.PageSize);
+                playerId, request.Page, request.PageSize);
 
-            return await _mailService.GetMailListAsync(_playerId, request);
+            return await _mailService.GetMailListAsync(playerId, request);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "获取邮件列表时发生异常 - PlayerId={PlayerId}", _playerId);
+            Logger.LogError(ex, "获取邮件列表时发生异常 - PlayerId={PlayerId}", playerId);
             return new MailListResponse
             {
                 Mails = new List<Mail>(),
@@ -383,7 +457,8 @@ public class GameHub : YieldingService, IGameHub
 
     public async Task<Mail?> ReadMailAsync(string mailId)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             Logger.LogWarning("未登录玩家尝试读取邮件");
             return null;
@@ -391,21 +466,22 @@ public class GameHub : YieldingService, IGameHub
 
         try
         {
-            Logger.LogDebug("玩家 {PlayerId} 读取邮件 - MailId={MailId}", _playerId, mailId);
+            Logger.LogDebug("玩家 {PlayerId} 读取邮件 - MailId={MailId}", playerId, mailId);
 
-            return await _mailService.ReadMailAsync(_playerId, mailId);
+            return await _mailService.ReadMailAsync(playerId, mailId);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "读取邮件时发生异常 - PlayerId={PlayerId}, MailId={MailId}",
-                _playerId, mailId);
+                playerId, mailId);
             return null;
         }
     }
 
     public async Task<bool> ClaimMailAttachmentAsync(string mailId)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             Logger.LogWarning("未登录玩家尝试领取邮件附件");
             return false;
@@ -413,21 +489,22 @@ public class GameHub : YieldingService, IGameHub
 
         try
         {
-            Logger.LogInformation("玩家 {PlayerId} 领取邮件附件 - MailId={MailId}", _playerId, mailId);
+            Logger.LogInformation("玩家 {PlayerId} 领取邮件附件 - MailId={MailId}", playerId, mailId);
 
-            return await _mailService.ClaimAttachmentAsync(_playerId, mailId);
+            return await _mailService.ClaimAttachmentAsync(playerId, mailId);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "领取邮件附件时发生异常 - PlayerId={PlayerId}, MailId={MailId}",
-                _playerId, mailId);
+                playerId, mailId);
             return false;
         }
     }
 
     public async Task<bool> DeleteMailAsync(string mailId)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             Logger.LogWarning("未登录玩家尝试删除邮件");
             return false;
@@ -435,32 +512,33 @@ public class GameHub : YieldingService, IGameHub
 
         try
         {
-            Logger.LogInformation("玩家 {PlayerId} 删除邮件 - MailId={MailId}", _playerId, mailId);
+            Logger.LogInformation("玩家 {PlayerId} 删除邮件 - MailId={MailId}", playerId, mailId);
 
-            return await _mailService.DeleteMailAsync(_playerId, mailId);
+            return await _mailService.DeleteMailAsync(playerId, mailId);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "删除邮件时发生异常 - PlayerId={PlayerId}, MailId={MailId}",
-                _playerId, mailId);
+                playerId, mailId);
             return false;
         }
     }
 
     public async Task<int> GetUnreadMailCountAsync()
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             return 0;
         }
 
         try
         {
-            return await _mailService.GetUnreadCountAsync(_playerId);
+            return await _mailService.GetUnreadCountAsync(playerId);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "获取未读邮件数量时发生异常 - PlayerId={PlayerId}", _playerId);
+            Logger.LogError(ex, "获取未读邮件数量时发生异常 - PlayerId={PlayerId}", playerId);
             return 0;
         }
     }
@@ -479,7 +557,8 @@ public class GameHub : YieldingService, IGameHub
     /// </remarks>
     public async Task<bool> TransferGoldExampleAsync(string toPlayerId, int amount)
     {
-        if (string.IsNullOrEmpty(_playerId))
+        var playerId = GetCurrentPlayerId();
+        if (string.IsNullOrEmpty(playerId))
         {
             Logger.LogWarning("未登录玩家尝试转账");
             return false;
@@ -494,11 +573,11 @@ public class GameHub : YieldingService, IGameHub
         try
         {
             // ✅ 使用 AtomicAsync 锁定两个玩家（按 ID 排序避免死锁）
-            return await AtomicAsync(new[] { _playerId, toPlayerId }, async () =>
+            return await AtomicAsync(new[] { playerId, toPlayerId }, async () =>
             {
                 Logger.LogInformation(
                     "开始转账：从 {From} 向 {To} 转账 {Amount} 金币",
-                    _playerId, toPlayerId, amount);
+                    playerId, toPlayerId, amount);
 
                 // 模拟数据库操作（在真实实现中，这里应该查询数据库）
                 // 这里所有的 await 都会让出队列，但锁保证了原子性
@@ -506,14 +585,14 @@ public class GameHub : YieldingService, IGameHub
 
                 Logger.LogInformation(
                     "转账成功：从 {From} 向 {To} 转账 {Amount} 金币",
-                    _playerId, toPlayerId, amount);
+                    playerId, toPlayerId, amount);
 
                 return true;
             });
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "转账失败：从 {From} 向 {To}", _playerId, toPlayerId);
+            Logger.LogError(ex, "转账失败：从 {From} 向 {To}", playerId, toPlayerId);
             return false;
         }
     }

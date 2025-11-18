@@ -12,6 +12,9 @@ using PulseRPC.Server;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+// 配置 JWT 选项
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+
 // 使用统一的 ServerBootstrapper 配置服务器
 builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapperOptions
 {
@@ -22,8 +25,8 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
     EnableSentry = true,                // Sentry 错误追踪（根据配置启用）
     ConfigureServices = services =>
     {
-        // 注册认证和权限服务
-        services.AddSingleton<IJwtTokenService, JwtTokenService>();
+        // 注册 JWT 认证服务（使用真实的 JWT 实现）
+        services.AddSingleton<IJwtTokenService, JwtService>();
         services.AddSingleton<IAuthenticationService, AuthenticationService>();
         services.AddSingleton<PermissionValidator>();
 

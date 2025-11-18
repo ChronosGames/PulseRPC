@@ -116,6 +116,8 @@ public class ServerConnectionManager : IDisposable
         _connections[serverId] = connection;
         _currentServerId ??= serverId; // 如果是第一个连接，设为当前连接
 
+        // Note: GameHub.LoginAsync 由 GameClient.ConnectToGameServerAsync 调用
+
         _logger.LogInformation("成功连接到 GameServer: {ServerName}", serverName);
         return connection;
     }
