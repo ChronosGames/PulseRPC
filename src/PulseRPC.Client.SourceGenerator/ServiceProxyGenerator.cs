@@ -79,13 +79,21 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             var serviceTypes = combined.Left.Left;
             var eventTypes = combined.Left.Right;
 
+            // 去重服务类型（同一个接口可能被多个类的 PulseClientGeneration 特性引用）
+            var uniqueServiceTypes = serviceTypes
+                .Where(st => st.Type is INamedTypeSymbol)
+                .GroupBy(st => ((INamedTypeSymbol)st.Type!).ToDisplayString())
+                .Select(g => g.First())
+                .ToList();
+
             // 生成服务代理
-            foreach (var serviceTypeInfo in serviceTypes)
+            foreach (var serviceTypeInfo in uniqueServiceTypes)
             {
                 if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
                 {
                     var proxyCode = GenerateServiceProxy(namedType, spc);
-                    var fileName = $"{namedType.Name}Proxy.g.cs";
+                    // 使用完整类型名称（包含命名空间）确保文件名唯一
+                    var fileName = $"{GetSafeFileName(namedType)}Proxy.g.cs";
                     spc.AddSource(fileName, SourceText.From(proxyCode, Encoding.UTF8));
                 }
                 else
@@ -102,9 +110,16 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 }
             }
 
-            // 生成扩展方法
-            var serviceNamedTypes = serviceTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
-            var eventNamedTypes = eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+            // 生成扩展方法（使用去重后的类型）
+            var serviceNamedTypes = uniqueServiceTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+
+            // 去重事件类型用于扩展方法生成
+            var uniqueEventTypesForExtensions = eventTypes
+                .Where(et => et.Type is INamedTypeSymbol)
+                .GroupBy(et => ((INamedTypeSymbol)et.Type!).ToDisplayString())
+                .Select(g => g.First())
+                .ToList();
+            var eventNamedTypes = uniqueEventTypesForExtensions.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
 
             if (serviceNamedTypes.Length > 0)
             {
@@ -127,22 +142,30 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         {
             var eventTypes = combined.Left;
 
+            // 去重事件类型（同一个接口可能被多个类的 PulseClientGeneration 特性引用）
+            var uniqueEventTypes = eventTypes
+                .Where(et => et.Type is INamedTypeSymbol)
+                .GroupBy(et => ((INamedTypeSymbol)et.Type!).ToDisplayString())
+                .Select(g => g.First())
+                .ToList();
+
             // 生成支持类型（只需要生成一次）
-            if (eventTypes.Length > 0)
+            if (uniqueEventTypes.Count > 0)
             {
                 var supportTypesCode = EventHandlerSupportTypes.GenerateSupportTypes();
                 spc.AddSource("PulseRPC.Client.SupportTypes.g.cs", SourceText.From(supportTypesCode, Encoding.UTF8));
             }
 
             // 生成智能事件处理器
-            foreach (var eventTypeInfo in eventTypes)
+            foreach (var eventTypeInfo in uniqueEventTypes)
             {
                 if (eventTypeInfo.Type is INamedTypeSymbol namedType)
                 {
                     // 生成智能事件处理器
                     var smartHandlerCode = SmartEventHandlerGenerator.GenerateSmartEventHandler(namedType, spc);
                     var smartHandlerBaseName = namedType.Name.StartsWith("I") ? namedType.Name.Substring(1) : namedType.Name;
-                    var smartHandlerFileName = $"{smartHandlerBaseName}SmartHandler.g.cs";
+                    // 使用完整类型名称（包含命名空间）确保文件名唯一
+                    var smartHandlerFileName = $"{GetSafeFileName(namedType).Replace(namedType.Name, smartHandlerBaseName)}SmartHandler.g.cs";
                     spc.AddSource(smartHandlerFileName, SourceText.From(smartHandlerCode, Encoding.UTF8));
                 }
                 else
@@ -159,8 +182,8 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 }
             }
 
-            // 生成统一的客户端扩展方法
-            var namedTypes = eventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+            // 生成统一的客户端扩展方法（使用去重后的类型）
+            var namedTypes = uniqueEventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
             if (namedTypes.Length > 0)
             {
                 var enhancedExtensionsCode = EnhancedEventListenerExtensions.GenerateEnhancedExtensions(namedTypes);
@@ -653,6 +676,23 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         else
         {
             return $"{typeSymbol.ContainingNamespace.ToDisplayString()}.{typeSymbol.Name}";
+        }
+    }
+
+    /// <summary>
+    /// 获取安全的文件名（将命名空间中的点替换为下划线，确保文件名唯一）
+    /// </summary>
+    private static string GetSafeFileName(INamedTypeSymbol typeSymbol)
+    {
+        if (typeSymbol.ContainingNamespace.IsGlobalNamespace)
+        {
+            return typeSymbol.Name;
+        }
+        else
+        {
+            // 使用完整的类型名（包含命名空间），将点替换为下划线以生成有效的文件名
+            var fullTypeName = $"{typeSymbol.ContainingNamespace.ToDisplayString()}.{typeSymbol.Name}";
+            return fullTypeName.Replace('.', '_');
         }
     }
 
