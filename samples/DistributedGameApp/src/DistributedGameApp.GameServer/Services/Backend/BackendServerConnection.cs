@@ -3,12 +3,14 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Transport;
+using PulseRPC.Channels;
 using System.Net.Sockets;
+using System.Collections.Concurrent;
 
 namespace DistributedGameApp.GameServer.Services.Backend;
 
 /// <summary>
-/// BackendServer 单连接封装
+/// BackendServer 单连接封装 - 支持双向 RPC
 /// </summary>
 public class BackendServerConnection : IAsyncDisposable
 {
@@ -166,7 +168,7 @@ public class BackendServerConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// 调用远程方法
+    /// 调用远程方法 (旧版 API - 保持向后兼容)
     /// </summary>
     public async Task<TResponse> InvokeAsync<TRequest, TResponse>(
         string hubName,
@@ -208,6 +210,11 @@ public class BackendServerConnection : IAsyncDisposable
             throw;
         }
     }
+
+    /// <summary>
+    /// 获取 Channel 实例
+    /// </summary>
+    public IClientChannel? Channel => _channel;
 
     /// <summary>
     /// 健康检查

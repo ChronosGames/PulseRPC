@@ -175,7 +175,11 @@ services:
       - Consul__Address=http://consul:8500
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
-      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
 
@@ -210,7 +214,11 @@ services:
       - Consul__Address=http://consul:8500
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
-      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
 
@@ -245,7 +253,11 @@ services:
       - Consul__Address=http://consul:8500
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
-      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
 
@@ -293,7 +305,11 @@ services:
       - Consul__Address=http://consul:8500
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
-      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
 
@@ -339,7 +355,11 @@ services:
       - Consul__Address=http://consul:8500
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
-      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
 
@@ -385,7 +405,11 @@ services:
       - Consul__Address=http://consul:8500
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
-      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
 
@@ -426,7 +450,11 @@ services:
       - ServiceRegistration__MaxCapacity=10000
       - Consul__Address=http://consul:8500
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
-      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
 
@@ -465,7 +493,11 @@ services:
       - ServiceRegistration__MaxCapacity=10000
       - Consul__Address=http://consul:8500
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
-      - JwtSecret=DistributedGameApp_JWT_Secret_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
+      - Jwt__Issuer=DistributedGameApp.LoginServer
+      - Jwt__Audience=DistributedGameApp.Client
+      - Jwt__AccessTokenExpirationMinutes=60
+      - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
 

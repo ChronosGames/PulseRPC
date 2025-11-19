@@ -4,6 +4,7 @@ using DistributedGameApp.Shared.Domain.Accounts;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Cryptography;
 using System.Text;
+using MongoDB.Bson;
 
 namespace DistributedGameApp.LoginServer.Controllers;
 
@@ -69,12 +70,13 @@ public class AuthController : ControllerBase
             // 创建账户
             var account = new Account
             {
-                Id = Guid.NewGuid().ToString(),
+                Id = ObjectId.GenerateNewId(),
                 UserId = request.Username,
                 Username = request.Username,
                 Email = request.Email,
                 Provider = "local", // 本地账号
-                ProviderUserId = HashPassword(request.Password), // 使用ProviderUserId存储密码哈希
+                ProviderUserId = request.Username, // 本地账号使用 Username 作为 ProviderUserId
+                PasswordHash = HashPassword(request.Password), // 密码哈希存储在专用字段
                 CreatedAt = DateTime.UtcNow,
                 LastLoginAt = DateTime.UtcNow,
                 LastLoginIp = GetClientIp(),
@@ -127,8 +129,8 @@ public class AuthController : ControllerBase
                 return Unauthorized(new { message = "用户名或密码错误" });
             }
 
-            // 验证密码（密码哈希存储在ProviderUserId字段）
-            if (account.Provider != "local" || !VerifyPassword(request.Password, account.ProviderUserId))
+            // 验证密码（密码哈希存储在 PasswordHash 字段）
+            if (account.Provider != "local" || !VerifyPassword(request.Password, account.PasswordHash))
             {
                 return Unauthorized(new { message = "用户名或密码错误" });
             }

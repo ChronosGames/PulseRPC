@@ -4,6 +4,10 @@
     <OutputType>Exe</OutputType>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+
+    <!-- PulseRPC Channel Configuration: Generate channel-specific routing methods -->
+    <!-- Example: RouteByGameServerProtocolIdAsync(), RouteByBackendServerProtocolIdAsync() -->
+    <PulseRPC_ServerChannels>GAMESERVER;BACKENDSERVER;CLIENT</PulseRPC_ServerChannels>
   </PropertyGroup>
 
   <ItemGroup>

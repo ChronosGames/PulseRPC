@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Transport;
+using PulseRPC.Channels;
 
 namespace DistributedGameApp.Client;
 
@@ -224,10 +225,10 @@ public class ServerConnectionManager : IDisposable
     }
 
     /// <summary>
-    /// 注册事件监听器到指定连接
+    /// 注册事件监听器到指定连接（使用新的双向 RPC API）
     /// </summary>
-    public async Task RegisterEventListenerAsync<T>(T eventHandler, string? serverId = null)
-        where T : class, IPulseReceiver
+    public Task RegisterEventListenerAsync<T>(T eventHandler, string? serverId = null)
+        where T : class, IPulseHub
     {
         var targetServerId = serverId ?? _currentServerId;
         if (targetServerId == null)
@@ -240,15 +241,24 @@ public class ServerConnectionManager : IDisposable
             throw new InvalidOperationException($"服务器 {targetServerId} 不存在");
         }
 
-        // 使用新的简化 API 注册事件监听器
+        // 清除旧的订阅
         connection.EventSubscription?.Dispose();
 
-        // 注意：这里需要判断 eventHandler 实现了哪些接口
-        // 为了简化示例，暂时使用泛型方法
-        connection.EventSubscription = await _client.RegisterEventListenerAsync(
-            eventHandler, options: new EventListenerOptions() { Name = targetServerId});
+        // 使用新的双向 RPC API 注册 Hub
+        // 注意：IClientChannel 实现了 ITransportChannel，可以安全转换
+        var transportChannel = connection.Channel as ITransportChannel
+            ?? throw new InvalidOperationException("Channel does not implement ITransportChannel");
 
-        _logger.LogInformation("已注册事件监听器到服务器: {ServerName}", connection.ServerName);
+        // 注册 Hub（返回的 token 可用于后续注销）
+        var registrationToken = transportChannel.RegisterHub<T>(eventHandler);
+
+        // 保存注册令牌（需要更新 ServerConnection 以支持 IHubRegistrationToken）
+        connection.EventSubscription = registrationToken as ISubscriptionToken;
+
+        _logger.LogInformation("已注册事件监听器到服务器: {ServerName}, Hub类型: {HubType}",
+            connection.ServerName, typeof(T).Name);
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

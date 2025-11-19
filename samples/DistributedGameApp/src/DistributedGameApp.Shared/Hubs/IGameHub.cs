@@ -16,7 +16,13 @@ namespace DistributedGameApp.Shared.Hubs;
 /// - 匹配队列管理
 /// - 在线状态管理
 /// - 邮件系统
+/// <para>
+/// [Channel("GameServer")] 表示这个接口由 GameServer 提供。
+/// [Authorize(Role = RoleTypes.External)] 表示需要外部玩家认证。
+/// </para>
 /// </remarks>
+[Channel("GameServer")]
+[Authorize(Role = RoleTypes.External)]
 public interface IGameHub : IPulseHub
 {
     /// <summary>
@@ -24,6 +30,8 @@ public interface IGameHub : IPulseHub
     /// </summary>
     /// <param name="request">登录请求</param>
     /// <returns>登录响应（包含访问令牌）</returns>
+    /// <remarks>登录接口允许匿名访问</remarks>
+    [AllowAnonymous]
     Task<LoginResponse> LoginAsync(LoginRequest request);
 
     /// <summary>

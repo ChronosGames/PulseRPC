@@ -74,63 +74,21 @@ db = db.getSiblingDB('game_accounts');
 // 创建 accounts 集合
 db.createCollection('accounts');
 
-// 创建索引
-db.accounts.createIndex({ userId: 1 }, { unique: true });
-db.accounts.createIndex({ email: 1 }, { unique: true, sparse: true });
-db.accounts.createIndex({ provider: 1, providerUserId: 1 });
+// 创建索引 - 使用显式名称
+db.accounts.createIndex({ userId: 1 }, { unique: true, name: 'userId_unique' });
+db.accounts.createIndex({ email: 1 }, { unique: true, sparse: true, name: 'email_unique' });
+// provider + providerUserId 索引（仅用于第三方登录账户）
+db.accounts.createIndex({ provider: 1, providerUserId: 1 }, {
+  unique: true,
+  sparse: true,
+  partialFilterExpression: { provider: { $ne: "local" } },
+  name: 'provider_providerUserId_unique'
+});
 
-// 插入测试账号数据
-print('插入测试账号...');
-
-const testAccounts = [
-  {
-    userId: 'testuser',
-    username: 'TestUser',
-    email: 'testuser@example.com',
-    provider: 'local',
-    providerUserId: '',
-    status: { Code: 0, Name: 'Normal' },
-    createdAt: new Date(),
-    lastLoginAt: new Date(),
-    lastLoginIp: '127.0.0.1'
-  },
-  {
-    userId: 'player1',
-    username: 'Player1',
-    email: 'player1@example.com',
-    provider: 'local',
-    providerUserId: '',
-    status: { Code: 0, Name: 'Normal' },
-    createdAt: new Date(),
-    lastLoginAt: new Date(),
-    lastLoginIp: '127.0.0.1'
-  },
-  {
-    userId: 'player2',
-    username: 'Player2',
-    email: 'player2@example.com',
-    provider: 'local',
-    providerUserId: '',
-    status: { Code: 0, Name: 'Normal' },
-    createdAt: new Date(),
-    lastLoginAt: new Date(),
-    lastLoginIp: '127.0.0.1'
-  },
-  {
-    userId: 'admin',
-    username: 'Admin',
-    email: 'admin@example.com',
-    provider: 'local',
-    providerUserId: '',
-    status: { Code: 0, Name: 'Normal' },
-    createdAt: new Date(),
-    lastLoginAt: new Date(),
-    lastLoginIp: '127.0.0.1'
-  }
-];
-
-db.accounts.insertMany(testAccounts);
-print('已插入 ' + testAccounts.length + ' 个测试账号');
+// 注意：账户系统已启用密码验证
+// 请使用客户端的 register 命令创建新账户
+// 示例: register <用户名> <密码> <邮箱>
+print('accounts 集合已创建，请使用客户端注册新账户');
 
 // ==================== 初始化 game_characters 数据库 ====================
 print('初始化 game_characters 数据库...');
@@ -140,10 +98,12 @@ db = db.getSiblingDB('game_characters');
 // 创建 characters 集合
 db.createCollection('characters');
 
-// 创建索引
-db.characters.createIndex({ characterId: 1 }, { unique: true });
-db.characters.createIndex({ userId: 1 });
-db.characters.createIndex({ name: 1 });
+// 创建索引 - 使用显式名称
+db.characters.createIndex({ characterId: 1 }, { unique: true, name: 'characterId_unique' });
+db.characters.createIndex({ userId: 1 }, { name: 'userId_index' });
+db.characters.createIndex({ name: 1 }, { unique: true, name: 'name_unique' });
+db.characters.createIndex({ level: -1, exp: -1 }, { name: 'level_exp_index' });
+db.characters.createIndex({ lastOnlineAt: -1 }, { name: 'lastOnlineAt_index' });
 
 print('game_characters 数据库初始化完成');
 
@@ -156,13 +116,13 @@ db = db.getSiblingDB('game_social');
 db.createCollection('friends');
 db.createCollection('mails');
 
-// 创建索引
-db.friends.createIndex({ userId: 1 });
-db.friends.createIndex({ friendId: 1 });
+// 创建索引 - 使用显式名称
+db.friends.createIndex({ userId: 1 }, { name: 'userId_index' });
+db.friends.createIndex({ friendId: 1 }, { name: 'friendId_index' });
 
-db.mails.createIndex({ receiverId: 1 });
-db.mails.createIndex({ senderId: 1 });
-db.mails.createIndex({ isRead: 1 });
+db.mails.createIndex({ receiverId: 1 }, { name: 'receiverId_index' });
+db.mails.createIndex({ senderId: 1 }, { name: 'senderId_index' });
+db.mails.createIndex({ isRead: 1 }, { name: 'isRead_index' });
 
 print('game_social 数据库初始化完成');
 
@@ -173,11 +133,36 @@ db = db.getSiblingDB('game_guilds');
 
 // 创建 guilds 集合
 db.createCollection('guilds');
+db.createCollection('guildMembers');
+db.createCollection('guildJoinRequests');
+db.createCollection('guildMessages');
+db.createCollection('guildActivities');
+db.createCollection('guildAnnouncements');
 
-// 创建索引
-db.guilds.createIndex({ guildId: 1 }, { unique: true });
-db.guilds.createIndex({ name: 1 });
-db.guilds.createIndex({ leaderId: 1 });
+// guilds 集合索引 - 使用显式名称
+db.guilds.createIndex({ guildId: 1 }, { unique: true, name: 'guildId_unique' });
+db.guilds.createIndex({ name: 1 }, { name: 'name_index' });
+db.guilds.createIndex({ leaderId: 1 }, { name: 'leaderId_index' });
+db.guilds.createIndex({ tag: 1 }, { name: 'tag_index' });
+
+// guildMembers 集合索引
+db.guildMembers.createIndex({ guildId: 1 }, { name: 'guildId_index' });
+db.guildMembers.createIndex({ userId: 1 }, { unique: true, name: 'userId_unique' });
+
+// guildJoinRequests 集合索引
+db.guildJoinRequests.createIndex({ guildId: 1, status: 1 }, { name: 'guildId_status_index' });
+db.guildJoinRequests.createIndex({ userId: 1 }, { name: 'userId_index' });
+db.guildJoinRequests.createIndex({ guildId: 1, userId: 1 }, { name: 'guildId_userId_index' });
+
+// guildMessages 集合索引
+db.guildMessages.createIndex({ guildId: 1, timestamp: -1 }, { name: 'guildId_timestamp_index' });
+
+// guildActivities 集合索引
+db.guildActivities.createIndex({ guildId: 1, timestamp: -1 }, { name: 'guildId_timestamp_index' });
+
+// guildAnnouncements 集合索引
+db.guildAnnouncements.createIndex({ guildId: 1, createdAt: -1 }, { name: 'guildId_createdAt_index' });
+db.guildAnnouncements.createIndex({ guildId: 1, isPinned: -1 }, { name: 'guildId_isPinned_index' });
 
 print('game_guilds 数据库初始化完成');
 
@@ -190,14 +175,14 @@ db = db.getSiblingDB('game_battles');
 db.createCollection('battle_rooms');
 db.createCollection('battle_records');
 
-// 创建索引
-db.battle_rooms.createIndex({ battleId: 1 }, { unique: true });
-db.battle_rooms.createIndex({ status: 1 });
-db.battle_rooms.createIndex({ createdAt: 1 });
+// 创建索引 - 使用显式名称
+db.battle_rooms.createIndex({ battleId: 1 }, { unique: true, name: 'battleId_unique' });
+db.battle_rooms.createIndex({ status: 1 }, { name: 'status_index' });
+db.battle_rooms.createIndex({ createdAt: 1 }, { name: 'createdAt_index' });
 
-db.battle_records.createIndex({ battleId: 1 });
-db.battle_records.createIndex({ playerId: 1 });
-db.battle_records.createIndex({ createdAt: 1 });
+db.battle_records.createIndex({ battleId: 1 }, { name: 'battleId_index' });
+db.battle_records.createIndex({ playerId: 1 }, { name: 'playerId_index' });
+db.battle_records.createIndex({ createdAt: 1 }, { name: 'createdAt_index' });
 
 print('game_battles 数据库初始化完成');
 
@@ -209,20 +194,17 @@ db = db.getSiblingDB('game_leaderboards');
 // 创建 leaderboards 集合
 db.createCollection('leaderboards');
 
-// 创建索引
-db.leaderboards.createIndex({ leaderboardType: 1, score: -1 });
-db.leaderboards.createIndex({ playerId: 1 });
-db.leaderboards.createIndex({ season: 1 });
+// 创建索引 - 使用显式名称
+db.leaderboards.createIndex({ leaderboardType: 1, score: -1 }, { name: 'type_score_index' });
+db.leaderboards.createIndex({ playerId: 1 }, { name: 'playerId_index' });
+db.leaderboards.createIndex({ season: 1 }, { name: 'season_index' });
 
 print('game_leaderboards 数据库初始化完成');
 
 print('==================== MongoDB 初始化完成 ====================');
 print('');
-print('测试账号列表:');
-print('  - testuser (TestUser) - testuser@example.com');
-print('  - player1  (Player1)  - player1@example.com');
-print('  - player2  (Player2)  - player2@example.com');
-print('  - admin    (Admin)    - admin@example.com');
-print('');
-print('注意: 当前登录实现未验证密码，任意密码均可登录');
+print('账户系统说明:');
+print('  - 已启用密码验证（SHA256 + 固定盐）');
+print('  - 请使用客户端 register 命令创建新账户');
+print('  - 示例: register myuser mypassword myemail@example.com');
 print('');

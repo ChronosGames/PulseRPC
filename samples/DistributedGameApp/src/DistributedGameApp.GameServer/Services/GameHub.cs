@@ -113,7 +113,7 @@ public class GameHub : YieldingService, IGameHub
             Logger.LogInformation("JWT authentication successful: {UserId}, ConnectionId: {ConnectionId}",
                 userId, connectionId);
 
-            // ✅ 建立会话级认证映射（所有 Hub 都能使用）
+            // ✅ 建立会话级认证映射（connectionId → userId）
             _connectionPlayerMap[connectionId] = userId;
 
             Logger.LogInformation("Session established: UserId={UserId}, ConnectionId={ConnectionId}",
@@ -123,7 +123,7 @@ public class GameHub : YieldingService, IGameHub
             {
                 Success = true,
                 PlayerId = userId,
-                AccessToken = request.Ticket, // 回传 Ticket
+                AccessToken = request.Ticket,
                 TokenExpireAt = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()
             };
         }
