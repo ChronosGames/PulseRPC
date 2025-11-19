@@ -29,33 +29,7 @@ public class GuildRepository
         _announcements = database.GetCollection<GuildAnnouncement>("guildAnnouncements");
         _logger = logger;
 
-        // 创建索引
-        CreateIndexes();
-    }
-
-    private void CreateIndexes()
-    {
-        // 公会索引
-        _guilds.Indexes.CreateOne(new CreateIndexModel<Guild>(
-            Builders<Guild>.IndexKeys.Ascending(g => g.GuildId),
-            new CreateIndexOptions { Unique = true }));
-        _guilds.Indexes.CreateOne(new CreateIndexModel<Guild>(
-            Builders<Guild>.IndexKeys.Ascending(g => g.Name)));
-        _guilds.Indexes.CreateOne(new CreateIndexModel<Guild>(
-            Builders<Guild>.IndexKeys.Ascending(g => g.LeaderId)));
-
-        // 成员索引
-        _members.Indexes.CreateOne(new CreateIndexModel<GuildMember>(
-            Builders<GuildMember>.IndexKeys.Ascending(m => m.GuildId)));
-        _members.Indexes.CreateOne(new CreateIndexModel<GuildMember>(
-            Builders<GuildMember>.IndexKeys.Ascending(m => m.UserId),
-            new CreateIndexOptions { Unique = true }));
-
-        // 消息索引
-        _messages.Indexes.CreateOne(new CreateIndexModel<GuildMessage>(
-            Builders<GuildMessage>.IndexKeys
-                .Ascending(m => m.GuildId)
-                .Descending(m => m.Timestamp)));
+        // 索引已在 MongoDB 初始化脚本 (init.js) 中创建
     }
 
     // ========== 公会操作 ==========

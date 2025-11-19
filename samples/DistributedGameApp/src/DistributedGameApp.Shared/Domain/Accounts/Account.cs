@@ -15,8 +15,8 @@ public partial class Account
     /// MongoDB 主键
     /// </summary>
     [BsonId]
-    // [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; } = string.Empty;
+    [BsonRepresentation(BsonType.ObjectId)]
+    public ObjectId Id { get; set; } = ObjectId.Empty;
 
     /// <summary>
     /// 用户唯一标识
@@ -47,6 +47,12 @@ public partial class Account
     /// </summary>
     [BsonElement("providerUserId")]
     public string ProviderUserId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 密码哈希（仅用于 provider = "local" 的本地账户）
+    /// </summary>
+    [BsonElement("passwordHash")]
+    public string PasswordHash { get; set; } = string.Empty;
 
     /// <summary>
     /// 账户状态（Normal, Banned, Suspended）

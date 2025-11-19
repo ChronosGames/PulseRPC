@@ -12,8 +12,14 @@ namespace DistributedGameApp.Shared.Hubs;
 /// 后台服务器 Hub 接口（社交、帮派、排行榜、匹配）
 /// </summary>
 /// <remarks>
-/// 继承 IGuildHub 以提供完整的公会功能
+/// 继承 IGuildHub 以提供完整的公会功能。
+/// <para>
+/// [Channel("BackendServer")] 表示这个接口由 BackendServer 提供。
+/// [Authorize(Role = RoleTypes.External)] 表示需要外部玩家认证。
+/// </para>
 /// </remarks>
+[Channel("BackendServer")]
+[Authorize(Role = RoleTypes.External)]
 public interface IBackendHub : IPulseHub, IGuildHub
 {
     // ========== 社交系统 ==========

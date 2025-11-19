@@ -2,6 +2,10 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+
+    <!-- PulseRPC Channel Configuration: Generate channel-specific extension methods -->
+    <!-- Example: GetGameServerHubAsync<T>(), GetBackendServerHubAsync<T>(), GetClientHubAsync<T>() -->
+    <PulseRPC_ClientChannels>GAMESERVER;BACKENDSERVER;CLIENT</PulseRPC_ClientChannels>
   </PropertyGroup>
 
   <ItemGroup>

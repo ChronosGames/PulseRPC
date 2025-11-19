@@ -9,7 +9,11 @@ namespace DistributedGameApp.Shared.Receivers;
 /// <summary>
 /// 后台服务器推送事件接口
 /// </summary>
-public interface IBackendReceiver : IPulseReceiver
+/// <remarks>
+/// 使用 [Channel("CLIENT")] 标记表示这是客户端实现的接口（服务器向客户端推送消息）。
+/// </remarks>
+[Channel("CLIENT")]
+public interface IBackendReceiver : IPulseHub
 {
     // ========== 社交事件 ==========
 

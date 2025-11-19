@@ -72,6 +72,11 @@ public class BackendServerClientInitializationService : BackgroundService
     {
         try
         {
+            // 注册 Channel 到接口映射（用于正确计算 ProtocolId）
+            PulseRPC.Client.ProtocolIdHelper.RegisterChannelMapping(
+                "BackendServer",
+                "DistributedGameApp.Shared.Hubs.IBackendHub");
+
             // 等待一段时间确保服务器已启动
             await Task.Delay(2000, stoppingToken);
 

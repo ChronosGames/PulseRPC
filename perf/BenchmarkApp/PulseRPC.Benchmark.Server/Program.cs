@@ -8,8 +8,6 @@ using PulseRPC.Benchmark.Metrics.Core;
 using PulseRPC.Benchmark.Server.Configuration;
 using PulseRPC.Benchmark.Server.Services;
 using PulseRPC.Benchmark.Shared;
-using PulseRPC.Generated;
-using PulseRPC.Serialization;
 using PulseRPC.Server;
 using PulseRPC.Server.Extensions;
 using PulseRPC.Transport;

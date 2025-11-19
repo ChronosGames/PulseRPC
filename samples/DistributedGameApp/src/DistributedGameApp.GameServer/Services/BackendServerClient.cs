@@ -62,7 +62,7 @@ public class BackendServerClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// 开始匹配（使用一致性哈希路由）
+    /// 开始匹配（使用一致性哈希路由）- 使用强类型 Hub 代理
     /// </summary>
     public async Task<MatchmakingResponse> StartMatchmakingAsync(MatchmakingRequest request)
     {
@@ -91,9 +91,9 @@ public class BackendServerClient : IAsyncDisposable
             _logger.LogInformation("调用 BackendServer 开始匹配: PlayerId={PlayerId}, ServiceId={ServiceId}",
                 request.PlayerId, connection.ServiceInfo.ServiceId);
 
-            // 调用远程方法
+            // 使用 InvokeAsync 方法调用
             var response = await connection.InvokeAsync<MatchmakingRequest, MatchmakingResponse>(
-                nameof(IBackendHub),
+                "BackendServer",
                 nameof(IBackendHub.StartMatchmakingAsync),
                 request);
 
@@ -122,7 +122,7 @@ public class BackendServerClient : IAsyncDisposable
     }
 
     /// <summary>
-    /// 取消匹配（需要路由到相同的 BackendServer）
+    /// 取消匹配（需要路由到相同的 BackendServer）- 使用强类型 Hub 代理
     /// </summary>
     public async Task<bool> CancelMatchmakingAsync(string playerId)
     {
@@ -147,9 +147,9 @@ public class BackendServerClient : IAsyncDisposable
             _logger.LogInformation("调用 BackendServer 取消匹配: PlayerId={PlayerId}, ServiceId={ServiceId}",
                 playerId, connection.ServiceInfo.ServiceId);
 
-            // 调用远程方法
+            // 使用 InvokeAsync 方法调用
             var result = await connection.InvokeAsync<object?, bool>(
-                nameof(IBackendHub),
+                "BackendServer",
                 nameof(IBackendHub.CancelMatchmakingAsync),
                 null);
 

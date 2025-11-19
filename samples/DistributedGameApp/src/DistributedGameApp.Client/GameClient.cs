@@ -313,9 +313,13 @@ public class GameClient : IDisposable
                 loginResult.PlayerId,
                 !string.IsNullOrEmpty(loginRequest.Ticket) ? "Ticket" : "Account");
 
-            // 注册事件监听器
+            // 注册事件监听器（GameEventHandler 实现了多个 Receiver 接口）
+            // 新的双向 RPC 架构要求为每个接口单独注册
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
-            await _connectionManager.RegisterEventListenerAsync(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IPlayerReceiver>(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler);
 
             _currentGameServer = server;
 
@@ -596,9 +600,13 @@ public class GameClient : IDisposable
             // 切换到 BattleServer
             _connectionManager.SwitchToServer(serverId);
 
-            // 注册事件监听器
+            // 注册事件监听器（GameEventHandler 实现了多个 Receiver 接口）
+            // 新的双向 RPC 架构要求为每个接口单独注册
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
-            await _connectionManager.RegisterEventListenerAsync(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IPlayerReceiver>(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler);
 
             _currentBattleServer = new ServerInfo
             {
