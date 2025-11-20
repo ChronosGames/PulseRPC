@@ -1,8 +1,4 @@
-using System;
 using System.Collections.Concurrent;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 // 类型别名
@@ -49,7 +45,7 @@ namespace PulseRPC.Server;
 /// <item><description>YieldingService: await 让出队列，其他消息可以处理</description></item>
 /// </list>
 /// </remarks>
-public abstract class YieldingService : IService, IPulseHub
+public abstract class YieldingService : IService
 {
     // MethodInfo 缓存 - 用于优化反射性能
     private static readonly ConcurrentDictionary<(Type ServiceType, PulseRPC.Protocol.ProtocolId ProtocolId), System.Reflection.MethodInfo?> _methodInfoCache = new();
