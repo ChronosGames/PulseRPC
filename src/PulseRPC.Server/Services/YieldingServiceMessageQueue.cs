@@ -70,6 +70,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
     private Task? _processingTask;
+    private ChannelWriter<(SendOrPostCallback, object?)>? _continuationWriter;
 
     // 统计指标
     private long _totalMessages;
@@ -127,15 +128,33 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
         // 创建一个转换管道
         var continuationChannel = Channel.CreateUnbounded<(SendOrPostCallback, object?)>();
 
+        // 保存引用以便在 Dispose 时关闭
+        _continuationWriter = continuationChannel.Writer;
+
         // 后台任务：将延续转换为队列项
         _ = Task.Run(async () =>
         {
-            await foreach (var (callback, state) in continuationChannel.Reader.ReadAllAsync())
+            try
             {
-                Interlocked.Increment(ref _totalContinuations);
+                await foreach (var (callback, state) in continuationChannel.Reader.ReadAllAsync())
+                {
+                    Interlocked.Increment(ref _totalContinuations);
 
-                var item = new ContinuationQueueItem(callback, state);
-                await _queue.Writer.WriteAsync(item);
+                    var item = new ContinuationQueueItem(callback, state);
+
+                    // ✅ 使用 TryWrite 避免死锁（UnboundedChannel 应该总是成功）
+                    if (!_queue.Writer.TryWrite(item))
+                    {
+                        // 如果失败，记录警告但不阻塞
+                        _logger.LogWarning(
+                            "Failed to write continuation to main queue - Service: {ServiceName}",
+                            _serviceName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in continuation channel processing");
             }
         });
 
@@ -268,9 +287,20 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
     /// <summary>
     /// 获取队列深度
     /// </summary>
+    /// <remarks>
+    /// 注意：UnboundedChannel 不支持 Count 属性，会返回 -1
+    /// </remarks>
     public int GetCurrentQueueDepth()
     {
-        return _queue.Reader.Count;
+        try
+        {
+            return _queue.Reader.Count;
+        }
+        catch (NotSupportedException)
+        {
+            // UnboundedChannel 不支持 Count
+            return -1;
+        }
     }
 
     /// <summary>
@@ -294,13 +324,13 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
             "Disposing YieldingServiceMessageQueue - Service: {ServiceName}, PID: {PID}",
             _serviceName, _servicePID);
 
+        // 停止接收新延续
+        _continuationWriter?.Complete();
+
         // 停止接收新消息
         _queue.Writer.Complete();
 
-        // 取消处理任务
-        _cts.Cancel();
-
-        // 等待处理任务完成
+        // 等待处理任务完成（先让队列处理完所有消息）
         if (_processingTask != null)
         {
             try
@@ -313,6 +343,8 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
             }
         }
 
+        // 取消处理任务（已经完成了，但还是取消一下）
+        await _cts.CancelAsync();
         _cts.Dispose();
 
         var metrics = GetMetrics();
