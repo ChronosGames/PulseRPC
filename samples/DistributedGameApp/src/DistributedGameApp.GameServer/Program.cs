@@ -32,7 +32,23 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 
         // 注册 BackendServer 客户端相关服务
         services.AddSingleton<ConsulServiceDiscovery>();
-        services.AddSingleton<BackendServerConnectionManager>();
+        services.AddSingleton<BackendServerConnectionManager>(sp =>
+        {
+            var serviceDiscovery = sp.GetRequiredService<ConsulServiceDiscovery>();
+            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+            var configuration = sp.GetRequiredService<IConfiguration>();
+
+            // 从配置读取 ServiceId 和 ClusterSecret
+            var serviceId = configuration.GetValue<string>("ServiceRegistration:ServiceId") ?? "game-server-1";
+            var clusterSecret = configuration.GetValue<string>("ClusterSecret") ?? "";
+
+            return new BackendServerConnectionManager(
+                serviceDiscovery,
+                loggerFactory,
+                "BackendServer",
+                serviceId,
+                clusterSecret);
+        });
         services.AddSingleton<BackendServerRouter>();
         services.AddSingleton<BackendServerClient>();
 

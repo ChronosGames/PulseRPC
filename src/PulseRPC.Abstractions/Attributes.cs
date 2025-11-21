@@ -246,3 +246,82 @@ public class PriorityAttribute : Attribute
         Priority = priority;
     }
 }
+
+/// <summary>
+/// 标记 PulseHub 接口，用于 Provider 驱动的全双工通信
+/// </summary>
+/// <remarks>
+/// 通过指定 Provider 字段，Source Generator 可以根据当前进程的 Provider 列表
+/// 决定生成 Proxy（调用远端）或 Dispatcher/Stub（本地实现）。
+/// </remarks>
+[AttributeUsage(AttributeTargets.Interface, AllowMultiple = false)]
+public sealed class PulseHubAttribute : Attribute
+{
+    /// <summary>
+    /// 指定该 Hub 在当前进程承担的 Provider 角色名称
+    /// （如 "GameServer"、"UnityClient"、"ServerPush"）
+    /// </summary>
+    /// <remarks>
+    /// 当连接建立时，双方会交换 Provider 列表。
+    /// 如果对端提供了该 Provider，本地会生成 Proxy 用于调用；
+    /// 如果本地提供了该 Provider，会生成 Dispatcher/Stub 用于处理请求。
+    /// </remarks>
+    public string? Provider { get; set; }
+}
+
+/// <summary>
+/// 调度策略枚举
+/// </summary>
+public enum DispatchStrategy
+{
+    /// <summary>
+    /// 默认：按 ConnectionId 哈希分配到固定数量的全局队列中。
+    /// 适用于无状态或仅与连接相关的逻辑。
+    /// </summary>
+    ConnectionHash,
+
+    /// <summary>
+    /// 按认证后的 RoleType + ID 分配队列。
+    /// 适用于玩家个人逻辑。需登录后才可调用。
+    /// </summary>
+    RoleBased,
+
+    /// <summary>
+    /// 按方法参数的特定字段分配队列。
+    /// 适用于房间、地图、工会等共享逻辑。
+    /// </summary>
+    Argument
+}
+
+/// <summary>
+/// 标记 PulseHub 方法的调度和权限配置
+/// </summary>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+public sealed class PulseMethodAttribute : Attribute
+{
+    /// <summary>
+    /// 调度策略，默认为 ConnectionHash
+    /// </summary>
+    public DispatchStrategy Strategy { get; set; } = DispatchStrategy.ConnectionHash;
+
+    /// <summary>
+    /// 当 Strategy 为 Argument 时，指定参与生成 Key 的参数名称列表。
+    /// 这里的参数值组合将决定任务被投递到哪个 Fiber。
+    /// 支持多实参组合（如 ["battleId", "zoneId"]）。
+    /// </summary>
+    /// <remarks>
+    /// 最佳实践：将用于 KeySelector 的参数放在参数列表的最前面，
+    /// 且使用基本数据类型（int, long, string, guid），以最大化 Dispatcher 解析 Key 的性能。
+    /// </remarks>
+    public string[]? KeySelectors { get; set; }
+
+    /// <summary>
+    /// 可选：在方法级别覆盖 Provider，允许同一 Hub 的不同方法由不同 Provider 提供
+    /// </summary>
+    public string? Provider { get; set; }
+
+    /// <summary>
+    /// 需要的角色权限（如 ["User", "GM"]）
+    /// </summary>
+    public string[]? RequireRoles { get; set; }
+}

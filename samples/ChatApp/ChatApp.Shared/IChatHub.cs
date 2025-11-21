@@ -20,15 +20,16 @@ namespace ChatApp
     /// <code>
     /// // 1. 加入房间（服务端会根据 RoomName 创建或获取对应的 ChatRoomService 实例）
     /// await chatHub.JoinAsync(new JoinRequest { RoomName = "room-123", UserName = "Alice" });
-    /// 
+    ///
     /// // 2. 发送消息（消息会路由到对应房间的服务实例，顺序处理）
     /// await chatHub.SendMessageAsync("Hello, World!");
-    /// 
+    ///
     /// // 3. 离开房间
     /// await chatHub.LeaveAsync();
     /// </code>
     /// </remarks>
     [Channel("TcpChannel")]
+    [PulseHub(Provider = "GameServer")]
     public interface IChatHub : IPulseHub
     {
         /// <summary>
@@ -77,6 +78,7 @@ namespace ChatApp
     /// 聊天Hub接收器接口 - 服务端调用客户端的API
     /// </summary>
     [Channel("TcpChannel")]
+    [PulseHub(Provider = "UnityClient")]
     public interface IChatHubReceiver : IPulseReceiver
     {
         /// <summary>

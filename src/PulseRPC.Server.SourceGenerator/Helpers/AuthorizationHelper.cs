@@ -23,6 +23,15 @@ internal static class AuthorizationHelper
             return new AuthorizationModel { AllowAnonymous = true };
         }
 
+        // 检查 RequireRole 特性 (优先级高于 Authorize)
+        var requireRoleAttr = symbol.GetAttributes()
+            .FirstOrDefault(attr => attr.AttributeClass?.Name is "RequireRoleAttribute" or "RequireRole");
+
+        if (requireRoleAttr != null)
+        {
+            return ExtractRequireRoleInfo(requireRoleAttr);
+        }
+
         // 检查 Authorize 特性
         var authorizeAttr = symbol.GetAttributes()
             .FirstOrDefault(attr => attr.AttributeClass?.Name is "AuthorizeAttribute" or "Authorize");
@@ -105,6 +114,47 @@ internal static class AuthorizationHelper
                 {
                     authModel.Role = roleOrRoles;
                 }
+            }
+        }
+
+        return authModel;
+    }
+
+    /// <summary>
+    /// 从 RequireRole 特性中提取授权信息
+    /// </summary>
+    private static AuthorizationModel ExtractRequireRoleInfo(AttributeData requireRoleAttr)
+    {
+        var authModel = new AuthorizationModel();
+
+        // 提取构造函数参数 (roles array)
+        if (requireRoleAttr.ConstructorArguments.Length > 0)
+        {
+            var rolesArg = requireRoleAttr.ConstructorArguments[0];
+
+            // 处理 params string[] 参数
+            if (rolesArg.Kind == TypedConstantKind.Array && rolesArg.Values.Length > 0)
+            {
+                var roles = rolesArg.Values
+                    .Select(v => v.Value?.ToString())
+                    .Where(s => s != null)
+                    .Cast<string>()
+                    .ToArray();
+
+                authModel.Roles = string.Join(",", roles);
+            }
+        }
+
+        // 提取命名参数 RequireAll
+        var requireAllArg = requireRoleAttr.NamedArguments
+            .FirstOrDefault(na => na.Key == "RequireAll");
+
+        if (!requireAllArg.Equals(default(KeyValuePair<string, TypedConstant>)))
+        {
+            if (requireAllArg.Value.Value is bool requireAll)
+            {
+                // 存储 RequireAll 信息到 Policy 字段 (复用现有字段)
+                authModel.Policy = requireAll ? "RequireAll" : "RequireAny";
             }
         }
 

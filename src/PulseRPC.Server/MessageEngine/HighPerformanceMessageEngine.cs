@@ -451,7 +451,18 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 if (channel is ServerTransportChannel serverChannel)
                 {
                     RequestContext.SetCurrent(serverChannel.Transport);
+
+                    // ✅ 从通道获取认证上下文并设置到 AsyncLocal
+                    var authContext = serverChannel.GetProperty<ServiceAuthenticationContext>("AuthContext");
+                    if (authContext != null)
+                    {
+                        ServiceAuthenticationContextProvider.Current = authContext;
+                        _logger.LogTrace("已设置认证上下文: ConnectionId={ConnectionId}, CallerId={CallerId}",
+                            envelope.ConnectionId, authContext.CallerId);
+                    }
                 }
+
+                // 🔐 权限检查现在由源代码生成器生成的代理类处理
 
                 try
                 {
@@ -481,8 +492,9 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 }
                 finally
                 {
-                    // ✅ 清理 RequestContext
+                    // ✅ 清理 RequestContext 和 ServiceAuthenticationContext
                     RequestContext.SetCurrent(null);
+                    ServiceAuthenticationContextProvider.Current = null;
                 }
 
                 result = dispatchResult;
