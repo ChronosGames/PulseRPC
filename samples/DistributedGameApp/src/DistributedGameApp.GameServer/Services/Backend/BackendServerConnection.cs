@@ -4,6 +4,7 @@ using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Transport;
 using PulseRPC.Channels;
+using PulseRPC.Authentication;
 using System.Net.Sockets;
 using System.Collections.Concurrent;
 
@@ -16,6 +17,7 @@ public class BackendServerConnection : IAsyncDisposable
 {
     private readonly ServiceRegistration _serviceInfo;
     private readonly ILogger<BackendServerConnection> _logger;
+    private readonly IAuthenticationProvider? _authenticationProvider;
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
     private IPulseClient? _client;
     private IClientChannel? _channel;
@@ -57,10 +59,12 @@ public class BackendServerConnection : IAsyncDisposable
 
     public BackendServerConnection(
         ServiceRegistration serviceInfo,
-        ILogger<BackendServerConnection> logger)
+        ILogger<BackendServerConnection> logger,
+        IAuthenticationProvider? authenticationProvider = null)
     {
         _serviceInfo = serviceInfo ?? throw new ArgumentNullException(nameof(serviceInfo));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _authenticationProvider = authenticationProvider;
     }
 
     /// <summary>
@@ -97,7 +101,7 @@ public class BackendServerConnection : IAsyncDisposable
                     ConnectionStrategy.Persistent);
 
                 // 创建客户端
-                _client = new PulseClientBuilder()
+                var builder = new PulseClientBuilder()
                     .AddConnection(descriptor)
                     .WithTransportOptions(TransportType.TCP, new TcpTransportOptions
                     {
@@ -105,8 +109,16 @@ public class BackendServerConnection : IAsyncDisposable
                         NoDelay = true,
                         SendBufferSize = 8192,
                         RecvBufferSize = 8192,
-                    })
-                    .Build();
+                    });
+
+                // 如果提供了认证提供者，配置认证
+                if (_authenticationProvider != null)
+                {
+                    builder.WithAuthentication(_authenticationProvider);
+                    _logger.LogInformation("已配置内部服务认证提供者");
+                }
+
+                _client = builder.Build();
 
                 // 初始化客户端
                 await _client.InitializeAsync(cancellationToken);
@@ -116,6 +128,18 @@ public class BackendServerConnection : IAsyncDisposable
                 if (_channel == null)
                 {
                     throw new InvalidOperationException($"无法获取连接: {_serviceInfo.ServiceId}");
+                }
+
+                // 🔐 执行认证（如果提供了认证提供者）
+                if (_authenticationProvider != null)
+                {
+                    _logger.LogInformation("正在进行内部服务认证...");
+                    var authResult = await AuthenticateInternalServiceAsync(cancellationToken);
+                    if (!authResult)
+                    {
+                        throw new UnauthorizedAccessException("内部服务认证失败");
+                    }
+                    _logger.LogInformation("内部服务认证成功");
                 }
 
                 ConnectedAt = DateTime.UtcNow;
@@ -215,6 +239,47 @@ public class BackendServerConnection : IAsyncDisposable
     /// 获取 Channel 实例
     /// </summary>
     public IClientChannel? Channel => _channel;
+
+    /// <summary>
+    /// 执行内部服务认证
+    /// </summary>
+    private async Task<bool> AuthenticateInternalServiceAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (_authenticationProvider == null || _channel == null)
+                return false;
+
+            // 从认证提供者获取 token
+            var authToken = await _authenticationProvider.GetTokenAsync("BackendServer", cancellationToken);
+            if (authToken == null || string.IsNullOrEmpty(authToken.Token))
+            {
+                _logger.LogWarning("无法从认证提供者获取 token");
+                return false;
+            }
+
+            // 调用服务器的认证 Hub
+            var response = await _channel.InvokeAsync<string, PulseRPC.Server.Authentication.AuthenticationResponse>(
+                "AuthenticationHub",
+                "AuthenticateAsync",
+                authToken.Token,
+                cancellationToken);
+
+            if (response == null || !response.Success)
+            {
+                _logger.LogWarning("认证失败: {ErrorMessage}", response?.ErrorMessage);
+                return false;
+            }
+
+            _logger.LogInformation("认证成功: Identity={Identity}", response.Identity);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "认证过程中发生异常");
+            return false;
+        }
+    }
 
     /// <summary>
     /// 健康检查

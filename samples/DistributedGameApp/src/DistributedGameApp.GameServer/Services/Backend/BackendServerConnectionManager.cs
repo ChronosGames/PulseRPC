@@ -1,5 +1,7 @@
 using DistributedGameApp.Infrastructure.Consul;
+using DistributedGameApp.GameServer.Authentication;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Authentication;
 using System.Collections.Concurrent;
 
 namespace DistributedGameApp.GameServer.Services.Backend;
@@ -16,6 +18,7 @@ public class BackendServerConnectionManager : IAsyncDisposable
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private readonly CancellationTokenSource _cts = new();
     private readonly string _serviceType;
+    private readonly IAuthenticationProvider? _authenticationProvider;
 
     private Task? _serviceWatchTask;
     private bool _isInitialized;
@@ -29,12 +32,25 @@ public class BackendServerConnectionManager : IAsyncDisposable
     public BackendServerConnectionManager(
         ConsulServiceDiscovery serviceDiscovery,
         ILoggerFactory loggerFactory,
-        string serviceType = "BackendServer")
+        string serviceType = "BackendServer",
+        string? serviceId = null,
+        string? clusterSecret = null)
     {
         _serviceDiscovery = serviceDiscovery ?? throw new ArgumentNullException(nameof(serviceDiscovery));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _serviceType = serviceType ?? throw new ArgumentNullException(nameof(serviceType));
         _logger = loggerFactory.CreateLogger<BackendServerConnectionManager>();
+
+        // 如果提供了 serviceId 和 clusterSecret，创建认证提供者
+        if (!string.IsNullOrWhiteSpace(serviceId) && !string.IsNullOrWhiteSpace(clusterSecret))
+        {
+            _authenticationProvider = new InternalServiceAuthenticationProvider(serviceId, clusterSecret);
+            _logger.LogInformation("已创建内部服务认证提供者，ServiceId: {ServiceId}", serviceId);
+        }
+        else
+        {
+            _logger.LogWarning("未提供 ServiceId 或 ClusterSecret，将不使用内部服务认证");
+        }
     }
 
     /// <summary>
@@ -131,7 +147,7 @@ public class BackendServerConnectionManager : IAsyncDisposable
             service.ServiceId, service.Host, service.TcpPort);
 
         var connectionLogger = _loggerFactory.CreateLogger<BackendServerConnection>();
-        var connection = new BackendServerConnection(service, connectionLogger);
+        var connection = new BackendServerConnection(service, connectionLogger, _authenticationProvider);
 
         // 订阅连接状态变更
         connection.StateChanged += OnConnectionStateChanged;

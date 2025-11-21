@@ -12,6 +12,7 @@ namespace ChatApp
     /// 指定默认使用TCP通道
     /// </summary>
     [Channel("TcpChannel")]
+    [PulseHub(Provider = "GameServer")]
     public interface IPlayerHub : IPulseHub
     {
         /// <summary>
@@ -35,6 +36,7 @@ namespace ChatApp
     /// 事件接口 - 登录相关事件使用TCP
     /// </summary>
     [Channel("TcpChannel")]
+    [PulseHub(Provider = "UnityClient")]
     public interface IPlayerLoginEvents : IPulseReceiver
     {
         // 下行通知: 玩家加入游戏
@@ -48,6 +50,7 @@ namespace ChatApp
     /// 事件接口 - 位置更新使用KCP
     /// </summary>
     [Channel("KcpChannel")]
+    [PulseHub(Provider = "UnityClient")]
     public interface IPlayerMovementEvents : IPulseReceiver
     {
         // 下行通知: 玩家移动
