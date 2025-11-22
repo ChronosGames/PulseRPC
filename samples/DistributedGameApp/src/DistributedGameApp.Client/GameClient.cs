@@ -1,14 +1,9 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Messages;
 using DistributedGameApp.Shared.Receivers;
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver.Core.Servers;
 using PulseRPC;
-using PulseRPC.Client;
 
 namespace DistributedGameApp.Client;
 
@@ -107,25 +102,34 @@ public class GameClient : IDisposable
     /// <summary>
     /// 是否已连接到游戏服务器
     /// </summary>
-    public bool IsConnectedToGameServer =>
-        _connectionManager.CurrentConnection?.ServerType == ServerType.GameServer &&
-        _connectionManager.CurrentConnection.IsConnected;
+    public bool IsConnectedToGameServer
+    {
+        get
+        {
+            if (_currentGameServer == null)
+            {
+                return false;
+            }
+
+            return _connectionManager.AllConnections.Any(x => x.Value.IsConnected && x.Value.ServerId == _currentGameServer.ServerId);
+        }
+    }
 
     /// <summary>
     /// 是否在战斗中
     /// </summary>
-    public bool IsInBattle =>
-        _connectionManager.CurrentConnection?.ServerType == ServerType.BattleServer &&
-        _connectionManager.CurrentConnection.IsConnected;
+    public bool IsInBattle
+    {
+        get
+        {
+            if (_currentBattleServer == null)
+            {
+                return false;
+            }
 
-    /// <summary>
-    /// 当前活动的服务器连接
-    /// </summary>
-    /// <remarks>
-    /// 用于访问底层的 Channel、GameHub、BattleHub 等，
-    /// 例如用于连接状态监控或心跳检测
-    /// </remarks>
-    public ServerConnection? CurrentConnection => _connectionManager.CurrentConnection;
+            return _connectionManager.AllConnections.Any(x => x.Value.IsConnected && x.Value.ServerId == _currentBattleServer.ServerId);
+        }
+    }
 
     #endregion
 
@@ -283,15 +287,15 @@ public class GameClient : IDisposable
                 server.ServerName, server.Host, server.TcpPort);
 
             // 连接到 GameServer
-            await _connectionManager.ConnectToGameServerAsync(
+            await _connectionManager.ConnectToServerAsync(
                 server.ServerId,
                 server.ServerName,
                 server.Host,
                 server.TcpPort,
-                _cts.Token);
+                cancellationToken: _cts.Token);
 
             // ✅ 使用 Ticket 在 GameServer 上进行身份验证
-            var gameHub = _connectionManager.CurrentConnection!.GameHub!;
+            var gameHub = await _connectionManager.GetHubAsync<IGameHub>(server.ServerId, cancellationToken: _cts.Token);
 
             // 优先使用 Ticket（从 LoginServer 获取的 AccessToken）
             var loginRequest = new Shared.Messages.LoginRequest
@@ -346,7 +350,7 @@ public class GameClient : IDisposable
     {
         EnsureConnectedToGameServer();
 
-        var gameHub = _connectionManager.CurrentConnection!.GameHub!;
+        var gameHub = await _connectionManager.GetHubAsync<IGameHub>(_currentGameServer!.ServerId, cancellationToken: cancellationToken);
 
         try
         {
@@ -379,7 +383,7 @@ public class GameClient : IDisposable
     {
         EnsureConnectedToGameServer();
 
-        var gameHub = _connectionManager.CurrentConnection!.GameHub!;
+        var gameHub = await _connectionManager.GetHubAsync<IGameHub>(_currentGameServer!.ServerId, cancellationToken: cancellationToken);
 
         try
         {
@@ -419,7 +423,7 @@ public class GameClient : IDisposable
     {
         EnsureConnectedToGameServer();
 
-        var gameHub = _connectionManager.CurrentConnection!.GameHub!;
+        var gameHub = await _connectionManager.GetHubAsync<IGameHub>(_currentGameServer!.ServerId, cancellationToken: cancellationToken);
 
         try
         {
@@ -458,7 +462,7 @@ public class GameClient : IDisposable
     {
         EnsureConnectedToGameServer();
 
-        var gameHub = _connectionManager.CurrentConnection!.GameHub!;
+        var gameHub = await _connectionManager.GetHubAsync<IGameHub>(_currentGameServer!.ServerId, cancellationToken: cancellationToken);
 
         try
         {
@@ -504,7 +508,7 @@ public class GameClient : IDisposable
     {
         EnsureConnectedToGameServer();
 
-        var gameHub = _connectionManager.CurrentConnection!.GameHub!;
+        var gameHub = await _connectionManager.GetHubAsync<IGameHub>(_currentGameServer!.ServerId, cancellationToken: cancellationToken);
 
         try
         {
@@ -548,7 +552,7 @@ public class GameClient : IDisposable
     {
         EnsureConnectedToGameServer();
 
-        var gameHub = _connectionManager.CurrentConnection!.GameHub!;
+        var gameHub = await _connectionManager.GetHubAsync<IGameHub>(_currentGameServer!.ServerId, cancellationToken: cancellationToken);
 
         try
         {
@@ -590,15 +594,12 @@ public class GameClient : IDisposable
             var serverId = $"BattleServer-{battleId}";
 
             // 连接到 BattleServer
-            await _connectionManager.ConnectToBattleServerAsync(
+            await _connectionManager.ConnectToServerAsync(
                 serverId,
                 battleId,
                 host,
                 port,
-                cancellationToken);
-
-            // 切换到 BattleServer
-            _connectionManager.SwitchToServer(serverId);
+                cancellationToken: cancellationToken);
 
             // 注册事件监听器（GameEventHandler 实现了多个 Receiver 接口）
             // 新的双向 RPC 架构要求为每个接口单独注册
@@ -636,13 +637,12 @@ public class GameClient : IDisposable
         string battleId,
         CancellationToken cancellationToken = default)
     {
-        if (_connectionManager.CurrentConnection?.BattleHub == null)
+        var battleHub = await _connectionManager.GetHubAsync<IBattleHub>(_currentBattleServer!.ServerId, cancellationToken: cancellationToken);
+        if (battleHub == null)
         {
-            _logger.LogWarning("未连接到战斗服务器");
+            _logger.LogWarning("未连接至战斗服");
             return null;
         }
-
-        var battleHub = _connectionManager.CurrentConnection.BattleHub;
 
         try
         {
@@ -672,13 +672,12 @@ public class GameClient : IDisposable
     /// <returns>是否成功</returns>
     public async Task<bool> BattleReadyAsync(CancellationToken cancellationToken = default)
     {
-        if (_connectionManager.CurrentConnection?.BattleHub == null)
+        var battleHub = await _connectionManager.GetHubAsync<IBattleHub>(_currentBattleServer!.ServerId, cancellationToken: cancellationToken);
+        if (battleHub == null)
         {
             _logger.LogWarning("未连接到战斗服务器");
             return false;
         }
-
-        var battleHub = _connectionManager.CurrentConnection.BattleHub;
 
         try
         {
@@ -705,13 +704,12 @@ public class GameClient : IDisposable
     /// <returns>是否成功</returns>
     public async Task<bool> LeaveBattleAsync(CancellationToken cancellationToken = default)
     {
-        if (_connectionManager.CurrentConnection?.BattleHub == null)
+        var battleHub = await _connectionManager.GetHubAsync<IBattleHub>(_currentBattleServer!.ServerId, cancellationToken: cancellationToken);
+        if (battleHub == null)
         {
             _logger.LogWarning("未连接到战斗服务器");
             return false;
         }
-
-        var battleHub = _connectionManager.CurrentConnection.BattleHub;
 
         try
         {

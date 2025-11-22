@@ -39,7 +39,7 @@ public interface IGameHub : IPulseHub
     /// </summary>
     /// <param name="request">创建角色请求</param>
     /// <returns>创建的角色信息</returns>
-    Task<CharacterInfo> CreateCharacterAsync(CreateCharacterRequest request);
+    Task<CharacterInfo?> CreateCharacterAsync(CreateCharacterRequest request);
 
     /// <summary>
     /// 获取角色信息

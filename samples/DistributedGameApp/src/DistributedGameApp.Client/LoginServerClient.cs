@@ -412,6 +412,16 @@ public class AuthResponse
     public string TokenType { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 用户角色列表
+    /// </summary>
+    public string[] Roles { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// 用户权限列表
+    /// </summary>
+    public string[] Permissions { get; set; } = Array.Empty<string>();
 }
 
 /// <summary>

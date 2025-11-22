@@ -30,7 +30,8 @@ public class JwtService
             new Claim(JwtRegisteredClaimNames.Sub, userId),
             new Claim(JwtRegisteredClaimNames.UniqueName, username),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
-            new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64)
+            new Claim(JwtRegisteredClaimNames.Iat, DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
+            new Claim("type", "client") // 认证类型
         };
 
         // 添加自定义声明
@@ -58,6 +59,125 @@ public class JwtService
         var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
         _logger.LogInformation("Generated access token for user {UserId}", userId);
+
+        return tokenString;
+    }
+
+    /// <summary>
+    /// 生成访问令牌（增强版 - 支持角色和权限）
+    /// </summary>
+    /// <param name="userId">用户ID</param>
+    /// <param name="username">用户名</param>
+    /// <param name="roles">用户角色列表</param>
+    /// <param name="permissions">用户权限列表</param>
+    /// <param name="additionalClaims">额外的声明</param>
+    /// <returns>JWT Token</returns>
+    public string GenerateAccessToken(
+        string userId,
+        string username,
+        string[] roles,
+        string[] permissions,
+        Dictionary<string, string>? additionalClaims = null)
+    {
+        var tokenClaims = new List<Claim>
+        {
+            // 标准声明
+            new Claim(JwtRegisteredClaimNames.Sub, userId),
+            new Claim(JwtRegisteredClaimNames.UniqueName, username),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(JwtRegisteredClaimNames.Iat,
+                DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(),
+                ClaimValueTypes.Integer64),
+
+            // 认证类型
+            new Claim("type", "client")
+        };
+
+        // 添加角色
+        foreach (var role in roles)
+        {
+            tokenClaims.Add(new Claim(ClaimTypes.Role, role));
+        }
+
+        // 添加权限
+        foreach (var permission in permissions)
+        {
+            tokenClaims.Add(new Claim("permission", permission));
+        }
+
+        // 添加额外声明
+        if (additionalClaims != null)
+        {
+            foreach (var claim in additionalClaims)
+            {
+                tokenClaims.Add(new Claim(claim.Key, claim.Value));
+            }
+        }
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SecretKey));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var expiresAt = DateTime.UtcNow.AddMinutes(_options.AccessTokenExpirationMinutes);
+
+        var token = new JwtSecurityToken(
+            issuer: _options.Issuer,
+            audience: _options.Audience,
+            claims: tokenClaims,
+            expires: expiresAt,
+            signingCredentials: credentials
+        );
+
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+        _logger.LogInformation(
+            "Generated access token for user {UserId} with roles: {Roles}, permissions: {Permissions}",
+            userId,
+            string.Join(", ", roles),
+            string.Join(", ", permissions));
+
+        return tokenString;
+    }
+
+    /// <summary>
+    /// 生成服务间认证令牌
+    /// </summary>
+    /// <param name="serviceId">服务ID</param>
+    /// <param name="serviceName">服务名称</param>
+    /// <param name="scopes">权限范围</param>
+    /// <returns>JWT Token</returns>
+    public string GenerateServiceToken(string serviceId, string serviceName, string[] scopes)
+    {
+        var tokenClaims = new List<Claim>
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, serviceId),
+            new Claim(JwtRegisteredClaimNames.UniqueName, serviceName),
+            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim("type", "service")
+        };
+
+        // 添加权限范围
+        foreach (var scope in scopes)
+        {
+            tokenClaims.Add(new Claim("scope", scope));
+        }
+
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.SecretKey));
+        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+
+        var token = new JwtSecurityToken(
+            issuer: _options.Issuer,
+            audience: _options.Audience,
+            claims: tokenClaims,
+            expires: DateTime.UtcNow.AddHours(24), // 服务Token有效期更长
+            signingCredentials: credentials
+        );
+
+        var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
+
+        _logger.LogInformation(
+            "Generated service token for {ServiceId} with scopes: {Scopes}",
+            serviceId,
+            string.Join(", ", scopes));
 
         return tokenString;
     }
