@@ -1,4 +1,5 @@
 using DistributedGameApp.Shared.Hubs;
+using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
@@ -8,7 +9,7 @@ using PulseRPC.Channels;
 namespace DistributedGameApp.Client;
 
 /// <summary>
-/// 服务器连接管理器 - 使用单一 IPulseClient 管理所有连接
+/// 通用服务器连接管理器 - 使用单一 IPulseClient 管理所有服务器连接
 /// </summary>
 public class ServerConnectionManager : IDisposable
 {
@@ -16,7 +17,6 @@ public class ServerConnectionManager : IDisposable
     private readonly ILogger<ServerConnectionManager> _logger;
     private readonly IPulseClient _client;
     private readonly Dictionary<string, ServerConnection> _connections = new();
-    private string? _currentServerId;
     private bool _disposed;
 
     public ServerConnectionManager(ILoggerFactory loggerFactory)
@@ -32,34 +32,13 @@ public class ServerConnectionManager : IDisposable
                 options.Name = "DistributedGameClient";
                 options.DefaultTimeout = TimeSpan.FromSeconds(30);
             })
-            // 注意：不添加任何初始连接，完全动态管理
-            // .AddConnection(ConnectionDescriptor.CreateTcp(
-            //     "placeholder",
-            //     "Placeholder",
-            //     "127.0.0.1",
-            //     1,
-            //     ConnectionStrategy.Transient))
             .Build();
 
         // 初始化客户端
         _client.InitializeAsync().GetAwaiter().GetResult();
 
-        // 断开占位符连接
-        // _client.DisconnectAsync("placeholder").GetAwaiter().GetResult();
-
         _logger.LogInformation("ServerConnectionManager 已初始化，使用单一 IPulseClient");
     }
-
-    /// <summary>
-    /// 当前活动的服务器ID
-    /// </summary>
-    public string? CurrentServerId => _currentServerId;
-
-    /// <summary>
-    /// 获取当前活动的连接
-    /// </summary>
-    public ServerConnection? CurrentConnection =>
-        _currentServerId != null && _connections.TryGetValue(_currentServerId, out var conn) ? conn : null;
 
     /// <summary>
     /// 获取所有连接
@@ -72,105 +51,86 @@ public class ServerConnectionManager : IDisposable
     public IPulseClient Client => _client;
 
     /// <summary>
-    /// 添加并连接到 GameServer
+    /// 连接到指定服务器（通用方法）
     /// </summary>
-    public async Task<ServerConnection> ConnectToGameServerAsync(
+    /// <param name="serverId">服务器唯一标识</param>
+    /// <param name="serverName">服务器名称</param>
+    /// <param name="host">服务器主机地址</param>
+    /// <param name="port">服务器端口</param>
+    /// <param name="jwtToken">JWT Access Token（用于 Connection-level 认证）</param>
+    /// <param name="transportType">传输协议类型（默认 TCP）</param>
+    /// <param name="connectionStrategy">连接策略（默认持久连接）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>服务器连接信息</returns>
+    public async Task<ServerConnection> ConnectToServerAsync(
         string serverId,
         string serverName,
         string host,
         int port,
+        string? jwtToken = null,
+        TransportType transportType = TransportType.TCP,
+        ConnectionStrategy connectionStrategy = ConnectionStrategy.Persistent,
         CancellationToken cancellationToken = default)
     {
-        if (_connections.TryGetValue(serverId, out var connection))
+        if (_connections.TryGetValue(serverId, out var existingConnection))
         {
-            _logger.LogWarning("服务器 {ServerId} 已经连接", serverId);
-            return connection;
+            _logger.LogWarning("服务器 {ServerId} ({ServerName}) 已经连接", serverId, serverName);
+            return existingConnection;
         }
 
-        _logger.LogInformation("正在连接到 GameServer: {ServerName} ({Host}:{Port})", serverName, host, port);
+        _logger.LogInformation("正在连接到服务器: {ServerName} ({Host}:{Port})", serverName, host, port);
 
-        // 使用新的 ConnectToServerAsync API
+        // 使用 ConnectToServerAsync API 建立连接
         var channel = await _client.ConnectToServerAsync(
             host,
             port,
             serverId,
             serverName,
-            TransportType.TCP,
-            ConnectionStrategy.Persistent,
+            transportType,
+            connectionStrategy,
             cancellationToken);
-
-        // 使用简化 API 获取服务代理（具象方法将由源代码生成器生成）
-        var gameHub = await _client.GetServiceAsync<IGameHub>(serverId, cancellationToken: cancellationToken);
-
-        connection = new ServerConnection
-        {
-            ServerId = serverId,
-            ServerName = serverName,
-            ServerType = ServerType.GameServer,
-            Host = host,
-            Port = port,
-            Channel = channel,
-            GameHub = gameHub,
-            IsConnected = true
-        };
-
-        _connections[serverId] = connection;
-        _currentServerId ??= serverId; // 如果是第一个连接，设为当前连接
-
-        // Note: GameHub.LoginAsync 由 GameClient.ConnectToGameServerAsync 调用
-
-        _logger.LogInformation("成功连接到 GameServer: {ServerName}", serverName);
-        return connection;
-    }
-
-    /// <summary>
-    /// 添加并连接到 BattleServer
-    /// </summary>
-    public async Task<ServerConnection> ConnectToBattleServerAsync(
-        string serverId,
-        string battleId,
-        string host,
-        int port,
-        CancellationToken cancellationToken = default)
-    {
-        if (_connections.ContainsKey(serverId))
-        {
-            _logger.LogWarning("服务器 {ServerId} 已经连接", serverId);
-            return _connections[serverId];
-        }
-
-        _logger.LogInformation("正在连接到 BattleServer: {BattleId} ({Host}:{Port})", battleId, host, port);
-
-        // 使用新的 ConnectToServerAsync API
-        var channel = await _client.ConnectToServerAsync(
-            host,
-            port,
-            serverId,
-            $"BattleServer-{battleId}",
-            TransportType.TCP,
-            ConnectionStrategy.Persistent,
-            cancellationToken);
-
-        // 使用简化 API 获取服务代理（具象方法将由源代码生成器生成）
-        var battleHub = await _client.GetServiceAsync<IBattleHub>(serverId, cancellationToken: cancellationToken);
 
         var connection = new ServerConnection
         {
             ServerId = serverId,
-            ServerName = $"BattleServer-{battleId}",
-            ServerType = ServerType.BattleServer,
+            ServerName = serverName,
             Host = host,
             Port = port,
             Channel = channel,
-            BattleHub = battleHub,
-            IsConnected = true,
-            BattleId = battleId
+            IsConnected = true
         };
 
         _connections[serverId] = connection;
 
-        _logger.LogInformation("成功连接到 BattleServer: {BattleId}", battleId);
+        // Note: GameHub.LoginAsync 由 GameClient.ConnectToGameServerAsync 调用
+
+        _logger.LogInformation("成功连接到服务器: {ServerName}", serverName);
         return connection;
+    }
+
+    /// <summary>
+    /// 获取指定服务器的服务代理（Hub）
+    /// </summary>
+    /// <typeparam name="THub">服务接口类型</typeparam>
+    /// <param name="targetServerId">服务器ID，如果为空则使用当前活动的服务器</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>服务代理实例</returns>
+    public async ValueTask<THub?> GetHubAsync<THub>(
+        string targetServerId,
+        CancellationToken cancellationToken = default)
+        where THub : class, IPulseHub
+    {
+        if (!_connections.TryGetValue(targetServerId, out var connection))
+        {
+            throw new InvalidOperationException($"服务器 {targetServerId} 未连接");
+        }
+
+        if (!connection.IsConnected)
+        {
+            throw new InvalidOperationException($"服务器 {targetServerId} 已断开连接");
+        }
+
+        return await _client.GetServiceAsync<THub>(targetServerId, cancellationToken: cancellationToken);
     }
 
     /// <summary>
@@ -178,20 +138,18 @@ public class ServerConnectionManager : IDisposable
     /// </summary>
     public bool SwitchToServer(string serverId)
     {
-        if (!_connections.ContainsKey(serverId))
+        if (!_connections.TryGetValue(serverId, out var connection))
         {
             _logger.LogWarning("服务器 {ServerId} 不存在", serverId);
             return false;
         }
 
-        var connection = _connections[serverId];
         if (!connection.IsConnected)
         {
             _logger.LogWarning("服务器 {ServerId} 未连接", serverId);
             return false;
         }
 
-        _currentServerId = serverId;
         _logger.LogInformation("切换到服务器: {ServerName}", connection.ServerName);
         return true;
     }
@@ -215,12 +173,6 @@ public class ServerConnectionManager : IDisposable
 
         _connections.Remove(serverId);
 
-        // 如果断开的是当前服务器，切换到其他服务器
-        if (_currentServerId == serverId)
-        {
-            _currentServerId = _connections.Keys.FirstOrDefault();
-        }
-
         _logger.LogInformation("已断开服务器: {ServerName}", connection.ServerName);
     }
 
@@ -230,12 +182,7 @@ public class ServerConnectionManager : IDisposable
     public Task RegisterEventListenerAsync<T>(T eventHandler, string? serverId = null)
         where T : class, IPulseHub
     {
-        var targetServerId = serverId ?? _currentServerId;
-        if (targetServerId == null)
-        {
-            throw new InvalidOperationException("没有活动的服务器连接");
-        }
-
+        var targetServerId = serverId ?? throw new InvalidOperationException("没有活动的服务器连接");
         if (!_connections.TryGetValue(targetServerId, out var connection))
         {
             throw new InvalidOperationException($"服务器 {targetServerId} 不存在");
@@ -266,7 +213,7 @@ public class ServerConnectionManager : IDisposable
     /// </summary>
     public ServerConnection? GetConnection(string serverId)
     {
-        return _connections.TryGetValue(serverId, out var connection) ? connection : null;
+        return _connections.GetValueOrDefault(serverId);
     }
 
     public void Dispose()
@@ -279,7 +226,7 @@ public class ServerConnectionManager : IDisposable
         }
 
         _connections.Clear();
-        _client?.Dispose();
+        _client.Dispose();
         _disposed = true;
     }
 }
@@ -289,31 +236,48 @@ public class ServerConnectionManager : IDisposable
 /// </summary>
 public class ServerConnection
 {
+    /// <summary>
+    /// 服务器唯一标识
+    /// </summary>
     public required string ServerId { get; init; }
+
+    /// <summary>
+    /// 服务器名称
+    /// </summary>
     public required string ServerName { get; init; }
-    public required ServerType ServerType { get; init; }
+
+    /// <summary>
+    /// 服务器主机地址
+    /// </summary>
     public required string Host { get; init; }
+
+    /// <summary>
+    /// 服务器端口
+    /// </summary>
     public required int Port { get; init; }
+
+    /// <summary>
+    /// 客户端通道
+    /// </summary>
     public required IClientChannel Channel { get; init; }
+
+    /// <summary>
+    /// 连接状态
+    /// </summary>
     public bool IsConnected { get; set; }
+
+    /// <summary>
+    /// 事件订阅令牌
+    /// </summary>
     public ISubscriptionToken? EventSubscription { get; set; }
 
-    // GameServer 相关
-    public IGameHub? GameHub { get; init; }
-
-    // BattleServer 相关
-    public IBattleHub? BattleHub { get; init; }
-    public string? BattleId { get; init; }
-
-    // 连接时间
+    /// <summary>
+    /// 连接建立时间
+    /// </summary>
     public DateTime ConnectedAt { get; init; } = DateTime.UtcNow;
-}
 
-/// <summary>
-/// 服务器类型
-/// </summary>
-public enum ServerType
-{
-    GameServer,
-    BattleServer
+    /// <summary>
+    /// 用于存储额外的元数据信息（如 BattleId、GuildId 等）
+    /// </summary>
+    public Dictionary<string, object> Metadata { get; } = new();
 }

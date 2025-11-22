@@ -1,5 +1,3 @@
-using System;
-using System.Threading.Tasks;
 using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Logging;
 
@@ -41,15 +39,15 @@ public class GameClientExample
             // ========== 步骤 1: 登录到 LoginServer ==========
             Console.WriteLine("=== 步骤 1: 登录到 LoginServer ===");
 
-            var loginSuccess = await client.LoginAsync("testuser", "password123");
+            var loginSuccess = await client.LoginAsync("a01", "password");
             if (!loginSuccess)
             {
                 // 如果登录失败，尝试注册
                 Console.WriteLine("登录失败，尝试注册新账号...");
                 var registerSuccess = await client.RegisterAsync(
-                    "testuser",
-                    "password123",
-                    "testuser@example.com");
+                    "a01",
+                    "password",
+                    "a01@example.com");
 
                 if (!registerSuccess)
                 {
@@ -114,7 +112,7 @@ public class GameClientExample
                 Console.WriteLine($"  - {character.CharacterName} (Lv.{character.Level} {character.Class})");
             }
 
-            CharacterInfo? selectedCharacter = null;
+            CharacterInfo? selectedCharacter;
 
             if (characters.Count == 0)
             {
@@ -176,7 +174,7 @@ public class GameClientExample
                 Console.WriteLine("\n=== 步骤 6 & 7: 已连接到 BattleServer ===");
 
                 // 加入战斗
-                var battleId = client.CurrentBattleServer?.ServerName?.Replace("BattleServer-", "") ?? "unknown";
+                var battleId = client.CurrentBattleServer?.ServerName.Replace("BattleServer-", "") ?? "unknown";
                 var battleInfo = await client.JoinBattleAsync(battleId);
                 if (battleInfo != null)
                 {

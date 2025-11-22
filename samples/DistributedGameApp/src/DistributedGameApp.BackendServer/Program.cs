@@ -34,7 +34,7 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 
         // 注册 Hub 服务（必须使用接口 + 实现的方式）
         services.AddSingleton<IBackendHub, BackendHub>();
-        services.AddSingleton<PulseRPC.Server.Authentication.IAuthenticationHub, PulseRPC.Server.Authentication.AuthenticationHub>();
+        // services.AddSingleton<PulseRPC.Server.Authentication.IAuthenticationHub, PulseRPC.Server.Authentication.AuthenticationHub>();
     }
 });
 

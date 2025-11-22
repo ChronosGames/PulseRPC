@@ -1,24 +1,29 @@
 using DistributedGameApp.BattleServer.Services;
+using DistributedGameApp.Infrastructure.Authentication;
 using DistributedGameApp.Infrastructure.Hosting;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
 
 var builder = Host.CreateApplicationBuilder(args);
 
+// 配置 JWT 选项
+builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+
 // 使用统一的 ServerBootstrapper 配置服务器
 builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapperOptions
 {
-    EnableExternalListener = false,     // BattleServer 仅内网监听
+    EnableExternalListener = true,      // BattleServer 需要外网监听（客户端直接连接）
     EnableInternalRpcChannel = true,    // 内网 RPC 通道
     EnableServiceDiscovery = true,      // Consul 服务注册与发现
     EnableMongoDb = false,              // BattleServer 不直接访问数据库
     EnableSentry = true,                // Sentry 错误追踪（根据配置启用）
     ConfigureServices = services =>
     {
-        // 注册认证和权限服务
-        services.AddSingleton<IJwtTokenService, JwtTokenService>();
+        // 注册 JWT 认证服务（使用真实的 JWT 实现）
+        services.AddSingleton<IJwtTokenService, JwtService>();
         services.AddSingleton<IAuthenticationService, AuthenticationService>();
         services.AddSingleton<PermissionValidator>();
 

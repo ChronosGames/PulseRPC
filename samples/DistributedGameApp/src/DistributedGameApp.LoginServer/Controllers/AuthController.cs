@@ -85,11 +85,22 @@ public class AuthController : ControllerBase
 
             await _accountRepository.InsertAsync(account);
 
-            // 生成令牌
-            var accessToken = _jwtService.GenerateAccessToken(account.UserId, account.Username);
+            // 获取用户角色和权限
+            var roles = account.Roles.ToArray();
+            var permissions = account.GetAllPermissions();
+
+            // 生成包含角色和权限的 JWT Token
+            var accessToken = _jwtService.GenerateAccessToken(
+                account.UserId,
+                account.Username,
+                roles,
+                permissions);
             var refreshToken = _jwtService.GenerateRefreshToken(account.UserId);
 
-            _logger.LogInformation("User registered: {UserId}", account.UserId);
+            _logger.LogInformation(
+                "User registered: {UserId} with roles: {Roles}",
+                account.UserId,
+                string.Join(", ", roles));
 
             return Ok(new AuthResponse
             {
@@ -98,7 +109,9 @@ public class AuthController : ControllerBase
                 ExpiresIn = 3600,
                 TokenType = "Bearer",
                 UserId = account.UserId,
-                Username = account.Username
+                Username = account.Username,
+                Roles = roles,
+                Permissions = permissions
             });
         }
         catch (Exception ex)
@@ -144,11 +157,23 @@ public class AuthController : ControllerBase
             // 更新最后登录信息
             await _accountRepository.UpdateLastLoginAsync(account.UserId, GetClientIp());
 
-            // 生成令牌
-            var accessToken = _jwtService.GenerateAccessToken(account.UserId, account.Username);
+            // 获取用户角色和权限
+            var roles = account.Roles.ToArray();
+            var permissions = account.GetAllPermissions();
+
+            // 生成包含角色和权限的 JWT Token
+            var accessToken = _jwtService.GenerateAccessToken(
+                account.UserId,
+                account.Username,
+                roles,
+                permissions);
             var refreshToken = _jwtService.GenerateRefreshToken(account.UserId);
 
-            _logger.LogInformation("User logged in: {UserId}", account.UserId);
+            _logger.LogInformation(
+                "User logged in: {UserId} with roles: {Roles}, permissions: {Permissions}",
+                account.UserId,
+                string.Join(", ", roles),
+                string.Join(", ", permissions));
 
             return Ok(new AuthResponse
             {
@@ -157,7 +182,9 @@ public class AuthController : ControllerBase
                 ExpiresIn = 3600,
                 TokenType = "Bearer",
                 UserId = account.UserId,
-                Username = account.Username
+                Username = account.Username,
+                Roles = roles,
+                Permissions = permissions
             });
         }
         catch (Exception ex)
@@ -194,8 +221,16 @@ public class AuthController : ControllerBase
                 return Unauthorized(new { message = "账户不存在或已被封禁" });
             }
 
-            // 生成新的访问令牌
-            var accessToken = _jwtService.GenerateAccessToken(account.UserId, account.Username);
+            // 获取用户角色和权限
+            var roles = account.Roles.ToArray();
+            var permissions = account.GetAllPermissions();
+
+            // 生成新的访问令牌（包含角色和权限）
+            var accessToken = _jwtService.GenerateAccessToken(
+                account.UserId,
+                account.Username,
+                roles,
+                permissions);
             var newRefreshToken = _jwtService.GenerateRefreshToken(account.UserId);
 
             _logger.LogInformation("Token refreshed for user: {UserId}", userId);
@@ -207,7 +242,9 @@ public class AuthController : ControllerBase
                 ExpiresIn = 3600,
                 TokenType = "Bearer",
                 UserId = account.UserId,
-                Username = account.Username
+                Username = account.Username,
+                Roles = roles,
+                Permissions = permissions
             });
         }
         catch (Exception ex)
@@ -300,4 +337,14 @@ public class AuthResponse
     public string TokenType { get; set; } = string.Empty;
     public string UserId { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 用户角色列表
+    /// </summary>
+    public string[] Roles { get; set; } = Array.Empty<string>();
+
+    /// <summary>
+    /// 用户权限列表
+    /// </summary>
+    public string[] Permissions { get; set; } = Array.Empty<string>();
 }

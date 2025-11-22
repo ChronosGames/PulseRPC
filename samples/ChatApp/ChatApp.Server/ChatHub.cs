@@ -5,8 +5,9 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using PulseRPC.Generated;
 using PulseRPC.Server.Abstractions;
+using PulseRPC.Generated;
+using PulseRPC.Protocol;
 
 namespace ChatApp;
 
@@ -80,7 +81,7 @@ public class ChatHub : BaseService, IChatHub, IPulseService
 
             // 调用房间服务的 JoinAsync 方法
             // 这会通过 AuthenticatedActorMessageQueue 排队，确保顺序处理
-            var result = await roomService.InvokeAsync<bool>(ProtocolIdMapping.ProtocolIds.ChatHub_JoinAsync,
+            var result = await roomService.InvokeAsync<bool>(new ProtocolId(ProtocolIdMapping.ProtocolIds.ChatHub_JoinAsync),
                 [request]);
 
             if (result)
@@ -167,7 +168,7 @@ public class ChatHub : BaseService, IChatHub, IPulseService
             using (ServiceAuthenticationContextProvider.SetContext(authContext))
             {
                 var result = await roomService.InvokeAsync<bool>(
-                    ProtocolIdMapping.ProtocolIds.ChatHub_LeaveAsync,
+                    new ProtocolId(ProtocolIdMapping.ProtocolIds.ChatHub_LeaveAsync),
                     []);
 
                 if (result)
@@ -240,7 +241,7 @@ public class ChatHub : BaseService, IChatHub, IPulseService
             using (ServiceAuthenticationContextProvider.SetContext(authContext))
             {
                 var result = await roomService.InvokeAsync<bool>(
-                    ProtocolIdMapping.ProtocolIds.ChatHub_SendMessageAsync,
+                    new ProtocolId(ProtocolIdMapping.ProtocolIds.ChatHub_SendMessageAsync),
                     [message]);
 
                 _logger.LogDebug(
@@ -301,7 +302,7 @@ public class ChatHub : BaseService, IChatHub, IPulseService
             using (ServiceAuthenticationContextProvider.SetContext(authContext))
             {
                 return await roomService.InvokeAsync<bool>(
-                    ProtocolIdMapping.ProtocolIds.ChatHub_GenerateException,
+                    new ProtocolId(ProtocolIdMapping.ProtocolIds.ChatHub_GenerateException),
                     [message]);
             }
         }
