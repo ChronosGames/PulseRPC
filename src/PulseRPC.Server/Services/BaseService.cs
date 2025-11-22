@@ -4,9 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
-// 类型别名 - 服务间认证上下文
-using AuthenticationContext = PulseRPC.Server.ServiceAuthenticationContext;
-using AuthenticationContextProvider = PulseRPC.Server.ServiceAuthenticationContextProvider;
+// 使用统一的请求上下文
 
 namespace PulseRPC.Server;
 
@@ -115,8 +113,8 @@ public abstract class BaseService : IService
             throw new InvalidOperationException("Service is not properly initialized");
 
         // 获取当前认证上下文或创建服务上下文
-        var authContext = AuthenticationContextProvider.Current
-            ?? AuthenticationContext.CreateServiceContext(ServicePID, _serviceSecret!);
+        var authContext = ServiceRequestContextProvider.Current
+            ?? ServiceRequestContext.CreateServiceContext(ServicePID, _serviceSecret!);
 
         return _messageQueue.SendMethodInvocationAsync(protocolId, args, authContext, cancellationToken);
     }
@@ -126,8 +124,8 @@ public abstract class BaseService : IService
         if (_messageQueue == null)
             throw new InvalidOperationException("Service is not properly initialized");
 
-        var authContext = AuthenticationContextProvider.Current
-            ?? AuthenticationContext.CreateServiceContext(ServicePID, _serviceSecret!);
+        var authContext = ServiceRequestContextProvider.Current
+            ?? ServiceRequestContext.CreateServiceContext(ServicePID, _serviceSecret!);
 
         return _messageQueue.SendMethodInvocationAsync<TResult>(protocolId, args, authContext, cancellationToken);
     }
@@ -135,9 +133,9 @@ public abstract class BaseService : IService
     /// <summary>
     /// 获取当前调用者信息
     /// </summary>
-    protected AuthenticationContext GetCurrentCaller()
+    protected IServiceRequestContext GetCurrentCaller()
     {
-        return AuthenticationContextProvider.RequireCurrent();
+        return ServiceRequestContextProvider.RequireCurrent();
     }
 
     /// <summary>
@@ -145,7 +143,7 @@ public abstract class BaseService : IService
     /// </summary>
     protected bool HasPermission(string permission)
     {
-        var context = AuthenticationContextProvider.Current;
+        var context = ServiceRequestContextProvider.Current;
         return context?.HasPermission(permission) ?? false;
     }
 
@@ -154,7 +152,7 @@ public abstract class BaseService : IService
     /// </summary>
     protected bool HasRole(string role)
     {
-        var context = AuthenticationContextProvider.Current;
+        var context = ServiceRequestContextProvider.Current;
         return context?.HasRole(role) ?? false;
     }
 

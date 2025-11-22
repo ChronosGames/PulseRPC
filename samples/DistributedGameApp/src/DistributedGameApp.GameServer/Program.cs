@@ -1,4 +1,5 @@
 using DistributedGameApp.GameServer;
+using DistributedGameApp.GameServer.Authentication;
 using DistributedGameApp.GameServer.Services;
 using DistributedGameApp.GameServer.Services.Backend;
 using DistributedGameApp.Infrastructure.Consul;
@@ -29,6 +30,20 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         services.AddSingleton<IJwtTokenService, JwtService>();
         services.AddSingleton<IAuthenticationService, AuthenticationService>();
         services.AddSingleton<PermissionValidator>();
+
+        // 注册外部连接的 JWT 认证验证器（使用 PulseRPC.Server 提供的实现）
+        services.AddSingleton<PulseRPC.Authentication.IAuthenticationValidator>(sp =>
+        {
+            var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
+                ?? throw new InvalidOperationException("JWT configuration is missing");
+            var logger = sp.GetRequiredService<ILogger<PulseRPC.Server.Authentication.JwtAuthenticationProvider>>();
+
+            return new PulseRPC.Server.Authentication.JwtAuthenticationProvider(
+                jwtOptions.SecretKey,
+                jwtOptions.Issuer,
+                jwtOptions.Audience,
+                logger);
+        });
 
         // 注册 BackendServer 客户端相关服务
         services.AddSingleton<ConsulServiceDiscovery>();

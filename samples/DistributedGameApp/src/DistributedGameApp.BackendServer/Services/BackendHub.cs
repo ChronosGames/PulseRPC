@@ -299,8 +299,6 @@ public class BackendHub : BaseService, IBackendHub, IPulseService
 
     public async Task<MatchmakingResponse> StartMatchmakingAsync(MatchmakingRequest request)
     {
-        var userId = GetCurrentUserId();
-        request.PlayerId = userId; // 设置玩家ID
         return await _matchmakingService.StartMatchmakingAsync(request);
     }
 

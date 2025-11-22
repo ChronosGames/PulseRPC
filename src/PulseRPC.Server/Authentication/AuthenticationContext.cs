@@ -12,7 +12,7 @@ public class AuthenticationContext : IAuthenticationContext
     private readonly object _syncLock = new object();
     private readonly ConcurrentDictionary<string, object> _properties = new ConcurrentDictionary<string, object>();
 
-    private AuthenticationType _type = AuthenticationType.None;
+    private PulseRPC.Authentication.AuthenticationType _type = PulseRPC.Authentication.AuthenticationType.None;
     private string? _identity;
     private string? _name;
     private string? _token;
@@ -47,7 +47,7 @@ public class AuthenticationContext : IAuthenticationContext
     }
 
     /// <inheritdoc />
-    public AuthenticationType Type
+    public PulseRPC.Authentication.AuthenticationType Type
     {
         get
         {

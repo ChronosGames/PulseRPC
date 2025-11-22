@@ -4,8 +4,8 @@ using PulseRPC.Channels;
 using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
 using System.Net;
-using PulseRPC.Server.Authentication;
 using PulseRPC.Messaging;
+using PulseRPC.Server.Authentication;
 using MessageProcessedEventArgs = PulseRPC.Server.MessageEngine.MessageProcessedEventArgs;
 
 namespace PulseRPC.Server.Transport;

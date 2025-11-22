@@ -34,7 +34,7 @@ public sealed class LocalServiceInvoker
         PID targetPID,
         ProtocolId protocolId,
         object?[] args,
-        ServiceAuthenticationContext callerContext,
+        IServiceRequestContext callerContext,
         CancellationToken cancellationToken = default)
     {
         var targetService = _serviceLocator.GetServiceByPID(targetPID);
@@ -61,8 +61,8 @@ public sealed class LocalServiceInvoker
             targetPID, protocolId, callerContext.ServicePID);
 
         // 零拷贝：直接传递对象引用，不序列化
-        // 通过 ServiceAuthenticationContextProvider 传递认证上下文
-        using (ServiceAuthenticationContextProvider.SetContext(callerContext))
+        // 通过 ServiceRequestContextProvider 传递认证上下文
+        using (ServiceRequestContextProvider.SetContext(callerContext))
         {
             await baseService.InvokeAsync(protocolId, args, cancellationToken);
         }
@@ -82,7 +82,7 @@ public sealed class LocalServiceInvoker
         PID targetPID,
         ProtocolId protocolId,
         object?[] args,
-        ServiceAuthenticationContext callerContext,
+        IServiceRequestContext callerContext,
         CancellationToken cancellationToken = default)
     {
         var targetService = _serviceLocator.GetServiceByPID(targetPID);
@@ -109,7 +109,7 @@ public sealed class LocalServiceInvoker
             targetPID, protocolId, callerContext.ServicePID);
 
         // 零拷贝：直接传递对象引用
-        using (ServiceAuthenticationContextProvider.SetContext(callerContext))
+        using (ServiceRequestContextProvider.SetContext(callerContext))
         {
             return await baseService.InvokeAsync<TResult>(protocolId, args, cancellationToken);
         }

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
+using PulseRPC.Authentication;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
@@ -7,9 +8,9 @@ using System.Text;
 namespace PulseRPC.Server.Authentication;
 
 /// <summary>
-/// 基于JWT的身份验证提供者
+/// 基于JWT的认证验证器
 /// </summary>
-public class JwtAuthenticationProvider : IAuthenticationProvider
+public class JwtAuthenticationProvider : IAuthenticationValidator
 {
     private readonly JwtSecurityTokenHandler _tokenHandler;
     private readonly TokenValidationParameters _validationParameters;
@@ -43,12 +44,12 @@ public class JwtAuthenticationProvider : IAuthenticationProvider
     /// 验证JWT令牌
     /// </summary>
     /// <param name="token">JWT令牌</param>
-    /// <returns>认证结果</returns>
-    public async Task<AuthenticationResult> AuthenticateAsync(string token)
+    /// <returns>验证结果</returns>
+    public async Task<ValidationResult> ValidateAsync(string token)
     {
         if (string.IsNullOrEmpty(token))
         {
-            return AuthenticationResult.Fail("未提供认证令牌");
+            return ValidationResult.Failure("未提供认证令牌");
         }
 
         try
@@ -58,22 +59,22 @@ public class JwtAuthenticationProvider : IAuthenticationProvider
             var principal = await Task.Run(() =>
                 _tokenHandler.ValidateToken(token, _validationParameters, out var validatedToken));
 
-            return AuthenticationResult.Success(principal);
+            return ValidationResult.Success(principal);
         }
         catch (SecurityTokenExpiredException)
         {
             _logger.LogWarning("令牌已过期");
-            return AuthenticationResult.Fail("认证令牌已过期");
+            return ValidationResult.Failure("认证令牌已过期");
         }
         catch (SecurityTokenInvalidSignatureException)
         {
             _logger.LogWarning("令牌签名无效");
-            return AuthenticationResult.Fail("认证令牌签名无效");
+            return ValidationResult.Failure("认证令牌签名无效");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "验证令牌时发生错误");
-            return AuthenticationResult.Fail($"认证失败: {ex.Message}");
+            return ValidationResult.Failure($"认证失败: {ex.Message}");
         }
     }
 }

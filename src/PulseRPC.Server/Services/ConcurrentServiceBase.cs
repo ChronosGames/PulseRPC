@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Abstractions;
 
 // 类型别名 - 服务间认证上下文
-using AuthenticationContext = PulseRPC.Server.ServiceAuthenticationContext;
+// 使用统一的请求上下文
 
 namespace PulseRPC.Server;
 
@@ -99,8 +99,8 @@ public abstract class ConcurrentServiceBase : IService, IPulseHub
             throw new InvalidOperationException("Service is not properly initialized. SetPID must be called first.");
 
         // 获取当前认证上下文或创建服务上下文
-        var authContext = ServiceAuthenticationContextProvider.Current
-            ?? AuthenticationContext.CreateServiceContext(ServicePID, _serviceSecret!);
+        var authContext = ServiceRequestContextProvider.Current
+            ?? ServiceRequestContext.CreateServiceContext(ServicePID, _serviceSecret!);
 
         return _messageQueue.SendMethodInvocationAsync(protocolId, args, authContext, cancellationToken);
     }
@@ -108,9 +108,9 @@ public abstract class ConcurrentServiceBase : IService, IPulseHub
     /// <summary>
     /// 获取当前调用者信息
     /// </summary>
-    protected AuthenticationContext GetCurrentCaller()
+    protected IServiceRequestContext GetCurrentCaller()
     {
-        return ServiceAuthenticationContextProvider.RequireCurrent();
+        return ServiceRequestContextProvider.RequireCurrent();
     }
 
     /// <summary>
@@ -118,7 +118,7 @@ public abstract class ConcurrentServiceBase : IService, IPulseHub
     /// </summary>
     protected bool HasPermission(string permission)
     {
-        return ServiceAuthenticationContextProvider.Current?.HasPermission(permission) ?? false;
+        return ServiceRequestContextProvider.Current?.HasPermission(permission) ?? false;
     }
 
     /// <summary>

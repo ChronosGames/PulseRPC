@@ -91,9 +91,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
     private CancellationTokenSource _cancellationTokenSource;
     private volatile bool _isDisposed;
 
-    // 处理任务
-    private Task? _monitoringTask;
-
     #endregion
 
     #region 构造函数和初始化
@@ -203,9 +200,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
         try
         {
-            // TieredMessageProcessor 在构造时自动启动，这里只需要启动性能监控
-            _monitoringTask = RunPerformanceMonitoringAsync(_cancellationTokenSource.Token);
-
             _metrics.EngineStartTime = DateTime.UtcNow;
 
             await _responseProcessor.StartAsync(cancellationToken);
@@ -451,15 +445,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 if (channel is ServerTransportChannel serverChannel)
                 {
                     RequestContext.SetCurrent(serverChannel.Transport);
-
-                    // ✅ 从通道获取认证上下文并设置到 AsyncLocal
-                    var authContext = serverChannel.GetProperty<ServiceAuthenticationContext>("AuthContext");
-                    if (authContext != null)
-                    {
-                        ServiceAuthenticationContextProvider.Current = authContext;
-                        _logger.LogTrace("已设置认证上下文: ConnectionId={ConnectionId}, CallerId={CallerId}",
-                            envelope.ConnectionId, authContext.CallerId);
-                    }
                 }
 
                 // 🔐 权限检查现在由源代码生成器生成的代理类处理
@@ -494,7 +479,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 {
                     // ✅ 清理 RequestContext 和 ServiceAuthenticationContext
                     RequestContext.SetCurrent(null);
-                    ServiceAuthenticationContextProvider.Current = null;
                 }
 
                 result = dispatchResult;
@@ -628,55 +612,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
     #region 性能监控
 
     /// <summary>
-    /// 性能监控循环
-    /// </summary>
-    private async Task RunPerformanceMonitoringAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogDebug("性能监控循环启动");
-
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await Task.Delay(60000, cancellationToken); // 每分钟监控一次
-
-                var snapshot = _performanceMonitor.TakeSnapshot();
-
-                // 检查性能目标达成情况
-                CheckPerformanceTargets(snapshot);
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            _logger.LogDebug("性能监控循环已取消");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "性能监控循环异常");
-        }
-    }
-
-    /// <summary>
-    /// 检查性能目标达成情况
-    /// </summary>
-    private void CheckPerformanceTargets(PerformanceSnapshot snapshot)
-    {
-        // 检查吞吐量目标
-        if (snapshot.CurrentThroughput < PerformanceRequirements.TARGET_THROUGHPUT * 0.8) // 允许20%偏差
-        {
-            _logger.LogWarning("吞吐量低于目标: Current={Current:N1}, Target={Target}",
-                snapshot.CurrentThroughput, PerformanceRequirements.TARGET_THROUGHPUT);
-        }
-
-        // 检查延迟目标
-        if (snapshot.P99LatencyMs > PerformanceRequirements.TARGET_P99_LATENCY_MS)
-        {
-            _logger.LogWarning("P99延迟超过目标: Current={Current}ms, Target={Target}ms",
-                snapshot.P99LatencyMs, PerformanceRequirements.TARGET_P99_LATENCY_MS);
-        }
-    }
-
-    /// <summary>
     /// 获取引擎统计信息
     /// </summary>
     public EngineStatistics GetStatistics()
@@ -737,21 +672,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         await _cancellationTokenSource.CancelAsync();
 
         await _responseProcessor.StopAsync();
-
-        // 等待处理任务完成
-        var stopTasks = new List<Task>();
-        if (_monitoringTask != null) stopTasks.Add(_monitoringTask);
-
-        try
-        {
-            await Task.WhenAll(stopTasks).WaitAsync(TimeSpan.FromSeconds(10));
-        }
-        catch (TimeoutException)
-        {
-            _logger.LogWarning("引擎停止超时");
-        }
-
-        // 注意：调度器现在由TieredMessageProcessor管理，不需要手动停止
 
         _logger.LogInformation("HighPerformanceMessageEngine已停止");
     }

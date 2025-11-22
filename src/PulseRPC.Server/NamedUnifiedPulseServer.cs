@@ -5,7 +5,7 @@ using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Integration;
 using PulseRPC.Server.MessageEngine;
 using PulseRPC.Server.Transport;
-using TransportContext = System.Net.TransportContext;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Server;
 

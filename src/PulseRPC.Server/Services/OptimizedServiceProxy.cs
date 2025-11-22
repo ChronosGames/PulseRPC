@@ -45,7 +45,7 @@ public sealed class OptimizedServiceProxy
         PID targetPID,
         ProtocolId protocolId,
         object?[] args,
-        ServiceAuthenticationContext callerContext,
+        IServiceRequestContext callerContext,
         CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -114,7 +114,7 @@ public sealed class OptimizedServiceProxy
         PID targetPID,
         ProtocolId protocolId,
         object?[] args,
-        ServiceAuthenticationContext callerContext,
+        IServiceRequestContext callerContext,
         CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
