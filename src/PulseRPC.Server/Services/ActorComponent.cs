@@ -3,11 +3,7 @@ using System.Reflection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Authentication;
-
-// 类型别名 - 服务间认证上下文
-using AuthenticationContext = PulseRPC.Server.ServiceAuthenticationContext;
-using AuthenticationContextProvider = PulseRPC.Server.ServiceAuthenticationContextProvider;
+using PulseRPC.Authentication;
 
 namespace PulseRPC.Server;
 
@@ -61,8 +57,8 @@ public abstract class ActorComponent<TActor> where TActor : IComponentHost
     /// <summary>
     /// 获取当前调用者
     /// </summary>
-    protected AuthenticationContext GetCurrentCaller()
-        => AuthenticationContextProvider.RequireCurrent();
+    protected IServiceRequestContext GetCurrentCaller()
+        => ServiceRequestContextProvider.RequireCurrent();
 
     /// <summary>
     /// 获取其他组件

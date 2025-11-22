@@ -421,7 +421,7 @@ public sealed class UnifiedPulseServer : IPulseServer
 
     // === Broadcasting ===
 
-    public Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<System.Net.TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
+    public Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
     {
         return _channelManager.BroadcastAsync(data, cancellationToken);
     }

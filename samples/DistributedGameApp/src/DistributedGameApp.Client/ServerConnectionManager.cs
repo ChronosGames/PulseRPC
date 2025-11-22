@@ -102,7 +102,63 @@ public class ServerConnectionManager : IDisposable
 
         _connections[serverId] = connection;
 
-        // Note: GameHub.LoginAsync 由 GameClient.ConnectToGameServerAsync 调用
+        // ✅ Connection-level 认证（如果提供了 JWT Token）
+        if (!string.IsNullOrEmpty(jwtToken))
+        {
+            _logger.LogInformation("正在进行 Connection-level 认证: {ServerName}", serverName);
+
+            try
+            {
+                // 获取 ConnectionAuthenticationService 代理
+                var authService = await _client.GetServiceAsync<IConnectionAuthenticationService>(
+                    serverId, cancellationToken: cancellationToken);
+
+                if (authService == null)
+                {
+                    _logger.LogError("无法获取 ConnectionAuthenticationService，认证失败");
+                    throw new InvalidOperationException("Unable to get ConnectionAuthenticationService");
+                }
+
+                // 发送认证请求
+                var authRequest = new ConnectionAuthRequest
+                {
+                    AccessToken = jwtToken,
+                    Platform = "Windows", // 可以从环境变量获取
+                    ClientVersion = "1.0.0" // 可以从程序集版本获取
+                };
+
+                var authResponse = await authService.AuthenticateAsync(authRequest);
+
+                if (!authResponse.Success)
+                {
+                    _logger.LogError(
+                        "Connection 认证失败 - ErrorCode: {ErrorCode}, Message: {ErrorMessage}",
+                        authResponse.ErrorCode, authResponse.ErrorMessage);
+
+                    // 认证失败，断开连接
+                    await DisconnectServerAsync(serverId);
+
+                    throw new InvalidOperationException(
+                        $"Authentication failed: {authResponse.ErrorMessage} (Code: {authResponse.ErrorCode})");
+                }
+
+                _logger.LogInformation(
+                    "Connection 认证成功 - UserId: {UserId}, Username: {Username}, Roles: {Roles}",
+                    authResponse.UserId, authResponse.Username, string.Join(", ", authResponse.Roles));
+
+                // 保存认证信息到连接对象
+                connection.UserId = authResponse.UserId;
+                connection.Username = authResponse.Username;
+                connection.Roles = authResponse.Roles;
+                connection.Permissions = authResponse.Permissions;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Connection 认证过程中发生异常");
+                await DisconnectServerAsync(serverId);
+                throw;
+            }
+        }
 
         _logger.LogInformation("成功连接到服务器: {ServerName}", serverName);
         return connection;
@@ -179,7 +235,7 @@ public class ServerConnectionManager : IDisposable
     /// <summary>
     /// 注册事件监听器到指定连接（使用新的双向 RPC API）
     /// </summary>
-    public Task RegisterEventListenerAsync<T>(T eventHandler, string? serverId = null)
+    public Task RegisterEventListenerAsync<T>(T eventHandler, string serverId)
         where T : class, IPulseHub
     {
         var targetServerId = serverId ?? throw new InvalidOperationException("没有活动的服务器连接");
@@ -280,4 +336,31 @@ public class ServerConnection
     /// 用于存储额外的元数据信息（如 BattleId、GuildId 等）
     /// </summary>
     public Dictionary<string, object> Metadata { get; } = new();
+
+    // ========== Connection-level 认证信息 ==========
+
+    /// <summary>
+    /// 用户ID（Connection 认证成功后设置）
+    /// </summary>
+    public string? UserId { get; set; }
+
+    /// <summary>
+    /// 用户名（Connection 认证成功后设置）
+    /// </summary>
+    public string? Username { get; set; }
+
+    /// <summary>
+    /// 用户角色列表（Connection 认证成功后设置）
+    /// </summary>
+    public string[]? Roles { get; set; }
+
+    /// <summary>
+    /// 用户权限列表（Connection 认证成功后设置）
+    /// </summary>
+    public string[]? Permissions { get; set; }
+
+    /// <summary>
+    /// 是否已完成 Connection 认证
+    /// </summary>
+    public bool IsAuthenticated => !string.IsNullOrEmpty(UserId);
 }

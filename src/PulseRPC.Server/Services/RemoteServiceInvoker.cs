@@ -39,7 +39,7 @@ public sealed class RemoteServiceInvoker
         PID targetPID,
         ProtocolId protocolId,
         object?[] args,
-        ServiceAuthenticationContext callerContext,
+        IServiceRequestContext callerContext,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug(
@@ -93,7 +93,7 @@ public sealed class RemoteServiceInvoker
         PID targetPID,
         ProtocolId protocolId,
         object?[] args,
-        ServiceAuthenticationContext callerContext,
+        IServiceRequestContext callerContext,
         CancellationToken cancellationToken = default)
     {
         _logger.LogDebug(

@@ -2,7 +2,7 @@ using System.Net;
 using PulseRPC.Channels;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
-using TransportContext = System.Net.TransportContext;
+using TransportContext = PulseRPC.Transport.TransportContext;
 
 namespace PulseRPC.Server;
 

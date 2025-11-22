@@ -1,9 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-
-// 类型别名
-using AuthenticationContext = PulseRPC.Server.ServiceAuthenticationContext;
-using AuthenticationContextProvider = PulseRPC.Server.ServiceAuthenticationContextProvider;
+using PulseRPC.Server.Authentication;
 
 namespace PulseRPC.Server;
 
@@ -104,15 +101,10 @@ public abstract class YieldingService : IService
         if (_messageQueue == null)
             throw new InvalidOperationException("Service is not properly initialized. SetPID must be called first.");
 
-        // 获取当前认证上下文或创建服务上下文
-        var authContext = AuthenticationContextProvider.Current
-            ?? AuthenticationContext.CreateServiceContext(ServicePID, _serviceSecret!);
-
         var message = new MethodInvocationMessage
         {
             ProtocolId = protocolId,
             Arguments = args,
-            AuthContext = authContext,
             CancellationToken = cancellationToken
         };
 
@@ -125,14 +117,10 @@ public abstract class YieldingService : IService
         if (_messageQueue == null)
             throw new InvalidOperationException("Service is not properly initialized. SetPID must be called first.");
 
-        var authContext = AuthenticationContextProvider.Current
-            ?? AuthenticationContext.CreateServiceContext(ServicePID, _serviceSecret!);
-
         var message = new MethodInvocationMessage
         {
             ProtocolId = protocolId,
             Arguments = args,
-            AuthContext = authContext,
             CancellationToken = cancellationToken,
             ReturnType = typeof(TResult)
         };
@@ -147,9 +135,9 @@ public abstract class YieldingService : IService
     /// <summary>
     /// 获取当前调用者信息
     /// </summary>
-    protected AuthenticationContext GetCurrentCaller()
+    protected IServiceRequestContext GetCurrentCaller()
     {
-        return AuthenticationContextProvider.RequireCurrent();
+        return ServiceRequestContextProvider.RequireCurrent();
     }
 
     /// <summary>
@@ -157,7 +145,7 @@ public abstract class YieldingService : IService
     /// </summary>
     protected bool HasPermission(string permission)
     {
-        var context = AuthenticationContextProvider.Current;
+        var context = ServiceRequestContextProvider.Current;
         return context?.HasPermission(permission) ?? false;
     }
 
@@ -166,7 +154,7 @@ public abstract class YieldingService : IService
     /// </summary>
     protected bool HasRole(string role)
     {
-        var context = AuthenticationContextProvider.Current;
+        var context = ServiceRequestContextProvider.Current;
         return context?.HasRole(role) ?? false;
     }
 

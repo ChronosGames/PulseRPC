@@ -13,12 +13,11 @@ using System.Threading;
 using System.Threading.Tasks;
 
 // 类型别名 - 服务间认证上下文
-using AuthenticationContext = PulseRPC.Server.ServiceAuthenticationContext;
-using AuthenticationContextProvider = PulseRPC.Server.ServiceAuthenticationContextProvider;
+// 使用统一的请求上下文
 
 namespace PulseRPC.Server;
 
-// 认证上下文定义已移至: src/PulseRPC.Server/Authentication/ServiceAuthenticationContext.cs
+// 认证上下文定义已移至: src/PulseRPC.Server/Authentication/ServiceServiceRequestContext.cs
 
 // ========================
 // 2. 认证服务接口
@@ -30,10 +29,10 @@ namespace PulseRPC.Server;
 public interface IAuthenticationService
 {
     /// <summary>验证内部服务认证</summary>
-    Task<AuthenticationContext?> AuthenticateServiceAsync(PID servicePID, string serviceSecret);
+    Task<ServiceRequestContext?> AuthenticateServiceAsync(PID servicePID, string serviceSecret);
 
     /// <summary>验证外部用户Token</summary>
-    Task<AuthenticationContext?> AuthenticateUserAsync(string token);
+    Task<ServiceRequestContext?> AuthenticateUserAsync(string token);
 
     /// <summary>生成服务密钥</summary>
     string GenerateServiceSecret(PID servicePID);
@@ -48,7 +47,7 @@ public interface IAuthenticationService
 public interface IAuthorizationService
 {
     /// <summary>检查是否有权限</summary>
-    Task<bool> CheckPermissionAsync(AuthenticationContext context, string permission);
+    Task<bool> CheckPermissionAsync(ServiceRequestContext context, string permission);
 
     /// <summary>获取用户权限列表</summary>
     Task<HashSet<string>> GetUserPermissionsAsync(string userId);
@@ -84,7 +83,7 @@ public class AuthenticationService : IAuthenticationService
     /// <summary>
     /// 验证内部服务 - 使用共享密钥或证书
     /// </summary>
-    public async Task<AuthenticationContext?> AuthenticateServiceAsync(PID servicePID, string serviceSecret)
+    public async Task<ServiceRequestContext?> AuthenticateServiceAsync(PID servicePID, string serviceSecret)
     {
         try
         {
@@ -93,7 +92,7 @@ public class AuthenticationService : IAuthenticationService
             {
                 _logger.LogDebug("Service authenticated - PID: {PID}", servicePID);
 
-                return AuthenticationContext.CreateServiceContext(servicePID, serviceSecret);
+                return ServiceRequestContext.CreateServiceContext(servicePID, serviceSecret);
             }
 
             _logger.LogWarning("Service authentication failed - PID: {PID}", servicePID);
@@ -109,7 +108,7 @@ public class AuthenticationService : IAuthenticationService
     /// <summary>
     /// 验证外部用户 - JWT Token
     /// </summary>
-    public async Task<AuthenticationContext?> AuthenticateUserAsync(string token)
+    public async Task<ServiceRequestContext?> AuthenticateUserAsync(string token)
     {
         try
         {
@@ -149,7 +148,7 @@ public class AuthenticationService : IAuthenticationService
 
             _logger.LogDebug("User authenticated - UserId: {UserId}, Roles: {Roles}", userId, string.Join(",", roles));
 
-            return AuthenticationContext.CreateUserContext(
+            return ServiceRequestContext.CreateUserContext(
                 userId,
                 token,
                 permissions,
@@ -273,7 +272,7 @@ public abstract class ServiceMessage
     public CancellationToken CancellationToken { get; init; }
 
     /// <summary>认证上下文</summary>
-    public AuthenticationContext? AuthContext { get; set; }
+    public IServiceRequestContext? AuthContext { get; set; }
 
     /// <summary>发送者连接（用于 RequestContext）</summary>
     public IServerTransport? Sender { get; set; }
@@ -386,7 +385,7 @@ public class PermissionValidator
     /// </summary>
     public bool ValidateMethodCall(
         MethodInfo methodInfo,
-        AuthenticationContext? authContext,
+        IServiceRequestContext? authContext,
         out string? errorMessage)
     {
         errorMessage = null;
@@ -646,7 +645,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     public async Task<TResult> SendMethodInvocationAsync<TResult>(
         PulseRPC.Protocol.ProtocolId protocolId,
         object?[] arguments,
-        AuthenticationContext? authContext,
+        IServiceRequestContext? authContext,
         CancellationToken cancellationToken = default)
     {
         var message = new MethodInvocationMessage
@@ -676,7 +675,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     public async Task SendMethodInvocationAsync(
         PulseRPC.Protocol.ProtocolId protocolId,
         object?[] arguments,
-        AuthenticationContext? authContext,
+        IServiceRequestContext? authContext,
         CancellationToken cancellationToken = default)
     {
         var message = new MethodInvocationMessage
@@ -814,7 +813,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
                     try
                     {
                         // 设置认证上下文
-                        using (AuthenticationContextProvider.SetContext(message.AuthContext!))
+                        using (ServiceRequestContextProvider.SetContext(message.AuthContext!))
                         {
                             // 对于方法调用消息，进行权限验证
                             if (message is MethodInvocationMessage methodMsg)
@@ -927,7 +926,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
                 try
                 {
                     // 设置认证上下文
-                    using (AuthenticationContextProvider.SetContext(message.AuthContext!))
+                    using (ServiceRequestContextProvider.SetContext(message.AuthContext!))
                     {
                         // 对于方法调用消息，进行权限验证
                         if (message is MethodInvocationMessage methodMsg)

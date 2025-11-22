@@ -320,10 +320,10 @@ public class GameClient : IDisposable
             // 注册事件监听器（GameEventHandler 实现了多个 Receiver 接口）
             // 新的双向 RPC 架构要求为每个接口单独注册
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
-            await _connectionManager.RegisterEventListenerAsync<IPlayerReceiver>(eventHandler);
-            await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler);
-            await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler);
-            await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IPlayerReceiver>(eventHandler, server.ServerId);
+            await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler, server.ServerId);
+            await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler, server.ServerId);
+            await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler, server.ServerId);
 
             _currentGameServer = server;
 
@@ -604,10 +604,10 @@ public class GameClient : IDisposable
             // 注册事件监听器（GameEventHandler 实现了多个 Receiver 接口）
             // 新的双向 RPC 架构要求为每个接口单独注册
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
-            await _connectionManager.RegisterEventListenerAsync<IPlayerReceiver>(eventHandler);
-            await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler);
-            await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler);
-            await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler);
+            await _connectionManager.RegisterEventListenerAsync<IPlayerReceiver>(eventHandler, serverId);
+            await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler, serverId);
+            await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler, serverId);
+            await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler, serverId);
 
             _currentBattleServer = new ServerInfo
             {

@@ -1203,8 +1203,10 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             _heartbeatTask?.Wait(TimeSpan.FromSeconds(5));
             _sendLock.Dispose();
             _cts.Dispose();
-            ThreadLocalBufferWriter.Dispose();
-            ThreadLocalTempBuffer.Dispose();
+
+            // BUGFIX: 不应该释放静态的 ThreadLocal 变量，它们被所有实例共享
+            // 移除: ThreadLocalBufferWriter.Dispose();
+            // 移除: ThreadLocalTempBuffer.Dispose();
 
             // 释放零拷贝组件
             _responseManager?.Dispose();
