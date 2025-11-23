@@ -382,4 +382,53 @@ public class BattleHub : IBattleHub
     {
         return Task.FromResult(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
     }
+
+    /// <summary>
+    /// 创建战斗房间（内部调用，由 MatchmakingService 使用）
+    /// </summary>
+    public async Task<CreateBattleRoomResponse> CreateBattleRoomAsync(CreateBattleRoomRequest request)
+    {
+        try
+        {
+            _logger.LogInformation("创建战斗房间 - MatchId: {MatchId}, MatchType: {MatchType}, Players: {PlayerCount}",
+                request.MatchId, request.MatchType, request.PlayerIds.Count);
+
+            // 创建战斗房间
+            var battleRoom = await _battleRoomManager.GetOrCreateBattleRoomAsync(request.MatchId);
+
+            if (battleRoom == null)
+            {
+                return new CreateBattleRoomResponse
+                {
+                    Success = false,
+                    Message = "创建战斗房间失败"
+                };
+            }
+
+            // 为每个玩家生成访问令牌
+            // TODO: 在生产环境中应该为每个玩家生成独立的访问令牌
+            var accessToken = Guid.NewGuid().ToString();
+
+            _logger.LogInformation("战斗房间创建成功 - RoomId: {RoomId}", request.MatchId);
+
+            return new CreateBattleRoomResponse
+            {
+                Success = true,
+                Message = "战斗房间创建成功",
+                RoomId = request.MatchId,
+                ServerHost = "localhost", // TODO: 从配置或服务发现获取真实的服务器地址
+                ServerPort = 8082, // TODO: 从配置获取真实的端口
+                AccessToken = accessToken
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "创建战斗房间失败 - MatchId: {MatchId}", request.MatchId);
+            return new CreateBattleRoomResponse
+            {
+                Success = false,
+                Message = $"创建战斗房间失败: {ex.Message}"
+            };
+        }
+    }
 }

@@ -26,6 +26,13 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         // 注册仓储
         services.AddSingleton<GuildRepository>();
 
+        // 注册连接管理和通知服务
+        services.AddSingleton<PlayerConnectionRegistry>();
+        services.AddSingleton<ClientNotificationService>();
+
+        // 注册服务间通信
+        services.AddSingleton<UnifiedServiceClientManager>();
+
         // 添加应用特定服务
         services.AddSingleton<SocialService>();
         services.AddSingleton<GuildService>();
@@ -42,5 +49,9 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 // 不再需要单独的 BackgroundService
 
 var app = builder.Build();
+
+// 初始化 UnifiedServiceClientManager
+var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
+await serviceClientManager.InitializeAsync(DistributedGameApp.BackendServer.Services.Battle.RoutingStrategy.ConsistentHash);
 
 await app.RunAsync();

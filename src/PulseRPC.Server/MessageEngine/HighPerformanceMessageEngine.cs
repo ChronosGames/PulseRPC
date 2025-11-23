@@ -42,6 +42,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
     /// </summary>
     public static class Specifications
     {
+        public const int MAX_L1_ENQUEUE_NS = 100;        // L1入队最大100纳秒
         public const int L1_BUFFER_SIZE = 4096;          // L1缓冲区大小 (2^12)
         public const int L2_QUEUE_CAPACITY = 256;        // L2队列容量
         public const int L3_QUEUE_CAPACITY = 128;        // L3队列容量
@@ -49,22 +50,6 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         public const int MAX_BATCH_INTERVAL_MS = 10;     // 最大批处理间隔
         public const int ADAPTIVE_BATCH_SIZE_MIN = 8;    // 最小批大小
         public const int ADAPTIVE_BATCH_SIZE_MAX = 128;  // 最大批大小
-    }
-
-    /// <summary>
-    /// 性能要求规格 - 确保达成技术规格说明书中的性能目标
-    /// </summary>
-    public static class PerformanceRequirements
-    {
-        public const int MAX_L1_ENQUEUE_NS = 100;        // L1入队最大100纳秒
-        public const int MAX_BATCH_PROCESS_MS = 5;       // 批处理最大5毫秒
-        public const double MIN_CACHE_HIT_RATIO = 0.95;  // 最小缓存命中率95%
-        public const int MAX_GC_PRESSURE_MB_PER_SEC = 10;// 最大GC压力10MB/s
-
-        // 性能目标（基于技术规格说明书）
-        public const int TARGET_THROUGHPUT = 150_000;    // 目标吞吐量150K msgs/sec
-        public const int TARGET_P99_LATENCY_MS = 7;      // 目标P99延迟7ms
-        public const int TARGET_P95_LATENCY_MS = 3;      // 目标P95延迟3ms
     }
 
     #endregion
@@ -128,7 +113,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
             EnableAdaptiveBatching = true,
             EnableDetailedLogging = false,
             NormalMessageDropThreshold = 0.8,
-            CriticalMessageTimeoutUs = PerformanceRequirements.MAX_L1_ENQUEUE_NS / 1000, // 转换为微秒
+            CriticalMessageTimeoutUs = Specifications.MAX_L1_ENQUEUE_NS / 1000, // 转换为微秒
             L2BackpressureWaitMs = Specifications.MIN_BATCH_INTERVAL_MS
         };
 
@@ -139,7 +124,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         _metrics = new EngineMetrics();
         _performanceMonitor = new PerformanceMonitor(_metrics, _logger);
 
-        _logger.LogInformation("HighPerformanceMessageEngine初始化完成: L1Size={L1Size}, 性能目标: {ThroughputTarget} msgs/sec", Specifications.L1_BUFFER_SIZE, PerformanceRequirements.TARGET_THROUGHPUT);
+        _logger.LogInformation("HighPerformanceMessageEngine初始化完成: L1Size={L1Size}", Specifications.L1_BUFFER_SIZE);
 
         _channelManager.ChannelConnected += OnChannelConnected;
         _channelManager.ChannelDisconnected += OnChannelDisconnected;

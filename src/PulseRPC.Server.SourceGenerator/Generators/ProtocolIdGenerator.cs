@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 using PulseRPC.Server.SourceGenerator.Models;
 
+#pragma warning disable RS1035 // Do not use APIs banned by analyzers - needed for backward compatibility
 namespace PulseRPC.Server.SourceGenerator.Generators;
 
 /// <summary>
@@ -13,11 +14,15 @@ namespace PulseRPC.Server.SourceGenerator.Generators;
 public static class ProtocolIdGenerator
 {
     /// <summary>
-    /// 为服务的所有方法生成协议号
+    /// 为服务的所有方法生成协议号（已废弃 - 仅用于向后兼容）
+    /// 新代码应该使用 PulseRPCSourceGenerator.AssignProtocolIdsForIncremental
     /// </summary>
     /// <param name="services">服务模型列表</param>
     /// <param name="context">生成器执行上下文（用于报告冲突）</param>
+    [Obsolete("This method is deprecated. Use the incremental generator version instead.")]
+#pragma warning disable RS1035 // Do not use APIs banned by analyzers
     public static void AssignProtocolIds(List<ServiceModel> services, GeneratorExecutionContext context)
+#pragma warning restore RS1035
     {
         var usedIds = new Dictionary<ushort, (string service, string method)>();
         var manualIds = new HashSet<ushort>();
@@ -34,7 +39,9 @@ public static class ProtocolIdGenerator
                     // 检查手动指定的协议号是否冲突
                     if (usedIds.TryGetValue(method.ProtocolId, out var existing))
                     {
+#pragma warning disable CS0618 // Type or member is obsolete
                         ReportProtocolIdConflict(context, service, method, method.ProtocolId, existing);
+#pragma warning restore CS0618
                     }
                     else
                     {
@@ -138,8 +145,9 @@ public static class ProtocolIdGenerator
     }
 
     /// <summary>
-    /// 报告协议号冲突的诊断信息
+    /// 报告协议号冲突的诊断信息（已废弃 - 保留用于向后兼容）
     /// </summary>
+    [Obsolete("Use SourceProductionContext instead")]
     private static void ReportProtocolIdConflict(
         GeneratorExecutionContext context,
         ServiceModel service,
