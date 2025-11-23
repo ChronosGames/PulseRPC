@@ -148,47 +148,11 @@ public class ClientNotificationService
 /// <summary>
 /// ClientNotificationService 扩展方法 - 提供类型安全的通知方法
 /// </summary>
-public static class ClientNotificationExtensions
+/// <remarks>
+/// 使用 PulseRPC.Generated.ProtocolIds 中生成的协议号常量
+/// </remarks>
+public static partial class ClientNotificationExtensions
 {
-    // 使用方法签名的哈希生成 ProtocolId
-    // 注意：这些值应该与客户端生成的 ProtocolId 一致
-    // 在实际生产环境中，应该使用 SourceGenerator 自动生成
-    private static readonly ushort OnMatchFoundProtocolId = GenerateProtocolId(
-        $"{typeof(IBackendReceiver).FullName}.{nameof(IBackendReceiver.OnMatchFoundAsync)}");
-
-    private static readonly ushort OnMatchCanceledProtocolId = GenerateProtocolId(
-        $"{typeof(IBackendReceiver).FullName}.{nameof(IBackendReceiver.OnMatchCanceledAsync)}");
-
-    /// <summary>
-    /// 简单的协议ID生成（使用 xxHash32 算法的简化版本）
-    /// </summary>
-    private static ushort GenerateProtocolId(string methodSignature)
-    {
-        // 使用简单的哈希算法生成 ProtocolId
-        // 注意：这应该与 PulseRPC SourceGenerator 使用相同的算法
-        var hash = 0u;
-        foreach (var c in methodSignature)
-        {
-            hash = hash * 31 + c;
-        }
-        return (ushort)(hash % 65536);
-    }
-
-    /// <summary>
-    /// 发送匹配成功通知
-    /// </summary>
-    public static Task<bool> NotifyMatchFoundAsync(
-        this ClientNotificationService service,
-        string playerId,
-        DistributedGameApp.Shared.Domain.Matchmaking.MatchFoundNotification notification)
-    {
-        return service.NotifyPlayerAsync(
-            playerId,
-            nameof(IBackendReceiver.OnMatchFoundAsync),
-            OnMatchFoundProtocolId,
-            notification);
-    }
-
     /// <summary>
     /// 批量发送匹配成功通知
     /// </summary>
@@ -200,7 +164,7 @@ public static class ClientNotificationExtensions
         return service.NotifyPlayersAsync(
             playerIds,
             nameof(IBackendReceiver.OnMatchFoundAsync),
-            OnMatchFoundProtocolId,
+            PulseRPC.Generated.ProtocolIdMapping.ProtocolIds.BackendReceiver_OnMatchFoundAsync,
             notification);
     }
 
@@ -215,7 +179,7 @@ public static class ClientNotificationExtensions
         return service.NotifyPlayerAsync(
             playerId,
             nameof(IBackendReceiver.OnMatchCanceledAsync),
-            OnMatchCanceledProtocolId,
+            PulseRPC.Generated.ProtocolIdMapping.ProtocolIds.BackendReceiver_OnMatchCanceledAsync,
             reason);
     }
 }

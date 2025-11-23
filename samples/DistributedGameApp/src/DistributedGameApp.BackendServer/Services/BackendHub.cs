@@ -255,7 +255,7 @@ public class BackendHub : BaseService, IBackendHub, IPulseService
         var caller = GetCurrentCaller();
         var userId = caller.UserId ?? caller.CallerId ?? throw new InvalidOperationException("无法获取用户ID");
         // 从 Claims 中获取 username，如果没有则使用 userId
-        var username = caller.Claims.TryGetValue("username", out var name) ? name : userId;
+        var username = caller.Claims.GetValueOrDefault("username", userId);
         return await _guildService.CheckInAsync(userId, username);
     }
 
@@ -302,9 +302,8 @@ public class BackendHub : BaseService, IBackendHub, IPulseService
         return await _matchmakingService.StartMatchmakingAsync(request);
     }
 
-    public async Task<bool> CancelMatchmakingAsync()
+    public async Task<bool> CancelMatchmakingAsync(string userId)
     {
-        var userId = GetCurrentUserId();
         return await _matchmakingService.CancelMatchmakingAsync(userId);
     }
 

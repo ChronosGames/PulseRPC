@@ -148,10 +148,10 @@ public class BackendServerClient : IAsyncDisposable
                 playerId, connection.ServiceInfo.ServiceId);
 
             // 使用 InvokeAsync 方法调用
-            var result = await connection.InvokeAsync<object?, bool>(
+            var result = await connection.InvokeAsync<string?, bool>(
                 "BackendServer",
                 nameof(IBackendHub.CancelMatchmakingAsync),
-                null);
+                playerId);
 
             if (result)
             {

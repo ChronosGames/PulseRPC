@@ -4,6 +4,7 @@ using DistributedGameApp.Shared.Receivers;
 using Microsoft.Extensions.Logging;
 using MongoDB.Driver.Core.Servers;
 using PulseRPC;
+using DistributedGameApp.Shared.Domain.Guilds;
 
 namespace DistributedGameApp.Client;
 
@@ -27,6 +28,7 @@ namespace DistributedGameApp.Client;
 [PulseClientGeneration(typeof(IChatRoomReceiver))]
 [PulseClientGeneration(typeof(IBattleReceiver))]
 [PulseClientGeneration(typeof(IGameReceiver))]
+[PulseClientGeneration(typeof(IBackendReceiver))]
 public class GameClient : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;
@@ -324,6 +326,7 @@ public class GameClient : IDisposable
             await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler, server.ServerId);
             await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler, server.ServerId);
             await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler, server.ServerId);
+            await _connectionManager.RegisterEventListenerAsync<IBackendReceiver>(eventHandler, server.ServerId);
 
             _currentGameServer = server;
 
@@ -637,6 +640,12 @@ public class GameClient : IDisposable
         string battleId,
         CancellationToken cancellationToken = default)
     {
+        if (_currentCharacterId == null)
+        {
+            _logger.LogWarning("未选择角色，无法加入战斗");
+            return null;
+        }
+
         var battleHub = await _connectionManager.GetHubAsync<IBattleHub>(_currentBattleServer!.ServerId, cancellationToken: cancellationToken);
         if (battleHub == null)
         {
@@ -648,7 +657,9 @@ public class GameClient : IDisposable
         {
             var request = new JoinBattleRequest
             {
-                BattleId = battleId
+                BattleId = battleId,
+                AccessToken = AccessToken!,
+                CharacterId = _currentCharacterId
             };
 
             var battleInfo = await battleHub.JoinBattleAsync(request);
@@ -831,7 +842,7 @@ public class GameClient : IDisposable
     /// <summary>
     /// 游戏事件处理器
     /// </summary>
-    private class GameEventHandler : IPlayerReceiver, IChatRoomReceiver, IBattleReceiver, IGameReceiver
+    private class GameEventHandler : IPlayerReceiver, IChatRoomReceiver, IBattleReceiver, IGameReceiver, IBackendReceiver
     {
         private readonly GameClient _client;
         private readonly ILogger<GameEventHandler> _logger;
@@ -1092,6 +1103,136 @@ public class GameClient : IDisposable
         {
             Console.ForegroundColor = ConsoleColor.Gray;
             Console.WriteLine($"\n[好友] {friendName} 下线了\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        // IBackendReceiver 实现
+        Task IBackendReceiver.OnMatchFoundAsync(DistributedGameApp.Shared.Domain.Matchmaking.MatchFoundNotification notification)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[匹配] 找到对手! 战斗ID: {notification.MatchId}");
+            Console.WriteLine($"       服务器: {notification.BattleServerHost}:{notification.BattleServerPort}");
+            Console.WriteLine($"       队友: {notification.Teammates.Count}, 对手: {notification.Opponents.Count}\n> ");
+            Console.ResetColor();
+
+            // 自动连接到战斗服务器
+            _ = _client.ConnectToBattleServerAsync(
+                notification.BattleRoomId,
+                notification.BattleServerHost,
+                notification.BattleServerPort);
+
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnMatchCanceledAsync(string reason)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"\n[匹配] 匹配已取消: {reason}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnFriendRequestReceivedAsync(DistributedGameApp.Shared.Domain.Social.Friend friend)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"\n[好友] 收到好友请求: {friend.FriendUsername}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnFriendRequestAcceptedAsync(DistributedGameApp.Shared.Domain.Social.Friend friend)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[好友] {friend.FriendUsername} 接受了您的好友请求\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnPrivateMessageReceivedAsync(DistributedGameApp.Shared.Domain.Social.ChatMessage message)
+        {
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine($"\n[私聊] {message.SenderName}: {message.Content}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnWorldMessageReceivedAsync(DistributedGameApp.Shared.Domain.Social.ChatMessage message)
+        {
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.WriteLine($"\n[世界] {message.SenderName}: {message.Content}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnFriendOnlineAsync(string friendUserId, string friendUsername)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[好友] {friendUsername} 上线了\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnFriendOfflineAsync(string friendUserId)
+        {
+            Console.ForegroundColor = ConsoleColor.Gray;
+            Console.WriteLine($"\n[好友] {friendUserId} 下线了\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnGuildInviteReceivedAsync(DistributedGameApp.Shared.Domain.Guilds.Guild guild)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"\n[帮派] 收到帮派邀请: {guild.Name}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnJoinedGuildAsync(DistributedGameApp.Shared.Domain.Guilds.Guild guild)
+        {
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"\n[帮派] 成功加入帮派: {guild.Name}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnLeftGuildAsync(string guildId)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"\n[帮派] 已离开帮派: {guildId}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnGuildMemberJoinedAsync(DistributedGameApp.Shared.Domain.Guilds.GuildMember member)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"\n[帮派] 新成员加入: {member.Username}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnGuildMemberLeftAsync(string userId)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"\n[帮派] 成员离开: {userId}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnGuildMessageReceivedAsync(DistributedGameApp.Shared.Domain.Social.ChatMessage message)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"\n[帮派] {message.SenderName}: {message.Content}\n> ");
+            Console.ResetColor();
+            return Task.CompletedTask;
+        }
+
+        Task IBackendReceiver.OnGuildLevelUpAsync(Guild guild)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"\n[帮派] 帮派升级! {guild.Name} 等级: {guild.Level}\n> ");
             Console.ResetColor();
             return Task.CompletedTask;
         }
