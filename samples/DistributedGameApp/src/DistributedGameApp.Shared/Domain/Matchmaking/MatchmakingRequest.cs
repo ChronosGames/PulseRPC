@@ -28,6 +28,11 @@ public partial class MatchmakingRequest
     /// 等级范围（±）
     /// </summary>
     public int LevelRange { get; set; } = 5;
+
+    /// <summary>
+    /// 玩家等级
+    /// </summary>
+    public int Level { get; set; } = 1;
 }
 
 /// <summary>
@@ -82,6 +87,11 @@ public partial class MatchFoundNotification
     /// 战斗服务器端口
     /// </summary>
     public int BattleServerPort { get; set; }
+
+    /// <summary>
+    /// 访问令牌（用于加入房间）
+    /// </summary>
+    public string AccessToken { get; set; } = string.Empty;
 
     /// <summary>
     /// 队友列表

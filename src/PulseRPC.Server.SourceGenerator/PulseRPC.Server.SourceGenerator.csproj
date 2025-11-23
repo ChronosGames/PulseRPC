@@ -25,7 +25,8 @@
 
     <!-- Unity兼容性设置 -->
     <DevelopmentDependency>true</DevelopmentDependency>
-    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <!-- 禁用 RS1035 和 RS1041 分析器规则以支持向后兼容和 .NET 10 目标框架 -->
+    <NoWarn>$(NoWarn);NU5128;RS1035;RS1041</NoWarn>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 

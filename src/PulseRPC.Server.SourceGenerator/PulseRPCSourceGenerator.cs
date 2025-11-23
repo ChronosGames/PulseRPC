@@ -5,24 +5,79 @@ using PulseRPC.Server.SourceGenerator.Analyzers;
 using PulseRPC.Server.SourceGenerator.Generators;
 using PulseRPC.Server.SourceGenerator.Helpers;
 using PulseRPC.Server.SourceGenerator.Models;
+using System.Collections.Immutable;
 
 namespace PulseRPC.Server.SourceGenerator;
 
 /// <summary>
-/// PulseRPC 主Source Generator - 编译时性能优化核心
+/// PulseRPC 主Source Generator - 编译时性能优化核心（增量生成器版本）
 /// </summary>
 [Generator]
-public class PulseRPCSourceGenerator : ISourceGenerator
+public class PulseRPCSourceGenerator : IIncrementalGenerator
 {
     private const string PulseServerGenerationAttributeName = "PulseServerGenerationAttribute";
 
-    public void Initialize(GeneratorInitializationContext context)
+    public void Initialize(IncrementalGeneratorInitializationContext context)
     {
-        // 注册语法接收器来收集候选接口和类
-        context.RegisterForSyntaxNotifications(() => new ServiceSyntaxReceiver());
+        // 1. 收集候选接口（带有 PulseService 特性或继承 IPulseHub）
+        var candidateInterfaces = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => IsCandidateInterface(node),
+                transform: static (ctx, _) => GetInterfaceDeclaration(ctx))
+            .Where(static i => i != null)
+            .Collect();
+
+        // 2. 收集候选类（带有 PulseServerGeneration 特性）
+        var candidateClasses = context.SyntaxProvider
+            .CreateSyntaxProvider(
+                predicate: static (node, _) => IsCandidateClass(node),
+                transform: static (ctx, _) => GetClassDeclaration(ctx))
+            .Where(static c => c != null)
+            .Collect();
+
+        // 3. 读取 MSBuild 配置：PulseRPC_ServerChannels
+        var channelNames = context.AnalyzerConfigOptionsProvider
+            .Select(static (provider, _) =>
+            {
+                if (provider.GlobalOptions.TryGetValue("build_property.PulseRPC_ServerChannels", out var value))
+                {
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        return value.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                            .Select(s => s.Trim())
+                            .Where(s => !string.IsNullOrEmpty(s))
+                            .ToArray();
+                    }
+                }
+                return Array.Empty<string>();
+            });
+
+        // 4. 获取编译信息（用于程序集扫描）
+        var compilation = context.CompilationProvider;
+
+        // 5. 组合所有数据源
+        var combinedData = candidateInterfaces
+            .Combine(candidateClasses)
+            .Combine(channelNames)
+            .Combine(compilation);
+
+        // 6. 注册主生成逻辑
+        context.RegisterSourceOutput(combinedData, static (spc, source) =>
+        {
+            var (((interfaces, classes), channels), compilation) = source;
+            ExecuteGeneration(spc, interfaces, classes, channels, compilation);
+        });
     }
 
-    public void Execute(GeneratorExecutionContext context)
+    /// <summary>
+    /// 执行代码生成的主逻辑
+    /// </summary>
+    private static void ExecuteGeneration(
+        SourceProductionContext context,
+        ImmutableArray<InterfaceDeclarationSyntax?> candidateInterfaces,
+        ImmutableArray<ClassDeclarationSyntax?> candidateClasses,
+        string[] channelNames,
+        Compilation compilation)
     {
 // #if DEBUG
 //         if (!System.Diagnostics.Debugger.IsAttached)
@@ -33,27 +88,20 @@ public class PulseRPCSourceGenerator : ISourceGenerator
 
         try
         {
-            // 读取 MSBuild 配置：PulseRPC_ServerChannels
-            var channelNames = ReadChannelNamesFromConfig(context);
-
-            // 获取语法接收器
-            if (context.SyntaxReceiver is not ServiceSyntaxReceiver syntaxReceiver)
-                return;
-
             // 分析PulseServerGeneration特性标记的类
             var serviceModels = new List<ServiceModel>();
             var serverGenerationClasses = new List<ClassDeclarationSyntax>();
             var scannedAssemblies = new HashSet<IAssemblySymbol>(SymbolEqualityComparer.Default);
 
             // 收集带有PulseServerGeneration特性的类
-            foreach (var classDeclaration in syntaxReceiver.CandidateClasses)
+            foreach (var classDeclaration in candidateClasses.Where(c => c != null))
             {
-                var semanticModel = context.Compilation.GetSemanticModel(classDeclaration.SyntaxTree);
+                var semanticModel = compilation.GetSemanticModel(classDeclaration!.SyntaxTree);
                 var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
 
                 if (classSymbol != null && HasPulseServerGenerationAttribute(classSymbol))
                 {
-                    serverGenerationClasses.Add(classDeclaration);
+                    serverGenerationClasses.Add(classDeclaration!);
 
                     // 从PulseServerGeneration特性中获取要扫描的类型
                     var typesToScan = GetMarkerTypesFromClass(classSymbol, semanticModel);
@@ -64,7 +112,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                         if (scannedAssemblies.Add(assembly))
                         {
                             // 扫描标记类型所在程序集中的所有服务接口
-                            var assemblyServiceModels = ScanAssemblyForServices(assembly, context.Compilation);
+                            var assemblyServiceModels = ScanAssemblyForServices(assembly, compilation);
 
                             // 去重：只添加不存在的服务模型
                             foreach (var serviceModel in assemblyServiceModels)
@@ -80,12 +128,12 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             }
 
             // 自动扫描直接引用的用户项目程序集（新增功能）
-            var autoScanAssemblies = GetUserProjectAssemblies(context.Compilation);
+            var autoScanAssemblies = GetUserProjectAssemblies(compilation);
             foreach (var assembly in autoScanAssemblies)
             {
                 if (scannedAssemblies.Add(assembly))
                 {
-                    var assemblyServiceModels = ScanAssemblyForServices(assembly, context.Compilation);
+                    var assemblyServiceModels = ScanAssemblyForServices(assembly, compilation);
 
                     foreach (var serviceModel in assemblyServiceModels)
                     {
@@ -98,10 +146,10 @@ public class PulseRPCSourceGenerator : ISourceGenerator
             }
 
             // 分析直接找到的候选接口（向后兼容）
-            foreach (var interfaceDeclaration in syntaxReceiver.CandidateInterfaces)
+            foreach (var interfaceDeclaration in candidateInterfaces.Where(i => i != null))
             {
-                var semanticModel = context.Compilation.GetSemanticModel(interfaceDeclaration.SyntaxTree);
-                var serviceModel = ServiceAnalyzer.AnalyzeInterface(interfaceDeclaration, semanticModel);
+                var semanticModel = compilation.GetSemanticModel(interfaceDeclaration!.SyntaxTree);
+                var serviceModel = ServiceAnalyzer.AnalyzeInterface(interfaceDeclaration!, semanticModel);
 
                 if (serviceModel != null && serviceModels.All(s => s.InterfaceName != serviceModel.InterfaceName))
                 {
@@ -143,8 +191,8 @@ public class PulseRPCSourceGenerator : ISourceGenerator
                 return;
             }
 
-            // 为所有服务方法分配协议号
-            ProtocolIdGenerator.AssignProtocolIds(serviceModels, context);
+            // 为所有服务方法分配协议号 - 需要适配新的上下文
+            AssignProtocolIdsForIncremental(serviceModels, context);
 
             // 生成协议号映射表
             GenerateProtocolIdMapping(context, serviceModels);
@@ -180,9 +228,206 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     }
 
     /// <summary>
+    /// 检查节点是否为候选接口
+    /// </summary>
+    private static bool IsCandidateInterface(SyntaxNode node)
+    {
+        if (node is not InterfaceDeclarationSyntax interfaceDeclaration)
+            return false;
+
+        // 检查特性
+        var hasAttribute = interfaceDeclaration.AttributeLists
+            .SelectMany(al => al.Attributes)
+            .Any(attr =>
+            {
+                var name = attr.Name.ToString();
+                return name.Contains("PulseService") ||
+                       name.Contains("Service") ||
+                       name == "PulseService" ||
+                       name == "PulseServiceAttribute";
+            });
+
+        if (hasAttribute)
+            return true;
+
+        // 检查是否继承IPulseHub接口
+        if (interfaceDeclaration.BaseList?.Types != null)
+        {
+            return interfaceDeclaration.BaseList.Types
+                .Any(baseType =>
+                {
+                    var typeName = baseType.Type.ToString();
+                    return typeName == "IPulseHub" ||
+                           typeName.EndsWith(".IPulseHub") ||
+                           typeName.Contains("IPulseHub");
+                });
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 检查节点是否为候选类
+    /// </summary>
+    private static bool IsCandidateClass(SyntaxNode node)
+    {
+        if (node is not ClassDeclarationSyntax classDeclaration)
+            return false;
+
+        // 检查特性
+        return classDeclaration.AttributeLists
+            .SelectMany(al => al.Attributes)
+            .Any(attr =>
+            {
+                var name = attr.Name.ToString();
+                return name.Contains("PulseServerGeneration") ||
+                       name == "PulseServerGeneration" ||
+                       name == "PulseServerGenerationAttribute";
+            });
+    }
+
+    /// <summary>
+    /// 获取接口声明
+    /// </summary>
+    private static InterfaceDeclarationSyntax? GetInterfaceDeclaration(GeneratorSyntaxContext context)
+    {
+        var interfaceDeclaration = (InterfaceDeclarationSyntax)context.Node;
+        var interfaceSymbol = context.SemanticModel.GetDeclaredSymbol(interfaceDeclaration);
+
+        if (interfaceSymbol == null)
+            return null;
+
+        // 验证是否真的是服务接口
+        var hasAttribute = interfaceSymbol.GetAttributes().Any(attr =>
+            attr.AttributeClass?.Name is "PulseServiceAttribute" or "PulseService");
+
+        var implementsIPulseHub = interfaceSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
+
+        if (hasAttribute || implementsIPulseHub)
+            return interfaceDeclaration;
+
+        return null;
+    }
+
+    /// <summary>
+    /// 获取类声明
+    /// </summary>
+    private static ClassDeclarationSyntax? GetClassDeclaration(GeneratorSyntaxContext context)
+    {
+        var classDeclaration = (ClassDeclarationSyntax)context.Node;
+        var classSymbol = context.SemanticModel.GetDeclaredSymbol(classDeclaration);
+
+        if (classSymbol == null)
+            return null;
+
+        // 验证是否有PulseServerGeneration特性
+        if (HasPulseServerGenerationAttribute(classSymbol))
+            return classDeclaration;
+
+        return null;
+    }
+
+    /// <summary>
+    /// 为增量生成器分配协议号
+    /// </summary>
+    private static void AssignProtocolIdsForIncremental(List<ServiceModel> serviceModels, SourceProductionContext context)
+    {
+        var usedIds = new Dictionary<ushort, (string service, string method)>();
+        var manualIds = new HashSet<ushort>();
+
+        // 第一遍：收集所有手动指定的协议号
+        foreach (var service in serviceModels)
+        {
+            foreach (var method in service.Methods)
+            {
+                if (method.ProtocolId != 0)
+                {
+                    manualIds.Add(method.ProtocolId);
+
+                    // 检查手动指定的协议号是否冲突
+                    if (usedIds.TryGetValue(method.ProtocolId, out var existing))
+                    {
+                        var descriptor = new DiagnosticDescriptor(
+                            "PULSE003",
+                            "Protocol ID conflict detected",
+                            $"Protocol ID 0x{method.ProtocolId:X4} is already used by {existing.service}.{existing.method}. " +
+                            $"Method {service.InterfaceName}.{method.MethodName} cannot use the same protocol ID. " +
+                            $"Please manually specify a different protocol ID using [Protocol(0xXXXX)] attribute.",
+                            "PulseRPC.Server.SourceGenerator",
+                            DiagnosticSeverity.Error,
+                            true);
+
+                        context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+                    }
+                    else
+                    {
+                        usedIds[method.ProtocolId] = (service.InterfaceName, method.MethodName);
+                    }
+                }
+            }
+        }
+
+        // 第二遍：为没有手动指定的方法生成协议号
+        foreach (var service in serviceModels)
+        {
+            foreach (var method in service.Methods)
+            {
+                if (method.ProtocolId == 0)
+                {
+                    var protocolId = GenerateProtocolIdInternal(service, method, usedIds, manualIds);
+                    method.ProtocolId = protocolId;
+                    usedIds[protocolId] = (service.InterfaceName, method.MethodName);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 生成协议号（基于 FNV-1a 哈希）
+    /// </summary>
+    private static ushort GenerateProtocolIdInternal(
+        ServiceModel service,
+        MethodModel method,
+        Dictionary<ushort, (string service, string method)> usedIds,
+        HashSet<ushort> manualIds)
+    {
+        // 构造方法签名字符串
+        var signature = $"{service.InterfaceFullName}.{method.MethodName}({string.Join(",", method.Parameters.Select(p => p.TypeFullName))})";
+
+        // 使用 FNV-1a 哈希生成初始协议号
+        const uint FnvPrime = 0x01000193;
+        const uint FnvOffsetBasis = 0x811C9DC5;
+        var hash = FnvOffsetBasis;
+
+        foreach (var c in signature)
+        {
+            hash ^= c;
+            hash *= FnvPrime;
+        }
+
+        var protocolId = (ushort)(hash & 0xFFFF);
+
+        // 如果冲突，使用线性探测找到下一个可用的协议号
+        var attempts = 0;
+        while (usedIds.ContainsKey(protocolId) || manualIds.Contains(protocolId))
+        {
+            protocolId = (ushort)((protocolId + 1) & 0xFFFF);
+            attempts++;
+
+            if (attempts > 65536)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to generate unique protocol ID for {service.InterfaceName}.{method.MethodName}");
+            }
+        }
+
+        return protocolId;
+    }
+
+    /// <summary>
     /// 生成服务代理类
     /// </summary>
-    private static void GenerateServiceProxy(GeneratorExecutionContext context, ServiceModel serviceModel)
+    private static void GenerateServiceProxy(SourceProductionContext context, ServiceModel serviceModel)
     {
         var sourceText = ServiceProxyGenerator.GenerateSourceText(serviceModel);
         var fileName = $"{serviceModel.InterfaceName.TrimStart('I')}.Proxy.g.cs";
@@ -193,7 +438,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     /// <summary>
     /// 生成全局路由表
     /// </summary>
-    private static void GenerateGlobalRoutingTable(GeneratorExecutionContext context, List<ServiceModel> serviceModels, string[] channelNames)
+    private static void GenerateGlobalRoutingTable(SourceProductionContext context, List<ServiceModel> serviceModels, string[] channelNames)
     {
         var sourceText = RoutingTableGenerator.GenerateSourceText(serviceModels, channelNames);
         context.AddSource("ServiceRoutingTable.g.cs", sourceText);
@@ -202,7 +447,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     /// <summary>
     /// 生成响应序列化器
     /// </summary>
-    private static void GenerateResponseSerializers(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
+    private static void GenerateResponseSerializers(SourceProductionContext context, List<ServiceModel> serviceModels)
     {
         var sourceText = ResponseSerializerGenerator.GenerateSourceText(serviceModels);
         context.AddSource("ResponseSerializers.g.cs", sourceText);
@@ -211,7 +456,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     /// <summary>
     /// 生成协议号映射表
     /// </summary>
-    private static void GenerateProtocolIdMapping(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
+    private static void GenerateProtocolIdMapping(SourceProductionContext context, List<ServiceModel> serviceModels)
     {
         var sourceText = ProtocolIdGenerator.GenerateProtocolIdMappingTable(serviceModels);
         context.AddSource("ProtocolIdMapping.g.cs", sourceText);
@@ -220,7 +465,7 @@ public class PulseRPCSourceGenerator : ISourceGenerator
     /// <summary>
     /// 生成空的协议号映射表（当没有服务时）
     /// </summary>
-    private static void GenerateEmptyProtocolIdMapping(GeneratorExecutionContext context)
+    private static void GenerateEmptyProtocolIdMapping(SourceProductionContext context)
     {
         var code = @"// <auto-generated />
 #nullable enable
@@ -258,7 +503,7 @@ public static class ProtocolIdMapping
     /// <summary>
     /// 报告生成成功信息
     /// </summary>
-    private static void ReportGenerationSuccess(GeneratorExecutionContext context, List<ServiceModel> serviceModels)
+    private static void ReportGenerationSuccess(SourceProductionContext context, List<ServiceModel> serviceModels)
     {
         var totalMethods = serviceModels.Sum(s => s.Methods.Count);
 
@@ -620,115 +865,6 @@ public static class ProtocolIdMapping
         }
 
         return null;
-    }
-
-    /// <summary>
-    /// 从 MSBuild 配置中读取 Channel 名称列表
-    /// </summary>
-    /// <param name="context">生成器执行上下文</param>
-    /// <returns>Channel 名称数组，如果未配置则返回空数组</returns>
-    private static string[] ReadChannelNamesFromConfig(GeneratorExecutionContext context)
-    {
-        // 尝试读取全局配置
-        if (context.AnalyzerConfigOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_ServerChannels", out var channelsValue))
-        {
-            if (!string.IsNullOrWhiteSpace(channelsValue))
-            {
-                // 按分号或逗号分割
-                return channelsValue
-                    .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(s => s.Trim())
-                    .Where(s => !string.IsNullOrEmpty(s))
-                    .ToArray();
-            }
-        }
-
-        // 返回空数组
-        return Array.Empty<string>();
-    }
-}
-
-/// <summary>
-/// 语法接收器 - 收集候选的PulseService接口和PulseServerGeneration类
-/// </summary>
-internal class ServiceSyntaxReceiver : ISyntaxReceiver
-{
-    public List<InterfaceDeclarationSyntax> CandidateInterfaces { get; } = new();
-    public List<ClassDeclarationSyntax> CandidateClasses { get; } = new();
-
-    public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
-    {
-        // 寻找接口声明
-        if (syntaxNode is InterfaceDeclarationSyntax interfaceDeclaration)
-        {
-            // 检查是否有可能是PulseService接口的特征
-            if (HasPotentialPulseServiceAttribute(interfaceDeclaration))
-            {
-                CandidateInterfaces.Add(interfaceDeclaration);
-            }
-        }
-        // 寻找类声明（用于PulseServerGeneration特性）
-        else if (syntaxNode is ClassDeclarationSyntax classDeclaration)
-        {
-            // 检查是否有可能是PulseServerGeneration类的特征
-            if (HasPotentialPulseServerGenerationAttribute(classDeclaration))
-            {
-                CandidateClasses.Add(classDeclaration);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 快速检查接口是否可能有PulseService特性或继承IPulseHub
-    /// </summary>
-    private static bool HasPotentialPulseServiceAttribute(InterfaceDeclarationSyntax interfaceDeclaration)
-    {
-        // 检查特性
-        var hasAttribute = interfaceDeclaration.AttributeLists
-            .SelectMany(al => al.Attributes)
-            .Any(attr =>
-            {
-                var name = attr.Name.ToString();
-                return name.Contains("PulseService") ||
-                       name.Contains("Service") ||
-                       name == "PulseService" ||
-                       name == "PulseServiceAttribute";
-            });
-
-        if (hasAttribute)
-            return true;
-
-        // 检查是否继承IPulseHub接口
-        if (interfaceDeclaration.BaseList?.Types != null)
-        {
-            return interfaceDeclaration.BaseList.Types
-                .Any(baseType =>
-                {
-                    var typeName = baseType.Type.ToString();
-                    return typeName == "IPulseHub" ||
-                           typeName.EndsWith(".IPulseHub") ||
-                           typeName.Contains("IPulseHub");
-                });
-        }
-
-        return false;
-    }
-
-    /// <summary>
-    /// 快速检查类是否可能有PulseServerGeneration特性
-    /// </summary>
-    private static bool HasPotentialPulseServerGenerationAttribute(ClassDeclarationSyntax classDeclaration)
-    {
-        // 检查特性
-        return classDeclaration.AttributeLists
-            .SelectMany(al => al.Attributes)
-            .Any(attr =>
-            {
-                var name = attr.Name.ToString();
-                return name.Contains("PulseServerGeneration") ||
-                       name == "PulseServerGeneration" ||
-                       name == "PulseServerGenerationAttribute";
-            });
     }
 
 }

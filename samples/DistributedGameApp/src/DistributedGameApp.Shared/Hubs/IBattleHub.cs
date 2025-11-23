@@ -72,4 +72,11 @@ public interface IBattleHub : IPulseHub
     /// </summary>
     /// <returns>服务器时间戳</returns>
     Task<long> BattleHeartbeatAsync();
+
+    /// <summary>
+    /// 创建战斗房间（内部调用，由 MatchmakingService 使用）
+    /// </summary>
+    /// <param name="request">创建房间请求</param>
+    /// <returns>房间信息</returns>
+    Task<CreateBattleRoomResponse> CreateBattleRoomAsync(CreateBattleRoomRequest request);
 }
