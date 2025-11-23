@@ -1,5 +1,6 @@
 using DistributedGameApp.Shared.Domain.Matchmaking;
 using DistributedGameApp.Shared.Messages;
+using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
@@ -275,20 +276,18 @@ public class MatchmakingService : BaseService, IPulseService
             }
 
             // 如果凑齐了所需人数，创建匹配
-            if (matched.Count == requiredPlayers)
+            if (matched.Count != requiredPlayers)
             {
-                CreateMatchGroup(matchType, matched);
-                matched.Clear();
+                continue;
+            }
 
-                // 如果剩余玩家还够一组，继续匹配
-                if (tickets.Count - i - 1 >= requiredPlayers)
-                {
-                    continue;
-                }
-                else
-                {
-                    break;
-                }
+            CreateMatchGroup(matchType, matched);
+            matched.Clear();
+
+            // 如果剩余玩家还够一组，继续匹配
+            if (tickets.Count - i - 1 < requiredPlayers)
+            {
+                break;
             }
         }
     }
@@ -334,10 +333,7 @@ public class MatchmakingService : BaseService, IPulseService
 
         // 更新统计
         _totalMatchesCreated++;
-        if (!_matchTypeStats.ContainsKey(matchType))
-        {
-            _matchTypeStats[matchType] = 0;
-        }
+        _matchTypeStats.TryAdd(matchType, 0);
         _matchTypeStats[matchType]++;
 
         Logger.LogInformation(
@@ -355,7 +351,7 @@ public class MatchmakingService : BaseService, IPulseService
         try
         {
             // 调用 BattleServer 创建战斗房间
-            var battleHub = _serviceClientManager.GetHub<DistributedGameApp.Shared.Hubs.IBattleHub>(matchId);
+            var battleHub = _serviceClientManager.GetHub<IBattleHub>(matchId);
             if (battleHub == null)
             {
                 Logger.LogError("无法获取 BattleHub - MatchId: {MatchId}", matchId);
@@ -418,13 +414,13 @@ public class MatchmakingService : BaseService, IPulseService
     {
         // 根据匹配类型分配队伍
         var playersPerTeam = MatchTypePlayerCount[matchType] / 2;
-        var teammates = new List<DistributedGameApp.Shared.Domain.Matchmaking.MatchPlayer>();
-        var opponents = new List<DistributedGameApp.Shared.Domain.Matchmaking.MatchPlayer>();
+        var teammates = new List<MatchPlayer>();
+        var opponents = new List<MatchPlayer>();
 
         for (int i = 0; i < tickets.Count; i++)
         {
             var ticket = tickets[i];
-            var player = new DistributedGameApp.Shared.Domain.Matchmaking.MatchPlayer
+            var player = new MatchPlayer
             {
                 PlayerId = ticket.PlayerId,
                 CharacterName = ticket.CharacterId, // TODO: 从数据库获取真实的角色名

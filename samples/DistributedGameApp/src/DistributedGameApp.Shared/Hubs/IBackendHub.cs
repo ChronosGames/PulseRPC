@@ -86,5 +86,5 @@ public interface IBackendHub : IPulseHub, IGuildHub
     /// <summary>
     /// 取消匹配
     /// </summary>
-    Task<bool> CancelMatchmakingAsync();
+    Task<bool> CancelMatchmakingAsync(string playerId);
 }
