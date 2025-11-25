@@ -72,6 +72,62 @@ public abstract class BaseService : IService
         Options.Validate();
     }
 
+    /// <summary>
+    /// 确保服务已初始化（懒加载初始化）
+    /// 如果通过 SetPID 已经初始化，则直接返回；否则进行简单初始化
+    /// </summary>
+    private void EnsureInitialized()
+    {
+        if (_messageQueue != null)
+            return; // 已经通过 SetPID 初始化
+
+        _stateLock.Wait();
+        try
+        {
+            if (_messageQueue != null)
+                return; // 双重检查
+
+            // 简单初始化：创建一个基本的 PID
+            // 使用 Type 哈希作为 nodeId，随机值作为 sequenceId
+            var nodeId = (ushort)(Math.Abs(GetType().FullName?.GetHashCode() ?? 1) % (ushort.MaxValue - 1) + 1);
+            var sequenceId = (ushort)Random.Shared.Next(1, ushort.MaxValue);
+
+            // 使用反射调用泛型的 CreateSingleton 方法
+            var createSingletonMethod = typeof(PID).GetMethod(
+                nameof(PID.CreateSingleton),
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            var genericMethod = createSingletonMethod!.MakeGenericMethod(GetType());
+            var pid = (PID)genericMethod.Invoke(null, new object[] { nodeId, sequenceId })!;
+
+            ServicePID = pid;
+
+            // 生成服务密钥
+            _serviceSecret = _authenticationService.GenerateServiceSecret(pid);
+
+            // 创建消息队列
+            _messageQueue = new AuthenticatedServiceMessageQueue(
+                GetType().Name,
+                pid,
+                GetType(),
+                Logger,
+                _permissionValidator,
+                capacity: Options.QueueCapacity,
+                maxConcurrency: Options.MaxConcurrency,
+                backpressureStrategy: Options.BackpressureStrategy);
+
+            // 启动消息处理循环
+            _messageQueue.Start(ProcessMessageAsync);
+
+            Logger.LogInformation(
+                "Service auto-initialized (simple mode) - Service: {ServiceName}, PID: {PID}",
+                GetType().Name, pid);
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
     internal void SetPID(PID pid)
     {
         ServicePID = pid;
@@ -98,9 +154,48 @@ public abstract class BaseService : IService
             GetType().Name, pid, Options.MaxConcurrency, Options.BackpressureStrategy);
     }
 
-    // 启动/停止方法（省略）
-    public virtual Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
-    public virtual Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+    // 启动/停止方法
+    public virtual async Task StartAsync(CancellationToken cancellationToken = default)
+    {
+        // 确保服务已初始化（如果还没有初始化的话）
+        EnsureInitialized();
+
+        await _stateLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_isRunning)
+                return;
+
+            _isRunning = true;
+
+            // 调用子类的启动逻辑
+            await OnStartAsync(cancellationToken);
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
+    public virtual async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        await _stateLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (!_isRunning)
+                return;
+
+            _isRunning = false;
+
+            // 调用子类的停止逻辑
+            await OnStopAsync(cancellationToken);
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+    }
+
     protected virtual Task OnStartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     protected virtual Task OnStopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -156,10 +251,25 @@ public abstract class BaseService : IService
         return context?.HasRole(role) ?? false;
     }
 
-    // 定时器方法（省略）
-    protected string ScheduleOnce(TimeSpan delay, Func<Task> callback) => string.Empty;
-    protected string ScheduleRecurring(TimeSpan initialDelay, TimeSpan interval, Func<Task> callback) => string.Empty;
-    protected bool CancelTimer(string timerId) => false;
+    // 定时器方法
+    protected string ScheduleOnce(TimeSpan delay, Func<Task> callback)
+    {
+        EnsureInitialized();
+        return _messageQueue!.ScheduleOnce(delay, callback);
+    }
+
+    protected string ScheduleRecurring(TimeSpan initialDelay, TimeSpan interval, Func<Task> callback)
+    {
+        EnsureInitialized();
+        return _messageQueue!.ScheduleRecurring(initialDelay, interval, callback);
+    }
+
+    protected bool CancelTimer(string timerId)
+    {
+        if (_messageQueue == null)
+            return false;
+        return _messageQueue.CancelTimer(timerId);
+    }
 
     /// <summary>
     /// 获取队列监控指标快照
