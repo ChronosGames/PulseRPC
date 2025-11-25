@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using DistributedGameApp.Infrastructure.MongoDB.Repositories;
+using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Domain.Mail;
 using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Messages;
@@ -29,8 +30,9 @@ public class GameHub : YieldingService, IGameHub
     private readonly AccountRepository _accountRepository;
     private readonly CharacterService _characterService;
     private readonly MailService _mailService;
-    private readonly BackendServerClient _backendServerClient;
+    private readonly UnifiedServiceClientManager _serviceClientManager;
     private readonly IAuthenticationService _authenticationService;
+    private readonly GameServerInternalHub _internalHub;
 
     // 连接ID到玩家ID的映射（参考 ChatHub 的模式）
     private readonly ConcurrentDictionary<string, string> _connectionPlayerMap = new();
@@ -40,7 +42,8 @@ public class GameHub : YieldingService, IGameHub
         AccountRepository accountRepository,
         CharacterService characterService,
         MailService mailService,
-        BackendServerClient backendServerClient,
+        UnifiedServiceClientManager serviceClientManager,
+        GameServerInternalHub internalHub,
         ILogger<GameHub> logger,
         IAuthenticationService authenticationService,
         PermissionValidator permissionValidator)
@@ -50,8 +53,9 @@ public class GameHub : YieldingService, IGameHub
         _accountRepository = accountRepository ?? throw new ArgumentNullException(nameof(accountRepository));
         _characterService = characterService ?? throw new ArgumentNullException(nameof(characterService));
         _mailService = mailService ?? throw new ArgumentNullException(nameof(mailService));
-        _backendServerClient = backendServerClient ?? throw new ArgumentNullException(nameof(backendServerClient));
+        _serviceClientManager = serviceClientManager ?? throw new ArgumentNullException(nameof(serviceClientManager));
         _authenticationService = authenticationService ?? throw new ArgumentNullException(nameof(authenticationService));
+        _internalHub = internalHub ?? throw new ArgumentNullException(nameof(internalHub));
     }
 
     /// <summary>
@@ -115,6 +119,9 @@ public class GameHub : YieldingService, IGameHub
 
             // ✅ 建立会话级认证映射（connectionId → userId）
             _connectionPlayerMap[connectionId] = userId;
+
+            // ✅ 注册到 InternalHub（用于接收 BackendServer 的回调通知）
+            _internalHub.RegisterPlayerConnection(userId, connectionId);
 
             Logger.LogInformation("Session established: UserId={UserId}, ConnectionId={ConnectionId}",
                 userId, connectionId);
@@ -261,11 +268,17 @@ public class GameHub : YieldingService, IGameHub
             Logger.LogInformation("Player {PlayerId} 请求匹配: Mode={Mode}",
                 playerId, request.Mode);
 
-            // 确保 BackendServerClient 已连接
-            if (!_backendServerClient.IsConnected)
+            // 使用 UnifiedServiceClientManager 获取 BackendHub 代理
+            var backendHub = _serviceClientManager.GetHub<IBackendHub>(playerId);
+
+            if (backendHub == null)
             {
-                Logger.LogWarning("BackendServerClient 未连接，尝试初始化...");
-                await _backendServerClient.InitializeAsync();
+                Logger.LogWarning("无法获取 BackendHub 代理: PlayerId={PlayerId}", playerId);
+                return new MatchmakingResponse
+                {
+                    Success = false,
+                    ErrorMessage = "BackendServer 不可用，请稍后重试"
+                };
             }
 
             var backendRequest = new Shared.Domain.Matchmaking.MatchmakingRequest
@@ -276,8 +289,8 @@ public class GameHub : YieldingService, IGameHub
                 LevelRange = 5
             };
 
-            // ✅ await 自动让出队列
-            var backendResponse = await _backendServerClient.StartMatchmakingAsync(backendRequest);
+            // ✅ await 自动让出队列 - 直接调用强类型 Hub 方法
+            var backendResponse = await backendHub.StartMatchmakingAsync(backendRequest);
 
             var response = new MatchmakingResponse
             {
@@ -328,13 +341,17 @@ public class GameHub : YieldingService, IGameHub
             Logger.LogInformation("Player {PlayerId} 取消匹配: TicketId={TicketId}",
                 playerId, ticketId);
 
-            if (!_backendServerClient.IsConnected)
+            // 使用 UnifiedServiceClientManager 获取 BackendHub 代理
+            var backendHub = _serviceClientManager.GetHub<IBackendHub>(playerId);
+
+            if (backendHub == null)
             {
-                Logger.LogWarning("BackendServerClient 未连接，无法取消匹配");
+                Logger.LogWarning("无法获取 BackendHub 代理: PlayerId={PlayerId}", playerId);
                 return false;
             }
 
-            var result = await _backendServerClient.CancelMatchmakingAsync(playerId);
+            // ✅ 直接调用强类型 Hub 方法
+            var result = await backendHub.CancelMatchmakingAsync(playerId);
 
             if (result)
             {

@@ -1,6 +1,7 @@
 using DistributedGameApp.BackendServer.Repositories;
 using DistributedGameApp.BackendServer.Services;
 using DistributedGameApp.Infrastructure.Hosting;
+using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -26,11 +27,8 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         // 注册仓储
         services.AddSingleton<GuildRepository>();
 
-        // 注册连接管理和通知服务
-        services.AddSingleton<PlayerConnectionRegistry>();
-        services.AddSingleton<ClientNotificationService>();
-
-        // 注册服务间通信
+        // 注册服务间通信（通用版）
+        services.AddSingleton<LocalServiceRegistry>();
         services.AddSingleton<UnifiedServiceClientManager>();
 
         // 添加应用特定服务
@@ -38,6 +36,10 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         services.AddSingleton<GuildService>();
         services.AddSingleton<LeaderboardService>();
         services.AddSingleton<MatchmakingService>();
+
+        // ✅ 使用通用的 PulseServiceHostedService 来启动 IPulseService
+        // 这将自动初始化 MatchmakingService 并调用其 OnStartAsync 方法
+        services.AddHostedService<PulseRPC.Server.Services.PulseServiceHostedService<MatchmakingService>>();
 
         // 注册 Hub 服务（必须使用接口 + 实现的方式）
         services.AddSingleton<IBackendHub, BackendHub>();
@@ -50,8 +52,10 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 
 var app = builder.Build();
 
-// 初始化 UnifiedServiceClientManager
+// 初始化 UnifiedServiceClientManager（通用版）
 var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
-await serviceClientManager.InitializeAsync(DistributedGameApp.BackendServer.Services.Battle.RoutingStrategy.ConsistentHash);
+await serviceClientManager.InitializeAsync(
+    new[] { ServerType.Battle, ServerType.Game, },  // BackendServer 主要连接 BattleServer
+    RoutingStrategy.ConsistentHash);
 
 await app.RunAsync();

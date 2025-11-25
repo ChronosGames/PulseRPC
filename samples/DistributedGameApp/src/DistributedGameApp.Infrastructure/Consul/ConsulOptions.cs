@@ -151,7 +151,8 @@ public class ServiceRegistration
             return ExternalEndpoint;
 
         // 向后兼容：如果没有新端点，使用旧字段
-        if (!string.IsNullOrEmpty(Host) && TcpPort > 0)
+        // 但如果明确要求内网端点，且没有内网端点时，不应回退到外网端口
+        if (!preferInternal && !string.IsNullOrEmpty(Host) && TcpPort > 0)
         {
             return new NetworkEndpoint
             {

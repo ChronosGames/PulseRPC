@@ -1,6 +1,7 @@
 using DistributedGameApp.BattleServer.Services;
 using DistributedGameApp.Infrastructure.Authentication;
 using DistributedGameApp.Infrastructure.Hosting;
+using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,6 +43,10 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
                 logger);
         });
 
+        // 注册服务间通信（通用版）
+        services.AddSingleton<LocalServiceRegistry>();
+        services.AddSingleton<UnifiedServiceClientManager>();
+
         // 添加连接上下文管理器
         services.AddSingleton<BattleConnectionContext>();
 
@@ -54,5 +59,11 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 });
 
 var app = builder.Build();
+
+// 初始化 UnifiedServiceClientManager（通用版）
+var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
+await serviceClientManager.InitializeAsync(
+    new[] { ServerType.Game, ServerType.Backend },  // BackendServer 主要连接 BattleServer
+    RoutingStrategy.ConsistentHash);
 
 await app.RunAsync();

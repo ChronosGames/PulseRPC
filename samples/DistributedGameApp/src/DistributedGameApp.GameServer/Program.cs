@@ -1,9 +1,9 @@
 using DistributedGameApp.GameServer;
 using DistributedGameApp.GameServer.Authentication;
 using DistributedGameApp.GameServer.Services;
-using DistributedGameApp.GameServer.Services.Backend;
 using DistributedGameApp.Infrastructure.Consul;
 using DistributedGameApp.Infrastructure.Hosting;
+using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,27 +45,12 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
                 logger);
         });
 
-        // 注册 BackendServer 客户端相关服务
+        // 注册服务发现和本地服务注册表
         services.AddSingleton<ConsulServiceDiscovery>();
-        services.AddSingleton<BackendServerConnectionManager>(sp =>
-        {
-            var serviceDiscovery = sp.GetRequiredService<ConsulServiceDiscovery>();
-            var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var configuration = sp.GetRequiredService<IConfiguration>();
+        services.AddSingleton<LocalServiceRegistry>();
 
-            // 从配置读取 ServiceId 和 ClusterSecret
-            var serviceId = configuration.GetValue<string>("ServiceRegistration:ServiceId") ?? "game-server-1";
-            var clusterSecret = configuration.GetValue<string>("ClusterSecret") ?? "";
-
-            return new BackendServerConnectionManager(
-                serviceDiscovery,
-                loggerFactory,
-                "BackendServer",
-                serviceId,
-                clusterSecret);
-        });
-        services.AddSingleton<BackendServerRouter>();
-        services.AddSingleton<BackendServerClient>();
+        // 注册统一服务客户端管理器（强类型 Hub 代理的核心）
+        services.AddSingleton<UnifiedServiceClientManager>();
 
         // 添加应用服务
         services.AddSingleton<CharacterService>();
@@ -73,57 +58,27 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 
         // 注册 Hub 服务（必须使用接口 + 实现的方式）
         services.AddSingleton<IGameHub, GameHub>();
+        services.AddSingleton<IGameServerInternalHub, GameServerInternalHub>();
 
-        // 添加后台服务：BackendServerClient 初始化
-        services.AddHostedService<BackendServerClientInitializationService>();
+        // 启动 IPulseService
+        services.AddHostedService<PulseRPC.Server.Services.PulseServiceHostedService<GameServerInternalHub>>();
+
+        // 添加后台服务：定期刷新服务列表
+        services.AddSingleton<ServiceDiscoveryRefreshService>(sp =>
+            new ServiceDiscoveryRefreshService(
+                sp.GetRequiredService<UnifiedServiceClientManager>(),
+                sp.GetRequiredService<ILogger<ServiceDiscoveryRefreshService>>(),
+                TimeSpan.FromSeconds(30))); // 每30秒刷新一次
+        services.AddHostedService(sp => sp.GetRequiredService<ServiceDiscoveryRefreshService>());
     }
 });
 
 var app = builder.Build();
 
+// 初始化 UnifiedServiceClientManager（通用版）
+var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
+await serviceClientManager.InitializeAsync(
+    new[] { ServerType.Battle, ServerType.Backend },  // BackendServer 主要连接 BattleServer
+    RoutingStrategy.ConsistentHash);
+
 await app.RunAsync();
-
-/// <summary>
-/// BackendServerClient 初始化后台服务
-/// </summary>
-public class BackendServerClientInitializationService : BackgroundService
-{
-    private readonly BackendServerClient _backendServerClient;
-    private readonly ILogger<BackendServerClientInitializationService> _logger;
-
-    public BackendServerClientInitializationService(
-        BackendServerClient backendServerClient,
-        ILogger<BackendServerClientInitializationService> logger)
-    {
-        _backendServerClient = backendServerClient;
-        _logger = logger;
-    }
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        try
-        {
-            // 注册 Channel 到接口映射（用于正确计算 ProtocolId）
-            PulseRPC.Client.ProtocolIdHelper.RegisterChannelMapping(
-                "BackendServer",
-                "DistributedGameApp.Shared.Hubs.IBackendHub");
-
-            // 等待一段时间确保服务器已启动
-            await Task.Delay(2000, stoppingToken);
-
-            _logger.LogInformation("正在初始化 BackendServerClient...");
-
-            // 初始化客户端连接
-            await _backendServerClient.InitializeAsync(stoppingToken);
-
-            _logger.LogInformation("BackendServerClient 初始化完成");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "BackendServerClient 初始化失败");
-        }
-
-        // 保持运行
-        await Task.Delay(Timeout.Infinite, stoppingToken);
-    }
-}

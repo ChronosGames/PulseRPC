@@ -38,7 +38,7 @@ public partial class GetDataRequest
 }";
 
         var compilation = CreateCompilation(sourceCode);
-        var generator = new Pul();
+        var generator = new PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator();
 
         // Act
         var driver = CSharpGeneratorDriver.Create(generator);
