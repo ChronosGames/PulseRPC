@@ -1,15 +1,23 @@
-using DistributedGameApp.GameServer.Services.Backend;
 using DistributedGameApp.Infrastructure.Consul;
-using DistributedGameApp.Infrastructure.ServiceClient;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Authentication;
 using System.Collections.Concurrent;
-using InfraServerType = DistributedGameApp.Infrastructure.ServiceClient.ServerType;
 
-namespace DistributedGameApp.GameServer.Services.Generic;
+namespace DistributedGameApp.Infrastructure.ServiceClient;
 
 /// <summary>
-/// 统一服务客户端管理器 - 支持多种服务类型的路由和管理
+/// 统一服务客户端管理器 - Infrastructure 通用版本
 /// </summary>
+/// <remarks>
+/// 统一的服务间通信管理器，支持所有服务类型间的通信：
+/// - GameServer ↔ BackendServer
+/// - GameServer ↔ BattleServer
+/// - BackendServer ↔ BattleServer
+/// - BattleServer ↔ GameServer
+/// - BattleServer ↔ BackendServer
+///
+/// 所有服务共享此实现，无需各自维护连接管理逻辑
+/// </remarks>
 public class UnifiedServiceClientManager : IAsyncDisposable
 {
     private readonly ConsulServiceDiscovery _serviceDiscovery;
@@ -17,9 +25,10 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     private readonly ILogger<UnifiedServiceClientManager> _logger;
     private readonly HubTypeRegistry _hubTypeRegistry;
     private readonly LocalServiceRegistry _localServiceRegistry;
+    private readonly IAuthenticationProvider? _authenticationProvider;
 
     // 每种服务类型一个连接管理器 + 路由器
-    private readonly ConcurrentDictionary<ServerType, (BackendServerConnectionManager Manager, BackendServerRouter Router)> _serverManagers = new();
+    private readonly ConcurrentDictionary<ServerType, (ServiceConnectionManager Manager, ServiceRouter Router)> _serverManagers = new();
 
     private bool _isInitialized;
     private bool _isDisposed;
@@ -27,11 +36,13 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     public UnifiedServiceClientManager(
         ConsulServiceDiscovery serviceDiscovery,
         ILoggerFactory loggerFactory,
-        LocalServiceRegistry localServiceRegistry)
+        LocalServiceRegistry localServiceRegistry,
+        IAuthenticationProvider? authenticationProvider = null)
     {
         _serviceDiscovery = serviceDiscovery ?? throw new ArgumentNullException(nameof(serviceDiscovery));
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _localServiceRegistry = localServiceRegistry ?? throw new ArgumentNullException(nameof(localServiceRegistry));
+        _authenticationProvider = authenticationProvider;
         _logger = loggerFactory.CreateLogger<UnifiedServiceClientManager>();
         _hubTypeRegistry = new HubTypeRegistry();
         InitializeHubTypeRegistry();
@@ -46,17 +57,24 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IBackendHub>("BackendServer");
         _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IBattleHub>("BattleServer");
         _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGameHub>("GameServer");
-        // IGuildHub 已合并到 BackendServer（IBackendHub 继承了 IGuildHub）
         _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGuildHub>("BackendServer");
-        // 可以在这里继续添加其他 Hub 类型映射
     }
 
     /// <summary>
     /// 注册服务类型
     /// </summary>
+    /// <param name="serverType">服务器类型</param>
+    /// <param name="strategy">路由策略</param>
+    /// <param name="maxRetries">最大重试次数（默认3次）</param>
+    /// <param name="retryDelayMs">重试延迟（默认1000ms）</param>
+    /// <param name="allowEmpty">是否允许服务列表为空（默认true，允许稍后动态发现）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     public async Task RegisterServerTypeAsync(
         ServerType serverType,
         RoutingStrategy strategy = RoutingStrategy.ConsistentHash,
+        int maxRetries = 3,
+        int retryDelayMs = 1000,
+        bool allowEmpty = true,
         CancellationToken cancellationToken = default)
     {
         if (_serverManagers.ContainsKey(serverType))
@@ -70,17 +88,24 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         // 获取服务类型名称（用于 Consul 服务发现）
         var serviceName = serverType.GetServiceName();
 
-        // 创建连接管理器（传入服务类型名称）
-        var manager = new BackendServerConnectionManager(_serviceDiscovery, _loggerFactory, serviceName);
+        // 创建连接管理器
+        var manager = new ServiceConnectionManager(
+            _serviceDiscovery,
+            _loggerFactory,
+            serviceName,
+            _authenticationProvider);
 
         // 创建路由器
-        var routerLogger = _loggerFactory.CreateLogger<BackendServerRouter>();
-        var router = new BackendServerRouter(manager, routerLogger, strategy);
+        var routerLogger = _loggerFactory.CreateLogger<ServiceRouter>();
+        var router = new ServiceRouter(manager, routerLogger, strategy);
 
-        // 初始化连接管理器
-        await manager.InitializeAsync(cancellationToken);
+        // 初始化连接管理器（带重试）
+        await manager.InitializeAsync(maxRetries, retryDelayMs, allowEmpty, cancellationToken);
 
         _serverManagers[serverType] = (manager, router);
+
+        // ✅ 标记为已初始化（允许单独注册服务类型而不调用 InitializeAsync）
+        _isInitialized = true;
 
         _logger.LogInformation("服务类型注册完成: {ServerType}, 连接数: {Count}",
             serverType, manager.ConnectionCount);
@@ -89,9 +114,18 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// <summary>
     /// 初始化（注册所有服务类型）
     /// </summary>
+    /// <param name="serverTypes">要注册的服务类型数组</param>
+    /// <param name="strategy">路由策略</param>
+    /// <param name="maxRetries">最大重试次数（默认3次）</param>
+    /// <param name="retryDelayMs">重试延迟（默认1000ms）</param>
+    /// <param name="allowEmpty">是否允许服务列表为空（默认true）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     public async Task InitializeAsync(
         ServerType[] serverTypes,
         RoutingStrategy strategy = RoutingStrategy.ConsistentHash,
+        int maxRetries = 3,
+        int retryDelayMs = 1000,
+        bool allowEmpty = true,
         CancellationToken cancellationToken = default)
     {
         if (_isInitialized)
@@ -103,7 +137,8 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         _logger.LogInformation("初始化 UnifiedServiceClientManager，服务类型: {Types}", string.Join(", ", serverTypes));
 
         // 并行注册所有服务类型
-        var tasks = serverTypes.Select(st => RegisterServerTypeAsync(st, strategy, cancellationToken));
+        var tasks = serverTypes.Select(st =>
+            RegisterServerTypeAsync(st, strategy, maxRetries, retryDelayMs, allowEmpty, cancellationToken));
         await Task.WhenAll(tasks);
 
         _isInitialized = true;
@@ -111,11 +146,12 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     }
 
     /// <summary>
-    /// 获取服务连接（通用路由接口）
+    /// 获取服务连接（通用路由接口）- 带自动重试和刷新
     /// </summary>
     /// <param name="serverType">服务器类型</param>
-    /// <param name="shardId">分片ID（通常是 UserId/PlayerId）</param>
-    public IServiceConnection? GetServer(ServerType serverType, string shardId)
+    /// <param name="shardId">分片ID（通常是 UserId/PlayerId/MatchId）</param>
+    /// <param name="autoRefresh">如果没有连接，是否自动刷新服务列表（默认true）</param>
+    public IServiceConnection? GetServer(ServerType serverType, string shardId, bool autoRefresh = true)
     {
         EnsureInitialized();
 
@@ -133,6 +169,29 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         // 使用路由器获取连接
         var connection = router.GetConnection(shardId);
 
+        // 如果没有连接且允许自动刷新，尝试刷新服务列表
+        if (connection == null && autoRefresh && manager.ConnectionCount == 0)
+        {
+            _logger.LogInformation("未找到可用连接，尝试刷新服务列表: ServerType={ServerType}", serverType);
+
+            // 使用 Task.Run 避免阻塞当前线程
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await manager.RefreshServicesAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "自动刷新服务列表失败: ServerType={ServerType}", serverType);
+                }
+            });
+
+            _logger.LogWarning("无法获取服务连接（已触发后台刷新）: ServerType={ServerType}, ShardId={ShardId}",
+                serverType, shardId);
+            return null;
+        }
+
         if (connection == null)
         {
             _logger.LogWarning("无法获取服务连接: ServerType={ServerType}, ShardId={ShardId}",
@@ -140,7 +199,24 @@ public class UnifiedServiceClientManager : IAsyncDisposable
             return null;
         }
 
-        return new ServerConnectionAdapter(connection);
+        return new ServiceConnectionAdapter(connection);
+    }
+
+    /// <summary>
+    /// 手动刷新指定服务类型的服务列表
+    /// </summary>
+    public async Task RefreshServerTypeAsync(ServerType serverType, CancellationToken cancellationToken = default)
+    {
+        EnsureInitialized();
+
+        if (!_serverManagers.TryGetValue(serverType, out var managerAndRouter))
+        {
+            _logger.LogError("服务类型未注册: {ServerType}", serverType);
+            return;
+        }
+
+        var (manager, _) = managerAndRouter;
+        await manager.RefreshServicesAsync(cancellationToken);
     }
 
     /// <summary>
@@ -159,7 +235,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         var (manager, router) = managerAndRouter;
         var connections = router.GetAllConnections();
 
-        return connections.Select(c => (IServiceConnection)new ServerConnectionAdapter(c)).ToList();
+        return connections.Select(c => (IServiceConnection)new ServiceConnectionAdapter(c)).ToList();
     }
 
     /// <summary>
@@ -206,7 +282,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// 获取 Hub 代理（通过服务ID/分片键路由）
     /// </summary>
     /// <typeparam name="THub">Hub 接口类型</typeparam>
-    /// <param name="serviceId">服务ID/分片键 (如 userId, roomId 等)，为空时使用自动路由</param>
+    /// <param name="serviceId">服务ID/分片键 (如 userId, roomId, matchId 等)，为空时使用自动路由</param>
     /// <returns>Hub 代理实例，可以直接调用 Hub 方法</returns>
     public THub? GetHub<THub>(string serviceId = "") where THub : class
     {
@@ -257,7 +333,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
             return null;
         }
 
-        // ServerConnectionAdapter 实现了 IRemoteInvoker 接口
+        // ServiceConnectionAdapter 实现了 IRemoteInvoker 接口
         if (connection is not IRemoteInvoker invoker)
         {
             _logger.LogError("服务连接不支持 IRemoteInvoker 接口: Hub={HubType}", typeof(THub).Name);
@@ -354,7 +430,6 @@ public class UnifiedServiceClientManager : IAsyncDisposable
             "BattleServer" => ServerType.Battle,
             "GameServer" => ServerType.Game,
             "ChatServer" => ServerType.Chat,
-            // GuildServer 已合并到 BackendServer
             "MailServer" => ServerType.Mail,
             _ => null
         };
@@ -429,13 +504,13 @@ public class UnifiedServiceClientManager : IAsyncDisposable
 }
 
 /// <summary>
-/// 服务连接适配器 - 将 BackendServerConnection 适配为 IServiceConnection / IRemoteInvoker
+/// 服务连接适配器 - 将 ServiceConnection 适配为 IServiceConnection / IRemoteInvoker
 /// </summary>
-internal class ServerConnectionAdapter : IServiceConnection
+internal class ServiceConnectionAdapter : IServiceConnection
 {
-    private readonly BackendServerConnection _connection;
+    private readonly ServiceConnection _connection;
 
-    public ServerConnectionAdapter(BackendServerConnection connection)
+    public ServiceConnectionAdapter(ServiceConnection connection)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
     }
@@ -444,7 +519,7 @@ internal class ServerConnectionAdapter : IServiceConnection
 
     public long RequestCount => _connection.RequestCount;
 
-    public bool IsConnected => _connection.State == Backend.ConnectionState.Connected;
+    public bool IsConnected => _connection.State == ConnectionState.Connected;
 
     public Task<TResponse> InvokeAsync<TRequest, TResponse>(
         string hubName,

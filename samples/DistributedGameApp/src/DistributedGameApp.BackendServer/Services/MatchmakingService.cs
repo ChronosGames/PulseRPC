@@ -1,3 +1,4 @@
+using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Domain.Matchmaking;
 using DistributedGameApp.Shared.Messages;
 using DistributedGameApp.Shared.Hubs;
@@ -34,16 +35,15 @@ public class MatchmakingService : BaseService, IPulseService
     // 匹配类型配置：每种模式需要的玩家数
     private static readonly Dictionary<string, int> MatchTypePlayerCount = new()
     {
-        { "1v1", 2 },
-        { "2v2", 4 },
-        { "3v3", 6 },
-        { "5v5", 10 }
+        { "OneVsOne", 2 },
+        { "TwoVsTwo", 4 },
+        { "ThreeVsThree", 6 },
+        { "FiveVsFive", 10 }
     };
 
     // 等待时间阈值（秒）- 每超过这个阈值，等级范围放宽一倍
     private const int WaitTimeThreshold = 30;
 
-    private readonly ClientNotificationService _notificationService;
     private readonly UnifiedServiceClientManager _serviceClientManager;
 
     // 统计指标
@@ -56,11 +56,9 @@ public class MatchmakingService : BaseService, IPulseService
         ILogger<MatchmakingService> logger,
         IAuthenticationService authenticationService,
         PermissionValidator permissionValidator,
-        ClientNotificationService notificationService,
         UnifiedServiceClientManager serviceClientManager)
         : base(logger, authenticationService, permissionValidator)
     {
-        _notificationService = notificationService;
         _serviceClientManager = serviceClientManager;
     }
 
@@ -98,6 +96,10 @@ public class MatchmakingService : BaseService, IPulseService
                 });
             }
 
+            // 获取调用者信息（来源 GameServer）
+            var caller = GetCurrentCaller();
+            var sourceNodeId = caller.CallerId; // CallerId 通常包含节点信息
+
             // 创建匹配票据
             var ticket = new MatchmakingTicket
             {
@@ -107,7 +109,8 @@ public class MatchmakingService : BaseService, IPulseService
                 MatchType = request.MatchType,
                 LevelRange = request.LevelRange,
                 Level = request.Level,
-                StartTime = DateTime.UtcNow
+                StartTime = DateTime.UtcNow,
+                SourceGameServerNodeId = sourceNodeId
             };
 
             // ✅ 直接 Add（无需 TryAdd，BaseService 保证线程安全）
@@ -116,8 +119,8 @@ public class MatchmakingService : BaseService, IPulseService
             // 更新统计
             _totalMatchRequests++;
 
-            Logger.LogInformation("玩家开始匹配: {PlayerId} - Ticket: {TicketId}, MatchType: {MatchType}",
-                request.PlayerId, ticket.TicketId, request.MatchType);
+            Logger.LogInformation("玩家开始匹配: {PlayerId} - Ticket: {TicketId}, MatchType: {MatchType}, SourceNode: {SourceNode}",
+                request.PlayerId, ticket.TicketId, request.MatchType, sourceNodeId);
 
             return Task.FromResult(new MatchmakingResponse
             {
@@ -380,26 +383,22 @@ public class MatchmakingService : BaseService, IPulseService
             Logger.LogInformation("战斗房间创建成功 - RoomId: {RoomId}, Server: {Host}:{Port}",
                 roomResponse.RoomId, roomResponse.ServerHost, roomResponse.ServerPort);
 
-            // 构造匹配成功通知（使用 BattleServer 返回的真实地址）
+            // 构造匹配成功通知
             var notification = BuildMatchFoundNotification(
                 matchId, matchType, matchedTickets,
                 roomResponse.ServerHost,
                 roomResponse.ServerPort,
                 roomResponse.AccessToken);
 
-            // 通知所有匹配成功的玩家
-            var playerIds = matchedTickets.Select(t => t.PlayerId).ToList();
-            var successCount = await _notificationService.NotifyMatchFoundAsync(playerIds, notification);
-
-            Logger.LogInformation(
-                "匹配通知发送完成 - MatchId: {MatchId}, Total: {Total}, Success: {Success}",
-                matchId, playerIds.Count, successCount);
+            // ✅ 回调通知 GameServer
+            await NotifyGameServersAsync(matchedTickets, notification);
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "发送匹配通知失败 - MatchId: {MatchId}", matchId);
+            Logger.LogError(ex, "创建战斗房间或通知失败 - MatchId: {MatchId}", matchId);
         }
     }
+
 
     /// <summary>
     /// 构造匹配成功通知
@@ -408,9 +407,9 @@ public class MatchmakingService : BaseService, IPulseService
         string matchId,
         string matchType,
         List<MatchmakingTicket> tickets,
-        string battleServerHost = "localhost",
-        int battleServerPort = 8082,
-        string accessToken = "")
+        string battleServerHost,
+        int battleServerPort,
+        string accessToken)
     {
         // 根据匹配类型分配队伍
         var playersPerTeam = MatchTypePlayerCount[matchType] / 2;
@@ -448,6 +447,68 @@ public class MatchmakingService : BaseService, IPulseService
             Teammates = teammates,
             Opponents = opponents
         };
+    }
+
+    /// <summary>
+    /// 通知 GameServer 匹配结果（回调）
+    /// </summary>
+    private async Task NotifyGameServersAsync(
+        List<MatchmakingTicket> matchedTickets,
+        DistributedGameApp.Shared.Domain.Matchmaking.MatchFoundNotification notification)
+    {
+        // 按来源 GameServer 分组
+        var playersByServer = matchedTickets
+            .GroupBy(t => t.SourceGameServerNodeId ?? "unknown")
+            .ToList();
+
+        foreach (var group in playersByServer)
+        {
+            var sourceNodeId = group.Key;
+
+            try
+            {
+                // 获取 GameServer 的内部 Hub 代理
+                var gameServerHub = _serviceClientManager.GetHub<IGameServerInternalHub>(sourceNodeId);
+
+                if (gameServerHub == null)
+                {
+                    Logger.LogWarning("无法获取 GameServerInternalHub 代理: NodeId={NodeId}", sourceNodeId);
+                    continue;
+                }
+
+                // 逐个通知该 GameServer 上的玩家
+                foreach (var ticket in group)
+                {
+                    try
+                    {
+                        var success = await gameServerHub.OnMatchFoundAsync(ticket.PlayerId, notification);
+
+                        if (success)
+                        {
+                            Logger.LogInformation(
+                                "匹配通知已发送 - PlayerId: {PlayerId}, GameServerNode: {NodeId}",
+                                ticket.PlayerId, sourceNodeId);
+                        }
+                        else
+                        {
+                            Logger.LogWarning(
+                                "匹配通知发送失败 - PlayerId: {PlayerId}, GameServerNode: {NodeId}",
+                                ticket.PlayerId, sourceNodeId);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.LogError(ex,
+                            "匹配通知异常 - PlayerId: {PlayerId}, GameServerNode: {NodeId}",
+                            ticket.PlayerId, sourceNodeId);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "获取 GameServerInternalHub 失败 - NodeId: {NodeId}", sourceNodeId);
+            }
+        }
     }
 
     /// <summary>
@@ -499,6 +560,11 @@ public class MatchmakingTicket
     public int LevelRange { get; set; }
     public int Level { get; set; }
     public DateTime StartTime { get; set; }
+
+    /// <summary>
+    /// 来源 GameServer 节点ID（用于回调通知）
+    /// </summary>
+    public string? SourceGameServerNodeId { get; set; }
 }
 
 /// <summary>

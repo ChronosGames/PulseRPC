@@ -1,19 +1,23 @@
 using DistributedGameApp.Infrastructure.Consul;
 using Microsoft.Extensions.Logging;
-using PulseRPC;
+using PulseRPC.Authentication;
 using PulseRPC.Client;
 using PulseRPC.Transport;
 using System.Net.Sockets;
 
-namespace DistributedGameApp.BattleServer.Services.Backend;
+namespace DistributedGameApp.Infrastructure.ServiceClient;
 
 /// <summary>
-/// BackendServer 单连接封装
+/// 通用服务连接封装 - 支持双向 RPC
 /// </summary>
-public class BackendServerConnection : IAsyncDisposable
+/// <remarks>
+/// 统一的连接实现，适用于所有服务间通信（Backend, Battle, Game 等）
+/// </remarks>
+public class ServiceConnection : IAsyncDisposable
 {
     private readonly ServiceRegistration _serviceInfo;
-    private readonly ILogger<BackendServerConnection> _logger;
+    private readonly ILogger<ServiceConnection> _logger;
+    private readonly IAuthenticationProvider? _authenticationProvider;
     private readonly SemaphoreSlim _reconnectLock = new(1, 1);
     private IPulseClient? _client;
     private IClientChannel? _channel;
@@ -53,12 +57,14 @@ public class BackendServerConnection : IAsyncDisposable
     /// </summary>
     public event EventHandler<ConnectionState>? StateChanged;
 
-    public BackendServerConnection(
+    public ServiceConnection(
         ServiceRegistration serviceInfo,
-        ILogger<BackendServerConnection> logger)
+        ILogger<ServiceConnection> logger,
+        IAuthenticationProvider? authenticationProvider = null)
     {
         _serviceInfo = serviceInfo ?? throw new ArgumentNullException(nameof(serviceInfo));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _authenticationProvider = authenticationProvider;
     }
 
     /// <summary>
@@ -67,7 +73,7 @@ public class BackendServerConnection : IAsyncDisposable
     public async Task<bool> ConnectAsync(CancellationToken cancellationToken = default)
     {
         if (_isDisposed)
-            throw new ObjectDisposedException(nameof(BackendServerConnection));
+            throw new ObjectDisposedException(nameof(ServiceConnection));
 
         await _reconnectLock.WaitAsync(cancellationToken);
         try
@@ -77,7 +83,7 @@ public class BackendServerConnection : IAsyncDisposable
                 return true;
             }
 
-            _logger.LogInformation("连接到 BackendServer: {ServiceId} at {Host}:{Port}",
+            _logger.LogInformation("连接到服务: {ServiceId} at {Host}:{Port}",
                 _serviceInfo.ServiceId, _serviceInfo.Host, _serviceInfo.TcpPort);
 
             ChangeState(ConnectionState.Connecting);
@@ -95,7 +101,7 @@ public class BackendServerConnection : IAsyncDisposable
                     ConnectionStrategy.Persistent);
 
                 // 创建客户端
-                _client = new PulseClientBuilder()
+                var builder = new PulseClientBuilder()
                     .AddConnection(descriptor)
                     .WithTransportOptions(TransportType.TCP, new TcpTransportOptions
                     {
@@ -103,8 +109,15 @@ public class BackendServerConnection : IAsyncDisposable
                         NoDelay = true,
                         SendBufferSize = 8192,
                         RecvBufferSize = 8192,
-                    })
-                    .Build();
+                    });
+
+                // 如果提供了认证提供者，配置认证
+                if (_authenticationProvider != null)
+                {
+                    builder.WithAuthentication(_authenticationProvider);
+                }
+
+                _client = builder.Build();
 
                 // 初始化客户端
                 await _client.InitializeAsync(cancellationToken);
@@ -122,12 +135,12 @@ public class BackendServerConnection : IAsyncDisposable
                 // 启动健康检查
                 _healthCheckTask = RunHealthCheckAsync(_cts.Token);
 
-                _logger.LogInformation("成功连接到 BackendServer: {ServiceId}", _serviceInfo.ServiceId);
+                _logger.LogInformation("成功连接到服务: {ServiceId}", _serviceInfo.ServiceId);
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "连接 BackendServer 失败: {ServiceId}", _serviceInfo.ServiceId);
+                _logger.LogError(ex, "连接服务失败: {ServiceId}", _serviceInfo.ServiceId);
                 ChangeState(ConnectionState.Disconnected);
 
                 // 清理资源
@@ -138,74 +151,6 @@ public class BackendServerConnection : IAsyncDisposable
         finally
         {
             _reconnectLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// 断开连接
-    /// </summary>
-    public async Task DisconnectAsync()
-    {
-        await _reconnectLock.WaitAsync();
-        try
-        {
-            if (State == ConnectionState.Disconnected)
-            {
-                return;
-            }
-
-            _logger.LogInformation("断开 BackendServer 连接: {ServiceId}", _serviceInfo.ServiceId);
-
-            ChangeState(ConnectionState.Disconnected);
-            await CleanupAsync();
-        }
-        finally
-        {
-            _reconnectLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// 调用远程方法
-    /// </summary>
-    public async Task<TResponse> InvokeAsync<TRequest, TResponse>(
-        string hubName,
-        string methodName,
-        TRequest? request,
-        CancellationToken cancellationToken = default)
-    {
-        if (_isDisposed)
-            throw new ObjectDisposedException(nameof(BackendServerConnection));
-
-        if (State != ConnectionState.Connected || _channel == null)
-        {
-            throw new InvalidOperationException($"连接未建立: {_serviceInfo.ServiceId}");
-        }
-
-        try
-        {
-            Interlocked.Increment(ref _requestCount);
-
-            var response = await _channel.InvokeAsync<TRequest, TResponse>(
-                hubName,
-                methodName,
-                request,
-                cancellationToken);
-
-            return response;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "调用远程方法失败: {ServiceId}.{HubName}.{MethodName}",
-                _serviceInfo.ServiceId, hubName, methodName);
-
-            // 连接可能已断开，标记为需要重连
-            if (IsConnectionError(ex))
-            {
-                ChangeState(ConnectionState.Disconnected);
-            }
-
-            throw;
         }
     }
 
@@ -302,6 +247,79 @@ public class BackendServerConnection : IAsyncDisposable
                 _serviceInfo.ServiceId, oldState, newState);
 
             StateChanged?.Invoke(this, newState);
+        }
+    }
+
+    /// <summary>
+    /// 调用远程方法 (旧版 API - 保持向后兼容)
+    /// </summary>
+    public async Task<TResponse> InvokeAsync<TRequest, TResponse>(
+        string hubName,
+        string methodName,
+        TRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        if (_isDisposed)
+            throw new ObjectDisposedException(nameof(ServiceConnection));
+
+        if (State != ConnectionState.Connected || _channel == null)
+        {
+            throw new InvalidOperationException($"连接未建立: {_serviceInfo.ServiceId}");
+        }
+
+        try
+        {
+            Interlocked.Increment(ref _requestCount);
+
+            var response = await _channel.InvokeAsync<TRequest, TResponse>(
+                hubName,
+                methodName,
+                request,
+                cancellationToken);
+
+            return response;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "调用远程方法失败: {ServiceId}.{HubName}.{MethodName}",
+                _serviceInfo.ServiceId, hubName, methodName);
+
+            // 连接可能已断开，标记为需要重连
+            if (IsConnectionError(ex))
+            {
+                ChangeState(ConnectionState.Disconnected);
+            }
+
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 获取 Channel 实例
+    /// </summary>
+    public IClientChannel? Channel => _channel;
+
+    /// <summary>
+    /// 断开连接
+    /// </summary>
+    public async Task DisconnectAsync()
+    {
+        await _reconnectLock.WaitAsync();
+        try
+        {
+            if (State == ConnectionState.Disconnected)
+            {
+                return;
+            }
+
+            _logger.LogInformation("断开服务连接: {ServiceId}", _serviceInfo.ServiceId);
+
+            ChangeState(ConnectionState.Disconnected);
+            await CleanupAsync();
+        }
+        finally
+        {
+            _reconnectLock.Release();
         }
     }
 
