@@ -551,7 +551,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
     private readonly Type _actorType;
     private readonly PermissionValidator _permissionValidator;
 
-    private readonly ConcurrentDictionary<string, ServiceTimer> _timers = new();
+    private readonly ConcurrentDictionary<string, ServiceTimer.TimerWrapper> _timers = new();
 
     // 并发控制
     private readonly int _maxConcurrency; // 最大并发度（1 表示单线程模型）
@@ -1047,10 +1047,112 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
         return _actorType;
     }
 
-    // 定时器管理（省略，与之前相同）
-    public string ScheduleOnce(TimeSpan delay, Func<Task> callback) => string.Empty;
-    public string ScheduleRecurring(TimeSpan initialDelay, TimeSpan interval, Func<Task> callback) => string.Empty;
-    public bool CancelTimer(string timerId) => false;
+    // 定时器管理
+    public string ScheduleOnce(TimeSpan delay, Func<Task> callback)
+    {
+        var timerId = Guid.NewGuid().ToString("N");
+
+        // 创建一个 System.Threading.Timer 来延迟执行
+        var timer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                // 将定时器消息添加到优先队列
+                var message = new TimerMessage
+                {
+                    TimerId = timerId,
+                    Callback = callback,
+                    IsRecurring = false
+                };
+                Enqueue(message, PulseRPC.MessagePriority.Normal);
+
+                // 一次性定时器，执行后取消
+                CancelTimer(timerId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in one-time timer callback - TimerId: {TimerId}", timerId);
+            }
+        }, null, delay, Timeout.InfiniteTimeSpan);
+
+        if (_timers.TryAdd(timerId, new ServiceTimer.TimerWrapper(timer)))
+        {
+            _logger.LogDebug("Scheduled one-time timer - TimerId: {TimerId}, Delay: {Delay}ms",
+                timerId, delay.TotalMilliseconds);
+            return timerId;
+        }
+
+        timer.Dispose();
+        _logger.LogWarning("Failed to schedule timer - TimerId: {TimerId}", timerId);
+        return string.Empty;
+    }
+
+    public string ScheduleRecurring(TimeSpan initialDelay, TimeSpan interval, Func<Task> callback)
+    {
+        var timerId = Guid.NewGuid().ToString("N");
+
+        // 创建一个 System.Threading.Timer 来周期性执行
+        var timer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                // 将定时器消息添加到优先队列
+                var message = new TimerMessage
+                {
+                    TimerId = timerId,
+                    Callback = callback,
+                    IsRecurring = true,
+                    Interval = interval
+                };
+                Enqueue(message, PulseRPC.MessagePriority.Normal);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in recurring timer callback - TimerId: {TimerId}", timerId);
+            }
+        }, null, initialDelay, interval);
+
+        if (_timers.TryAdd(timerId, new ServiceTimer.TimerWrapper(timer)))
+        {
+            _logger.LogDebug("Scheduled recurring timer - TimerId: {TimerId}, InitialDelay: {InitialDelay}ms, Interval: {Interval}ms",
+                timerId, initialDelay.TotalMilliseconds, interval.TotalMilliseconds);
+            return timerId;
+        }
+
+        timer.Dispose();
+        _logger.LogWarning("Failed to schedule recurring timer - TimerId: {TimerId}", timerId);
+        return string.Empty;
+    }
+
+    public bool CancelTimer(string timerId)
+    {
+        if (_timers.TryRemove(timerId, out var timerWrapper))
+        {
+            timerWrapper.Dispose();
+            _logger.LogDebug("Timer cancelled - TimerId: {TimerId}", timerId);
+            return true;
+        }
+
+        _logger.LogWarning("Timer not found - TimerId: {TimerId}", timerId);
+        return false;
+    }
+
+    // 内部辅助方法：将消息排入队列
+    private void Enqueue(ServiceMessage message, PulseRPC.MessagePriority priority)
+    {
+        // 设置消息优先级
+        message.Priority = priority;
+
+        var sequence = Interlocked.Increment(ref _sequenceCounter);
+        var priorityMessage = new PriorityServiceMessage(message, sequence);
+
+        lock (_queueLock)
+        {
+            _priorityQueue.Enqueue(priorityMessage, priorityMessage);
+        }
+
+        _signal.Release(); // 通知处理循环有新消息
+    }
 
     public ActorStatistics GetStatistics()
     {

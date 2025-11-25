@@ -202,4 +202,22 @@ internal class ServiceTimer : IAsyncDisposable
             await _systemTimer.DisposeAsync();
         }
     }
+
+    /// <summary>
+    /// 简单的 Timer 包装器，用于统一管理定时器
+    /// </summary>
+    public class TimerWrapper : IDisposable
+    {
+        private readonly Timer _timer;
+
+        public TimerWrapper(Timer timer)
+        {
+            _timer = timer;
+        }
+
+        public void Dispose()
+        {
+            _timer.Dispose();
+        }
+    }
 }
