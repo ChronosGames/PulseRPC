@@ -28,3 +28,4 @@ public class ResponseContext
     /// </summary>
     public CancellationTokenRegistration CancellationRegistration { get; set; }
 }
+

@@ -319,3 +319,4 @@ public interface IScatterGatherTransport
     /// </summary>
     ValueTask<bool> SendBatchAsync(ArraySegment<byte>[] segments, CancellationToken cancellationToken = default);
 }
+

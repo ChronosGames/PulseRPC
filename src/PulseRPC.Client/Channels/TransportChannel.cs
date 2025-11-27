@@ -246,6 +246,80 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     }
 
     /// <summary>
+    /// 发送请求（支持多参数类型的协议号计算）
+    /// </summary>
+    public async ValueTask<TResponse> InvokeAsync<TRequest, TResponse>(
+        string serviceName, string methodName, TRequest request, Type[]? allParameterTypes, CancellationToken cancellationToken = default)
+    {
+        // 优化: 使用预分配的MessageHeader，减少对象分配
+        var header = _messageHeaderPool.Get();
+        try
+        {
+            header.Type = MessageType.Request;
+            header.MessageId = Guid.NewGuid();
+            header.ServiceName = serviceName;
+            header.MethodName = methodName;
+
+            // 计算并设置 ProtocolId (使用与服务端相同的 FNV-1a 算法)
+            // 使用所有参数类型生成正确的签名
+            header.ProtocolId = ProtocolIdHelper.ComputeProtocolId(serviceName, methodName, allParameterTypes);
+
+            // 创建待处理请求
+            var tcs = new TaskCompletionSource<NetworkMessage>();
+            lock (_syncRoot)
+            {
+                _pendingRequests[header.MessageId] = tcs;
+            }
+
+            try
+            {
+                // 优化: 使用零拷贝序列化
+                var success = await SendRequestOptimizedInternal(header, request, cancellationToken);
+                if (!success)
+                {
+                    throw new IOException("发送请求失败");
+                }
+
+                // 等待响应
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeoutCts.CancelAfter(_options.DefaultTimeout);
+
+                NetworkMessage response;
+                try
+                {
+                    response = await tcs.Task.WaitAsync(timeoutCts.Token);
+                }
+                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"请求 {methodName} 超时");
+                }
+
+                // 优化: 直接反序列化，避免中间对象
+                if (typeof(TResponse) == typeof(EmptyResponse))
+                {
+                    return (TResponse)(object)EmptyResponse.Instance;
+                }
+                else
+                {
+                    return DeserializeResponseOptimized<TResponse>(response.Body);
+                }
+            }
+            finally
+            {
+                lock (_syncRoot)
+                {
+                    _pendingRequests.Remove(header.MessageId);
+                }
+            }
+        }
+        finally
+        {
+            // 归还MessageHeader到池中
+            _messageHeaderPool.Return(header);
+        }
+    }
+
+    /// <summary>
     /// 优化的内部发送方法
     /// </summary>
     private async ValueTask<bool> SendRequestOptimizedInternal<TRequest>(

@@ -222,8 +222,9 @@ public static class ProtocolIdGenerator
     }
 
     /// <summary>
-    /// 为接口的所有方法分配协议号
+    /// 为接口的所有方法分配协议号（包括继承的接口方法）
     /// </summary>
+    /// <returns>键为 "{InterfaceFullName}.{MethodName}" 的协议号字典</returns>
     public static Dictionary<string, ushort> AssignProtocolIds(
         INamedTypeSymbol interfaceSymbol,
         SourceProductionContext context)
@@ -232,15 +233,15 @@ public static class ProtocolIdGenerator
         var usedIds = new Dictionary<ushort, (string service, string method)>();
         var manualIds = new HashSet<ushort>();
 
-        var interfaceName = interfaceSymbol.ToDisplayString();
-        var methods = interfaceSymbol.GetMembers()
-            .OfType<IMethodSymbol>()
-            .Where(m => m.DeclaredAccessibility == Accessibility.Public)
-            .ToList();
+        // 收集所有方法（包括继承的接口方法）
+        var methods = GetAllInterfaceMethods(interfaceSymbol).ToList();
 
         // 第一遍：收集所有手动指定的协议号
         foreach (var method in methods)
         {
+            var declaringInterface = method.ContainingType.ToDisplayString();
+            var methodKey = $"{declaringInterface}.{method.Name}";
+
             var manualId = GetManualProtocolId(method);
             if (manualId != 0)
             {
@@ -253,8 +254,8 @@ public static class ProtocolIdGenerator
                 }
                 else
                 {
-                    usedIds[manualId] = (interfaceName, method.Name);
-                    protocolIds[method.Name] = manualId;
+                    usedIds[manualId] = (declaringInterface, method.Name);
+                    protocolIds[methodKey] = manualId;
                 }
             }
         }
@@ -262,7 +263,10 @@ public static class ProtocolIdGenerator
         // 第二遍：为没有手动指定的方法生成协议号
         foreach (var method in methods)
         {
-            if (!protocolIds.ContainsKey(method.Name))
+            var declaringInterface = method.ContainingType.ToDisplayString();
+            var methodKey = $"{declaringInterface}.{method.Name}";
+
+            if (!protocolIds.ContainsKey(methodKey))
             {
                 var protocolId = GenerateProtocolId(method, usedIds, manualIds);
 
@@ -273,13 +277,66 @@ public static class ProtocolIdGenerator
                 }
                 else
                 {
-                    usedIds[protocolId] = (interfaceName, method.Name);
-                    protocolIds[method.Name] = protocolId;
+                    usedIds[protocolId] = (declaringInterface, method.Name);
+                    protocolIds[methodKey] = protocolId;
                 }
             }
         }
 
         return protocolIds;
+    }
+
+    /// <summary>
+    /// 获取接口的所有方法（包括继承的接口方法）
+    /// </summary>
+    private static IEnumerable<IMethodSymbol> GetAllInterfaceMethods(INamedTypeSymbol interfaceSymbol)
+    {
+        var processedMethods = new HashSet<string>();
+
+        // 首先处理当前接口定义的方法
+        foreach (var member in interfaceSymbol.GetMembers())
+        {
+            if (member is IMethodSymbol method && method.DeclaredAccessibility == Accessibility.Public)
+            {
+                var methodKey = GetMethodKey(method);
+                if (processedMethods.Add(methodKey))
+                {
+                    yield return method;
+                }
+            }
+        }
+
+        // 然后处理继承的接口方法（排除 IPulseHub 等基础接口）
+        foreach (var baseInterface in interfaceSymbol.AllInterfaces)
+        {
+            // 跳过 PulseRPC 框架的基础接口
+            if (baseInterface.Name is "IPulseHub" or "IPulseReceiver")
+                continue;
+
+            foreach (var member in baseInterface.GetMembers())
+            {
+                if (member is IMethodSymbol method && method.DeclaredAccessibility == Accessibility.Public)
+                {
+                    var methodKey = GetMethodKey(method);
+                    if (processedMethods.Add(methodKey))
+                    {
+                        yield return method;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 获取方法的唯一键（用于去重）
+    /// </summary>
+    private static string GetMethodKey(IMethodSymbol method)
+    {
+        var paramTypes = string.Join(",", method.Parameters
+            .Where(p => p.Type.ToDisplayString() != "System.Threading.CancellationToken" &&
+                       p.Type.ToDisplayString() != "CancellationToken")
+            .Select(p => p.Type.ToDisplayString()));
+        return $"{method.Name}({paramTypes})";
     }
 }
 

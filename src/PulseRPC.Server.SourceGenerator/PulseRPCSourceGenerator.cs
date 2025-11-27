@@ -1,11 +1,13 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using PulseRPC.Server.SourceGenerator.Analyzers;
 using PulseRPC.Server.SourceGenerator.Generators;
 using PulseRPC.Server.SourceGenerator.Helpers;
 using PulseRPC.Server.SourceGenerator.Models;
 using System.Collections.Immutable;
+using System.Text;
 
 namespace PulseRPC.Server.SourceGenerator;
 
@@ -211,6 +213,41 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
 
             // 报告成功信息
             ReportGenerationSuccess(context, serviceModels);
+
+            // ========== IPulseReceiver 代码生成 ==========
+            // 扫描所有 IPulseReceiver 接口并生成服务端推送代理
+            var receiverModels = new List<ReceiverModel>();
+
+            // 从已扫描的程序集中查找 IPulseReceiver 接口
+            foreach (var assembly in scannedAssemblies)
+            {
+                var assemblyReceivers = ScanAssemblyForReceivers(assembly);
+                receiverModels.AddRange(assemblyReceivers);
+            }
+
+            // 为每个接收器生成代理代码
+            if (receiverModels.Count > 0)
+            {
+                // 为接收器分配协议号
+                AssignReceiverProtocolIds(receiverModels);
+
+                // 为每个接收器生成代理
+                foreach (var receiver in receiverModels)
+                {
+                    GenerateReceiverProxy(context, receiver);
+                }
+
+                // 生成统一的 DI 扩展方法
+                var unifiedExtensions = ReceiverProxyGenerator.GenerateUnifiedDIExtensions(receiverModels);
+                context.AddSource("PulseReceiverServiceExtensions.g.cs", SourceText.From(unifiedExtensions, Encoding.UTF8));
+
+                // 生成接收器协议号映射表
+                var receiverProtocolMapping = ReceiverProxyGenerator.GenerateReceiverProtocolIdMapping(receiverModels);
+                context.AddSource("ReceiverProtocolIdMapping.g.cs", SourceText.From(receiverProtocolMapping, Encoding.UTF8));
+
+                // 报告接收器生成成功
+                ReportReceiverGenerationSuccess(context, receiverModels);
+            }
         }
         catch (Exception ex)
         {
@@ -391,8 +428,13 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         Dictionary<ushort, (string service, string method)> usedIds,
         HashSet<ushort> manualIds)
     {
-        // 构造方法签名字符串
-        var signature = $"{service.InterfaceFullName}.{method.MethodName}({string.Join(",", method.Parameters.Select(p => p.TypeFullName))})";
+        // 构造方法签名字符串 - 排除 CancellationToken 参数（与客户端保持一致）
+        var parameters = method.Parameters
+            .Where(p => p.TypeFullName != "System.Threading.CancellationToken" &&
+                       p.TypeFullName != "CancellationToken")
+            .Select(p => p.TypeFullName);
+
+        var signature = $"{service.InterfaceFullName}.{method.MethodName}({string.Join(",", parameters)})";
 
         // 使用 FNV-1a 哈希生成初始协议号
         const uint FnvPrime = 0x01000193;
@@ -479,7 +521,7 @@ namespace PulseRPC.Generated;
 /// <summary>
 /// Empty protocol ID mapping table (no services found)
 /// </summary>
-public static class ProtocolIdMapping
+public static partial class ProtocolIdMapping
 {
     /// <summary>
     /// Get MethodInfo by protocol ID (always returns null when no services exist)
@@ -676,12 +718,171 @@ public static class ProtocolIdMapping
             return true;
         }
 
-        // TODO: 排除IPulseReceiver接口本身（历史原因）
-        if (typeSymbol.Name is "IPulseReceiver")
+        // 排除 IPulseReceiver 接口（它们有独立的处理逻辑）
+        if (IsReceiverInterface(typeSymbol))
             return false;
 
         // 检查是否实现了IPulseHub接口
         return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
+    }
+
+    /// <summary>
+    /// 检查接口是否为接收器接口（继承 IPulseReceiver）
+    /// </summary>
+    private static bool IsReceiverInterface(INamedTypeSymbol typeSymbol)
+    {
+        // 排除 IPulseReceiver 接口本身
+        if (typeSymbol.Name == "IPulseReceiver")
+            return false;
+
+        // 检查是否直接继承 IPulseReceiver
+        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseReceiver");
+    }
+
+    /// <summary>
+    /// 扫描程序集中的所有接收器接口
+    /// </summary>
+    private static List<ReceiverModel> ScanAssemblyForReceivers(IAssemblySymbol assembly)
+    {
+        var receiverModels = new List<ReceiverModel>();
+
+        foreach (var type in GetAllTypesInAssembly(assembly))
+        {
+            if (type is INamedTypeSymbol namedType &&
+                namedType.TypeKind == TypeKind.Interface &&
+                IsReceiverInterface(namedType))
+            {
+                var receiverModel = CreateReceiverModelFromSymbol(namedType);
+                if (receiverModel != null)
+                {
+                    receiverModels.Add(receiverModel);
+                }
+            }
+        }
+
+        return receiverModels;
+    }
+
+    /// <summary>
+    /// 从符号创建接收器模型
+    /// </summary>
+    private static ReceiverModel? CreateReceiverModelFromSymbol(INamedTypeSymbol typeSymbol)
+    {
+        try
+        {
+            var methods = new List<ReceiverMethodModel>();
+
+            foreach (var member in typeSymbol.GetMembers())
+            {
+                if (member is IMethodSymbol methodSymbol &&
+                    methodSymbol.DeclaredAccessibility == Accessibility.Public &&
+                    methodSymbol.MethodKind == MethodKind.Ordinary)
+                {
+                    var returnType = methodSymbol.ReturnType.ToDisplayString();
+                    var isAsync = IsAsyncMethod(methodSymbol);
+
+                    var method = new ReceiverMethodModel
+                    {
+                        MethodName = methodSymbol.Name,
+                        ReturnTypeName = returnType,
+                        IsAsync = isAsync,
+                        Parameters = methodSymbol.Parameters.Select(p => new ReceiverParameterModel
+                        {
+                            Name = p.Name,
+                            TypeName = p.Type.Name,
+                            TypeFullName = p.Type.ToDisplayString()
+                        }).ToList()
+                    };
+
+                    methods.Add(method);
+                }
+            }
+
+            return new ReceiverModel
+            {
+                InterfaceName = typeSymbol.Name,
+                InterfaceFullName = typeSymbol.ToDisplayString(),
+                Namespace = typeSymbol.ContainingNamespace.ToDisplayString(),
+                Methods = methods
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 为接收器方法分配协议号
+    /// </summary>
+    private static void AssignReceiverProtocolIds(List<ReceiverModel> receivers)
+    {
+        var usedIds = new HashSet<ushort>();
+
+        foreach (var receiver in receivers)
+        {
+            foreach (var method in receiver.Methods)
+            {
+                // 构造方法签名 - 排除 CancellationToken 参数（与客户端保持一致）
+                var parameters = method.Parameters
+                    .Where(p => p.TypeFullName != "System.Threading.CancellationToken" &&
+                               p.TypeFullName != "CancellationToken")
+                    .Select(p => p.TypeFullName);
+
+                var signature = $"{receiver.InterfaceFullName}.{method.MethodName}({string.Join(",", parameters)})";
+
+                // 使用 FNV-1a 哈希生成协议号
+                const uint FnvPrime = 0x01000193;
+                const uint FnvOffsetBasis = 0x811C9DC5;
+                var hash = FnvOffsetBasis;
+
+                foreach (var c in signature)
+                {
+                    hash ^= c;
+                    hash *= FnvPrime;
+                }
+
+                var protocolId = (ushort)(hash & 0xFFFF);
+
+                // 处理冲突
+                while (usedIds.Contains(protocolId))
+                {
+                    protocolId = (ushort)((protocolId + 1) & 0xFFFF);
+                }
+
+                usedIds.Add(protocolId);
+                method.ProtocolId = protocolId;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 生成接收器代理
+    /// </summary>
+    private static void GenerateReceiverProxy(SourceProductionContext context, ReceiverModel receiver)
+    {
+        var sourceText = ReceiverProxyGenerator.GenerateSourceText(receiver);
+        var fileName = $"{receiver.InterfaceName.TrimStart('I')}.ReceiverProxy.g.cs";
+
+        context.AddSource(fileName, sourceText);
+    }
+
+    /// <summary>
+    /// 报告接收器生成成功
+    /// </summary>
+    private static void ReportReceiverGenerationSuccess(SourceProductionContext context, List<ReceiverModel> receivers)
+    {
+        var totalMethods = receivers.Sum(r => r.Methods.Count);
+
+        var descriptor = new DiagnosticDescriptor(
+            "PULSE101",
+            "PulseReceiver source generation completed",
+            $"Generated HubContext proxies for {receivers.Count} receivers with {totalMethods} methods.",
+            "PulseRPC.Server.SourceGenerator",
+            DiagnosticSeverity.Info,
+            true);
+
+        context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
     }
 
     /// <summary>

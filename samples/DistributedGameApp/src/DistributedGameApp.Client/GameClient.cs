@@ -319,14 +319,9 @@ public class GameClient : IDisposable
                 loginResult.PlayerId,
                 !string.IsNullOrEmpty(loginRequest.Ticket) ? "Ticket" : "Account");
 
-            // 注册事件监听器（GameEventHandler 实现了多个 Receiver 接口）
-            // 新的双向 RPC 架构要求为每个接口单独注册
+            // 注册事件监听器（自动注册 GameEventHandler 实现的所有 IPulseReceiver 接口）
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
-            await _connectionManager.RegisterEventListenerAsync<IPlayerReceiver>(eventHandler, server.ServerId);
-            await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler, server.ServerId);
-            await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler, server.ServerId);
-            await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler, server.ServerId);
-            await _connectionManager.RegisterEventListenerAsync<IBackendReceiver>(eventHandler, server.ServerId);
+            _connectionManager.RegisterReceivers(server.ServerId, eventHandler);
 
             _currentGameServer = server;
 
@@ -604,13 +599,9 @@ public class GameClient : IDisposable
                 port,
                 cancellationToken: cancellationToken);
 
-            // 注册事件监听器（GameEventHandler 实现了多个 Receiver 接口）
-            // 新的双向 RPC 架构要求为每个接口单独注册
+            // 注册事件监听器（自动注册 GameEventHandler 实现的所有 IPulseReceiver 接口）
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
-            await _connectionManager.RegisterEventListenerAsync<IPlayerReceiver>(eventHandler, serverId);
-            await _connectionManager.RegisterEventListenerAsync<IChatRoomReceiver>(eventHandler, serverId);
-            await _connectionManager.RegisterEventListenerAsync<IBattleReceiver>(eventHandler, serverId);
-            await _connectionManager.RegisterEventListenerAsync<IGameReceiver>(eventHandler, serverId);
+            _connectionManager.RegisterReceivers(serverId, eventHandler);
 
             _currentBattleServer = new ServerInfo
             {

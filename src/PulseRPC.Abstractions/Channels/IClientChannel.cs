@@ -181,6 +181,17 @@ public interface IClientChannel : IDisposable
     ValueTask<TResponse> InvokeAsync<TRequest, TResponse>(string serviceName, string methodName, TRequest request, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 发送请求（泛型版本，支持多参数类型的协议号计算）
+    /// </summary>
+    /// <param name="serviceName">服务名称（接口全限定名）</param>
+    /// <param name="methodName">方法名</param>
+    /// <param name="request">请求参数</param>
+    /// <param name="allParameterTypes">所有参数类型（用于协议号计算）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    ValueTask<TResponse> InvokeAsync<TRequest, TResponse>(string serviceName, string methodName, TRequest request, Type[]? allParameterTypes, CancellationToken cancellationToken = default)
+        => InvokeAsync<TRequest, TResponse>(serviceName, methodName, request, cancellationToken);
+
+    /// <summary>
     /// 发送事件
     /// </summary>
     Task SendEventAsync<T>(string hubName, string methodName, T eventData, CancellationToken cancellationToken = default);
