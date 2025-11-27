@@ -223,7 +223,13 @@ public class ServerConnectionManager : IDisposable
 
         _logger.LogInformation("正在断开服务器: {ServerName}", connection.ServerName);
 
-        connection.EventSubscription?.Dispose();
+        // 清理所有订阅
+        foreach (var token in connection.EventSubscriptions)
+        {
+            token.Dispose();
+        }
+        connection.EventSubscriptions.Clear();
+
         await _client.DisconnectAsync(serverId);
         connection.IsConnected = false;
 
@@ -233,35 +239,66 @@ public class ServerConnectionManager : IDisposable
     }
 
     /// <summary>
-    /// 注册事件监听器到指定连接（使用新的双向 RPC API）
+    /// 获取指定服务器的客户端通道
     /// </summary>
-    public Task RegisterEventListenerAsync<T>(T eventHandler, string serverId)
-        where T : class, IPulseHub
+    public IClientChannel GetClientChannel(string serverId)
     {
-        var targetServerId = serverId ?? throw new InvalidOperationException("没有活动的服务器连接");
-        if (!_connections.TryGetValue(targetServerId, out var connection))
+        if (!_connections.TryGetValue(serverId, out var connection))
         {
-            throw new InvalidOperationException($"服务器 {targetServerId} 不存在");
+            throw new InvalidOperationException($"服务器 {serverId} 不存在");
+        }
+        return connection.Channel;
+    }
+
+    /// <summary>
+    /// 自动注册对象实现的所有 IPulseReceiver 接口
+    /// </summary>
+    /// <typeparam name="T">实现了一个或多个 IPulseReceiver 接口的类型</typeparam>
+    /// <param name="serverId">服务器ID</param>
+    /// <param name="receiver">接收器实现对象</param>
+    /// <remarks>
+    /// <para>
+    /// 自动检测并注册 receiver 实现的所有 IPulseReceiver 接口（无反射，编译时生成）。
+    /// </para>
+    /// <code>
+    /// // GameEventHandler 实现了 IPlayerReceiver, IChatRoomReceiver 等多个接口
+    /// var handler = new GameEventHandler(this, logger);
+    ///
+    /// // 一行代码自动注册所有实现的 IPulseReceiver 接口
+    /// _connectionManager.RegisterReceivers(serverId, handler);
+    /// </code>
+    /// </remarks>
+    public void RegisterReceivers<T>(string serverId, T receiver) where T : class, IPulseReceiver
+    {
+        if (!_connections.TryGetValue(serverId, out var connection))
+        {
+            throw new InvalidOperationException($"服务器 {serverId} 不存在");
         }
 
-        // 清除旧的订阅
-        connection.EventSubscription?.Dispose();
+        // 调用源代码生成的 RegisterAllReceivers 扩展方法
+        // 自动注册 receiver 实现的所有 IPulseReceiver 接口
+        var tokens = connection.Channel.RegisterAllReceivers(receiver);
+        connection.EventSubscriptions.AddRange(tokens);
 
-        // 使用新的双向 RPC API 注册 Hub
-        // 注意：IClientChannel 实现了 ITransportChannel，可以安全转换
-        var transportChannel = connection.Channel as ITransportChannel
-            ?? throw new InvalidOperationException("Channel does not implement ITransportChannel");
+        _logger.LogInformation("已注册 {Count} 个接收器到服务器: {ServerName}",
+            tokens.Count, connection.ServerName);
+    }
 
-        // 注册 Hub（返回的 token 可用于后续注销）
-        var registrationToken = transportChannel.RegisterHub<T>(eventHandler);
+    /// <summary>
+    /// 清除指定服务器的所有订阅
+    /// </summary>
+    public void ClearSubscriptions(string serverId)
+    {
+        if (_connections.TryGetValue(serverId, out var connection))
+        {
+            foreach (var token in connection.EventSubscriptions)
+            {
+                token.Dispose();
+            }
+            connection.EventSubscriptions.Clear();
 
-        // 保存注册令牌（需要更新 ServerConnection 以支持 IHubRegistrationToken）
-        connection.EventSubscription = registrationToken as ISubscriptionToken;
-
-        _logger.LogInformation("已注册事件监听器到服务器: {ServerName}, Hub类型: {HubType}",
-            connection.ServerName, typeof(T).Name);
-
-        return Task.CompletedTask;
+            _logger.LogDebug("已清除服务器 {ServerName} 的所有订阅", connection.ServerName);
+        }
     }
 
     /// <summary>
@@ -278,7 +315,10 @@ public class ServerConnectionManager : IDisposable
 
         foreach (var connection in _connections.Values)
         {
-            connection.EventSubscription?.Dispose();
+            foreach (var token in connection.EventSubscriptions)
+            {
+                token.Dispose();
+            }
         }
 
         _connections.Clear();
@@ -323,9 +363,9 @@ public class ServerConnection
     public bool IsConnected { get; set; }
 
     /// <summary>
-    /// 事件订阅令牌
+    /// 事件订阅令牌列表（支持多个 IPulseReceiver 接口）
     /// </summary>
-    public ISubscriptionToken? EventSubscription { get; set; }
+    public List<ISubscriptionToken> EventSubscriptions { get; } = new();
 
     /// <summary>
     /// 连接建立时间

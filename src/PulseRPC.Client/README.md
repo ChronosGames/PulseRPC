@@ -218,7 +218,7 @@ var client = new PulseClientBuilder()
 await client.InitializeAsync();
 
 // Dynamic service connection
-var orderConnection = await client.ConnectToServiceAsync("order-service", 
+var orderConnection = await client.ConnectToServiceAsync("order-service",
     new ServiceConnectionOptions
     {
         Strategy = ConnectionStrategy.Session,
@@ -282,7 +282,7 @@ client.Router.RegisterRule(new RoutingRule
     Id = "admin-routing",
     Name = "Route admin requests to premium servers",
     Matcher = (key, context) => context?.Tags.GetValueOrDefault("user_type") == "admin",
-    Selector = (connections, context) => 
+    Selector = (connections, context) =>
         connections.FirstOrDefault(c => c.Descriptor.Tags.GetValueOrDefault("tier") == "premium"),
     Priority = 100
 });
@@ -292,7 +292,7 @@ client.Router.RegisterRule(new RoutingRule
     Id = "region-affinity",
     Name = "Route by geographic region",
     Matcher = (key, context) => !string.IsNullOrEmpty(context?.PreferredRegion),
-    Selector = (connections, context) => 
+    Selector = (connections, context) =>
         connections.FirstOrDefault(c => c.Descriptor.Tags.GetValueOrDefault("region") == context?.PreferredRegion),
     Priority = 50
 });
@@ -355,7 +355,7 @@ var subscription = await client.RegisterEventListenerAsync<ISystemEventHandler>(
 var serviceWatcher = await client.ServiceDiscovery.WatchAsync("payment-service", change =>
 {
     Console.WriteLine($"Service change: {change.ChangeType} for {change.ServiceName}");
-    
+
     if (change.ChangeType == ServiceChangeType.EndpointAdded && change.Endpoint != null)
     {
         // Dynamically add new connection
@@ -487,7 +487,7 @@ new ConnectionDescriptor
     SendBufferSize = 65536
 })
 
-// KCP for low-latency, real-time communication  
+// KCP for low-latency, real-time communication
 .WithTransportOptions(TransportType.Kcp, new TransportOptions
 {
     Kcp = new KcpOptions
@@ -608,17 +608,55 @@ var result = await calculator.AddAsync(5, 3);
 //    - Waits for response via request-response mapping
 //    - Deserializes and returns result
 
-// Event handler interface
-[PulseEventHandler]
-public interface INotificationHandler : IPulseReceiver
+```
+
+### Server Push Reception (IPulseReceiver)
+
+PulseRPC supports server-to-client push messaging through the `IPulseReceiver` interface. This follows [MagicOnion](https://cysharp.github.io/MagicOnion/streaminghub/call-client) design patterns.
+
+#### Define Receiver Interface
+
+```csharp
+// Define what events the client can receive from the server
+public interface IGameReceiver : IPulseReceiver
 {
-    Task OnMessageReceivedAsync(string message);
-    Task OnUserConnectedAsync(string userId);
+    Task OnMatchFoundAsync(MatchFoundNotification notification);
+    Task OnPlayerJoinedAsync(PlayerInfo player);
+    Task OnChatMessageAsync(string sender, string message);
+}
+```
+
+#### Implement and Register Receiver
+
+```csharp
+// Implement the receiver
+public class MyGameReceiver : IGameReceiver
+{
+    public Task OnMatchFoundAsync(MatchFoundNotification notification)
+    {
+        Console.WriteLine($"Match found: {notification.MatchId}");
+        return Task.CompletedTask;
+    }
+
+    public Task OnPlayerJoinedAsync(PlayerInfo player)
+    {
+        Console.WriteLine($"Player joined: {player.Name}");
+        return Task.CompletedTask;
+    }
+
+    public Task OnChatMessageAsync(string sender, string message)
+    {
+        Console.WriteLine($"[{sender}]: {message}");
+        return Task.CompletedTask;
+    }
 }
 
-// Event handler registration
-var handler = new NotificationHandler();
-var subscription = await client.RegisterEventListenerAsync<INotificationHandler>(handler);
+// Register receiver on the client channel
+var receiver = new MyGameReceiver();
+var subscription = channel.RegisterReceiver(receiver);
+
+// Unregister when done
+subscription.Dispose();
 ```
 
 ## Enterprise Integration
@@ -647,12 +685,12 @@ services.AddSingleton<IPulseClient>(provider =>
 public class OrderController : ControllerBase
 {
     private readonly IPulseClient _client;
-    
+
     public OrderController(IPulseClient client)
     {
         _client = client;
     }
-    
+
     public async Task<IActionResult> GetOrder(int id)
     {
         var orderService = await _client.GetServiceAsync<IOrderService>();
@@ -681,7 +719,7 @@ client.Registry.ConnectionRegistered += (sender, args) =>
 {
     var connection = args.Connection;
     var circuitBreaker = new CircuitBreaker(connection);
-    
+
     connection.StateChanged += (connSender, connArgs) =>
     {
         if (connArgs.CurrentState == ConnectionState.Failed)
@@ -718,7 +756,7 @@ client.Registry.ConnectionRegistered += (sender, args) =>
 public class GameNetworkManager : MonoBehaviour
 {
     private IPulseClient _client;
-    
+
     async void Start()
     {
         _client = new PulseClientBuilder()
@@ -736,10 +774,10 @@ public class GameNetworkManager : MonoBehaviour
                 options.EnableStatistics = false;  // Reduce overhead on mobile
             })
             .Build();
-            
+
         await _client.InitializeAsync();
     }
-    
+
     void OnDestroy()
     {
         _client?.Dispose();
@@ -776,8 +814,8 @@ The client library includes an integrated Source Generator for maximum performan
 
 ```xml
 <ItemGroup>
-  <ProjectReference Include="..\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" 
-                    ReferenceOutputAssembly="false" 
+  <ProjectReference Include="..\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj"
+                    ReferenceOutputAssembly="false"
                     OutputItemType="Analyzer" />
 </ItemGroup>
 ```

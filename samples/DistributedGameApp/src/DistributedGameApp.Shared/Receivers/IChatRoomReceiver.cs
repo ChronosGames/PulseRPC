@@ -13,11 +13,11 @@ namespace DistributedGameApp.Shared.Receivers
 /// 这个接口定义了服务器可以向客户端推送的所有聊天室相关事件。
 /// 客户端需要实现这个接口来接收服务器推送的事件。
 /// <para>
-/// 使用 [Channel("CLIENT")] 标记表示这是客户端实现的接口（服务器向客户端推送消息）。
+/// 继承 <see cref="IPulseReceiver"/> 表示这是客户端实现的接口。
+/// 服务端使用 <c>IHubContext&lt;IChatRoomReceiver&gt;</c> 或 <c>IGroup&lt;IChatRoomReceiver&gt;</c> 推送消息。
 /// </para>
 /// </remarks>
-[Channel("CLIENT")]
-public interface IChatRoomReceiver : IPulseHub
+public interface IChatRoomReceiver : IPulseReceiver
 {
     /// <summary>
     /// 收到新消息事件

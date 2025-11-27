@@ -421,9 +421,102 @@ services.AddPulseServer(builder =>
 - **类型安全**: 强类型配置，编译时错误检查
 - **智能默认**: 合理的默认配置，开箱即用
 - **详细日志**: 完整的日志记录，便于调试和运维
-- **统一接口**: 服务接口统一使用 `IPulseHub` 标记
+- **统一接口**: 服务接口使用 `IPulseHub` 标记，推送接口使用 `IPulseReceiver` 标记
+
+### 5. 服务器推送（MagicOnion 风格）
+- **IHubContext<T>**: 类似 SignalR/MagicOnion 的服务端推送上下文
+- **IGroup<T>**: 组实例化设计，支持 `All`、`Single`、`Only`、`Except` 选择器
+- **类型安全**: 编译时生成推送代理，零反射调用
+- **高性能**: 协议号路由 + MemoryPack 序列化
 
 ## 📝 使用示例
+
+### 0. 服务器推送（IPulseReceiver + IHubContext）
+
+参考 [MagicOnion StreamingHub](https://cysharp.github.io/MagicOnion/streaminghub/group) 设计，提供类型安全的服务器推送能力。
+
+#### 定义推送接口
+
+```csharp
+// 定义服务器可以向客户端推送的事件
+public interface IGameReceiver : IPulseReceiver
+{
+    Task OnMatchFoundAsync(MatchFoundNotification notification);
+    Task OnPlayerJoinedAsync(PlayerInfo player);
+    Task OnChatMessageAsync(string sender, string message);
+}
+```
+
+#### 使用 IHubContext 推送
+
+```csharp
+public class MatchmakingService
+{
+    private readonly IHubContext<IGameReceiver> _gameReceiver;
+
+    public MatchmakingService(IHubContext<IGameReceiver> gameReceiver)
+    {
+        _gameReceiver = gameReceiver;
+    }
+
+    public async Task OnMatchComplete(IReadOnlyList<string> playerUserIds)
+    {
+        var notification = new MatchFoundNotification { MatchId = Guid.NewGuid() };
+
+        // 推送给参与匹配的所有玩家（MagicOnion 风格 API）
+        await _gameReceiver.Clients.Users(playerUserIds).OnMatchFoundAsync(notification);
+    }
+
+    public async Task BroadcastSystemMessage(string message)
+    {
+        // 推送给所有在线客户端
+        await _gameReceiver.Clients.All.OnChatMessageAsync("System", message);
+    }
+}
+```
+
+#### 使用 PulseReceiverHub + IGroup 推送（房间/组场景）
+
+```csharp
+public class ChatRoomHub : PulseReceiverHub<IGameReceiver>
+{
+    private IGroup<IGameReceiver>? _room;
+
+    public async Task JoinRoomAsync(string roomName)
+    {
+        // 加入房间（如果不存在则创建）- MagicOnion 风格
+        _room = await Group.AddAsync(roomName);
+
+        // 通知房间内其他人（排除自己）
+        await _room.Except(ConnectionId).OnPlayerJoinedAsync(new PlayerInfo { Name = UserId });
+    }
+
+    public async Task SendMessageAsync(string message)
+    {
+        // 向房间内所有人发送消息
+        await _room?.All.OnChatMessageAsync(UserId!, message)!;
+    }
+
+    public async Task WhisperAsync(string targetConnectionId, string message)
+    {
+        // 向单个客户端发送私聊
+        await _room?.Single(targetConnectionId).OnChatMessageAsync(UserId!, message)!;
+    }
+}
+```
+
+#### 客户端选择器 API（MagicOnion 风格）
+
+| 方法 | 说明 | 示例 |
+|------|------|------|
+| `All` | 所有客户端 | `Clients.All.OnEvent(...)` |
+| `Single(connId)` | 单个连接 | `Clients.Single(connId).OnEvent(...)` |
+| `Only(connIds)` | 多个指定连接 | `Clients.Only(ids).OnEvent(...)` |
+| `Except(connId)` | 排除单个连接 | `Clients.Except(connId).OnEvent(...)` |
+| `User(userId)` | 指定用户 | `Clients.User(uid).OnEvent(...)` |
+| `Users(userIds)` | 多个用户 | `Clients.Users(uids).OnEvent(...)` |
+| `Group(name)` | 指定组 | `Clients.Group(name).OnEvent(...)` |
+| `GroupExcept(name, connId)` | 组内排除 | `Clients.GroupExcept(name, connId).OnEvent(...)` |
 
 ### 1. 定义服务接口（IPulseHub）
 
@@ -683,7 +776,7 @@ private volatile long _totalConnectionsAccepted;
 ### 3. 异步优先的生命周期管理
 ```csharp
 // 并行启动所有传输 - 提升启动性能
-var startTasks = _transports.Values.Select(config => 
+var startTasks = _transports.Values.Select(config =>
     StartTransportAsync(config, combinedCts.Token)).ToArray();
 await Task.WhenAll(startTasks);
 ```
@@ -731,7 +824,7 @@ await Task.WhenAll(startTasks);
 ## 📈 业务价值
 
 1. **开发效率提升80%**: 从10行配置代码减少到2行
-2. **运维友好**: 完整的监控指标、健康检查、性能统计  
+2. **运维友好**: 完整的监控指标、健康检查、性能统计
 3. **高扩展性**: 支持自定义传输协议，未来可轻松支持QUIC、WebSocket等
 4. **企业级特性**: 完整的生命周期管理、优雅停机、错误处理
 

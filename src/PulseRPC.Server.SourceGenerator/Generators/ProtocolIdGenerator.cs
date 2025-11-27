@@ -103,6 +103,7 @@ public static class ProtocolIdGenerator
 
     /// <summary>
     /// 构造方法签名字符串
+    /// 排除 CancellationToken 参数，与客户端保持一致
     /// </summary>
     private static string BuildMethodSignature(ServiceModel service, MethodModel method)
     {
@@ -114,9 +115,15 @@ public static class ProtocolIdGenerator
         sb.Append(method.MethodName);
         sb.Append('(');
 
-        if (method.Parameters.Count > 0)
+        // 排除 CancellationToken 参数（与客户端保持一致）
+        var parameters = method.Parameters
+            .Where(p => p.TypeFullName != "System.Threading.CancellationToken" &&
+                       p.TypeFullName != "CancellationToken")
+            .ToList();
+
+        if (parameters.Count > 0)
         {
-            sb.Append(string.Join(",", method.Parameters.Select(p => p.TypeFullName)));
+            sb.Append(string.Join(",", parameters.Select(p => p.TypeFullName)));
         }
 
         sb.Append(')');
@@ -197,7 +204,7 @@ public static class ProtocolIdGenerator
         sb.AppendLine("/// Static protocol ID to method mapping table");
         sb.AppendLine("/// Generated at compile-time for zero-overhead method routing");
         sb.AppendLine("/// </summary>");
-        sb.AppendLine("public static class ProtocolIdMapping");
+        sb.AppendLine("public static partial class ProtocolIdMapping");
         sb.AppendLine("{");
 
         // 生成每个服务的协议号常量

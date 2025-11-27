@@ -427,9 +427,30 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
                 // ✅ 设置 RequestContext（用于服务方法内访问连接信息）
                 var channel = _channelManager.GetChannel(envelope.ConnectionId);
+                IDisposable? serviceContextScope = null;
+
                 if (channel is ServerTransportChannel serverChannel)
                 {
                     RequestContext.SetCurrent(serverChannel.Transport);
+
+                    // ✅ 设置 ServiceRequestContext（用于 GetCurrentCaller()）
+                    var authContext = serverChannel.AuthenticationContext;
+                    if (authContext != null && authContext.IsAuthenticated)
+                    {
+                        // 从认证上下文创建请求上下文
+                        var requestContext = ServiceRequestContext.FromAuthenticationContext(authContext);
+                        serviceContextScope = ServiceRequestContextProvider.SetContext(requestContext);
+                    }
+                    else
+                    {
+                        // 未认证的连接，创建内部服务上下文（用于服务间调用）
+                        var requestContext = new ServiceRequestContext
+                        {
+                            SourceType = CallSourceType.InternalService,
+                            CallerId = envelope.ConnectionId ?? "Unknown"
+                        };
+                        serviceContextScope = ServiceRequestContextProvider.SetContext(requestContext);
+                    }
                 }
 
                 // 🔐 权限检查现在由源代码生成器生成的代理类处理
@@ -439,7 +460,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                     if (_scheduler != null)
                     {
                         // 获取服务上下文（用于调度）
-                        var serviceContext = GetServiceContextForConnection(envelope.ConnectionId);
+                        var serviceContext = GetServiceContextForConnection(envelope.ConnectionId ?? string.Empty);
                         await _scheduler.InvokeWithSchedulerAsync(
                             serviceContext,
                             serviceName,
@@ -462,8 +483,9 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 }
                 finally
                 {
-                    // ✅ 清理 RequestContext 和 ServiceAuthenticationContext
+                    // ✅ 清理 RequestContext 和 ServiceRequestContext
                     RequestContext.SetCurrent(null);
+                    serviceContextScope?.Dispose();
                 }
 
                 result = dispatchResult;
@@ -478,7 +500,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 return new MessageResponse
                 {
                     MessageId = envelope.MessageId.ToString(),
-                    ConnectionId = envelope.ConnectionId,
+                    ConnectionId = envelope.ConnectionId ?? string.Empty,
                     Success = false,
                     ErrorMessage = $"消息分发失败: {dispatchEx.Message}",
                     ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)
@@ -490,7 +512,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
             var response = new MessageResponse
             {
                 MessageId = envelope.MessageId.ToString(),
-                ConnectionId = envelope.ConnectionId,
+                ConnectionId = envelope.ConnectionId ?? string.Empty,
                 Success = true,
                 Data = result,
                 ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)

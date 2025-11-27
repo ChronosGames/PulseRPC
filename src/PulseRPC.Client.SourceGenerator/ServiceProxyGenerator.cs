@@ -160,6 +160,14 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var channelExtensionsFileName = "TransportChannelExtensions.g.cs";
                 spc.AddSource(channelExtensionsFileName, SourceText.From(channelExtensionsCode, Encoding.UTF8));
             }
+
+            // 生成 HubProxyFactory（编译时类型安全的代理创建，无需反射）
+            if (serviceNamedTypes.Length > 0)
+            {
+                var factoryCode = HubProxyFactoryGenerator.GenerateHubProxyFactory(serviceNamedTypes);
+                var factoryFileName = "HubProxyFactory.g.cs";
+                spc.AddSource(factoryFileName, SourceText.From(factoryCode, Encoding.UTF8));
+            }
         });
 
         // 注册事件处理器源代码输出
@@ -181,17 +189,23 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 spc.AddSource("PulseRPC.Client.SupportTypes.g.cs", SourceText.From(supportTypesCode, Encoding.UTF8));
             }
 
-            // 生成智能事件处理器
+            // 生成智能事件处理器和接收器调度器
             foreach (var eventTypeInfo in uniqueEventTypes)
             {
                 if (eventTypeInfo.Type is INamedTypeSymbol namedType)
                 {
-                    // 生成智能事件处理器
+                    // 生成智能事件处理器（保持向后兼容）
                     var smartHandlerCode = SmartEventHandlerGenerator.GenerateSmartEventHandler(namedType, spc);
                     var smartHandlerBaseName = namedType.Name.StartsWith("I") ? namedType.Name.Substring(1) : namedType.Name;
                     // 使用完整类型名称（包含命名空间）确保文件名唯一
                     var smartHandlerFileName = $"{GetSafeFileName(namedType).Replace(namedType.Name, smartHandlerBaseName)}SmartHandler.g.cs";
                     spc.AddSource(smartHandlerFileName, SourceText.From(smartHandlerCode, Encoding.UTF8));
+
+                    // 生成接收器调度器（新增：简化的 IPulseReceiver 注册）
+                    var dispatcherCode = ReceiverDispatcherGenerator.GenerateReceiverDispatcher(namedType, spc);
+                    var dispatcherBaseName = namedType.Name.StartsWith("I") ? namedType.Name.Substring(1) : namedType.Name;
+                    var dispatcherFileName = $"{GetSafeFileName(namedType).Replace(namedType.Name, dispatcherBaseName)}Dispatcher.g.cs";
+                    spc.AddSource(dispatcherFileName, SourceText.From(dispatcherCode, Encoding.UTF8));
                 }
                 else
                 {
@@ -214,6 +228,14 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var enhancedExtensionsCode = EnhancedEventListenerExtensions.GenerateEnhancedExtensions(namedTypes);
                 var enhancedFileName = "PulseRPC.Client.Extensions.g.cs";
                 spc.AddSource(enhancedFileName, SourceText.From(enhancedExtensionsCode, Encoding.UTF8));
+
+                // 生成统一接收器注册扩展方法（RegisterAllReceivers<T>）
+                var unifiedRegistrationCode = UnifiedReceiverRegistrationGenerator.Generate(namedTypes);
+                if (!string.IsNullOrEmpty(unifiedRegistrationCode))
+                {
+                    spc.AddSource("PulseRPC.Client.UnifiedReceiverRegistration.g.cs",
+                        SourceText.From(unifiedRegistrationCode, Encoding.UTF8));
+                }
             }
         });
     }
@@ -265,13 +287,17 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
     private static bool IsEventReceiver(INamedTypeSymbol typeSymbol)
     {
-        // 方式 1（向后兼容）：检查是否实现了 IPulseReceiver 接口
+        // 排除 IPulseReceiver 接口本身
+        if (typeSymbol.Name == "IPulseReceiver")
+            return false;
+
+        // 方式 1（主要方式）：检查是否实现了 IPulseReceiver 接口
         if (typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseReceiver"))
         {
             return true;
         }
 
-        // 方式 2（新方式）：检查是否标记了 [Channel("CLIENT")] 特性
+        // 方式 2（向后兼容）：检查是否标记了 [Channel("CLIENT")] 特性
         var channelAttr = typeSymbol.GetAttributes()
             .FirstOrDefault(attr => attr.AttributeClass?.Name is "ChannelAttribute" or "Channel");
 
@@ -361,18 +387,17 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        // 生成基于连接上下文的方法实现
-        foreach (var member in interfaceSymbol.GetMembers())
+        // 生成基于连接上下文的方法实现（包括继承的接口方法）
+        foreach (var methodSymbol2 in GetAllInterfaceMethods(interfaceSymbol))
         {
-            if (member is not IMethodSymbol methodSymbol2)
-                continue;
-
             // 自动处理所有公共方法
             if (methodSymbol2.DeclaredAccessibility != Accessibility.Public)
                 continue;
 
-            // 获取方法的协议号
-            ushort protocolId = protocolIds.TryGetValue(methodSymbol2.Name, out var id) ? id : (ushort)0;
+            // 获取方法的协议号（使用方法的声明接口来计算）
+            var declaringInterface = methodSymbol2.ContainingType;
+            var methodKey = $"{declaringInterface.ToDisplayString()}.{methodSymbol2.Name}";
+            ushort protocolId = protocolIds.TryGetValue(methodKey, out var id) ? id : (ushort)0;
 
             // 生成基于连接上下文的方法实现
             GenerateConnectionContextMethodImplementation(sb, methodSymbol2, protocolId, defaultChannelName, namespaceName, interfaceName);
@@ -386,7 +411,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// 生成协议号常量
+    /// 生成协议号常量（包括继承的接口方法）
     /// </summary>
     private static void GenerateProtocolIdConstants(StringBuilder sb, INamedTypeSymbol interfaceSymbol, Dictionary<string, ushort> protocolIds)
     {
@@ -394,12 +419,16 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("        // 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
         sb.AppendLine();
 
-        foreach (var method in interfaceSymbol.GetMembers().OfType<IMethodSymbol>())
+        foreach (var method in GetAllInterfaceMethods(interfaceSymbol))
         {
             if (method.DeclaredAccessibility != Accessibility.Public)
                 continue;
 
-            if (protocolIds.TryGetValue(method.Name, out var protocolId))
+            // 使用方法的声明接口来构建键
+            var declaringInterface = method.ContainingType;
+            var methodKey = $"{declaringInterface.ToDisplayString()}.{method.Name}";
+
+            if (protocolIds.TryGetValue(methodKey, out var protocolId))
             {
                 var methodSignature = ProtocolIdGenerator.BuildMethodSignature(method);
                 var constName = ProtocolIdGenerator.GetProtocolIdConstantName(method);
@@ -407,6 +436,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 sb.AppendLine($"        /// <summary>");
                 sb.AppendLine($"        /// 协议号: {method.Name}");
                 sb.AppendLine($"        /// 方法签名: {methodSignature}");
+                sb.AppendLine($"        /// 声明接口: {declaringInterface.ToDisplayString()}");
                 sb.AppendLine($"        /// </summary>");
                 sb.AppendLine($"        private const ushort {constName} = 0x{protocolId:X4}; // {protocolId}");
                 sb.AppendLine();
@@ -706,6 +736,61 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         {
             Type = type;
         }
+    }
+
+    /// <summary>
+    /// 获取接口的所有方法（包括继承的接口方法）
+    /// </summary>
+    /// <param name="interfaceSymbol">接口符号</param>
+    /// <returns>所有方法符号（不含重复）</returns>
+    private static IEnumerable<IMethodSymbol> GetAllInterfaceMethods(INamedTypeSymbol interfaceSymbol)
+    {
+        var processedMethods = new HashSet<string>();
+
+        // 首先处理当前接口定义的方法
+        foreach (var member in interfaceSymbol.GetMembers())
+        {
+            if (member is IMethodSymbol method && method.DeclaredAccessibility == Accessibility.Public)
+            {
+                var methodKey = GetMethodKey(method);
+                if (processedMethods.Add(methodKey))
+                {
+                    yield return method;
+                }
+            }
+        }
+
+        // 然后处理继承的接口方法（排除 IPulseHub 等基础接口）
+        foreach (var baseInterface in interfaceSymbol.AllInterfaces)
+        {
+            // 跳过 PulseRPC 框架的基础接口
+            if (baseInterface.Name is "IPulseHub" or "IPulseReceiver")
+                continue;
+
+            foreach (var member in baseInterface.GetMembers())
+            {
+                if (member is IMethodSymbol method && method.DeclaredAccessibility == Accessibility.Public)
+                {
+                    var methodKey = GetMethodKey(method);
+                    if (processedMethods.Add(methodKey))
+                    {
+                        yield return method;
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 获取方法的唯一键（用于去重）
+    /// </summary>
+    private static string GetMethodKey(IMethodSymbol method)
+    {
+        var paramTypes = string.Join(",", method.Parameters
+            .Where(p => p.Type.ToDisplayString() != "System.Threading.CancellationToken" &&
+                       p.Type.ToDisplayString() != "CancellationToken")
+            .Select(p => p.Type.ToDisplayString()));
+        return $"{method.Name}({paramTypes})";
     }
 
     /// <summary>

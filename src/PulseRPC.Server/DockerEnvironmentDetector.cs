@@ -2,7 +2,7 @@
 using System.Net.Sockets;
 using PulseRPC.Server;
 
-namespace PulseNet.Server;
+namespace PulseRPC.Server;
 
 public class DockerEnvironmentDetector
 {

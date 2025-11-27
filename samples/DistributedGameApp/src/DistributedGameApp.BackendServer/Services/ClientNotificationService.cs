@@ -145,41 +145,5 @@ public class ClientNotificationService
     }
 }
 
-/// <summary>
-/// ClientNotificationService 扩展方法 - 提供类型安全的通知方法
-/// </summary>
-/// <remarks>
-/// 使用 PulseRPC.Generated.ProtocolIds 中生成的协议号常量
-/// </remarks>
-public static partial class ClientNotificationExtensions
-{
-    /// <summary>
-    /// 批量发送匹配成功通知
-    /// </summary>
-    public static Task<int> NotifyMatchFoundAsync(
-        this ClientNotificationService service,
-        IEnumerable<string> playerIds,
-        DistributedGameApp.Shared.Domain.Matchmaking.MatchFoundNotification notification)
-    {
-        return service.NotifyPlayersAsync(
-            playerIds,
-            nameof(IBackendReceiver.OnMatchFoundAsync),
-            PulseRPC.Generated.ProtocolIdMapping.ProtocolIds.BackendReceiver_OnMatchFoundAsync,
-            notification);
-    }
-
-    /// <summary>
-    /// 发送匹配取消通知
-    /// </summary>
-    public static Task<bool> NotifyMatchCanceledAsync(
-        this ClientNotificationService service,
-        string playerId,
-        string reason)
-    {
-        return service.NotifyPlayerAsync(
-            playerId,
-            nameof(IBackendReceiver.OnMatchCanceledAsync),
-            PulseRPC.Generated.ProtocolIdMapping.ProtocolIds.BackendReceiver_OnMatchCanceledAsync,
-            reason);
-    }
-}
+// 注意：请使用 ModernClientNotificationService 和 IHubContext<T> API
+// 旧的扩展方法已被移除，推荐使用新的类型安全 API
