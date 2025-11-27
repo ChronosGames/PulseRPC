@@ -457,7 +457,9 @@ public static class SmartEventHandlerGenerator
             if (methodSymbol.DeclaredAccessibility != Accessibility.Public)
                 continue;
 
-            if (protocolIds.TryGetValue(methodSymbol.Name, out var protocolId))
+            // 使用完整键格式: {InterfaceFullName}.{MethodName}
+            var methodKey = $"{methodSymbol.ContainingType.ToDisplayString()}.{methodSymbol.Name}";
+            if (protocolIds.TryGetValue(methodKey, out var protocolId))
             {
                 var methodSignature = ProtocolIdGenerator.BuildMethodSignature(methodSymbol);
                 var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);

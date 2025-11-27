@@ -54,6 +54,11 @@ var app = builder.Build();
 
 // 初始化 UnifiedServiceClientManager（通用版）
 var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
+
+// 注册 HubProxyFactory（编译时类型安全，无反射）
+serviceClientManager.RegisterHubProxyFactory(
+    (hubType, channel) => PulseRPC.Generated.HubProxyFactory.Instance.Create(hubType, channel));
+
 await serviceClientManager.InitializeAsync(
     new[] { ServerType.Battle, ServerType.Game, },  // BackendServer 主要连接 BattleServer
     RoutingStrategy.ConsistentHash);

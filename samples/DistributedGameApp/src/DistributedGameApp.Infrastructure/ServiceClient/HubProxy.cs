@@ -25,7 +25,8 @@ public class HubProxy<THub> : DispatchProxy where THub : class
             throw new InvalidOperationException($"Failed to create proxy for {typeof(THub).Name}");
 
         proxy._invoker = invoker;
-        proxy._hubName = typeof(THub).Name;
+        // 使用全限定名称，与服务端源生成器生成的协议号保持一致
+        proxy._hubName = typeof(THub).FullName ?? typeof(THub).Name;
 
         return (proxy as THub)!;
     }
@@ -44,6 +45,13 @@ public class HubProxy<THub> : DispatchProxy where THub : class
         // 获取方法名
         var methodName = targetMethod.Name;
 
+        // 获取方法的所有参数类型（用于协议号计算）
+        // 排除 CancellationToken 参数，与服务端保持一致
+        var parameterTypes = targetMethod.GetParameters()
+            .Where(p => p.ParameterType != typeof(CancellationToken))
+            .Select(p => p.ParameterType)
+            .ToArray();
+
         // 处理异步方法
         if (typeof(Task).IsAssignableFrom(targetMethod.ReturnType))
         {
@@ -54,33 +62,37 @@ public class HubProxy<THub> : DispatchProxy where THub : class
             {
                 // Task<T> - 有返回值的异步方法
                 var resultType = returnType.GetGenericArguments()[0];
-                var requestType = args?.Length > 0 ? args[0]?.GetType() : typeof(object);
+
+                // 使用第一个参数类型作为泛型参数（保持向后兼容）
+                var requestType = parameterTypes.Length > 0 ? parameterTypes[0] : typeof(object);
 
                 // 调用泛型 InvokeAsync<TRequest, TResponse> 方法
                 var invokeMethod = typeof(IRemoteInvoker)
                     .GetMethod(nameof(IRemoteInvoker.InvokeAsync))
-                    ?.MakeGenericMethod(requestType ?? typeof(object), resultType);
+                    ?.MakeGenericMethod(requestType, resultType);
 
                 if (invokeMethod == null)
                     throw new InvalidOperationException("Failed to find InvokeAsync method");
 
                 var request = args?.Length > 0 ? args[0] : null;
-                return invokeMethod.Invoke(_invoker, new[] { _hubName, methodName, request, CancellationToken.None });
+                // 传递所有参数类型用于协议号计算
+                return invokeMethod.Invoke(_invoker, new object?[] { _hubName, methodName, request, parameterTypes, CancellationToken.None });
             }
             else
             {
                 // Task (void) - 无返回值的异步方法
-                var requestType = args?.Length > 0 ? args[0]?.GetType() : typeof(object);
+                var requestType = parameterTypes.Length > 0 ? parameterTypes[0] : typeof(object);
 
                 var invokeMethod = typeof(IRemoteInvoker)
                     .GetMethod(nameof(IRemoteInvoker.InvokeAsync))
-                    ?.MakeGenericMethod(requestType ?? typeof(object), typeof(object));
+                    ?.MakeGenericMethod(requestType, typeof(object));
 
                 if (invokeMethod == null)
                     throw new InvalidOperationException("Failed to find InvokeAsync method");
 
                 var request = args?.Length > 0 ? args[0] : null;
-                var task = invokeMethod.Invoke(_invoker, new[] { _hubName, methodName, request, CancellationToken.None });
+                // 传递所有参数类型用于协议号计算
+                var task = invokeMethod.Invoke(_invoker, new object?[] { _hubName, methodName, request, parameterTypes, CancellationToken.None });
 
                 // 转换为 Task (不带返回值)
                 return ConvertToTask(task as Task);
@@ -110,9 +122,15 @@ public interface IRemoteInvoker
     /// <summary>
     /// 调用远程方法
     /// </summary>
+    /// <param name="hubName">Hub 名称（接口全限定名）</param>
+    /// <param name="methodName">方法名</param>
+    /// <param name="request">请求参数（第一个参数）</param>
+    /// <param name="allParameterTypes">所有参数类型（用于协议号计算）</param>
+    /// <param name="cancellationToken">取消令牌</param>
     Task<TResponse> InvokeAsync<TRequest, TResponse>(
         string hubName,
         string methodName,
         TRequest? request,
+        Type[]? allParameterTypes,
         CancellationToken cancellationToken = default);
 }

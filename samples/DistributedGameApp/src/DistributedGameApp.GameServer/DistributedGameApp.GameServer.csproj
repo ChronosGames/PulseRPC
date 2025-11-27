@@ -40,6 +40,10 @@
     <ProjectReference Include="..\..\..\..\src\PulseRPC.Server.SourceGenerator\PulseRPC.Server.SourceGenerator.csproj"
                       OutputItemType="Analyzer"
                       ReferenceOutputAssembly="false" />
+    <!-- 客户端源生成器 - 用于生成调用其他服务的 Hub 代理 -->
+    <ProjectReference Include="..\..\..\..\src\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

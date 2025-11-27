@@ -138,7 +138,9 @@ public static class ReceiverDispatcherGenerator
                 methodSymbol.DeclaredAccessibility == Accessibility.Public &&
                 methodSymbol.MethodKind == MethodKind.Ordinary)
             {
-                if (protocolIds.TryGetValue(methodSymbol.Name, out var protocolId))
+                // 使用完整键格式: {InterfaceFullName}.{MethodName}
+                var methodKey = $"{methodSymbol.ContainingType.ToDisplayString()}.{methodSymbol.Name}";
+                if (protocolIds.TryGetValue(methodKey, out var protocolId))
                 {
                     var constName = $"Protocol_{methodSymbol.Name}";
                     sb.AppendLine($"        private const ushort {constName} = 0x{protocolId:X4};");
