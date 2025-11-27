@@ -284,7 +284,8 @@ public class MatchmakingService : BaseService, IPulseService
                 continue;
             }
 
-            CreateMatchGroup(matchType, matched);
+            // ✅ 传入列表副本，因为 CreateMatchGroup 是 async void，会异步执行
+            CreateMatchGroup(matchType, matched.ToList());
             matched.Clear();
 
             // 如果剩余玩家还够一组，继续匹配
@@ -456,58 +457,56 @@ public class MatchmakingService : BaseService, IPulseService
         List<MatchmakingTicket> matchedTickets,
         DistributedGameApp.Shared.Domain.Matchmaking.MatchFoundNotification notification)
     {
-        // 按来源 GameServer 分组
-        var playersByServer = matchedTickets
-            .GroupBy(t => t.SourceGameServerNodeId ?? "unknown")
-            .ToList();
-
-        foreach (var group in playersByServer)
+        Logger.LogInformation("开始通知 GameServer，玩家数: {Count}", matchedTickets.Count);
+        
+        // 当前 Demo 场景只有一个 GameServer 实例，
+        // 且 BackendServer 通过 Consul 以服务类型 (GameServer) 发现节点，
+        // 因此这里不再按 SourceGameServerNodeId 精确路由，统一通过服务类型路由即可。
+        try
         {
-            var sourceNodeId = group.Key;
+            Logger.LogInformation("正在获取 GameServerInternalHub 代理（自动路由）");
+            
+            // 不指定 serviceId，交给 UnifiedServiceClientManager 按服务类型自动路由
+            var gameServerHub = _serviceClientManager.GetHub<IGameServerInternalHub>();
+            Logger.LogInformation("GetHub 结果: {Result}", gameServerHub != null ? "成功" : "返回 null");
 
-            try
+            if (gameServerHub == null)
             {
-                // 获取 GameServer 的内部 Hub 代理
-                var gameServerHub = _serviceClientManager.GetHub<IGameServerInternalHub>(sourceNodeId);
+                Logger.LogWarning("无法获取 GameServerInternalHub 代理（自动路由失败）");
+                return;
+            }
 
-                if (gameServerHub == null)
+            // 逐个通知所有玩家（当前所有玩家都在同一个 GameServer 上）
+            foreach (var ticket in matchedTickets)
+            {
+                try
                 {
-                    Logger.LogWarning("无法获取 GameServerInternalHub 代理: NodeId={NodeId}", sourceNodeId);
-                    continue;
-                }
+                    var success = await gameServerHub.OnMatchFoundAsync(ticket.PlayerId, notification);
 
-                // 逐个通知该 GameServer 上的玩家
-                foreach (var ticket in group)
-                {
-                    try
+                    if (success)
                     {
-                        var success = await gameServerHub.OnMatchFoundAsync(ticket.PlayerId, notification);
-
-                        if (success)
-                        {
-                            Logger.LogInformation(
-                                "匹配通知已发送 - PlayerId: {PlayerId}, GameServerNode: {NodeId}",
-                                ticket.PlayerId, sourceNodeId);
-                        }
-                        else
-                        {
-                            Logger.LogWarning(
-                                "匹配通知发送失败 - PlayerId: {PlayerId}, GameServerNode: {NodeId}",
-                                ticket.PlayerId, sourceNodeId);
-                        }
+                        Logger.LogInformation(
+                            "匹配通知已发送 - PlayerId: {PlayerId}",
+                            ticket.PlayerId);
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        Logger.LogError(ex,
-                            "匹配通知异常 - PlayerId: {PlayerId}, GameServerNode: {NodeId}",
-                            ticket.PlayerId, sourceNodeId);
+                        Logger.LogWarning(
+                            "匹配通知发送失败 - PlayerId: {PlayerId}",
+                            ticket.PlayerId);
                     }
                 }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex,
+                        "匹配通知异常 - PlayerId: {PlayerId}",
+                        ticket.PlayerId);
+                }
             }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "获取 GameServerInternalHub 失败 - NodeId: {NodeId}", sourceNodeId);
-            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "获取 GameServerInternalHub 失败（自动路由）");
         }
     }
 

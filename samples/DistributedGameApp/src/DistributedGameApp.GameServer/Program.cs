@@ -24,6 +24,8 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
     EnableServiceDiscovery = true,      // Consul 服务注册与发现
     EnableMongoDb = true,               // MongoDB 数据库
     EnableSentry = true,                // Sentry 错误追踪（根据配置启用）
+    // ✅ EnablePushServices 默认为 true，自动检测并配置推送服务
+    // External 优先，因此 IHubContext<TReceiver> 会向客户端推送
     ConfigureServices = services =>
     {
         // 注册 JWT 认证服务（使用真实的 JWT 实现）
@@ -58,7 +60,10 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 
         // 注册 Hub 服务（必须使用接口 + 实现的方式）
         services.AddSingleton<IGameHub, GameHub>();
-        services.AddSingleton<IGameServerInternalHub, GameServerInternalHub>();
+
+        // 注册 GameServerInternalHub：先注册具体类型，再将接口映射到同一实例
+        services.AddSingleton<GameServerInternalHub>();
+        services.AddSingleton<IGameServerInternalHub>(sp => sp.GetRequiredService<GameServerInternalHub>());
 
         // 启动 IPulseService
         services.AddHostedService<PulseRPC.Server.Services.PulseServiceHostedService<GameServerInternalHub>>();
@@ -77,6 +82,11 @@ var app = builder.Build();
 
 // 初始化 UnifiedServiceClientManager（通用版）
 var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
+
+// 注册 HubProxyFactory（编译时类型安全，无反射）
+serviceClientManager.RegisterHubProxyFactory(
+    (hubType, channel) => PulseRPC.Generated.HubProxyFactory.Instance.Create(hubType, channel));
+
 await serviceClientManager.InitializeAsync(
     new[] { ServerType.Battle, ServerType.Backend },  // BackendServer 主要连接 BattleServer
     RoutingStrategy.ConsistentHash);

@@ -50,6 +50,28 @@ public sealed class ServerBootstrapperOptions
     /// 启用统一启动流程编排器（默认: true）
     /// </summary>
     public bool EnableBootstrapOrchestrator { get; set; } = true;
+
+    /// <summary>
+    /// 启用服务端推送（IHubContext&lt;TReceiver&gt;）（默认: true）
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 当启用时，会自动检测并配置推送服务：
+    /// </para>
+    /// <list type="bullet">
+    /// <item>优先使用 External 服务器（面向客户端推送）</item>
+    /// <item>如果没有 External，则使用 Internal 服务器（服务器间推送）</item>
+    /// </list>
+    /// <para>
+    /// 自动完成的工作：
+    /// </para>
+    /// <list type="number">
+    /// <item>桥接 IServerChannelManager 到非 keyed 版本</item>
+    /// <item>注册 IUserConnectionMapping 和 IGroupManager</item>
+    /// <item>注册所有 IPulseReceiver 的 IHubContext</item>
+    /// </list>
+    /// </remarks>
+    public bool EnablePushServices { get; set; } = true;
 }
 
 /// <summary>
@@ -124,6 +146,7 @@ public static class ServerBootstrapper
         ServerBootstrapperOptions options)
     {
         var networkConfig = configuration.GetSection("Network");
+        string? primaryPushServer = null;
 
         // 内网RPC通道（统一必选）
         if (options.EnableInternalRpcChannel)
@@ -132,6 +155,8 @@ public static class ServerBootstrapper
             if (internalConfig.Exists() && internalConfig.GetValue<bool>("Enabled"))
             {
                 services.AddNamedPulseServer("Internal", internalConfig);
+                // Internal 作为备选推送服务器
+                primaryPushServer ??= "Internal";
             }
         }
 
@@ -142,7 +167,73 @@ public static class ServerBootstrapper
             if (externalConfig.Exists() && externalConfig.GetValue<bool>("Enabled"))
             {
                 services.AddNamedPulseServer("External", externalConfig);
+                // External 优先作为推送服务器（面向客户端）
+                primaryPushServer = "External";
             }
         }
+
+        // 自动配置服务端推送（IHubContext<TReceiver>）
+        if (options.EnablePushServices && !string.IsNullOrEmpty(primaryPushServer))
+        {
+            ConfigurePushServices(services, primaryPushServer);
+        }
+    }
+
+    /// <summary>
+    /// 配置服务端推送服务
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="serverName">作为推送源的服务器名称</param>
+    /// <remarks>
+    /// 此方法执行以下操作：
+    /// <list type="number">
+    /// <item>桥接指定服务器的 IServerChannelManager 到非 keyed 版本</item>
+    /// <item>注册 IUserConnectionMapping 和 IGroupManager</item>
+    /// <item>注册所有 IPulseReceiver 的 IHubContext（通过源生成器）</item>
+    /// </list>
+    /// </remarks>
+    private static void ConfigurePushServices(IServiceCollection services, string serverName)
+    {
+        // 1. 桥接 keyed IServerChannelManager 到非 keyed 版本
+        // IHubContext<TReceiver> 生成的代码需要非 keyed 的 IServerChannelManager
+        services.AddSingleton<PulseRPC.Server.Transport.IServerChannelManager>(sp =>
+            sp.GetRequiredKeyedService<PulseRPC.Server.Transport.IServerChannelManager>(serverName));
+
+        // 2. 注册 IUserConnectionMapping 和 IGroupManager（IHubContext 依赖）
+        services.AddPulseReceiverServices();
+
+        // 3. 注册所有 IPulseReceiver 的 IHubContext（源生成器生成的代码）
+        // 注意：这里使用反射调用，因为 AddAllPulseReceiverContexts 是源生成器生成的
+        // 如果源生成器没有生成这个方法，则静默跳过
+        TryRegisterAllPulseReceiverContexts(services);
+    }
+
+    /// <summary>
+    /// 尝试注册所有 IPulseReceiver 的 IHubContext
+    /// </summary>
+    private static void TryRegisterAllPulseReceiverContexts(IServiceCollection services)
+    {
+        // 查找源生成器生成的 PulseReceiverServiceExtensions 类
+        var extensionType = AppDomain.CurrentDomain.GetAssemblies()
+            .SelectMany(a =>
+            {
+                try { return a.GetTypes(); }
+                catch { return Array.Empty<Type>(); }
+            })
+            .FirstOrDefault(t => t.FullName == "PulseRPC.Server.Extensions.PulseReceiverServiceExtensions");
+
+        if (extensionType == null)
+            return;
+
+        // 查找 AddAllPulseReceiverContexts 方法
+        var method = extensionType.GetMethod(
+            "AddAllPulseReceiverContexts",
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static,
+            null,
+            new[] { typeof(IServiceCollection) },
+            null);
+
+        // 调用扩展方法
+        method?.Invoke(null, new object[] { services });
     }
 }

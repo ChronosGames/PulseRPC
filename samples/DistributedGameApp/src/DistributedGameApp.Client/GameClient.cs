@@ -1015,18 +1015,98 @@ public class GameClient : IDisposable
         public Task OnMatchFoundAsync(MatchFoundNotification notification)
         {
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"\n[匹配] 找到对手! 战斗ID: {notification.BattleId}");
-            Console.WriteLine($"       服务器: {notification.BattleServerAddress}:{notification.BattleServerPort}");
-            Console.WriteLine($"       倒计时: {notification.Countdown}秒\n> ");
+            Console.WriteLine($"\n╔════════════════════════════════════════════╗");
+            Console.WriteLine($"║         🎮 匹配成功！找到对手！            ║");
+            Console.WriteLine($"╚════════════════════════════════════════════╝");
+            Console.WriteLine($"  战斗ID: {notification.BattleId}");
+            Console.WriteLine($"  服务器: {notification.BattleServerAddress}:{notification.BattleServerPort}");
+            Console.WriteLine($"  倒计时: {notification.Countdown}秒");
+            Console.WriteLine($"\n  正在自动连接战斗服务器...\n> ");
             Console.ResetColor();
 
-            // 自动连接到战斗服务器
-            _ = _client.ConnectToBattleServerAsync(
-                notification.BattleId,
-                notification.BattleServerAddress,
-                notification.BattleServerPort);
+            // 自动连接到战斗服务器并加入战斗
+            _ = ConnectAndJoinBattleFromGameServerAsync(notification);
 
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 从 GameServer 收到的匹配通知，连接战斗服务器并加入战斗
+        /// </summary>
+        private async Task ConnectAndJoinBattleFromGameServerAsync(MatchFoundNotification notification)
+        {
+            try
+            {
+                // 步骤 1: 连接到战斗服务器
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[战斗] 正在连接战斗服务器 {notification.BattleServerAddress}:{notification.BattleServerPort}...");
+                Console.ResetColor();
+
+                var connected = await _client.ConnectToBattleServerAsync(
+                    notification.BattleId,
+                    notification.BattleServerAddress,
+                    notification.BattleServerPort);
+
+                if (!connected)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[战斗] ❌ 连接战斗服务器失败!\n> ");
+                    Console.ResetColor();
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[战斗] ✅ 已连接到战斗服务器");
+                Console.ResetColor();
+
+                // 步骤 2: 加入战斗
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[战斗] 正在加入战斗房间...");
+                Console.ResetColor();
+
+                var battleInfo = await _client.JoinBattleAsync(notification.BattleId);
+
+                if (battleInfo == null)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[战斗] ❌ 加入战斗失败!\n> ");
+                    Console.ResetColor();
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[战斗] ✅ 已加入战斗房间");
+                Console.WriteLine($"       状态: {battleInfo.Status}");
+                Console.WriteLine($"       队伍1: {battleInfo.Team1?.Count ?? 0} 人, 队伍2: {battleInfo.Team2?.Count ?? 0} 人");
+                Console.ResetColor();
+
+                // 步骤 3: 自动准备
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[战斗] 自动准备就绪...");
+                Console.ResetColor();
+
+                var ready = await _client.BattleReadyAsync();
+
+                if (ready)
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"[战斗] ✅ 已准备就绪，等待战斗开始...\n> ");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"[战斗] ⚠️ 准备失败，请手动输入 'ready' 命令\n> ");
+                    Console.ResetColor();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[战斗] ❌ 进入战斗时发生错误: {ex.Message}\n> ");
+                Console.ResetColor();
+                _logger.LogError(ex, "连接战斗服务器或加入战斗失败");
+            }
         }
 
         public Task OnServerNotificationAsync(string message)
@@ -1102,18 +1182,120 @@ public class GameClient : IDisposable
         Task IBackendReceiver.OnMatchFoundAsync(DistributedGameApp.Shared.Domain.Matchmaking.MatchFoundNotification notification)
         {
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"\n[匹配] 找到对手! 战斗ID: {notification.MatchId}");
-            Console.WriteLine($"       服务器: {notification.BattleServerHost}:{notification.BattleServerPort}");
-            Console.WriteLine($"       队友: {notification.Teammates.Count}, 对手: {notification.Opponents.Count}\n> ");
+            Console.WriteLine($"\n╔════════════════════════════════════════════╗");
+            Console.WriteLine($"║         🎮 匹配成功！找到对手！            ║");
+            Console.WriteLine($"╚════════════════════════════════════════════╝");
+            Console.WriteLine($"  战斗ID: {notification.MatchId}");
+            Console.WriteLine($"  房间ID: {notification.BattleRoomId}");
+            Console.WriteLine($"  服务器: {notification.BattleServerHost}:{notification.BattleServerPort}");
+            Console.WriteLine($"  队友: {notification.Teammates.Count} 人, 对手: {notification.Opponents.Count} 人");
+
+            // 显示队友信息
+            if (notification.Teammates.Count > 0)
+            {
+                Console.WriteLine($"\n  👥 队友:");
+                foreach (var teammate in notification.Teammates)
+                {
+                    Console.WriteLine($"     - {teammate.CharacterName} (等级 {teammate.Level})");
+                }
+            }
+
+            // 显示对手信息
+            if (notification.Opponents.Count > 0)
+            {
+                Console.WriteLine($"\n  ⚔️ 对手:");
+                foreach (var opponent in notification.Opponents)
+                {
+                    Console.WriteLine($"     - {opponent.CharacterName} (等级 {opponent.Level})");
+                }
+            }
+
+            Console.WriteLine($"\n  正在自动连接战斗服务器...\n> ");
             Console.ResetColor();
 
-            // 自动连接到战斗服务器
-            _ = _client.ConnectToBattleServerAsync(
-                notification.BattleRoomId,
-                notification.BattleServerHost,
-                notification.BattleServerPort);
+            // 自动连接到战斗服务器并加入战斗
+            _ = ConnectAndJoinBattleAsync(notification);
 
             return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// 连接战斗服务器并加入战斗
+        /// </summary>
+        private async Task ConnectAndJoinBattleAsync(DistributedGameApp.Shared.Domain.Matchmaking.MatchFoundNotification notification)
+        {
+            try
+            {
+                // 步骤 1: 连接到战斗服务器
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[战斗] 正在连接战斗服务器 {notification.BattleServerHost}:{notification.BattleServerPort}...");
+                Console.ResetColor();
+
+                var connected = await _client.ConnectToBattleServerAsync(
+                    notification.BattleRoomId,
+                    notification.BattleServerHost,
+                    notification.BattleServerPort);
+
+                if (!connected)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[战斗] ❌ 连接战斗服务器失败!\n> ");
+                    Console.ResetColor();
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[战斗] ✅ 已连接到战斗服务器");
+                Console.ResetColor();
+
+                // 步骤 2: 加入战斗
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[战斗] 正在加入战斗房间...");
+                Console.ResetColor();
+
+                var battleInfo = await _client.JoinBattleAsync(notification.BattleRoomId);
+
+                if (battleInfo == null)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"[战斗] ❌ 加入战斗失败!\n> ");
+                    Console.ResetColor();
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"[战斗] ✅ 已加入战斗房间");
+                Console.WriteLine($"       状态: {battleInfo.Status}");
+                Console.WriteLine($"       队伍1: {battleInfo.Team1?.Count ?? 0} 人, 队伍2: {battleInfo.Team2?.Count ?? 0} 人");
+                Console.ResetColor();
+
+                // 步骤 3: 自动准备
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"[战斗] 自动准备就绪...");
+                Console.ResetColor();
+
+                var ready = await _client.BattleReadyAsync();
+
+                if (ready)
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"[战斗] ✅ 已准备就绪，等待战斗开始...\n> ");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"[战斗] ⚠️ 准备失败，请手动输入 'ready' 命令\n> ");
+                    Console.ResetColor();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"[战斗] ❌ 进入战斗时发生错误: {ex.Message}\n> ");
+                Console.ResetColor();
+                _logger.LogError(ex, "连接战斗服务器或加入战斗失败");
+            }
         }
 
         Task IBackendReceiver.OnMatchCanceledAsync(string reason)

@@ -27,6 +27,9 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     private readonly LocalServiceRegistry _localServiceRegistry;
     private readonly IAuthenticationProvider? _authenticationProvider;
 
+    // Hub 代理工厂（编译时类型安全，无反射）
+    private IHubProxyFactory? _hubProxyFactory;
+
     // 每种服务类型一个连接管理器 + 路由器
     private readonly ConcurrentDictionary<ServerType, (ServiceConnectionManager Manager, ServiceRouter Router)> _serverManagers = new();
 
@@ -58,6 +61,37 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IBattleHub>("BattleServer");
         _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGameHub>("GameServer");
         _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGuildHub>("BackendServer");
+
+        // 内部回调 Hub：逻辑上属于 GameServer（与 GameHub 部署在同一服务）
+        // 默认推断规则会把 IGameServerInternalHub 映射为 "GameServerInternalServer"（错误）
+        // 这里显式指定为 "GameServer"，以便使用 GameServer 的连接池
+        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGameServerInternalHub>("GameServer");
+    }
+
+    /// <summary>
+    /// 注册 Hub 代理工厂（推荐，编译时类型安全，无反射）
+    /// </summary>
+    /// <remarks>
+    /// 在服务启动时调用，传入源生成器生成的 HubProxyFactory：
+    /// <code>
+    /// serviceClientManager.RegisterHubProxyFactory(PulseRPC.Generated.HubProxyFactory.Create);
+    /// </code>
+    /// </remarks>
+    /// <param name="factory">工厂实例</param>
+    public void RegisterHubProxyFactory(IHubProxyFactory factory)
+    {
+        _hubProxyFactory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _logger.LogInformation("已注册 HubProxyFactory，将使用编译时类型安全的代理创建");
+    }
+
+    /// <summary>
+    /// 注册 Hub 代理工厂（简化版，使用委托）
+    /// </summary>
+    /// <param name="createFunc">创建代理的委托</param>
+    public void RegisterHubProxyFactory(Func<Type, PulseRPC.Client.IClientChannel, object?> createFunc)
+    {
+        _hubProxyFactory = new DelegateHubProxyFactory(createFunc);
+        _logger.LogInformation("已注册 HubProxyFactory（委托模式），将使用编译时类型安全的代理创建");
     }
 
     /// <summary>
@@ -257,7 +291,8 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         {
             try
             {
-                await connection.InvokeAsync<TRequest, object>(hubName, methodName, request);
+                // 使用请求类型作为参数类型（单参数方法）
+                await connection.InvokeAsync<TRequest, object>(hubName, methodName, request, new[] { typeof(TRequest) });
                 return (connection.ServiceInfo.ServiceId, Success: true);
             }
             catch (Exception ex)
@@ -333,15 +368,56 @@ public class UnifiedServiceClientManager : IAsyncDisposable
             return null;
         }
 
-        // ServiceConnectionAdapter 实现了 IRemoteInvoker 接口
-        if (connection is not IRemoteInvoker invoker)
+        // 获取底层 ServiceConnection 以访问 IClientChannel
+        if (connection is not ServiceConnectionAdapter adapter)
         {
-            _logger.LogError("服务连接不支持 IRemoteInvoker 接口: Hub={HubType}", typeof(THub).Name);
+            _logger.LogError("无法获取 ServiceConnectionAdapter: Hub={HubType}", typeof(THub).Name);
             return null;
         }
 
-        // 创建并返回 Hub 代理
-        return HubProxy<THub>.Create(invoker);
+        var channel = adapter.GetChannel();
+        if (channel == null)
+        {
+            _logger.LogError("服务连接的 Channel 为空: Hub={HubType}", typeof(THub).Name);
+            return null;
+        }
+
+        // 使用源生成器生成的代理（协议号在编译时确定）
+        // 优先使用注册的工厂（编译时类型安全，无反射）
+        try
+        {
+            // 方式 1: 使用注册的工厂（推荐，无反射）
+            if (_hubProxyFactory != null)
+            {
+                var proxy = _hubProxyFactory.Create<THub>(channel);
+                if (proxy != null)
+                {
+                    return proxy;
+                }
+            }
+
+            // 方式 2: 回退到反射方式（用于未注册工厂的情况）
+            var hubType = typeof(THub);
+            var proxyTypeName = $"{hubType.Namespace}.{hubType.Name}Proxy";
+
+            // 在 Hub 接口所在的程序集中查找代理类
+            var proxyType = hubType.Assembly.GetType(proxyTypeName);
+            if (proxyType == null)
+            {
+                _logger.LogError("找不到源生成器生成的代理类: {ProxyTypeName}。请确保 Hub 接口已使用 [PulseClientGeneration] 特性注册。",
+                    proxyTypeName);
+                return null;
+            }
+
+            // 创建代理实例（代理类构造函数接受 IClientChannel 参数）
+            var reflectionProxy = Activator.CreateInstance(proxyType, channel);
+            return reflectionProxy as THub;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "创建 Hub 代理失败: Hub={HubType}", typeof(THub).Name);
+            return null;
+        }
     }
 
     /// <summary>
@@ -521,13 +597,19 @@ internal class ServiceConnectionAdapter : IServiceConnection
 
     public bool IsConnected => _connection.State == ConnectionState.Connected;
 
+    /// <summary>
+    /// 获取底层的 IClientChannel（用于源生成器生成的代理）
+    /// </summary>
+    public PulseRPC.Client.IClientChannel? GetChannel() => _connection.Channel;
+
     public Task<TResponse> InvokeAsync<TRequest, TResponse>(
         string hubName,
         string methodName,
         TRequest? request,
+        Type[]? allParameterTypes,
         CancellationToken cancellationToken = default)
     {
-        return _connection.InvokeAsync<TRequest, TResponse>(hubName, methodName, request, cancellationToken);
+        return _connection.InvokeAsync<TRequest, TResponse>(hubName, methodName, request, allParameterTypes, cancellationToken);
     }
 }
 
@@ -576,4 +658,39 @@ public class ServerTypeStats
     /// 路由策略
     /// </summary>
     public RoutingStrategy RoutingStrategy { get; init; }
+}
+
+/// <summary>
+/// Hub 代理工厂接口
+/// </summary>
+/// <remarks>
+/// 由源生成器生成的 HubProxyFactory 实现此接口
+/// </remarks>
+public interface IHubProxyFactory
+{
+    /// <summary>
+    /// 创建 Hub 代理实例
+    /// </summary>
+    /// <typeparam name="THub">Hub 接口类型</typeparam>
+    /// <param name="channel">客户端通道</param>
+    /// <returns>代理实例，如果类型不支持则返回 null</returns>
+    THub? Create<THub>(PulseRPC.Client.IClientChannel channel) where THub : class;
+}
+
+/// <summary>
+/// 基于委托的 Hub 代理工厂实现
+/// </summary>
+internal class DelegateHubProxyFactory : IHubProxyFactory
+{
+    private readonly Func<Type, PulseRPC.Client.IClientChannel, object?> _createFunc;
+
+    public DelegateHubProxyFactory(Func<Type, PulseRPC.Client.IClientChannel, object?> createFunc)
+    {
+        _createFunc = createFunc ?? throw new ArgumentNullException(nameof(createFunc));
+    }
+
+    public THub? Create<THub>(PulseRPC.Client.IClientChannel channel) where THub : class
+    {
+        return _createFunc(typeof(THub), channel) as THub;
+    }
 }

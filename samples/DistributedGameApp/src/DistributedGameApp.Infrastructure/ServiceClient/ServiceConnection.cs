@@ -251,12 +251,13 @@ public class ServiceConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// 调用远程方法 (旧版 API - 保持向后兼容)
+    /// 调用远程方法（支持多参数类型的协议号计算）
     /// </summary>
     public async Task<TResponse> InvokeAsync<TRequest, TResponse>(
         string hubName,
         string methodName,
         TRequest? request,
+        Type[]? allParameterTypes,
         CancellationToken cancellationToken = default)
     {
         if (_isDisposed)
@@ -274,7 +275,8 @@ public class ServiceConnection : IAsyncDisposable
             var response = await _channel.InvokeAsync<TRequest, TResponse>(
                 hubName,
                 methodName,
-                request,
+                request!,
+                allParameterTypes,
                 cancellationToken);
 
             return response;
