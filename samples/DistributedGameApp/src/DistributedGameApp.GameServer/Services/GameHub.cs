@@ -33,6 +33,7 @@ public class GameHub : YieldingService, IGameHub
     private readonly UnifiedServiceClientManager _serviceClientManager;
     private readonly IAuthenticationService _authenticationService;
     private readonly GameServerInternalHub _internalHub;
+    private readonly IUserConnectionMapping _userConnectionMapping;
 
     // 连接ID到玩家ID的映射（参考 ChatHub 的模式）
     private readonly ConcurrentDictionary<string, string> _connectionPlayerMap = new();
@@ -44,6 +45,7 @@ public class GameHub : YieldingService, IGameHub
         MailService mailService,
         UnifiedServiceClientManager serviceClientManager,
         GameServerInternalHub internalHub,
+        IUserConnectionMapping userConnectionMapping,
         ILogger<GameHub> logger,
         IAuthenticationService authenticationService,
         PermissionValidator permissionValidator)
@@ -56,6 +58,7 @@ public class GameHub : YieldingService, IGameHub
         _serviceClientManager = serviceClientManager ?? throw new ArgumentNullException(nameof(serviceClientManager));
         _authenticationService = authenticationService ?? throw new ArgumentNullException(nameof(authenticationService));
         _internalHub = internalHub ?? throw new ArgumentNullException(nameof(internalHub));
+        _userConnectionMapping = userConnectionMapping ?? throw new ArgumentNullException(nameof(userConnectionMapping));
     }
 
     /// <summary>
@@ -119,6 +122,9 @@ public class GameHub : YieldingService, IGameHub
 
             // ✅ 建立会话级认证映射（connectionId → userId）
             _connectionPlayerMap[connectionId] = userId;
+
+            // ✅ 注册到 IUserConnectionMapping（用于 IHubContext<IGameReceiver>.Clients.User() 查找连接）
+            _userConnectionMapping.Add(userId, connectionId);
 
             // ✅ 注册到 InternalHub（用于接收 BackendServer 的回调通知）
             _internalHub.RegisterPlayerConnection(userId, connectionId);
@@ -611,6 +617,25 @@ public class GameHub : YieldingService, IGameHub
         {
             Logger.LogError(ex, "转账失败：从 {From} 向 {To}", playerId, toPlayerId);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// 清理玩家连接（供外部调用，如连接断开事件）
+    /// </summary>
+    public void CleanupPlayerConnection(string connectionId)
+    {
+        // 1. 从 _connectionPlayerMap 中移除
+        if (_connectionPlayerMap.TryRemove(connectionId, out var userId))
+        {
+            // 2. 从 IUserConnectionMapping 中移除（关键！）
+            _userConnectionMapping.Remove(userId, connectionId);
+
+            // 3. 从 InternalHub 中注销
+            _internalHub.UnregisterPlayerConnection(userId);
+
+            Logger.LogInformation("Player disconnected and cleaned up: UserId={UserId}, ConnectionId={ConnectionId}",
+                userId, connectionId);
         }
     }
 

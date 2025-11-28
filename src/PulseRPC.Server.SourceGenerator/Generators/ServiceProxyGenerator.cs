@@ -172,15 +172,19 @@ public static class ServiceProxyGenerator
         }
         else
         {
-            // 多参数处理（需要参数包装类）
-            sb.AppendLine("        // Multi-parameter deserialization");
-            sb.AppendLine("        var parameters = DeserializeMultipleParameters(data);");
+            // 多参数处理：反序列化元组
+            sb.AppendLine("        // Multi-parameter deserialization from tuple");
 
+            // 构造元组类型
+            var tupleType = "(" + string.Join(", ", method.Parameters.Select(p => p.TypeFullName)) + ")";
+            sb.AppendLine($"        var __tuple__ = MemoryPackSerializer.Deserialize<{tupleType}>(data.Span);");
+
+            // 从元组中提取各个参数
             for (int i = 0; i < method.Parameters.Count; i++)
             {
                 var param = method.Parameters[i];
                 var variableName = parameterVariableNames[i];
-                sb.AppendLine($"        var {variableName} = ({param.TypeFullName})parameters[{i}];");
+                sb.AppendLine($"        var {variableName} = __tuple__.Item{i + 1};");
             }
         }
 
@@ -290,23 +294,12 @@ public static class ServiceProxyGenerator
     }
 
     /// <summary>
-    /// 生成多参数反序列化方法
+    /// 生成多参数反序列化方法（已废弃 - 现在使用元组序列化）
     /// </summary>
     private static void GenerateMultiParameterDeserializer(StringBuilder sb, ServiceModel serviceModel)
     {
-        var hasMultiParamMethods = serviceModel.Methods.Any(m => m.Parameters.Count > 1);
-        if (!hasMultiParamMethods) return;
-
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// Deserialize multiple parameters (fallback for complex scenarios)");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    private static object[] DeserializeMultipleParameters(ReadOnlyMemory<byte> data)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        // TODO: Implement multi-parameter deserialization");
-        sb.AppendLine("        // This requires a parameter wrapper class or tuple serialization");
-        sb.AppendLine("        throw new NotImplementedException(\"Multi-parameter deserialization not yet implemented\");");
-        sb.AppendLine("    }");
-        sb.AppendLine();
+        // 不再需要此方法，多参数现在直接使用元组反序列化
+        // 保留方法签名以保持向后兼容，但不生成任何代码
     }
 
     /// <summary>
