@@ -206,22 +206,29 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         // 如果没有连接且允许自动刷新，尝试刷新服务列表
         if (connection == null && autoRefresh && manager.ConnectionCount == 0)
         {
-            _logger.LogInformation("未找到可用连接，尝试刷新服务列表: ServerType={ServerType}", serverType);
+            _logger.LogInformation("未找到可用连接，同步刷新服务列表: ServerType={ServerType}", serverType);
 
-            // 使用 Task.Run 避免阻塞当前线程
-            _ = Task.Run(async () =>
+            try
             {
-                try
-                {
-                    await manager.RefreshServicesAsync();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "自动刷新服务列表失败: ServerType={ServerType}", serverType);
-                }
-            });
+                // ✅ 方案1: 同步等待刷新完成（解决初始连接时序问题）
+                manager.RefreshServicesAsync().GetAwaiter().GetResult();
 
-            _logger.LogWarning("无法获取服务连接（已触发后台刷新）: ServerType={ServerType}, ShardId={ShardId}",
+                // 刷新后再次尝试获取连接
+                connection = router.GetConnection(shardId);
+
+                if (connection != null)
+                {
+                    _logger.LogInformation("刷新后成功获取连接: ServerType={ServerType}, ShardId={ShardId}",
+                        serverType, shardId);
+                    return new ServiceConnectionAdapter(connection);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "同步刷新服务列表失败: ServerType={ServerType}", serverType);
+            }
+
+            _logger.LogWarning("无法获取服务连接（刷新后仍无可用连接）: ServerType={ServerType}, ShardId={ShardId}",
                 serverType, shardId);
             return null;
         }

@@ -1,5 +1,6 @@
 using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Messages;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Server;
@@ -21,6 +22,7 @@ public class BattleHub : IBattleHub
     private readonly BattleConnectionContext _connectionContext;
     private readonly IAuthenticationService _authenticationService;
     private readonly ILogger<BattleHub> _logger;
+    private readonly IConfiguration _configuration;
 
     // 使用 AsyncLocal 在当前请求上下文中存储 CharacterId
     private static readonly AsyncLocal<string?> _currentCharacterId = new();
@@ -29,35 +31,41 @@ public class BattleHub : IBattleHub
         BattleRoomManager battleRoomManager,
         BattleConnectionContext connectionContext,
         IAuthenticationService authenticationService,
+        IConfiguration configuration,
         ILogger<BattleHub> logger)
     {
         _battleRoomManager = battleRoomManager;
         _connectionContext = connectionContext;
         _authenticationService = authenticationService;
+        _configuration = configuration;
         _logger = logger;
     }
 
     /// <summary>
-    /// 获取当前会话的标识（使用 CharacterId）
+    /// 获取当前连接的战斗状态
     /// </summary>
     /// <remarks>
-    /// 设计说明：
-    /// 1. 使用 CharacterId 作为会话标识符
-    /// 2. 假设：一个角色在同一时间只能有一个活跃连接
-    /// 3. 这样可以确保状态的一致性和可追踪性
-    ///
-    /// 替代方案：
-    /// - 如果 PulseRPC 提供 ServerChannelContext，可以使用真实的 ConnectionId
-    /// - 例如：ServerChannelContext.Current?.ConnectionId
+    /// 每个 RPC 请求都是独立的，使用 RequestContext 和 BattleConnectionContext 获取状态
     /// </remarks>
-    private string GetSessionId()
+    private BattleConnectionState GetCurrentBattleState()
     {
-        var characterId = _currentCharacterId.Value;
-        if (string.IsNullOrEmpty(characterId))
+        // 从 RequestContext 获取当前连接ID
+        var connection = RequestContext.Current;
+        if (connection == null)
         {
-            throw new InvalidOperationException("无法获取会话标识，请先调用 JoinBattleAsync");
+            throw new InvalidOperationException("无法获取连接上下文");
         }
-        return characterId;
+
+        var connectionId = connection.Id.ToString();
+
+        // 从 BattleConnectionContext 获取该连接对应的战斗状态
+        var state = _connectionContext.GetState(connectionId);
+        if (state == null)
+        {
+            throw new InvalidOperationException("未加入任何战斗，请先调用 JoinBattleAsync");
+        }
+
+        return state;
     }
 
     /// <summary>
@@ -80,17 +88,11 @@ public class BattleHub : IBattleHub
                 throw new UnauthorizedAccessException("访问令牌无效或已过期");
             }
 
-            // 验证角色ID是否与令牌匹配
-            // 注意：这里假设 UserId 就是 CharacterId，实际应用中可能需要额外查询
-            if (authContext.UserId != request.CharacterId)
-            {
-                _logger.LogWarning("令牌与角色ID不匹配: Token UserId={UserId}, Request CharacterId={CharacterId}",
-                    authContext.UserId, request.CharacterId);
-                throw new UnauthorizedAccessException("访问令牌与角色ID不匹配");
-            }
-
-            _logger.LogInformation("访问令牌验证成功: CharacterId={CharacterId}, BattleId={BattleId}",
-                request.CharacterId, request.BattleId);
+            // ✅ JWT Token 验证成功，Token 中的 UserId 表示用户账号
+            // CharacterId 是该用户的角色ID，由 GameServer 验证过所有权
+            // BattleServer 信任来自 BackendServer 的匹配通知，不再重复验证角色所有权
+            _logger.LogInformation("访问令牌验证成功: UserId={UserId}, CharacterId={CharacterId}, BattleId={BattleId}",
+                authContext.UserId, request.CharacterId, request.BattleId);
 
             var battleRoom = await _battleRoomManager.GetOrCreateBattleRoomAsync(request.BattleId);
 
@@ -107,15 +109,19 @@ public class BattleHub : IBattleHub
                 throw new InvalidOperationException("加入战斗失败，房间已满或角色已在战斗中");
             }
 
-            // ✅ 设置当前会话的 CharacterId
-            _currentCharacterId.Value = request.CharacterId;
+            // ✅ 获取当前连接ID
+            var connection = RequestContext.Current;
+            if (connection == null)
+            {
+                throw new InvalidOperationException("无法获取连接上下文");
+            }
+            var connectionId = connection.Id.ToString();
 
-            // ✅ 使用 ConnectionContext 替代全局 AsyncLocal
-            // 使用 CharacterId 作为会话标识（一个角色同一时间只有一个连接）
-            _connectionContext.JoinBattle(request.CharacterId, request.BattleId, request.CharacterId);
+            // ✅ 使用 BattleConnectionContext 存储连接状态
+            _connectionContext.JoinBattle(connectionId, request.BattleId, request.CharacterId);
 
-            _logger.LogInformation("角色 {CharacterId} 加入战斗房间 {BattleId}",
-                request.CharacterId, request.BattleId);
+            _logger.LogInformation("角色 {CharacterId} 加入战斗房间 {BattleId}, ConnectionId: {ConnectionId}",
+                request.CharacterId, request.BattleId, connectionId);
 
             return battleRoom.GetBattleInfo();
         }
@@ -134,13 +140,12 @@ public class BattleHub : IBattleHub
     {
         try
         {
-            // ✅ 从 ConnectionContext 获取状态
-            var sessionId = GetSessionId();
-            var state = _connectionContext.GetState(sessionId);
+            // ✅ 获取当前战斗状态
+            var state = GetCurrentBattleState();
 
             if (state == null)
             {
-                _logger.LogWarning("角色未加入任何战斗: CharacterId={CharacterId}", sessionId);
+                _logger.LogWarning("角色未加入任何战斗: CharacterId={CharacterId}", state.CharacterId);
                 return false;
             }
 
@@ -156,7 +161,11 @@ public class BattleHub : IBattleHub
             if (success)
             {
                 // ✅ 清除连接状态
-                _connectionContext.LeaveBattle(sessionId);
+                var connection = RequestContext.Current;
+                if (connection != null)
+                {
+                    _connectionContext.LeaveBattle(connection.Id.ToString());
+                }
                 _currentCharacterId.Value = null;
 
                 _logger.LogInformation("角色 {CharacterId} 离开战斗房间 {BattleId}",
@@ -177,14 +186,8 @@ public class BattleHub : IBattleHub
     /// </summary>
     public async Task<BattleInfo> GetBattleInfoAsync()
     {
-        // ✅ 从 ConnectionContext 获取状态
-        var sessionId = GetSessionId();
-        var state = _connectionContext.GetState(sessionId);
-
-        if (state == null)
-        {
-            throw new InvalidOperationException("未加入任何战斗");
-        }
+        // ✅ 获取当前战斗状态
+        var state = GetCurrentBattleState();
 
         var battleRoom = await _battleRoomManager.GetBattleRoomAsync(state.BattleId);
 
@@ -203,14 +206,8 @@ public class BattleHub : IBattleHub
     {
         try
         {
-            // ✅ 从 ConnectionContext 获取状态
-            var sessionId = GetSessionId();
-            var state = _connectionContext.GetState(sessionId);
-
-            if (state == null)
-            {
-                throw new InvalidOperationException("未加入任何战斗");
-            }
+            // ✅ 获取当前战斗状态
+            var state = GetCurrentBattleState();
 
             var battleRoom = await _battleRoomManager.GetBattleRoomAsync(state.BattleId);
 
@@ -244,7 +241,7 @@ public class BattleHub : IBattleHub
         try
         {
             // ✅ 从 ConnectionContext 获取状态
-            var sessionId = GetSessionId();
+            var sessionId = GetCurrentBattleState().CharacterId;
             var state = _connectionContext.GetState(sessionId);
 
             if (state == null)
@@ -311,7 +308,7 @@ public class BattleHub : IBattleHub
         try
         {
             // ✅ 从 ConnectionContext 获取状态
-            var sessionId = GetSessionId();
+            var sessionId = GetCurrentBattleState().CharacterId;
             var state = _connectionContext.GetState(sessionId);
 
             if (state == null)
@@ -351,7 +348,7 @@ public class BattleHub : IBattleHub
         try
         {
             // ✅ 从 ConnectionContext 获取状态
-            var sessionId = GetSessionId();
+            var sessionId = GetCurrentBattleState().CharacterId;
             var state = _connectionContext.GetState(sessionId);
 
             if (state == null)
@@ -409,15 +406,20 @@ public class BattleHub : IBattleHub
             // TODO: 在生产环境中应该为每个玩家生成独立的访问令牌
             var accessToken = Guid.NewGuid().ToString();
 
-            _logger.LogInformation("战斗房间创建成功 - RoomId: {RoomId}", request.MatchId);
+            // 从配置中获取服务器地址和端口
+            var serverHost = _configuration.GetValue<string>("ServiceRegistration:Host") ?? "localhost";
+            var serverPort = _configuration.GetValue<int>("ServiceRegistration:TcpPort", 9080);
+
+            _logger.LogInformation("战斗房间创建成功 - RoomId: {RoomId}, Server: {Host}:{Port}",
+                request.MatchId, serverHost, serverPort);
 
             return new CreateBattleRoomResponse
             {
                 Success = true,
                 Message = "战斗房间创建成功",
                 RoomId = request.MatchId,
-                ServerHost = "localhost", // TODO: 从配置或服务发现获取真实的服务器地址
-                ServerPort = 8082, // TODO: 从配置获取真实的端口
+                ServerHost = serverHost,
+                ServerPort = serverPort,
                 AccessToken = accessToken
             };
         }

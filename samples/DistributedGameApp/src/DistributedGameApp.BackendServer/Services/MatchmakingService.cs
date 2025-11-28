@@ -458,21 +458,18 @@ public class MatchmakingService : BaseService, IPulseService
         DistributedGameApp.Shared.Domain.Matchmaking.MatchFoundNotification notification)
     {
         Logger.LogInformation("开始通知 GameServer，玩家数: {Count}", matchedTickets.Count);
-        
+
         // 当前 Demo 场景只有一个 GameServer 实例，
         // 且 BackendServer 通过 Consul 以服务类型 (GameServer) 发现节点，
         // 因此这里不再按 SourceGameServerNodeId 精确路由，统一通过服务类型路由即可。
         try
         {
-            Logger.LogInformation("正在获取 GameServerInternalHub 代理（自动路由）");
-            
-            // 不指定 serviceId，交给 UnifiedServiceClientManager 按服务类型自动路由
-            var gameServerHub = _serviceClientManager.GetHub<IGameServerInternalHub>();
-            Logger.LogInformation("GetHub 结果: {Result}", gameServerHub != null ? "成功" : "返回 null");
+            // ✅ 方案2: 使用重试机制获取 Hub 代理（应对瞬时网络故障）
+            var gameServerHub = await GetGameServerHubWithRetryAsync();
 
             if (gameServerHub == null)
             {
-                Logger.LogWarning("无法获取 GameServerInternalHub 代理（自动路由失败）");
+                Logger.LogError("无法获取 GameServerInternalHub 代理（重试后仍失败）");
                 return;
             }
 
@@ -481,6 +478,7 @@ public class MatchmakingService : BaseService, IPulseService
             {
                 try
                 {
+                    // ✅ 直接使用多参数调用（源生成器已支持）
                     var success = await gameServerHub.OnMatchFoundAsync(ticket.PlayerId, notification);
 
                     if (success)
@@ -508,6 +506,39 @@ public class MatchmakingService : BaseService, IPulseService
         {
             Logger.LogError(ex, "获取 GameServerInternalHub 失败（自动路由）");
         }
+    }
+
+    /// <summary>
+    /// 带重试机制获取 GameServerInternalHub 代理
+    /// </summary>
+    /// <param name="maxRetries">最大重试次数（默认3次）</param>
+    /// <param name="delayMs">重试延迟（默认500ms）</param>
+    /// <returns>Hub 代理实例，如果重试后仍失败则返回 null</returns>
+    private async Task<IGameServerInternalHub?> GetGameServerHubWithRetryAsync(int maxRetries = 3, int delayMs = 500)
+    {
+        for (int i = 0; i < maxRetries; i++)
+        {
+            Logger.LogInformation("正在获取 GameServerInternalHub 代理（尝试 {Attempt}/{MaxRetries}）", i + 1, maxRetries);
+
+            // 不指定 serviceId，交给 UnifiedServiceClientManager 按服务类型自动路由
+            var hub = _serviceClientManager.GetHub<IGameServerInternalHub>();
+
+            if (hub != null)
+            {
+                Logger.LogInformation("成功获取 GameServerInternalHub 代理（第 {Attempt} 次尝试）", i + 1);
+                return hub;
+            }
+
+            if (i < maxRetries - 1)
+            {
+                Logger.LogWarning("获取 GameServerInternalHub 失败，将在 {DelayMs}ms 后重试 ({Retry}/{MaxRetries})",
+                    delayMs, i + 1, maxRetries);
+                await Task.Delay(delayMs);
+            }
+        }
+
+        Logger.LogError("获取 GameServerInternalHub 失败（重试 {MaxRetries} 次后仍失败）", maxRetries);
+        return null;
     }
 
     /// <summary>
