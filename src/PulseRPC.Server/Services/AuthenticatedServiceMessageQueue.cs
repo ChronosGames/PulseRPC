@@ -1154,17 +1154,6 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
         _signal.Release(); // 通知处理循环有新消息
     }
 
-    public ActorStatistics GetStatistics()
-    {
-        return new ActorStatistics
-        {
-            ProcessedCount = (int)_totalProcessed,
-            FailedCount = (int)_totalFailed,
-            AuthenticationFailures = (int)_authenticationFailures,
-            AuthorizationFailures = (int)_authorizationFailures
-        };
-    }
-
     /// <summary>
     /// 获取队列监控指标快照
     /// </summary>
