@@ -6,7 +6,7 @@
 
 ## 系统要求
 
-- .NET 9.0 SDK
+- .NET 10.0 SDK
 - Docker Desktop（用于运行 MongoDB 和 Consul）
 - Visual Studio 2022 或 Rider（可选）
 

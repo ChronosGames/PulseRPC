@@ -10,24 +10,30 @@ using PulseRPC.Server.Abstractions;
 namespace PulseRPC.Server;
 
 /// <summary>
-/// 并发服务基类 - 支持并发处理多个消息
+/// [已废弃] 并发服务基类 - 支持并发处理多个消息
 /// </summary>
 /// <remarks>
+/// <para><strong>⚠️ 此类已废弃</strong>，请使用 <see cref="PulseRPC.Server.Services.UnifiedPulseServiceBase"/> + SchedulingMode.DefaultPool 替代。</para>
+/// <para>
 /// 与 <see cref="BaseService"/> 的区别：
 /// - BaseService: 单线程串行处理（Actor 模型），保证消息有序性
 /// - ConcurrentServiceBase: 多线程并发处理，适合 IO 密集型场景
-///
+/// </para>
+/// <para>
 /// 使用场景：
 /// - 数据库查询服务
 /// - HTTP API 网关
 /// - 无状态的纯查询操作
 /// - IO 密集型操作
-///
+/// </para>
+/// <para>
 /// 注意事项：
 /// ⚠️ Service 内部状态需要线程安全保护（使用锁或 Interlocked）
 /// ⚠️ 消息处理顺序不保证（即使同优先级）
 /// ⚠️ 不适合有状态依赖的业务逻辑
+/// </para>
 /// </remarks>
+[Obsolete("使用 UnifiedPulseServiceBase + SchedulingMode.DefaultPool 替代。")]
 public abstract class ConcurrentServiceBase : IService, IPulseHub
 {
     public PID ServicePID { get; private set; }

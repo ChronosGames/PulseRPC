@@ -1009,6 +1009,287 @@ public class MyService : BaseService
 - **架构文档**：`docs/architecture/Service-Based-Messaging-Architecture.md` - 实际架构详细说明
 - **评审文档**：`docs/Service-Message-Queue-Design-Review.md` - 设计与实现对比评审
 
+## 🏗️ 统一服务系统（Unified Service System）
+
+### 概述
+
+统一服务系统是 PulseRPC.Server 的新一代服务架构，解决了以下问题：
+- **Hub 与 Service 职责分离**：Hub 无状态，Service 有状态
+- **灵活的服务分类**：启动类型 × 实例范围
+- **简化的调度机制**：自动路由到对应 Service 队列
+
+### 服务分类体系
+
+#### 维度1：启动类型
+
+```csharp
+public enum ServiceStartupType
+{
+    AutoStart,  // 初始化时默认启动（如：全局排行榜）
+    OnDemand    // 运行时动态创建（如：玩家服务）
+}
+```
+
+#### 维度2：实例范围
+
+```csharp
+public enum ServiceInstanceScope
+{
+    ClusterSingleton,  // 全集群唯一（ServiceId = "global"）
+    ProcessSingleton,  // 进程内唯一（ServiceId = "local"）
+    MultiInstance      // 多实例（ServiceId = 业务ID）
+}
+```
+
+#### 维度3：调度模式
+
+```csharp
+public enum ServiceSchedulingMode
+{
+    DefaultPool,     // 默认调度池（并发执行，最高吞吐）
+    DedicatedQueue,  // 专属队列（顺序执行，线程安全）
+    ThreadAffinity   // 线程亲和性（固定线程，缓存友好）
+}
+```
+
+### 核心接口
+
+#### IUnifiedPulseService - 统一服务接口
+
+```csharp
+public interface IUnifiedPulseService : IAsyncDisposable
+{
+    string ServiceType { get; }           // 服务类型名称
+    string ServiceId { get; }             // 服务实例 ID
+    string ServiceAddress => $"{ServiceType}:{ServiceId}";
+    ServiceLifecycleState State { get; }  // 生命周期状态
+
+    Task StartAsync(CancellationToken ct = default);
+    Task StopAsync(CancellationToken ct = default);
+}
+```
+
+#### PulseServiceAttribute - 服务元数据
+
+```csharp
+[PulseService(
+    StartupType = ServiceStartupType.OnDemand,
+    InstanceScope = ServiceInstanceScope.MultiInstance,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
+    DisplayName = "Player",
+    IdleTimeoutSeconds = 600,
+    EnableHealthCheck = true)]
+public class PlayerService : UnifiedPulseServiceBase
+{
+    // ...
+}
+```
+
+### Hub 与 Service 分离模式
+
+#### 架构设计
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         请求处理流程                                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│   Client Request                                                    │
+│        ↓                                                            │
+│   ┌─────────────────────────────────────────┐                       │
+│   │  PlayerHub (无状态)                      │                       │
+│   │  - 参数验证                              │                       │
+│   │  - 权限检查                              │                       │
+│   │  - 路由到 PlayerService                 │                       │
+│   └─────────────────────────────────────────┘                       │
+│        ↓                                                            │
+│   IContextualServiceAccessor<PlayerService>.GetCurrentAsync()       │
+│        ↓                                                            │
+│   ┌─────────────────────────────────────────┐                       │
+│   │  PlayerService (有状态)                  │                       │
+│   │  - 玩家数据                              │                       │
+│   │  - 专属消息队列                          │                       │
+│   │  - 业务逻辑                              │                       │
+│   └─────────────────────────────────────────┘                       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 无状态 Hub 示例
+
+```csharp
+public class PlayerHub : IPlayerHub
+{
+    private readonly IContextualServiceAccessor<PlayerService> _playerService;
+
+    public PlayerHub(IContextualServiceAccessor<PlayerService> playerService)
+    {
+        _playerService = playerService;
+    }
+
+    public async Task<PlayerInfo?> GetPlayerInfoAsync()
+    {
+        // 自动从上下文获取 PlayerId，在 Service 队列中执行
+        return await _playerService.ExecuteCurrentAsync(
+            service => service.GetPlayerInfoAsync());
+    }
+
+    public async Task<MoveResult> MoveAsync(MoveRequest request)
+    {
+        // 参数验证（在 Hub 层做）
+        if (request == null)
+            return new MoveResult { Success = false, ErrorMessage = "Invalid request" };
+
+        return await _playerService.ExecuteCurrentAsync(
+            service => service.MoveAsync(request));
+    }
+}
+```
+
+#### 有状态 Service 示例
+
+```csharp
+[PulseService(
+    StartupType = ServiceStartupType.OnDemand,
+    InstanceScope = ServiceInstanceScope.MultiInstance)]
+public partial class PlayerService : UnifiedPulseServiceBase, IPlayerHub
+{
+    // 玩家状态（只在队列线程中访问，无需加锁）
+    private Character? _currentCharacter;
+    private Position _position;
+
+    public PlayerService(string playerId, ILogger<PlayerService> logger)
+        : base("Player", playerId, logger)
+    {
+    }
+
+    // IPlayerHub 实现（在专属队列中执行）
+    public Task<PlayerInfo?> GetPlayerInfoAsync()
+    {
+        return Task.FromResult(new PlayerInfo
+        {
+            PlayerId = ServiceId,
+            PlayerName = _currentCharacter?.Name,
+            Level = _currentCharacter?.Level ?? 0
+        });
+    }
+}
+```
+
+### 服务访问器（ServiceAccessor）
+
+#### IServiceAccessor<TService> - 基础访问器
+
+```csharp
+public interface IServiceAccessor<TService> where TService : class, IUnifiedPulseService
+{
+    ValueTask<TService> GetAsync(string serviceId, CancellationToken ct = default);
+    TService? TryGet(string serviceId);
+    IEnumerable<TService> GetAll();
+}
+```
+
+#### IContextualServiceAccessor<TService> - 上下文感知访问器
+
+```csharp
+public interface IContextualServiceAccessor<TService> : IServiceAccessor<TService>
+{
+    // 自动从 RequestContext 获取 ServiceId
+    ValueTask<TService> GetCurrentAsync(CancellationToken ct = default);
+    TService? TryGetCurrent();
+}
+```
+
+#### 扩展方法 - ExecuteAsync
+
+```csharp
+// 在 Service 队列中执行操作
+var result = await _playerService.ExecuteAsync(
+    playerId,
+    service => service.GetPlayerInfoAsync());
+
+// 从当前上下文执行
+var result = await _playerService.ExecuteCurrentAsync(
+    service => service.GetPlayerInfoAsync());
+```
+
+### 多 Hub 映射单 Service
+
+支持一个 Service 实现多个 Hub 接口，使用 partial class 分割文件：
+
+```
+Services/Player/
+├── PlayerService.cs           // 主文件：基类、状态、生命周期
+├── PlayerService.Player.cs    // partial: IPlayerHub 实现
+├── PlayerService.Inventory.cs // partial: IInventoryHub 实现
+└── PlayerService.Chat.cs      // partial: IChatHub 实现
+```
+
+#### 注册方式
+
+```csharp
+// 方式1：逐个注册
+services.AddPulseService<PlayerService>();
+services.MapHubToService<IPlayerHub, PlayerService>();
+services.MapHubToService<IInventoryHub, PlayerService>();
+
+// 方式2：批量注册
+services.MapHubsToService<PlayerService>(
+    typeof(IPlayerHub),
+    typeof(IInventoryHub),
+    typeof(IChatHub));
+
+// 方式3：自动发现
+services.MapAllHubsToService<PlayerService>();
+```
+
+### DI 注册
+
+```csharp
+// Program.cs
+services.AddUnifiedServiceManagement(options =>
+{
+    options.ContinueOnAutoStartFailure = true;
+    options.MaxCachedInstances = 10000;
+});
+
+services.AddPulseService<PlayerService>((sp, playerId) =>
+{
+    var logger = sp.GetRequiredService<ILogger<PlayerService>>();
+    var repository = sp.GetRequiredService<CharacterRepository>();
+    return new PlayerService(playerId, logger, repository);
+});
+
+services.AddTransient<IPlayerHub, PlayerHub>();
+services.MapHubToService<IPlayerHub, PlayerService>();
+```
+
+### 与旧架构对比
+
+| 特性 | 旧架构 (GameHub) | 新架构 (PlayerService + PlayerHub) |
+|------|------------------|-----------------------------------|
+| **Hub 职责** | 既是 Hub 又是 Service | 仅做 RPC 入口，无状态 |
+| **状态管理** | 在 Hub 中用 ConcurrentDictionary | 在 Service 中，队列自动保证线程安全 |
+| **代码组织** | 单文件可达 600+ 行 | partial class 分割，每个文件 ~150 行 |
+| **获取 Service** | 不适用 | `IContextualServiceAccessor<T>` |
+| **测试性** | 难以单元测试 | 可直接测试 Service |
+| **线程安全** | 手动加锁 | 队列自动保证 |
+
+### 新增文件
+
+| 文件路径 | 说明 |
+|---------|------|
+| `Abstractions/ServiceScope.cs` | 服务分类枚举定义 |
+| `Abstractions/PulseServiceAttribute.cs` | 服务元数据特性 |
+| `Abstractions/IUnifiedPulseService.cs` | 统一服务接口 |
+| `Abstractions/IServiceAccessor.cs` | 服务访问器接口 |
+| `Services/UnifiedPulseServiceBase.cs` | 服务基类实现 |
+| `ServiceManagement/UnifiedServiceManager.cs` | 服务管理器 |
+| `ServiceManagement/ServiceAccessor.cs` | 服务访问器实现 |
+| `ServiceManagement/HubToServiceDispatcher.cs` | Hub→Service 调度器 |
+| `ServiceManagement/MultiHubServiceSupport.cs` | 多 Hub 支持 |
+| `Extensions/UnifiedServiceExtensions.cs` | DI 扩展方法 |
+
 ## 🎉 总结
 
 PulseRPC.Server 提供了工业级的 RPC 服务器实现，核心特性包括：

@@ -517,6 +517,110 @@ docker-compose up --scale backend-server=2
 5. **SQL 注入防护**: 使用参数化查询
 6. **XSS 防护**: 输入验证和输出编码
 
+## 统一服务系统（Unified Service System）
+
+### 概述
+
+为了更好地分离关注点和提升代码可维护性，GameServer 采用了新的统一服务架构：
+
+- **Hub（无状态）**：仅负责 RPC 入口，参数验证，路由到 Service
+- **Service（有状态）**：管理玩家状态，使用专属队列保证线程安全
+
+### 核心组件
+
+```
+Services/Player/
+├── PlayerService.cs           # 主文件：基类、状态、生命周期
+├── PlayerService.Player.cs    # partial: IPlayerHub 实现
+├── PlayerHub.cs               # 无状态 Hub（RPC 入口点）
+├── PlayerServiceRegistration.cs # DI 注册扩展方法
+└── README.md                  # 架构说明文档
+```
+
+### 请求处理流程
+
+```
+Client Request: GetPlayerInfoAsync()
+        ↓
+PlayerHub (无状态)
+    - 参数验证
+    - _playerService.ExecuteCurrentAsync(...)
+        ↓
+IContextualServiceAccessor.GetCurrentAsync()
+    - 从 RequestContext 获取 UserId
+    - 作为 ServiceId 获取/创建 PlayerService
+        ↓
+PlayerService.EnqueueAsync()
+    - 将操作放入专属队列
+    - 保证 FIFO 顺序执行
+        ↓
+PlayerService.GetPlayerInfoAsync()
+    - 实际业务逻辑
+    - 访问 _currentCharacter 等状态
+```
+
+### 使用示例
+
+#### Hub 实现（无状态）
+
+```csharp
+public class PlayerHub : IPlayerHub
+{
+    private readonly IContextualServiceAccessor<PlayerService> _playerService;
+
+    public PlayerHub(IContextualServiceAccessor<PlayerService> playerService)
+    {
+        _playerService = playerService;
+    }
+
+    public async Task<PlayerInfo?> GetPlayerInfoAsync()
+    {
+        return await _playerService.ExecuteCurrentAsync(
+            service => service.GetPlayerInfoAsync());
+    }
+}
+```
+
+#### Service 实现（有状态）
+
+```csharp
+[PulseService(
+    StartupType = ServiceStartupType.OnDemand,
+    InstanceScope = ServiceInstanceScope.MultiInstance,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue)]
+public partial class PlayerService : UnifiedPulseServiceBase, IPlayerHub
+{
+    // 玩家状态（队列保证线程安全，无需加锁）
+    private Character? _currentCharacter;
+    private Position _position;
+
+    public Task<PlayerInfo?> GetPlayerInfoAsync()
+    {
+        return Task.FromResult(new PlayerInfo
+        {
+            PlayerId = ServiceId,
+            PlayerName = _currentCharacter?.Name
+        });
+    }
+}
+```
+
+#### DI 注册
+
+```csharp
+// Program.cs
+services.AddPlayerServices();
+```
+
+### 架构优势
+
+| 特性 | 旧架构 | 新架构 |
+|------|--------|--------|
+| Hub 职责 | 既是 Hub 又是 Service | 仅做 RPC 入口 |
+| 状态管理 | 手动加锁 | 队列自动保证 |
+| 代码组织 | 单文件 600+ 行 | partial 分割 |
+| 可测试性 | 难以测试 | 可直接测试 |
+
 ## 下一步
 
 1. 实现共享层（Domain Models, Hubs, Receivers）

@@ -5,9 +5,11 @@ using PulseRPC.Server.Authentication;
 namespace PulseRPC.Server;
 
 /// <summary>
-/// 支持让出的 Service 基类
+/// [已废弃] 支持让出的 Service 基类
 /// </summary>
 /// <remarks>
+/// <para><strong>⚠️ 此类已废弃</strong>，请使用 <see cref="PulseRPC.Server.Services.UnifiedPulseServiceBase"/> 替代。</para>
+/// <para>新体系默认支持 async/await 并自动在队列中恢复执行。</para>
 /// <para><strong>核心特性</strong>：</para>
 /// <list type="bullet">
 /// <item><description><strong>自动让出</strong>：await 时自动让出队列执行权</description></item>
@@ -42,6 +44,7 @@ namespace PulseRPC.Server;
 /// <item><description>YieldingService: await 让出队列，其他消息可以处理</description></item>
 /// </list>
 /// </remarks>
+[Obsolete("使用 UnifiedPulseServiceBase 替代。")]
 public abstract class YieldingService : IService
 {
     // MethodInfo 缓存 - 用于优化反射性能
