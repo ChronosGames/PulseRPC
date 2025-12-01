@@ -2,14 +2,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
-using GameServer.World;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using ChatApp;
-using PulseRPC.Server.Authentication;
 using PulseRPC.Server.Extensions;
-using PulseRPC.Server.Models;
 using PulseRPC.Transport;
 
 namespace GameServer;
@@ -134,20 +130,9 @@ internal abstract class Program
         // 业务服务配置
         // ========================================
 
-        // 添加游戏世界（依赖 IEventPublisher，所以放在 AddUnifiedPulseServer 之后）
-        services.AddSingleton<IGameWorld, GameWorld>();
-        services.AddSingleton<IPlayerManager, PlayerManager>();
-
-        // 添加聊天室管理器（服务隔离架构，依赖 IAuthenticationService 和 PermissionValidator）
-        services.AddSingleton<ChatRoomManager>();
-
         // ========================================
         // Hub 服务注册
         // ========================================
-
-        // 注册 Hub 服务（这些服务会被源代码生成器自动发现和路由）
-        services.AddSingleton<IPlayerHub, PlayerHub>();
-        services.AddSingleton<IChatHub, ChatHub>();
 
         // 添加服务注册
         // services.AddPulseRpcServiceRegistration(context.Configuration);
@@ -167,13 +152,6 @@ internal abstract class Program
         //     options.SamplingRate = 1.0; // 100%采样用于演示
         //     options.Exporter.Type = TracingExporterType.Console;
         // });
-
-        // 覆盖默认的认证提供程序，使用ChatApp专用的SimpleAuthenticationProvider
-        services.AddSingleton<IAuthenticationProvider, SimpleAuthenticationProvider>();
-
-        // 添加位置更新批处理器
-        services.AddSingleton<PlayerMovementBatcher>();
-        services.AddHostedService(sp => sp.GetRequiredService<PlayerMovementBatcher>());
 
         // 在服务器启动后注册服务到ServiceRegistry
         services.Configure<HostOptions>(options =>
