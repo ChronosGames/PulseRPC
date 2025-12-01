@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using ChatApp.NewArchitecture.Contracts;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
@@ -10,18 +11,15 @@ namespace ChatApp.Console;
 /// <summary>
 /// 游戏控制台客户端
 /// </summary>
-[PulseClientGeneration(typeof(IPlayerHub))]
-[PulseClientGeneration(typeof(IPlayerLoginEvents))]
-[PulseClientGeneration(typeof(IPlayerMovementEvents))]
+[PulseClientGeneration(typeof(IChatRoomHub))]
 public class GameConsoleClient(ILoggerFactory loggerFactory)
 {
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
     private IPulseClient? _client;
-    private IPlayerHub? _playerService;
+    private IChatRoomHub? _playerService;
     private ISubscriptionToken? _eventsSubscription;
     private CancellationTokenSource? _cts;
     private bool _isLoggedIn;
-    private PlayerInfo? _playerInfo;
     private Vector3 _position = Vector3.Zero;
 
     // 用于存储其他玩家位置的字典
@@ -54,10 +52,10 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             await _client.InitializeAsync(_cts.Token);
 
             // 获取服务代理
-            _playerService = await _client.GetServiceAsync<IPlayerHub>("ChatApp001");
+            _playerService = await _client.GetServiceAsync<IChatRoomHub>("ChatApp001");
 
             // 注册事件监听器
-            _eventsSubscription = await _client.RegisterEventListenerAsync(new PlayerEventsHandler(this));
+            // _eventsSubscription = await _client.RegisterEventListenerAsync(new PlayerEventsHandler(this));
 
             _logger.LogInformation("客户端初始化完成");
         }
@@ -77,14 +75,13 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
 
         try
         {
-            var request = new LoginRequest { Username = username, Password = password };
+            var request = "token sample string";
             var response = await _playerService!.LoginAsync(request);
             if (response.Success)
             {
                 _isLoggedIn = true;
-                _playerInfo = response.Player;
 
-                _logger.LogInformation("登录成功: {Username} (ID: {PlayerId})", _playerInfo!.Username, _playerInfo.Id);
+                _logger.LogInformation("登录成功: {Username} (ID: {PlayerId})", response.UserName, response.UserId);
             }
             else
             {
@@ -121,7 +118,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             _position.Z = z;
 
             // 发送移动请求
-            await _playerService!.MoveAsync(new MoveRequest { X = x, Y = y, Z = z });
+            // await _playerService!.MoveAsync(new MoveRequest { X = x, Y = y, Z = z });
 
             _logger.LogDebug("已发送移动请求: ({X}, {Y}, {Z})", x, y, z);
         }
@@ -175,8 +172,8 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
                         else
                         {
                             await LoginAsync(parts[1], parts[2]);
-                            if (_isLoggedIn)
-                                System.Console.WriteLine($"欢迎, {_playerInfo!.Username}!");
+                            // if (_isLoggedIn)
+                            //     System.Console.WriteLine($"欢迎, {_playerInfo!.Username}!");
                         }
 
                         break;
@@ -244,7 +241,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         }
 
         System.Console.WriteLine("\n在线玩家列表:");
-        System.Console.WriteLine($"* {_playerInfo!.Username} (你) - 位置: ({_position.X}, {_position.Y}, {_position.Z})");
+        System.Console.WriteLine($"* {"Unknown"} (你) - 位置: ({_position.X}, {_position.Y}, {_position.Z})");
 
         foreach (var player in _otherPlayers.Values)
         {
@@ -260,8 +257,8 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     /// </summary>
     internal void AddPlayer(Guid playerId, string playerName, Vector3 position)
     {
-        if (_playerInfo != null && playerId == _playerInfo.Id)
-            return; // 忽略自己
+        // if (_playerInfo != null && playerId == _playerInfo.Id)
+        //     return; // 忽略自己
 
         _otherPlayers[playerId] = new PlayerData { Id = playerId, Name = playerName, Position = position };
 
@@ -282,20 +279,6 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
             System.Console.ForegroundColor = ConsoleColor.Yellow;
             System.Console.WriteLine($"\n玩家 {player.Name} 离开了游戏 ({reason})\n> ");
             System.Console.ResetColor();
-        }
-    }
-
-    /// <summary>
-    /// 更新玩家位置
-    /// </summary>
-    internal void UpdatePlayerPosition(Guid playerId, Vector3 position)
-    {
-        if (_playerInfo != null && playerId == _playerInfo.Id)
-            return; // 忽略自己
-
-        if (_otherPlayers.TryGetValue(playerId, out var player))
-        {
-            player.Position = position;
         }
     }
 
@@ -373,59 +356,6 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
         {
             Unsubscribe();
             GC.SuppressFinalize(this);
-        }
-    }
-
-    /// <summary>
-    /// 玩家事件处理器
-    /// </summary>
-    private class PlayerEventsHandler : IPlayerLoginEvents, IPlayerMovementEvents
-    {
-        private readonly GameConsoleClient _client;
-
-        public PlayerEventsHandler(GameConsoleClient client)
-        {
-            _client = client;
-        }
-
-        public void OnPlayerJoined(PlayerJoinedEvent eventData)
-        {
-            var position = eventData.Position != Vector3.Zero
-                ? eventData.Position
-                : new Vector3(eventData.X, eventData.Y, eventData.Z);
-            _client.AddPlayer(eventData.PlayerId, eventData.PlayerName, position);
-        }
-
-        public void OnPlayerLeft(PlayerLeftEvent eventData)
-        {
-            _client.RemovePlayer(eventData.PlayerId, eventData.Reason);
-        }
-
-        public void OnPlayerMoved(PlayerMovedEvent eventData)
-        {
-            _client.UpdatePlayerPosition(eventData.PlayerId,
-                new Vector3(eventData.X, eventData.Y, eventData.Z));
-        }
-
-        public void OnPlayersMovedBatch(PlayerMovedEvent[] eventData)
-        {
-            foreach (var update in eventData)
-            {
-                OnPlayerMoved(update);
-            }
-        }
-
-        public void OnPlayersMovedBatch(PlayersBatchMovedEvent eventData)
-        {
-            if (eventData.Updates == null)
-            {
-                return;
-            }
-
-            foreach (var update in eventData.Updates)
-            {
-                OnPlayerMoved(update);
-            }
         }
     }
 }
