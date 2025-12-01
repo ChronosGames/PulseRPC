@@ -1,9 +1,12 @@
 namespace PulseRPC.Server.Abstractions;
 
 /// <summary>
-/// 服务实例接口，用于启用基于 ServiceId 的线程调度和灾难隔离
+/// [已废弃] 服务实例接口，用于启用基于 ServiceId 的线程调度和灾难隔离
 /// </summary>
 /// <remarks>
+/// <para>
+/// <strong>⚠️ 此接口已废弃</strong>，请使用 <see cref="IUnifiedPulseService"/> 替代。
+/// </para>
 /// <para>
 /// 实现此接口的服务类将获得以下能力：
 /// </para>
@@ -14,20 +17,23 @@ namespace PulseRPC.Server.Abstractions;
 /// <item><description><strong>实时监控</strong>：实例级别的健康状态和性能指标</description></item>
 /// </list>
 /// <para>
-/// <strong>向后兼容性</strong>：
-/// 此接口为可选增强接口，可与 <see cref="IPulseHub"/> 共同实现。
-/// 仅实现 <see cref="IPulseHub"/> 的服务保持原有行为（使用默认线程池调度）。
+/// <strong>迁移指南</strong>：
 /// </para>
-/// <para>
-/// <strong>ServiceId 生成指南</strong>：
-/// </para>
-/// <list type="bullet">
-/// <item><description>推荐格式：<c>ServiceName:业务ID</c>（例如：<c>ChatRoom:room-123</c>）</description></item>
-/// <item><description>必须在构造函数中初始化，之后不可更改（不可变）</description></item>
-/// <item><description>长度限制：1 到 1000 字符</description></item>
-/// <item><description>允许字符：字母、数字、连字符、下划线、冒号</description></item>
-/// <item><description>避免所有实例使用相同 ServiceId（会导致单线程瓶颈）</description></item>
-/// </list>
+/// <code>
+/// // 旧代码
+/// public class MyService : IPulseService
+/// {
+///     public string ServiceName => "MyService";
+///     public string ServiceId { get; }
+/// }
+///
+/// // 新代码
+/// [PulseService(StartupType = ServiceStartupType.OnDemand)]
+/// public class MyService : UnifiedPulseServiceBase
+/// {
+///     public MyService(string id) : base("MyService", id) { }
+/// }
+/// </code>
 /// </remarks>
 /// <example>
 /// <code>
@@ -74,6 +80,7 @@ namespace PulseRPC.Server.Abstractions;
 /// }
 /// </code>
 /// </example>
+[Obsolete("使用 IUnifiedPulseService 替代。此接口将在未来版本中移除。")]
 public interface IPulseService
 {
     /// <summary>

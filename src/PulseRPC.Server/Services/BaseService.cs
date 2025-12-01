@@ -13,8 +13,14 @@ namespace PulseRPC.Server;
 // ========================
 
 /// <summary>
-/// 服务基础接口
+/// [已废弃] 服务基础接口
 /// </summary>
+/// <remarks>
+/// <para>
+/// <strong>⚠️ 此接口已废弃</strong>，请使用 <see cref="PulseRPC.Server.Abstractions.IUnifiedPulseService"/> 替代。
+/// </para>
+/// </remarks>
+[Obsolete("使用 IUnifiedPulseService 替代。此接口将在未来版本中移除。")]
 public interface IService : IAsyncDisposable
 {
     /// <summary>服务PID</summary>
@@ -32,16 +38,42 @@ public interface IService : IAsyncDisposable
 // ========================
 
 /// <summary>
-/// 带认证的Actor服务基类
+/// [已废弃] 带认证的Actor服务基类
 /// </summary>
 /// <remarks>
+/// <para>
+/// <strong>⚠️ 此类已废弃</strong>，请使用 <see cref="PulseRPC.Server.Services.UnifiedPulseServiceBase"/> 替代。
+/// </para>
+/// <para>
 /// 支持灵活配置：
 /// - 单线程/并发处理
 /// - 优先级队列
 /// - 背压流控
-///
+/// </para>
+/// <para>
 /// 默认配置：单线程 Actor 模型（严格有序）
+/// </para>
+/// <para>
+/// <strong>迁移指南</strong>：
+/// </para>
+/// <code>
+/// // 旧代码
+/// public class MyService : BaseService
+/// {
+///     public MyService(ILogger logger, IAuthenticationService auth, PermissionValidator perm)
+///         : base(logger, auth, perm) { }
+/// }
+///
+/// // 新代码
+/// [PulseService(StartupType = ServiceStartupType.OnDemand)]
+/// public class MyService : UnifiedPulseServiceBase
+/// {
+///     public MyService(string serviceId, ILogger&lt;MyService&gt; logger)
+///         : base("MyService", serviceId, logger) { }
+/// }
+/// </code>
 /// </remarks>
+[Obsolete("使用 UnifiedPulseServiceBase 替代。此类将在未来版本中移除。")]
 public abstract class BaseService : IService
 {
     // MethodInfo 缓存 - 用于优化反射性能

@@ -1,12 +1,25 @@
 ﻿namespace PulseRPC.Server;
 
 // ========================
-// 2. 增强的PID设计
+// 2. 增强的PID设计 [已废弃]
 // ========================
 
 /// <summary>
-/// 增强的进程标识符 - 包含ServiceId信息
+/// [已废弃] 增强的进程标识符 - 包含ServiceId信息
 /// </summary>
+/// <remarks>
+/// <para>
+/// <strong>⚠️ 此结构已废弃</strong>，新代码请使用 <see cref="PulseRPC.Server.Abstractions.IUnifiedPulseService.ServiceAddress"/> 替代。
+/// </para>
+/// <para>
+/// <strong>迁移说明</strong>：
+/// </para>
+/// <list type="bullet">
+/// <item><description>PID → ServiceAddress (string)：{ServiceType}:{ServiceId}</description></item>
+/// <item><description>新体系使用简单字符串作为服务标识，无需复杂的 PID 结构</description></item>
+/// </list>
+/// </remarks>
+[Obsolete("使用 IUnifiedPulseService.ServiceAddress 替代。此结构将在未来版本中移除。")]
 public readonly struct PID : IEquatable<PID>
 {
     /// <summary>节点编号 (1-65535)</summary>

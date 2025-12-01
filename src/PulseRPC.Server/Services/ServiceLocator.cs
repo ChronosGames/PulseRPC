@@ -5,12 +5,16 @@ using Microsoft.Extensions.Logging;
 namespace PulseRPC.Server;
 
 // ========================
-// 1. 服务标识符扩展
+// 1. 服务标识符扩展 [已废弃]
 // ========================
 
 /// <summary>
-/// 服务标识符 - 用于区分同类型服务的不同实例
+/// [已废弃] 服务标识符 - 用于区分同类型服务的不同实例
 /// </summary>
+/// <remarks>
+/// <para><strong>⚠️ 此结构已废弃</strong>，请使用 IUnifiedPulseService.ServiceType + ServiceId 替代。</para>
+/// </remarks>
+[Obsolete("使用 IUnifiedPulseService.ServiceType + ServiceId 替代。")]
 public readonly struct ServiceId : IEquatable<ServiceId>
 {
     /// <summary>服务类型名称</summary>

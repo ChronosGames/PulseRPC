@@ -6,8 +6,12 @@ using PulseRPC.Server.Configuration;
 namespace PulseRPC.Server;
 
 /// <summary>
-/// Service 工厂 - 动态创建和管理 Service 实例
+/// [已废弃] Service 工厂 - 动态创建和管理 Service 实例
 /// </summary>
+/// <remarks>
+/// <para><strong>⚠️ 此类已废弃</strong>，请使用 <see cref="PulseRPC.Server.ServiceManagement.UnifiedServiceManager"/> 替代。</para>
+/// </remarks>
+[Obsolete("使用 UnifiedServiceManager 替代。")]
 public sealed class ServiceFactory
 {
     private readonly IServiceProvider _serviceProvider;
