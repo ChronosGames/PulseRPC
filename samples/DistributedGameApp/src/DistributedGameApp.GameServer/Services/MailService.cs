@@ -4,21 +4,30 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Configuration;
+using PulseRPC.Server.Services;
 
 namespace DistributedGameApp.GameServer.Services;
 
 /// <summary>
-/// 邮件服务 - 基于 ConcurrentServiceBase 架构
+/// 邮件服务 - 基于 UnifiedPulseServiceBase 架构
 /// </summary>
 /// <remarks>
-/// <para><strong>改进点</strong>:</para>
+/// <para><strong>设计原则</strong>:</para>
 /// <list type="bullet">
-/// <item><description>继承 ConcurrentServiceBase，支持并发处理（IO密集型服务）</description></item>
-/// <item><description>配置并发度和背压策略，防止数据库过载</description></item>
-/// <item><description>获得监控指标和性能优化</description></item>
+/// <item><description>✅ 继承 UnifiedPulseServiceBase - 统一的服务基类</description></item>
+/// <item><description>✅ 使用专属消息队列保证线程安全</description></item>
+/// <item><description>✅ 全局单例 - 所有玩家共享同一个服务实例</description></item>
+/// <item><description>✅ IO密集型服务 - 所有操作直接访问数据库</description></item>
+/// <item><description>✅ 支持生命周期管理和健康检查</description></item>
 /// </list>
 /// </remarks>
-public class MailService : ConcurrentServiceBase
+[PulseService(
+    StartupType = ServiceStartupType.AutoStart,
+    InstanceScope = ServiceInstanceScope.ProcessSingleton,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
+    DisplayName = "MailService",
+    EnableHealthCheck = true)]
+public class MailService : UnifiedPulseServiceBase
 {
     private readonly MailRepository _mailRepository;
     private readonly CharacterRepository _characterRepository;
@@ -26,18 +35,28 @@ public class MailService : ConcurrentServiceBase
     public MailService(
         MailRepository mailRepository,
         CharacterRepository characterRepository,
-        ILogger<MailService> logger,
-        IAuthenticationService authenticationService,
-        PermissionValidator permissionValidator)
-        : base(logger, authenticationService, permissionValidator, new ConcurrentServiceOptions
-        {
-            MaxConcurrency = 15, // 邮件服务并发度（IO密集）
-            QueueCapacity = 2000,
-            BackpressureStrategy = BackpressureStrategy.DropOldest
-        })
+        ILogger<MailService> logger)
+        : base("MailService", "Global", logger)
     {
         _mailRepository = mailRepository;
         _characterRepository = characterRepository;
+    }
+
+    public override Task OnStartingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("MailService starting...");
+        return Task.CompletedTask;
+    }
+
+    public override Task OnStoppingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("MailService stopping...");
+        return Task.CompletedTask;
+    }
+
+    public override Task<ServiceHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceHealthCheckResult.Healthy("MailService is healthy"));
     }
 
     /// <summary>

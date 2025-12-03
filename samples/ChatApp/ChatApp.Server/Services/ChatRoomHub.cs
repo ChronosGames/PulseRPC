@@ -47,7 +47,7 @@ public class ChatRoomHub : IChatRoomHub
     /// <summary>
     /// 获取当前用户 ID（从 RequestContext）
     /// </summary>
-    private string? CurrentUserId => RequestContext.Current?.UserId;
+    private string? CurrentUserId => UnifiedRequestContext.Current?.UserId;
 
     /// <summary>
     /// 获取当前用户所在的房间 ID（从 Connection 属性）
@@ -106,7 +106,7 @@ public class ChatRoomHub : IChatRoomHub
 
         // 2. 将认证信息存入连接上下文
         //    框架会在后续请求中自动设置 RequestContext.Current.UserId
-        var context = RequestContext.Current;
+        var context = UnifiedRequestContext.Current;
         if (context != null)
         {
             context.Properties["UserId"] = userId;
@@ -134,7 +134,7 @@ public class ChatRoomHub : IChatRoomHub
         }
 
         // 清除认证信息
-        var context = RequestContext.Current;
+        var context = UnifiedRequestContext.Current;
         if (context != null)
         {
             context.Properties.Remove("UserId");
@@ -303,7 +303,7 @@ public class ChatRoomHub : IChatRoomHub
 
             if (result)
             {
-                RequestContext.Current?.Properties.Remove("RoomId");
+                UnifiedRequestContext.Current?.Properties.Remove("RoomId");
             }
 
             return result;

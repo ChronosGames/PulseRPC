@@ -129,7 +129,7 @@ public sealed class UserIdServiceIdResolver : IServiceIdResolver
     public string? ResolveServiceId()
     {
         // 从请求上下文获取用户 ID
-        return RequestContext.Current?.UserId;
+        return UnifiedRequestContext.Current?.UserId;
     }
 }
 
@@ -147,128 +147,6 @@ public sealed class HeaderServiceIdResolver : IServiceIdResolver
 
     public string? ResolveServiceId()
     {
-        return RequestContext.Current?.GetHeader(_headerName);
+        return UnifiedRequestContext.Current?.GetHeader(_headerName);
     }
 }
-
-/// <summary>
-/// 请求上下文（兼容层 - 转发到 UnifiedRequestContext）
-/// </summary>
-/// <remarks>
-/// <para>
-/// <strong>⚠️ 已废弃</strong>：请使用 <see cref="Contexts.UnifiedRequestContext"/> 替代。
-/// </para>
-/// <para>
-/// 此类保留用于向后兼容，内部转发到统一上下文系统。
-/// </para>
-/// </remarks>
-[Obsolete("使用 UnifiedRequestContext 替代。此类将在未来版本中移除。")]
-public static class RequestContext
-{
-    /// <summary>
-    /// 当前请求上下文（从 UnifiedRequestContext 转换）
-    /// </summary>
-    public static RequestContextData? Current
-    {
-        get
-        {
-            var unified = Contexts.UnifiedRequestContext.Current;
-            if (unified == null) return null;
-
-            return new RequestContextData
-            {
-                ConnectionId = unified.ConnectionId,
-                UserId = unified.UserId,
-                Headers = unified.Headers
-            };
-        }
-        set
-        {
-            if (value == null)
-            {
-                Contexts.UnifiedRequestContext.Clear();
-            }
-            else
-            {
-                Contexts.UnifiedRequestContext.Current = new Contexts.UnifiedContextData
-                {
-                    ConnectionId = value.ConnectionId,
-                    UserId = value.UserId,
-                    CallerId = value.UserId ?? string.Empty,
-                    Headers = value.Headers
-                };
-            }
-        }
-    }
-
-    /// <summary>
-    /// 设置当前上下文
-    /// </summary>
-    [Obsolete("使用 UnifiedRequestContext.SetContext 替代。")]
-    public static IDisposable SetContext(RequestContextData context)
-    {
-        var unifiedContext = new Contexts.UnifiedContextData
-        {
-            ConnectionId = context.ConnectionId,
-            UserId = context.UserId,
-            CallerId = context.UserId ?? string.Empty,
-            Headers = context.Headers
-        };
-
-        return Contexts.UnifiedRequestContext.SetContext(unifiedContext);
-    }
-
-    /// <summary>
-    /// 内部方法：直接设置连接信息（供 YieldingService 等内部使用）
-    /// </summary>
-    internal static void SetCurrent(object? sender)
-    {
-        // 兼容旧代码的内部调用
-        if (sender == null)
-        {
-            Contexts.UnifiedRequestContext.Clear();
-        }
-    }
-}
-
-/// <summary>
-/// 请求上下文数据（兼容层）
-/// </summary>
-/// <remarks>
-/// <para>
-/// <strong>⚠️ 已废弃</strong>：请使用 <see cref="Contexts.UnifiedContextData"/> 替代。
-/// </para>
-/// </remarks>
-[Obsolete("使用 UnifiedContextData 替代。此类将在未来版本中移除。")]
-public sealed class RequestContextData
-{
-    /// <summary>
-    /// 连接 ID
-    /// </summary>
-    public string? ConnectionId { get; init; }
-
-    /// <summary>
-    /// 用户 ID（已认证的用户）
-    /// </summary>
-    public string? UserId { get; init; }
-
-    /// <summary>
-    /// 请求头
-    /// </summary>
-    public IReadOnlyDictionary<string, string>? Headers { get; init; }
-
-    /// <summary>
-    /// 获取请求头
-    /// </summary>
-    public string? GetHeader(string name)
-    {
-        if (Headers == null) return null;
-        return Headers.TryGetValue(name, out var value) ? value : null;
-    }
-
-    /// <summary>
-    /// 自定义属性
-    /// </summary>
-    public IDictionary<string, object?> Properties { get; } = new Dictionary<string, object?>();
-}
-

@@ -1,3 +1,4 @@
+using DistributedGameApp.BackendServer.Hubs;
 using DistributedGameApp.BackendServer.Repositories;
 using DistributedGameApp.BackendServer.Services;
 using DistributedGameApp.Infrastructure.Hosting;
@@ -5,7 +6,9 @@ using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
+using PulseRPC.Server.Extensions;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -31,19 +34,27 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         services.AddSingleton<LocalServiceRegistry>();
         services.AddSingleton<UnifiedServiceClientManager>();
 
-        // 添加应用特定服务
-        services.AddSingleton<SocialService>();
-        services.AddSingleton<GuildService>();
-        services.AddSingleton<LeaderboardService>();
-        services.AddSingleton<MatchmakingService>();
+        // ✅ 使用 AddPulseService 注册 ProcessSingleton 服务
+        // 这样 Hub 可以通过 IServiceAccessor<TService> 访问服务，确保队列调度和线程安全
+        services.AddPulseService<SocialService>((sp, _) =>
+            new SocialService(sp.GetRequiredService<ILogger<SocialService>>()));
 
-        // ✅ 使用通用的 PulseServiceHostedService 来启动 IPulseService
-        // 这将自动初始化 MatchmakingService 并调用其 OnStartAsync 方法
-        services.AddHostedService<PulseRPC.Server.Services.PulseServiceHostedService<MatchmakingService>>();
+        services.AddPulseService<GuildService>((sp, _) =>
+            new GuildService(
+                sp.GetRequiredService<ILogger<GuildService>>(),
+                sp.GetRequiredService<GuildRepository>()));
+
+        services.AddPulseService<LeaderboardService>((sp, _) =>
+            new LeaderboardService(sp.GetRequiredService<ILogger<LeaderboardService>>()));
+
+        services.AddPulseService<MatchmakingService>((sp, _) =>
+            new MatchmakingService(
+                sp.GetRequiredService<ILogger<MatchmakingService>>(),
+                sp.GetRequiredService<UnifiedServiceClientManager>()));
 
         // 注册 Hub 服务（必须使用接口 + 实现的方式）
+        // Hub 是无状态的，通过 IServiceAccessor 访问有状态的 Service
         services.AddSingleton<IBackendHub, BackendHub>();
-        // services.AddSingleton<PulseRPC.Server.Authentication.IAuthenticationHub, PulseRPC.Server.Authentication.AuthenticationHub>();
     }
 });
 

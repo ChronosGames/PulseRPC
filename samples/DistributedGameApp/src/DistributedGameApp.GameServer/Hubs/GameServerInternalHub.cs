@@ -5,33 +5,43 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
+using PulseRPC.Server.Services;
 using System.Collections.Concurrent;
 
-namespace DistributedGameApp.GameServer.Services;
+namespace DistributedGameApp.GameServer.Hubs;
 
 /// <summary>
 /// GameServer 内部 RPC Hub 实现 - 接收其他服务器的回调通知
 /// </summary>
 /// <remarks>
-/// 职责：
-/// - 接收 BackendServer 的匹配成功回调
-/// - 维护玩家的连接状态
-/// - 使用 IHubContext&lt;IGameReceiver&gt; 转发通知给客户端（协议号由源生成器自动生成）
+/// <para><strong>职责</strong>:</para>
+/// <list type="bullet">
+/// <item><description>接收 BackendServer 的匹配成功回调</description></item>
+/// <item><description>维护玩家的连接状态（有状态）</description></item>
+/// <item><description>使用 IHubContext&lt;IGameReceiver&gt; 转发通知给客户端</description></item>
+/// </list>
+/// <para><strong>设计原则</strong>:</para>
+/// <list type="bullet">
+/// <item><description>✅ 继承 UnifiedPulseServiceBase - 因为需要管理连接映射状态</description></item>
+/// <item><description>✅ 全局单例 (ServiceId = "Global")</description></item>
+/// <item><description>✅ 线程安全的状态管理 (使用消息队列)</description></item>
+/// </list>
 /// </remarks>
-public class GameServerInternalHub : BaseService, IGameServerInternalHub, IPulseService
+[PulseService(
+    StartupType = ServiceStartupType.AutoStart,
+    InstanceScope = ServiceInstanceScope.ProcessSingleton,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
+    DisplayName = "GameServerInternalHub",
+    EnableHealthCheck = true)]
+public class GameServerInternalHub : UnifiedPulseServiceBase, IGameServerInternalHub, IUnifiedServiceLifecycle
 {
     private readonly IHubContext<IGameReceiver> _gameReceiverContext;
     private readonly ConcurrentDictionary<string, string> _playerToConnectionMap = new();
 
-    public string ServiceName => "GameServerInternalHub";
-    public string ServiceId => "GameServerInternalHub:Global";
-
     public GameServerInternalHub(
         IHubContext<IGameReceiver> gameReceiverContext,
-        ILogger<GameServerInternalHub> logger,
-        IAuthenticationService authenticationService,
-        PermissionValidator permissionValidator)
-        : base(logger, authenticationService, permissionValidator)
+        ILogger<GameServerInternalHub> logger)
+        : base("GameServerInternalHub", "Global", logger)
     {
         _gameReceiverContext = gameReceiverContext;
     }
@@ -121,5 +131,26 @@ public class GameServerInternalHub : BaseService, IGameServerInternalHub, IPulse
             Logger.LogError(ex, "Failed to send match cancelled notification - PlayerId: {PlayerId}", playerId);
             return false;
         }
+    }
+
+    public override Task OnStartingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("GameServerInternalHub starting...");
+        return Task.CompletedTask;
+    }
+
+    public override Task OnStoppingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("GameServerInternalHub stopping...");
+        _playerToConnectionMap.Clear();
+        return Task.CompletedTask;
+    }
+
+    public override Task<ServiceHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
+    {
+        var playerCount = _playerToConnectionMap.Count;
+        Logger.LogDebug("GameServerInternalHub health check: {PlayerCount} players connected", playerCount);
+
+        return Task.FromResult(ServiceHealthCheckResult.Healthy($"{playerCount} players connected"));
     }
 }

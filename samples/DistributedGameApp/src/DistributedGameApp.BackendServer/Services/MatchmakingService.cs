@@ -3,33 +3,35 @@ using DistributedGameApp.Shared.Domain.Matchmaking;
 using DistributedGameApp.Shared.Messages;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
+using PulseRPC.Server.Contexts;
+using PulseRPC.Server.Services;
 using MatchmakingRequest = DistributedGameApp.Shared.Domain.Matchmaking.MatchmakingRequest;
 using MatchmakingResponse = DistributedGameApp.Shared.Domain.Matchmaking.MatchmakingResponse;
 
 namespace DistributedGameApp.BackendServer.Services;
 
 /// <summary>
-/// 匹配服务 - 处理玩家匹配队列（基于 BaseService 架构）
+/// 匹配服务 - 处理玩家匹配队列
 /// </summary>
 /// <remarks>
-/// <para><strong>改进点</strong>:</para>
+/// <para><strong>设计模式</strong>:</para>
 /// <list type="bullet">
-/// <item><description>继承 BaseService，获得 Actor 模型保证的单线程顺序执行</description></item>
-/// <item><description>实现 IPulseService，支持全局单例</description></item>
-/// <item><description>移除 ConcurrentDictionary，使用普通 Dictionary（BaseService 保证线程安全）</description></item>
-/// <item><description>添加定时匹配任务（使用 ScheduleRecurring）</description></item>
-/// <item><description>获得监控指标和灾难隔离能力</description></item>
+/// <item><description>继承 UnifiedPulseServiceBase，获得消息队列保证的单线程顺序执行</description></item>
+/// <item><description>全局单例，自动启动</description></item>
+/// <item><description>使用普通 Dictionary（消息队列保证线程安全）</description></item>
+/// <item><description>使用 Timer 实现定时匹配任务</description></item>
 /// </list>
 /// </remarks>
-public class MatchmakingService : BaseService, IPulseService
+[PulseService(
+    StartupType = ServiceStartupType.AutoStart,
+    InstanceScope = ServiceInstanceScope.ProcessSingleton,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
+    DisplayName = "MatchmakingService",
+    EnableHealthCheck = true)]
+public class MatchmakingService : UnifiedPulseServiceBase
 {
-    // ServiceId 用于标识全局单例
-    public string ServiceName => "Matchmaking";
-    public string ServiceId => "Matchmaking:Global";
-
-    // ✅ 使用普通 Dictionary（BaseService 保证单线程，无需 ConcurrentDictionary）
+    // ✅ 使用普通 Dictionary（UnifiedPulseServiceBase 消息队列保证线程安全）
     private readonly Dictionary<string, MatchmakingTicket> _matchQueue = new();
 
     // 匹配类型配置：每种模式需要的玩家数
@@ -52,12 +54,13 @@ public class MatchmakingService : BaseService, IPulseService
     private long _totalCancellations;
     private readonly Dictionary<string, int> _matchTypeStats = new();
 
+    // 定时器
+    private Timer? _matchingTimer;
+
     public MatchmakingService(
         ILogger<MatchmakingService> logger,
-        IAuthenticationService authenticationService,
-        PermissionValidator permissionValidator,
         UnifiedServiceClientManager serviceClientManager)
-        : base(logger, authenticationService, permissionValidator)
+        : base("MatchmakingService", "Global", logger)
     {
         _serviceClientManager = serviceClientManager;
     }
@@ -65,27 +68,63 @@ public class MatchmakingService : BaseService, IPulseService
     /// <summary>
     /// 服务启动时启动后台匹配任务
     /// </summary>
-    protected override async Task OnStartAsync(CancellationToken cancellationToken)
+    public override Task OnStartingAsync(CancellationToken cancellationToken = default)
     {
-        await base.OnStartAsync(cancellationToken);
+        Logger.LogInformation("MatchmakingService starting...");
 
         // ✅ 启动定时匹配任务（每秒执行一次）
-        ScheduleRecurring(TimeSpan.Zero, TimeSpan.FromSeconds(1), FindMatchesAsync);
+        _matchingTimer = new Timer(
+            callback: _ => _ = FindMatchesAsync(),
+            state: null,
+            dueTime: TimeSpan.Zero,
+            period: TimeSpan.FromSeconds(1));
 
         Logger.LogInformation("匹配服务已启动，定时匹配任务已启动");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 服务停止时清理资源
+    /// </summary>
+    public override Task OnStoppingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("MatchmakingService stopping...");
+
+        // 停止定时器
+        _matchingTimer?.Dispose();
+        _matchingTimer = null;
+
+        // 清理匹配队列
+        _matchQueue.Clear();
+
+        Logger.LogInformation("匹配服务已停止");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 健康检查
+    /// </summary>
+    public override Task<ServiceHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
+    {
+        var queueSize = _matchQueue.Count;
+        var message = $"Queue: {queueSize}, Matches: {_totalMatchesCreated}, Requests: {_totalMatchRequests}";
+
+        Logger.LogDebug("MatchmakingService health check: {Message}", message);
+
+        return Task.FromResult(ServiceHealthCheckResult.Healthy(message));
     }
 
     /// <summary>
     /// 开始匹配
     /// </summary>
     /// <remarks>
-    /// ✅ BaseService 保证单线程顺序执行，无需加锁
+    /// ✅ UnifiedPulseServiceBase 消息队列保证单线程顺序执行，无需加锁
     /// </remarks>
     public Task<MatchmakingResponse> StartMatchmakingAsync(MatchmakingRequest request)
     {
         try
         {
-            // ✅ 检查是否已在匹配队列中（无需担心并发，BaseService 保证顺序执行）
+            // ✅ 检查是否已在匹配队列中（无需担心并发，消息队列保证顺序执行）
             if (_matchQueue.ContainsKey(request.PlayerId))
             {
                 Logger.LogWarning("玩家已在匹配队列中: {PlayerId}", request.PlayerId);
@@ -96,9 +135,9 @@ public class MatchmakingService : BaseService, IPulseService
                 });
             }
 
-            // 获取调用者信息（来源 GameServer）
-            var caller = GetCurrentCaller();
-            var sourceNodeId = caller.CallerId; // CallerId 通常包含节点信息
+            // 获取来源节点信息（如果有的话）
+            var connection = PulseRPC.Server.RequestContext.Current;
+            var sourceNodeId = connection?.Id ?? "unknown";
 
             // 创建匹配票据
             var ticket = new MatchmakingTicket
@@ -113,7 +152,7 @@ public class MatchmakingService : BaseService, IPulseService
                 SourceGameServerNodeId = sourceNodeId
             };
 
-            // ✅ 直接 Add（无需 TryAdd，BaseService 保证线程安全）
+            // ✅ 直接 Add（无需 TryAdd，消息队列保证线程安全）
             _matchQueue.Add(request.PlayerId, ticket);
 
             // 更新统计
@@ -148,7 +187,7 @@ public class MatchmakingService : BaseService, IPulseService
     {
         try
         {
-            // ✅ 直接 Remove（BaseService 保证线程安全）
+            // ✅ 直接 Remove（消息队列保证线程安全）
             var removed = _matchQueue.Remove(playerId, out var ticket);
 
             if (removed && ticket != null)
@@ -185,7 +224,7 @@ public class MatchmakingService : BaseService, IPulseService
     /// 查找匹配（定时任务调用）
     /// </summary>
     /// <remarks>
-    /// ✅ 此方法由 ScheduleRecurring 定时调用，BaseService 保证顺序执行
+    /// ✅ 此方法由 Timer 定时调用，消息队列保证顺序执行
     ///
     /// 匹配算法流程：
     /// 1. 按匹配类型分组
@@ -285,7 +324,7 @@ public class MatchmakingService : BaseService, IPulseService
             }
 
             // ✅ 传入列表副本，因为 CreateMatchGroup 是 async void，会异步执行
-            CreateMatchGroup(matchType, matched.ToList());
+            _ = CreateMatchGroupAsync(matchType, matched.ToList());
             matched.Clear();
 
             // 如果剩余玩家还够一组，继续匹配
@@ -331,7 +370,7 @@ public class MatchmakingService : BaseService, IPulseService
     /// <summary>
     /// 创建匹配组并通知玩家
     /// </summary>
-    private async void CreateMatchGroup(string matchType, List<MatchmakingTicket> matchedTickets)
+    private async Task CreateMatchGroupAsync(string matchType, List<MatchmakingTicket> matchedTickets)
     {
         var matchId = Guid.NewGuid().ToString();
 

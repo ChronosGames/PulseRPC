@@ -2,25 +2,30 @@ using DistributedGameApp.Infrastructure.MongoDB.Repositories;
 using DistributedGameApp.Shared.Domain.Characters;
 using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
-using PulseRPC.Server.Configuration;
+using PulseRPC.Server.Services;
 using CreateCharacterRequest = DistributedGameApp.Shared.Messages.CreateCharacterRequest;
 
 namespace DistributedGameApp.GameServer.Services;
 
 /// <summary>
-/// 角色管理服务 - 基于 ConcurrentServiceBase 架构
+/// 角色管理服务
 /// </summary>
 /// <remarks>
-/// <para><strong>改进点</strong>:</para>
+/// <para><strong>设计模式</strong>:</para>
 /// <list type="bullet">
-/// <item><description>继承 ConcurrentServiceBase，支持并发处理（无状态服务）</description></item>
-/// <item><description>配置并发度和背压策略，防止数据库过载</description></item>
-/// <item><description>获得监控指标和性能优化</description></item>
+/// <item><description>继承 UnifiedPulseServiceBase，获得生命周期管理和消息队列支持</description></item>
+/// <item><description>全局单例，自动启动</description></item>
+/// <item><description>无状态服务，操作直接访问数据库</description></item>
 /// </list>
 /// </remarks>
-public class CharacterService : ConcurrentServiceBase
+[PulseService(
+    StartupType = ServiceStartupType.AutoStart,
+    InstanceScope = ServiceInstanceScope.ProcessSingleton,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
+    DisplayName = "CharacterService",
+    EnableHealthCheck = true)]
+public class CharacterService : UnifiedPulseServiceBase
 {
     private readonly CharacterRepository _characterRepository;
 
@@ -36,25 +41,27 @@ public class CharacterService : ConcurrentServiceBase
 
     public CharacterService(
         CharacterRepository characterRepository,
-        ILogger<CharacterService> logger,
-        IAuthenticationService authenticationService,
-        PermissionValidator permissionValidator)
-        : base(logger, authenticationService, permissionValidator, new ConcurrentServiceOptions
-        {
-            MaxConcurrency = 10, // 数据库并发度
-            QueueCapacity = 1000,
-            BackpressureStrategy = BackpressureStrategy.DropOldest
-        })
+        ILogger<CharacterService> logger)
+        : base("CharacterService", "Global", logger)
     {
         _characterRepository = characterRepository;
+    }
+
+    public override Task OnStartingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("CharacterService starting...");
+        return Task.CompletedTask;
+    }
+
+    public override Task OnStoppingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("CharacterService stopping...");
+        return Task.CompletedTask;
     }
 
     /// <summary>
     /// 创建角色
     /// </summary>
-    /// <remarks>
-    /// ✅ ConcurrentServiceBase 支持并发处理，多个请求可同时执行
-    /// </remarks>
     public async Task<CharacterInfo> CreateCharacterAsync(string userId, CreateCharacterRequest request)
     {
         // 验证角色名称是否已存在

@@ -4,29 +4,56 @@ using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Configuration;
+using PulseRPC.Server.Services;
 
 namespace DistributedGameApp.BackendServer.Services;
 
 /// <summary>
 /// 公会服务 - 核心业务逻辑
 /// </summary>
-public class GuildService : ConcurrentServiceBase
+/// <remarks>
+/// <para><strong>设计原则</strong>:</para>
+/// <list type="bullet">
+/// <item><description>✅ 继承 UnifiedPulseServiceBase - 统一的服务基类</description></item>
+/// <item><description>✅ 使用专属消息队列保证线程安全</description></item>
+/// <item><description>✅ 全局单例 - 所有玩家共享同一个服务实例</description></item>
+/// <item><description>✅ IO密集型服务 - 所有操作直接访问数据库</description></item>
+/// <item><description>✅ 支持生命周期管理和健康检查</description></item>
+/// </list>
+/// </remarks>
+[PulseService(
+    StartupType = ServiceStartupType.AutoStart,
+    InstanceScope = ServiceInstanceScope.ProcessSingleton,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
+    DisplayName = "GuildService",
+    EnableHealthCheck = true)]
+public class GuildService : UnifiedPulseServiceBase
 {
     private readonly GuildRepository _repository;
 
     public GuildService(
         ILogger<GuildService> logger,
-        IAuthenticationService authenticationService,
-        PermissionValidator permissionValidator,
         GuildRepository repository)
-        : base(logger, authenticationService, permissionValidator, new ConcurrentServiceOptions
-        {
-            MaxConcurrency = 10,
-            QueueCapacity = 1000,
-            BackpressureStrategy = BackpressureStrategy.DropOldest
-        })
+        : base("GuildService", "Global", logger)
     {
         _repository = repository;
+    }
+
+    public override Task OnStartingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("GuildService starting...");
+        return Task.CompletedTask;
+    }
+
+    public override Task OnStoppingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("GuildService stopping...");
+        return Task.CompletedTask;
+    }
+
+    public override Task<ServiceHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
+    {
+        return Task.FromResult(ServiceHealthCheckResult.Healthy("GuildService is healthy"));
     }
 
     // ========== 公会管理 ==========

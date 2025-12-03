@@ -431,7 +431,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
                 if (channel is ServerTransportChannel serverChannel)
                 {
-                    RequestContext.SetCurrent(serverChannel.Transport);
+                    PulseRPC.Server.RequestContext.SetCurrent(serverChannel.Transport);
 
                     // ✅ 设置 ServiceRequestContext（用于 GetCurrentCaller()）
                     var authContext = serverChannel.AuthenticationContext;
@@ -484,7 +484,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 finally
                 {
                     // ✅ 清理 RequestContext 和 ServiceRequestContext
-                    RequestContext.SetCurrent(null);
+                    PulseRPC.Server.RequestContext.Clear();
                     serviceContextScope?.Dispose();
                 }
 

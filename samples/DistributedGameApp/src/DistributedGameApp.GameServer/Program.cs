@@ -1,8 +1,10 @@
 using DistributedGameApp.GameServer;
 using DistributedGameApp.GameServer.Authentication;
+using DistributedGameApp.GameServer.Hubs;
 using DistributedGameApp.GameServer.Services;
 using DistributedGameApp.Infrastructure.Consul;
 using DistributedGameApp.Infrastructure.Hosting;
+using DistributedGameApp.Infrastructure.MongoDB.Repositories;
 using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.Configuration;
@@ -10,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
+using PulseRPC.Server.Extensions;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -54,11 +57,21 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         // 注册统一服务客户端管理器（强类型 Hub 代理的核心）
         services.AddSingleton<UnifiedServiceClientManager>();
 
-        // 添加应用服务
-        services.AddSingleton<CharacterService>();
-        services.AddSingleton<MailService>();
+        // ✅ 使用 AddPulseService 注册 ProcessSingleton 服务
+        // 这样 Hub 可以通过 IServiceAccessor<TService> 访问服务，确保队列调度和线程安全
+        services.AddPulseService<CharacterService>((sp, _) =>
+            new CharacterService(
+                sp.GetRequiredService<CharacterRepository>(),
+                sp.GetRequiredService<ILogger<CharacterService>>()));
+
+        services.AddPulseService<MailService>((sp, _) =>
+            new MailService(
+                sp.GetRequiredService<MailRepository>(),
+                sp.GetRequiredService<CharacterRepository>(),
+                sp.GetRequiredService<ILogger<MailService>>()));
 
         // 注册 Hub 服务（必须使用接口 + 实现的方式）
+        // Hub 是无状态的，通过 IServiceAccessor 访问有状态的 Service
         services.AddSingleton<IGameHub, GameHub>();
 
         // 注册 GameServerInternalHub：先注册具体类型，再将接口映射到同一实例
