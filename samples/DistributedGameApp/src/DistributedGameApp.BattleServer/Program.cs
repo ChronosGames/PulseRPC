@@ -1,3 +1,4 @@
+using DistributedGameApp.BattleServer.Hubs;
 using DistributedGameApp.BattleServer.Services;
 using DistributedGameApp.Infrastructure.Authentication;
 using DistributedGameApp.Infrastructure.Hosting;

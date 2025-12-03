@@ -32,9 +32,9 @@ public readonly struct PID : IEquatable<PID>
     public ServiceInstanceStrategy Strategy { get; }
 
     /// <summary>服务标识符</summary>
-    public ServiceId ServiceId { get; }
+    public string ServiceId { get; }
 
-    private PID(ushort nodeId, ushort sequenceId, ServiceInstanceStrategy strategy, ServiceId serviceId)
+    private PID(ushort nodeId, ushort sequenceId, ServiceInstanceStrategy strategy, string serviceId)
     {
         if (nodeId == 0)
             throw new ArgumentOutOfRangeException(nameof(nodeId), "NodeId must be between 1 and 65535");
@@ -46,20 +46,8 @@ public readonly struct PID : IEquatable<PID>
     }
 
     /// <summary>创建单例服务PID</summary>
-    public static PID CreateSingleton<TService>(ushort nodeId, ushort sequenceId) where TService : BaseService
-        => new(nodeId, sequenceId, ServiceInstanceStrategy.Singleton, ServiceId.CreateSingleton<TService>());
-
-    /// <summary>创建多实例服务PID</summary>
-    public static PID CreateTransient<TService>(ushort nodeId, ushort sequenceId, string instanceId) where TService : BaseService
-        => new(nodeId, sequenceId, ServiceInstanceStrategy.Transient, ServiceId.CreateMultiInstance<TService>(instanceId));
-
-    /// <summary>创建池化服务PID</summary>
-    public static PID CreatePooled<TService>(ushort nodeId, ushort sequenceId, string instanceId) where TService : BaseService
-        => new(nodeId, sequenceId, ServiceInstanceStrategy.Pooled, ServiceId.CreateMultiInstance<TService>(instanceId));
-
-    /// <summary>创建全局唯一服务PID</summary>
-    public static PID CreateGlobal<TService>(ushort nodeId, ushort sequenceId) where TService : BaseService
-        => new(nodeId, sequenceId, ServiceInstanceStrategy.Global, ServiceId.CreateSingleton<TService>());
+    // public static PID CreateSingleton<TService>(ushort nodeId, ushort sequenceId) where TService : BaseService
+    //     => new(nodeId, sequenceId, ServiceInstanceStrategy.Singleton, ServiceId.CreateSingleton<TService>());
 
     public override string ToString()
         => $"PID[{NodeId}:{SequenceId}:{Strategy}:{ServiceId}]";

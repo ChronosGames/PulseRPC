@@ -1,8 +1,7 @@
 using DistributedGameApp.Shared.Domain.Social;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
-using PulseRPC.Server.Configuration;
+using PulseRPC.Server.Services;
 
 namespace DistributedGameApp.BackendServer.Services;
 
@@ -10,26 +9,38 @@ namespace DistributedGameApp.BackendServer.Services;
 /// 社交服务 - 处理好友、私聊、世界频道
 /// </summary>
 /// <remarks>
-/// <para><strong>改进点</strong>:</para>
+/// <para><strong>设计模式</strong>:</para>
 /// <list type="bullet">
-/// <item><description>继承 ConcurrentServiceBase，支持并发处理（IO密集型服务）</description></item>
-/// <item><description>配置并发度和背压策略，防止数据库过载</description></item>
-/// <item><description>获得监控指标和性能优化</description></item>
+/// <item><description>继承 UnifiedPulseServiceBase，获得生命周期管理和消息队列支持</description></item>
+/// <item><description>全局单例，自动启动</description></item>
+/// <item><description>使用专属队列保证线程安全</description></item>
 /// </list>
 /// </remarks>
-public class SocialService : ConcurrentServiceBase
+[PulseService(
+    StartupType = ServiceStartupType.AutoStart,
+    InstanceScope = ServiceInstanceScope.ProcessSingleton,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
+    DisplayName = "SocialService",
+    EnableHealthCheck = true)]
+public class SocialService : UnifiedPulseServiceBase
 {
-    public SocialService(
-        ILogger<SocialService> logger,
-        IAuthenticationService authenticationService,
-        PermissionValidator permissionValidator)
-        : base(logger, authenticationService, permissionValidator, new ConcurrentServiceOptions
-        {
-            MaxConcurrency = 15, // 社交服务并发度（IO密集）
-            QueueCapacity = 2000,
-            BackpressureStrategy = BackpressureStrategy.DropOldest
-        })
+    public SocialService(ILogger<SocialService> logger)
+        : base("SocialService", "Global", logger)
     {
+    }
+
+    public override Task OnStartingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("SocialService starting...");
+        // TODO: 加载社交数据到缓存
+        return Task.CompletedTask;
+    }
+
+    public override Task OnStoppingAsync(CancellationToken cancellationToken = default)
+    {
+        Logger.LogInformation("SocialService stopping...");
+        // TODO: 保存社交数据
+        return Task.CompletedTask;
     }
 
     public Task<bool> AddFriendAsync(string userId, string friendUserId)

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Authentication;
 
 namespace PulseRPC.Server;
@@ -44,8 +45,9 @@ namespace PulseRPC.Server;
 /// <item><description>YieldingService: await 让出队列，其他消息可以处理</description></item>
 /// </list>
 /// </remarks>
+/**
 [Obsolete("使用 UnifiedPulseServiceBase 替代。")]
-public abstract class YieldingService : IService
+public abstract class YieldingService : IUnifiedPulseService
 {
     // MethodInfo 缓存 - 用于优化反射性能
     private static readonly ConcurrentDictionary<(Type ServiceType, PulseRPC.Protocol.ProtocolId ProtocolId), System.Reflection.MethodInfo?> _methodInfoCache = new();
@@ -448,3 +450,5 @@ public abstract class YieldingService : IService
         GC.SuppressFinalize(this);
     }
 }
+
+*/
