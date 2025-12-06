@@ -1,3 +1,13 @@
+# Windows reserved device names (cause fsutil.Walk to crash on Docker)
+**/nul
+**/NUL
+**/con
+**/CON
+**/prn
+**/PRN
+**/aux
+**/AUX
+
 .git/
 .vs/
 bin/
@@ -25,8 +35,15 @@ obj/
 **/.toolstarget
 
 .github/
+.idea/
+.claude/
+.cursor/
+.specify/
 docs/
 samples/ChatApp/ChatApp.Unity/Temp/
 samples/ChatApp/ChatApp.Unity/Library/
 sandbox/
 tests/
+specs/
+perf/BenchmarkApp/reports/
+artifacts/

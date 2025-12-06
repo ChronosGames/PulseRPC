@@ -68,8 +68,8 @@ services:
 
   login-server-1:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.LoginServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.LoginServer/Dockerfile
     container_name: login-server-1
     restart: unless-stopped
     depends_on:
@@ -95,6 +95,9 @@ services:
       - Jwt__AccessTokenExpirationMinutes=60
       - Jwt__RefreshTokenExpirationDays=30
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Port=5000
+      - HttpEndpoint__HealthPath=/health
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
     networks:
       - distributedgame-network
@@ -106,8 +109,8 @@ services:
 
   login-server-2:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.LoginServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.LoginServer/Dockerfile
     container_name: login-server-2
     restart: unless-stopped
     depends_on:
@@ -133,6 +136,9 @@ services:
       - Jwt__AccessTokenExpirationMinutes=60
       - Jwt__RefreshTokenExpirationDays=30
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Port=5000
+      - HttpEndpoint__HealthPath=/health
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
     networks:
       - distributedgame-network
@@ -146,8 +152,8 @@ services:
 
   backend-server-1:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BackendServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.BackendServer/Dockerfile
     container_name: backend-server-1
     restart: unless-stopped
     depends_on:
@@ -157,6 +163,7 @@ services:
         condition: service_healthy
     ports:
       - "10080:10080"  # TCP
+      - "9092:9092"    # HTTP (Health + Metrics)
     environment:
       - ServerIdentity__ServiceType=BackendServer
       - ServerIdentity__NodeId=1
@@ -173,6 +180,11 @@ services:
       - ServiceRegistration__TcpPort=10080
       - ServiceRegistration__MaxCapacity=50000
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Enabled=true
+      - HttpEndpoint__Port=9092
+      - HttpEndpoint__Host=0.0.0.0
+      - HttpEndpoint__EnableMetrics=true
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
@@ -182,11 +194,16 @@ services:
       - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9092/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend-server-2:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BackendServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.BackendServer/Dockerfile
     container_name: backend-server-2
     restart: unless-stopped
     depends_on:
@@ -196,6 +213,7 @@ services:
         condition: service_healthy
     ports:
       - "10082:10080"  # TCP
+      - "9093:9092"    # HTTP (Health + Metrics)
     environment:
       - ServerIdentity__ServiceType=BackendServer
       - ServerIdentity__NodeId=2
@@ -212,6 +230,11 @@ services:
       - ServiceRegistration__TcpPort=10080
       - ServiceRegistration__MaxCapacity=50000
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Enabled=true
+      - HttpEndpoint__Port=9092
+      - HttpEndpoint__Host=0.0.0.0
+      - HttpEndpoint__EnableMetrics=true
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
@@ -221,11 +244,16 @@ services:
       - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9092/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   backend-server-3:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BackendServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.BackendServer/Dockerfile
     container_name: backend-server-3
     restart: unless-stopped
     depends_on:
@@ -235,6 +263,7 @@ services:
         condition: service_healthy
     ports:
       - "10084:10080"  # TCP
+      - "9094:9092"    # HTTP (Health + Metrics)
     environment:
       - ServerIdentity__ServiceType=BackendServer
       - ServerIdentity__NodeId=3
@@ -251,6 +280,11 @@ services:
       - ServiceRegistration__TcpPort=10080
       - ServiceRegistration__MaxCapacity=50000
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Enabled=true
+      - HttpEndpoint__Port=9092
+      - HttpEndpoint__Host=0.0.0.0
+      - HttpEndpoint__EnableMetrics=true
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
@@ -260,13 +294,18 @@ services:
       - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9092/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ==================== GameServer 实例 ====================
 
   game-server-1:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.GameServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.GameServer/Dockerfile
     container_name: game-server-1
     restart: unless-stopped
     depends_on:
@@ -274,11 +313,10 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-      backend-server-1:
-        condition: service_started
     ports:
       - "8080:8080"  # TCP
       - "8081:8081/udp"  # KCP
+      - "9090:9090"  # HTTP (Health + Metrics)
     environment:
       - ServerIdentity__ServiceType=GameServer
       - ServerIdentity__NodeId=1
@@ -303,6 +341,11 @@ services:
       - ServiceRegistration__KcpPort=8081
       - ServiceRegistration__MaxCapacity=5000
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Enabled=true
+      - HttpEndpoint__Port=9090
+      - HttpEndpoint__Host=0.0.0.0
+      - HttpEndpoint__EnableMetrics=true
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
@@ -312,11 +355,16 @@ services:
       - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   game-server-2:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.GameServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.GameServer/Dockerfile
     container_name: game-server-2
     restart: unless-stopped
     depends_on:
@@ -324,11 +372,10 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-      backend-server-1:
-        condition: service_started
     ports:
       - "8082:8080"  # TCP
       - "8083:8081/udp"  # KCP
+      - "9095:9090"  # HTTP (Health + Metrics)
     environment:
       - ServerIdentity__ServiceType=GameServer
       - ServerIdentity__NodeId=2
@@ -353,6 +400,11 @@ services:
       - ServiceRegistration__KcpPort=8081
       - ServiceRegistration__MaxCapacity=5000
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Enabled=true
+      - HttpEndpoint__Port=9090
+      - HttpEndpoint__Host=0.0.0.0
+      - HttpEndpoint__EnableMetrics=true
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
@@ -362,11 +414,16 @@ services:
       - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   game-server-3:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.GameServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.GameServer/Dockerfile
     container_name: game-server-3
     restart: unless-stopped
     depends_on:
@@ -374,11 +431,10 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
-      backend-server-1:
-        condition: service_started
     ports:
       - "8084:8080"  # TCP
       - "8085:8081/udp"  # KCP
+      - "9096:9090"  # HTTP (Health + Metrics)
     environment:
       - ServerIdentity__ServiceType=GameServer
       - ServerIdentity__NodeId=3
@@ -403,6 +459,11 @@ services:
       - ServiceRegistration__KcpPort=8081
       - ServiceRegistration__MaxCapacity=5000
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Enabled=true
+      - HttpEndpoint__Port=9090
+      - HttpEndpoint__Host=0.0.0.0
+      - HttpEndpoint__EnableMetrics=true
       - MongoDB__ConnectionString=mongodb://admin:password123@mongodb:27017
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
@@ -412,23 +473,27 @@ services:
       - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # ==================== BattleServer 实例 ====================
 
   battle-server-1:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BattleServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.BattleServer/Dockerfile
     container_name: battle-server-1
     restart: unless-stopped
     depends_on:
       consul:
         condition: service_healthy
-      backend-server-1:
-        condition: service_started
     ports:
       - "9080:9080"  # TCP
       - "9081:9081/udp"  # KCP
+      - "9091:9091"  # HTTP (Health + Metrics)
     environment:
       - ServerIdentity__ServiceType=BattleServer
       - ServerIdentity__NodeId=1
@@ -449,6 +514,11 @@ services:
       - ServiceRegistration__KcpPort=9081
       - ServiceRegistration__MaxCapacity=10000
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Enabled=true
+      - HttpEndpoint__Port=9091
+      - HttpEndpoint__Host=0.0.0.0
+      - HttpEndpoint__EnableMetrics=true
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__Issuer=DistributedGameApp.LoginServer
@@ -457,21 +527,25 @@ services:
       - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   battle-server-2:
     build:
-      context: ../../..
-      dockerfile: samples/DistributedGameApp/src/DistributedGameApp.BattleServer/Dockerfile
+      context: ..
+      dockerfile: src/DistributedGameApp.BattleServer/Dockerfile
     container_name: battle-server-2
     restart: unless-stopped
     depends_on:
       consul:
         condition: service_healthy
-      backend-server-1:
-        condition: service_started
     ports:
       - "9082:9080"  # TCP
       - "9083:9081/udp"  # KCP
+      - "9097:9091"  # HTTP (Health + Metrics)
     environment:
       - ServerIdentity__ServiceType=BattleServer
       - ServerIdentity__NodeId=2
@@ -492,6 +566,11 @@ services:
       - ServiceRegistration__KcpPort=9081
       - ServiceRegistration__MaxCapacity=10000
       - Consul__Address=http://consul:8500
+      - Consul__HealthCheckMode=HTTP
+      - HttpEndpoint__Enabled=true
+      - HttpEndpoint__Port=9091
+      - HttpEndpoint__Host=0.0.0.0
+      - HttpEndpoint__EnableMetrics=true
       - ClusterSecret=DistributedGameApp_Cluster_Secret_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__SecretKey=DistributedGameApp_Secret_Key_2025_Must_Be_At_Least_32_Characters_Long
       - Jwt__Issuer=DistributedGameApp.LoginServer
@@ -500,6 +579,11 @@ services:
       - Jwt__RefreshTokenExpirationDays=30
     networks:
       - distributedgame-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   mongodb_data:

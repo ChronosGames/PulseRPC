@@ -154,7 +154,8 @@ public static class UnifiedServiceExtensions
                 ServiceType = typeof(TService),
                 Factory = factory != null
                     ? (sp, id) => factory(sp, id)
-                    : null
+                    : null,
+                RegisterAction = manager => manager.Register<TService>(factory)
             });
         });
 
@@ -169,6 +170,11 @@ internal sealed class ServiceRegistrationEntry
 {
     public required Type ServiceType { get; init; }
     public Func<IServiceProvider, string, IUnifiedPulseService>? Factory { get; init; }
+
+    /// <summary>
+    /// 注册委托 - 直接调用 UnifiedServiceManager.Register，避免反射
+    /// </summary>
+    public required Action<UnifiedServiceManager> RegisterAction { get; init; }
 }
 
 /// <summary>
@@ -230,11 +236,7 @@ internal sealed class UnifiedServiceHostedService : IHostedService
 
     private void RegisterServiceDynamic(ServiceRegistrationEntry entry)
     {
-        // 使用反射调用泛型 Register 方法
-        var registerMethod = typeof(UnifiedServiceManager)
-            .GetMethod(nameof(UnifiedServiceManager.Register))!
-            .MakeGenericMethod(entry.ServiceType);
-
-        registerMethod.Invoke(_serviceManager, new object?[] { entry.Factory });
+        // 直接调用预编译的注册委托，避免反射开销
+        entry.RegisterAction(_serviceManager);
     }
 }
