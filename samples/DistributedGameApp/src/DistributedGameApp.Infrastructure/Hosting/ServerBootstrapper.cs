@@ -72,6 +72,29 @@ public sealed class ServerBootstrapperOptions
     /// </list>
     /// </remarks>
     public bool EnablePushServices { get; set; } = true;
+
+    /// <summary>
+    /// 启用 HTTP 端点（用于健康检查和 Prometheus metrics）（默认: true）
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 当启用时，会启动内嵌的 Kestrel HTTP 服务器，暴露以下端点：
+    /// </para>
+    /// <list type="bullet">
+    /// <item>/health - 健康检查端点（供 Consul HTTP 模式使用）</item>
+    /// <item>/metrics - Prometheus metrics 端点</item>
+    /// <item>/ready - 就绪检查端点</item>
+    /// </list>
+    /// </remarks>
+    public bool EnableHttpEndpoint { get; set; } = true;
+
+    /// <summary>
+    /// 启用 Prometheus metrics（默认: true）
+    /// </summary>
+    /// <remarks>
+    /// 需要 EnableHttpEndpoint = true 才能生效
+    /// </remarks>
+    public bool EnablePrometheusMetrics { get; set; } = true;
 }
 
 /// <summary>
@@ -110,6 +133,13 @@ public static class ServerBootstrapper
 
         // 4.5 健康检查（在 Consul 注册之前注册）
         services.AddSingleton<IHealthCheckProvider, ServerHealthCheckProvider>();
+
+        // 4.6 HTTP 端点（用于健康检查和 Prometheus metrics）
+        if (options.EnableHttpEndpoint)
+        {
+            services.Configure<HttpEndpointOptions>(configuration.GetSection(HttpEndpointOptions.SectionName));
+            services.AddHostedService<HealthEndpointHostedService>();
+        }
 
         if (options.EnableServiceDiscovery)
         {

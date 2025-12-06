@@ -7,6 +7,8 @@ using DistributedGameApp.LoginServer.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using OpenTelemetry.Metrics;
+using PulseRPC.Server.Observability;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -95,6 +97,23 @@ builder.Services.AddHostedService<ConsulServiceRegistrationService>();
 // 添加应用服务
 builder.Services.AddSingleton<JwtService>();
 
+// 配置 OpenTelemetry Prometheus Metrics
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics =>
+    {
+        // 添加 PulseRPC 服务指标（如果有）
+        metrics.AddMeter(ServiceMetrics.MeterName);
+
+        // 添加 ASP.NET Core 指标
+        metrics.AddAspNetCoreInstrumentation();
+
+        // 添加 .NET 运行时指标
+        metrics.AddRuntimeInstrumentation();
+
+        // 添加 Prometheus 导出器
+        metrics.AddPrometheusExporter();
+    });
+
 // 配置CORS
 builder.Services.AddCors(options =>
 {
@@ -133,6 +152,9 @@ app.MapGet("/health", () => Results.Ok(new
     timestamp = DateTime.UtcNow,
     service = "LoginServer"
 }));
+
+// Prometheus metrics 端点
+app.UseOpenTelemetryPrometheusScrapingEndpoint("/metrics");
 
 app.Logger.LogInformation("LoginServer starting on {Url}", builder.Configuration["Kestrel:Endpoints:Http:Url"]);
 

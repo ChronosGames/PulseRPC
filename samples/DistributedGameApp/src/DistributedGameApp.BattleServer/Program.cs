@@ -64,7 +64,7 @@ var app = builder.Build();
 // 初始化 UnifiedServiceClientManager（通用版）
 var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
 await serviceClientManager.InitializeAsync(
-    new[] { ServerType.Game, ServerType.Backend },  // BackendServer 主要连接 BattleServer
+    [ServerType.Game, ServerType.Backend],  // BackendServer 主要连接 BattleServer
     RoutingStrategy.ConsistentHash);
 
 await app.RunAsync();

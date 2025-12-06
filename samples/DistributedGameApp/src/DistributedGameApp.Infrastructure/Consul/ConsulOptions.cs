@@ -1,4 +1,5 @@
 using DistributedGameApp.Infrastructure.ServiceClient;
+using System.Text.Json.Serialization;
 
 namespace DistributedGameApp.Infrastructure.Consul;
 
@@ -36,6 +37,19 @@ public class ConsulOptions
     /// 服务失效时间（秒）
     /// </summary>
     public int DeregisterCriticalServiceAfter { get; set; } = 30;
+
+    /// <summary>
+    /// 健康检查模式：TTL（推送）或 HTTP（拉取）
+    /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter))]
+    public HealthCheckMode HealthCheckMode { get; set; } = HealthCheckMode.HTTP;
+
+    /// <summary>
+    /// HTTP 健康检查端点地址（当 HealthCheckMode 为 HTTP 时使用）
+    /// 格式: http://host:port/path
+    /// 如果不设置，将自动从 HttpEndpoint 配置构建
+    /// </summary>
+    public string? HttpHealthCheckUrl { get; set; }
 }
 
 /// <summary>

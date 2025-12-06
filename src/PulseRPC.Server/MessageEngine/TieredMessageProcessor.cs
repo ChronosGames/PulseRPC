@@ -410,9 +410,9 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
         public void OnParametersUpdated(int newBatchInterval, int newBatchSize)
         {
             // 这里可以动态调整批处理参数
-            _processor._logger.LogDebug("批处理参数更新: ProcessorId={ProcessorId}, " +
-                                      "NewInterval={NewInterval}ms, NewBatchSize={NewBatchSize}",
-                _processor._processorId, newBatchInterval, newBatchSize);
+            // _processor._logger.LogDebug("批处理参数更新: ProcessorId={ProcessorId}, " +
+            //                           "NewInterval={NewInterval}ms, NewBatchSize={NewBatchSize}",
+            //     _processor._processorId, newBatchInterval, newBatchSize);
         }
     }
 }

@@ -7,24 +7,48 @@ using System.Text.Json;
 namespace DistributedGameApp.Infrastructure.Consul;
 
 /// <summary>
+/// 服务注册信息（用于 HTTP 健康检查模式）
+/// </summary>
+public class HttpHealthCheckInfo
+{
+    /// <summary>
+    /// HTTP 端口
+    /// </summary>
+    public int Port { get; set; }
+
+    /// <summary>
+    /// 健康检查路径
+    /// </summary>
+    public string Path { get; set; } = "/health";
+}
+
+/// <summary>
 /// Consul 服务注册
 /// </summary>
 public class ConsulServiceRegistry : IAsyncDisposable
 {
     private readonly IConsulClient _client;
     private readonly ConsulOptions _options;
+    private readonly HttpEndpointOptions? _httpEndpointOptions;
     private readonly ILogger<ConsulServiceRegistry> _logger;
     private readonly IHealthCheckProvider? _healthCheckProvider;
     private readonly List<string> _registeredServiceIds = new();
     private readonly CancellationTokenSource _cts = new();
     private Task? _healthReportTask;
 
+    /// <summary>
+    /// HTTP 健康检查信息（用于注册时指定 HTTP 端口）
+    /// </summary>
+    public HttpHealthCheckInfo? HttpHealthCheck { get; set; }
+
     public ConsulServiceRegistry(
         IOptions<ConsulOptions> options,
         ILogger<ConsulServiceRegistry> logger,
-        IHealthCheckProvider? healthCheckProvider = null)
+        IHealthCheckProvider? healthCheckProvider = null,
+        IOptions<HttpEndpointOptions>? httpEndpointOptions = null)
     {
         _options = options.Value;
+        _httpEndpointOptions = httpEndpointOptions?.Value;
         _logger = logger;
         _healthCheckProvider = healthCheckProvider;
         _client = new ConsulClient(config =>
@@ -36,6 +60,8 @@ public class ConsulServiceRegistry : IAsyncDisposable
         {
             _logger.LogWarning("未提供 IHealthCheckProvider，将使用默认健康检查（总是返回健康）");
         }
+
+        _logger.LogInformation("Consul 健康检查模式: {Mode}", _options.HealthCheckMode);
     }
 
     /// <summary>
@@ -50,12 +76,45 @@ public class ConsulServiceRegistry : IAsyncDisposable
             // 构建服务名称
             var serviceName = $"{_options.ServiceBasePath}-{registration.ServiceType.ToLower()}";
 
-            // 构建健康检查端点 (使用 TTL 检查 - 服务器主动报告健康状态)
-            var healthCheck = new AgentServiceCheck
+            // 根据健康检查模式构建健康检查配置
+            AgentServiceCheck healthCheck;
+
+            if (_options.HealthCheckMode == HealthCheckMode.HTTP)
             {
-                TTL = TimeSpan.FromSeconds(_options.HealthCheckInterval * 3), // TTL 设为 3 倍间隔
-                DeregisterCriticalServiceAfter = TimeSpan.FromSeconds(_options.DeregisterCriticalServiceAfter)
-            };
+                // HTTP 模式：Consul 主动拉取健康状态
+                var httpPort = HttpHealthCheck?.Port ?? _httpEndpointOptions?.Port ?? 9090;
+                var httpPath = HttpHealthCheck?.Path ?? _httpEndpointOptions?.HealthPath ?? "/health";
+
+                // 优先使用配置的 URL，否则自动构建
+                var healthCheckUrl = _options.HttpHealthCheckUrl
+                    ?? $"http://{registration.Host}:{httpPort}{httpPath}";
+
+                healthCheck = new AgentServiceCheck
+                {
+                    HTTP = healthCheckUrl,
+                    Interval = TimeSpan.FromSeconds(_options.HealthCheckInterval),
+                    Timeout = TimeSpan.FromSeconds(_options.HealthCheckTimeout),
+                    DeregisterCriticalServiceAfter = TimeSpan.FromSeconds(_options.DeregisterCriticalServiceAfter)
+                };
+
+                _logger.LogInformation(
+                    "使用 HTTP 健康检查模式: {Url}, 间隔: {Interval}秒",
+                    healthCheckUrl,
+                    _options.HealthCheckInterval);
+            }
+            else
+            {
+                // TTL 模式：服务主动推送健康状态（保留现有逻辑）
+                healthCheck = new AgentServiceCheck
+                {
+                    TTL = TimeSpan.FromSeconds(_options.HealthCheckInterval * 3), // TTL 设为 3 倍间隔
+                    DeregisterCriticalServiceAfter = TimeSpan.FromSeconds(_options.DeregisterCriticalServiceAfter)
+                };
+
+                _logger.LogInformation(
+                    "使用 TTL 健康检查模式: TTL={TTL}秒",
+                    _options.HealthCheckInterval * 3);
+            }
 
             // 构建服务注册
             var agentRegistration = new AgentServiceRegistration
@@ -76,14 +135,15 @@ public class ConsulServiceRegistry : IAsyncDisposable
             _registeredServiceIds.Add(registration.ServiceId);
 
             _logger.LogInformation(
-                "Service registered: {ServiceType}/{ServiceId} at {Host}:{Port}",
+                "Service registered: {ServiceType}/{ServiceId} at {Host}:{Port} (HealthCheckMode: {Mode})",
                 registration.ServiceType,
                 registration.ServiceId,
                 registration.Host,
-                registration.TcpPort);
+                registration.TcpPort,
+                _options.HealthCheckMode);
 
-            // 启动健康状态定期上报（TTL 模式）
-            if (_healthReportTask == null)
+            // 仅在 TTL 模式下启动健康状态定期上报
+            if (_options.HealthCheckMode == HealthCheckMode.TTL && _healthReportTask == null)
             {
                 _healthReportTask = StartHealthReportLoopAsync(_cts.Token);
             }

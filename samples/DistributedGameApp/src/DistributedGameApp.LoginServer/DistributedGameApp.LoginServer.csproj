@@ -20,6 +20,13 @@
 
     <!-- Swagger -->
     <PackageReference Include="Swashbuckle.AspNetCore" />
+
+    <!-- OpenTelemetry for Prometheus Metrics -->
+    <PackageReference Include="OpenTelemetry" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
+    <PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" />
   </ItemGroup>
 
   <ItemGroup>

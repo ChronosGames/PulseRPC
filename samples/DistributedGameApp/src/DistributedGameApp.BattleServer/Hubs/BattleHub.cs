@@ -3,7 +3,6 @@ using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using PulseRPC;
 using PulseRPC.Server;
 
 namespace DistributedGameApp.BattleServer.Hubs;
@@ -56,7 +55,7 @@ public class BattleHub : IBattleHub
             throw new InvalidOperationException("无法获取请求上下文");
         }
 
-        var connectionId = connection.Id.ToString();
+        var connectionId = connection.Id;
 
         // 从 BattleConnectionContext 获取该连接对应的战斗状态
         var state = _connectionContext.GetState(connectionId);
@@ -115,7 +114,7 @@ public class BattleHub : IBattleHub
             {
                 throw new InvalidOperationException("无法获取请求上下文");
             }
-            var connectionId = connection.Id.ToString();
+            var connectionId = connection.Id;
 
             // ✅ 使用 BattleConnectionContext 存储连接状态
             _connectionContext.JoinBattle(connectionId, request.BattleId, request.CharacterId);
@@ -158,7 +157,7 @@ public class BattleHub : IBattleHub
                 var connection = RequestContext.Current;
                 if (connection != null)
                 {
-                    _connectionContext.LeaveBattle(connection.Id.ToString());
+                    _connectionContext.LeaveBattle(connection.Id);
                 }
 
                 _logger.LogInformation("角色 {CharacterId} 离开战斗房间 {BattleId}",
@@ -377,11 +376,10 @@ public class BattleHub : IBattleHub
             var accessToken = Guid.NewGuid().ToString();
 
             // 从配置中获取服务器地址和端口
-            var serverHost = _configuration.GetValue<string>("ServiceRegistration:Host") ?? "localhost";
+            var serverHost = _configuration.GetValue<string>("ServiceRegistration:Host", "localhost");
             var serverPort = _configuration.GetValue<int>("ServiceRegistration:TcpPort", 9080);
 
-            _logger.LogInformation("战斗房间创建成功 - RoomId: {RoomId}, Server: {Host}:{Port}",
-                request.MatchId, serverHost, serverPort);
+            _logger.LogInformation("战斗房间创建成功 - RoomId: {RoomId}, Server: {Host}:{Port}", request.MatchId, serverHost, serverPort);
 
             return new CreateBattleRoomResponse
             {
