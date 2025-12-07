@@ -140,6 +140,7 @@ public sealed class ConsulServiceRegistrationService : BackgroundService
 
             int externalTcpPort = 0;
             int? externalKcpPort = null;
+            string? publicHost = externalConfig.GetValue<string>("PublicHost");
             int? publicTcpPort = null;
             int? publicKcpPort = null;
 
@@ -186,6 +187,7 @@ public sealed class ConsulServiceRegistrationService : BackgroundService
                 Host = externalHost == "0.0.0.0" ? "localhost" : externalHost,
                 TcpPort = externalTcpPort,
                 KcpPort = externalKcpPort,
+                PublicHost = publicHost,
                 PublicTcpPort = publicTcpPort,
                 PublicKcpPort = publicKcpPort,
                 Enabled = externalTcpPort > 0

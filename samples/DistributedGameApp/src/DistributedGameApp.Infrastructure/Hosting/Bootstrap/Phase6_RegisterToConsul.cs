@@ -163,17 +163,19 @@ public class Phase6_RegisterToConsul : IBootstrapPhase
                 var tcpConfig = externalConfig.GetSection("Tcp");
                 var kcpConfig = externalConfig.GetSection("Kcp");
 
+                var publicHost = externalConfig.GetValue<string>("PublicHost");
                 var publicTcpPort = tcpConfig.GetValue<int?>("PublicPort");
                 var publicKcpPort = kcpConfig.GetValue<int?>("PublicPort");
 
                 _logger.LogInformation(
-                    "[Phase6] External endpoint - ListenPort: {ListenPort}, PublicTcpPort: {PublicTcpPort}, PublicKcpPort: {PublicKcpPort}",
-                    defaultTransport.Port, publicTcpPort, publicKcpPort);
+                    "[Phase6] External endpoint - ListenPort: {ListenPort}, PublicHost: {PublicHost}, PublicTcpPort: {PublicTcpPort}, PublicKcpPort: {PublicKcpPort}",
+                    defaultTransport.Port, publicHost, publicTcpPort, publicKcpPort);
 
                 registration.ExternalEndpoint = new ServiceClient.NetworkEndpoint
                 {
                     Host = host == "0.0.0.0" ? "localhost" : host,
                     TcpPort = defaultTransport.Port,
+                    PublicHost = publicHost,
                     PublicTcpPort = publicTcpPort,
                     PublicKcpPort = publicKcpPort,
                     Enabled = true

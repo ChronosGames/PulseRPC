@@ -281,26 +281,27 @@ public class ConsulServiceRegistry : IAsyncDisposable
             }
         }
 
-        // 添加外网端点信息
+        // 添加外网端点信息（对外客户端使用）
         if (registration.ExternalEndpoint != null && registration.ExternalEndpoint.Enabled)
         {
-            meta["External_Host"] = registration.ExternalEndpoint.Host;
+            // 使用公网地址（如果有配置），否则使用容器内地址
+            var publicHost = registration.ExternalEndpoint.GetPublicHost();
+            var publicTcpPort = registration.ExternalEndpoint.GetPublicTcpPort();
+            var publicKcpPort = registration.ExternalEndpoint.GetPublicKcpPort();
 
-            // 使用公网端口（如果有配置），否则使用监听端口
-            var tcpPort = registration.ExternalEndpoint.PublicTcpPort ?? registration.ExternalEndpoint.TcpPort;
-            meta["External_TcpPort"] = tcpPort.ToString();
+            meta["External_Host"] = publicHost;
+            meta["External_TcpPort"] = publicTcpPort.ToString();
 
             _logger.LogInformation(
-                "[Consul] Registering External Endpoint - Host: {Host}, TcpPort: {TcpPort}, PublicTcpPort: {PublicTcpPort}, Using: {UsingPort}",
+                "[Consul] Registering External Endpoint - Host: {Host}, PublicHost: {PublicHost}, TcpPort: {TcpPort}, PublicTcpPort: {PublicTcpPort}",
                 registration.ExternalEndpoint.Host,
+                publicHost,
                 registration.ExternalEndpoint.TcpPort,
-                registration.ExternalEndpoint.PublicTcpPort,
-                tcpPort);
+                publicTcpPort);
 
-            var kcpPort = registration.ExternalEndpoint.PublicKcpPort ?? registration.ExternalEndpoint.KcpPort;
-            if (kcpPort.HasValue)
+            if (publicKcpPort.HasValue)
             {
-                meta["External_KcpPort"] = kcpPort.Value.ToString();
+                meta["External_KcpPort"] = publicKcpPort.Value.ToString();
             }
         }
 

@@ -2,6 +2,10 @@
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS base
 WORKDIR /app
 
+# Install curl for Docker health checks
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 # Stage 2: Build image
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
