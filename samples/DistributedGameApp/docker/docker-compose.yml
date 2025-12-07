@@ -322,7 +322,8 @@ services:
       - ServerIdentity__NodeId=1
       - ServerIdentity__NodeName=GameServer-Node1
       - ServerIdentity__MaxCapacity=5000
-      - Network__External__Host=localhost
+      - Network__External__Host=game-server-1
+      - Network__External__PublicHost=localhost
       - Network__External__Enabled=true
       - Network__External__Tcp__Enabled=true
       - Network__External__Tcp__Port=8080
@@ -381,7 +382,8 @@ services:
       - ServerIdentity__NodeId=2
       - ServerIdentity__NodeName=GameServer-Node2
       - ServerIdentity__MaxCapacity=5000
-      - Network__External__Host=localhost
+      - Network__External__Host=game-server-2
+      - Network__External__PublicHost=localhost
       - Network__External__Enabled=true
       - Network__External__Tcp__Enabled=true
       - Network__External__Tcp__Port=8080
@@ -440,7 +442,8 @@ services:
       - ServerIdentity__NodeId=3
       - ServerIdentity__NodeName=GameServer-Node3
       - ServerIdentity__MaxCapacity=5000
-      - Network__External__Host=localhost
+      - Network__External__Host=game-server-3
+      - Network__External__PublicHost=localhost
       - Network__External__Enabled=true
       - Network__External__Tcp__Enabled=true
       - Network__External__Tcp__Port=8080
@@ -500,6 +503,7 @@ services:
       - ServerIdentity__NodeName=BattleServer-Node1
       - ServerIdentity__MaxCapacity=10000
       - Network__External__Host=battle-server-1
+      - Network__External__PublicHost=localhost
       - Network__External__Enabled=true
       - Network__External__Transports__0__Port=9080
       - Network__External__Transports__1__Port=9081
@@ -552,6 +556,7 @@ services:
       - ServerIdentity__NodeName=BattleServer-Node2
       - ServerIdentity__MaxCapacity=10000
       - Network__External__Host=battle-server-2
+      - Network__External__PublicHost=localhost
       - Network__External__Enabled=true
       - Network__External__Transports__0__Port=9080
       - Network__External__Transports__1__Port=9081
