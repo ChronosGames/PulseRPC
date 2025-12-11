@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "com.chronosgames.pulserpc.client.internal": {
-      "version": "file:../../PulseRPC.Client/bin/Debug/netstandard2.1",
+      "version": "file:../../PulseRPC.Client/.artifacts/bin/debug_netstandard2.1",
       "depth": 0,
       "source": "local",
       "dependencies": {}
