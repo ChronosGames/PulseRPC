@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using PulseRPC.Client.Channels;
 using PulseRPC.Serialization;
@@ -83,22 +84,53 @@ namespace PulseRPC.AOT
             RegisterType<byte[]>();
             RegisterType<int[]>();
             RegisterType<string[]>();
+            RegisterType<object[]>();
             RegisterType<List<int>>();
             RegisterType<List<string>>();
+            RegisterType<List<object>>();
+            RegisterType<List<byte>>();
             RegisterType<Dictionary<string, string>>();
             RegisterType<Dictionary<string, object>>();
+            RegisterType<Dictionary<string, int>>();
+            RegisterType<Dictionary<string, bool>>();
+            RegisterType<Dictionary<int, object>>();
 
             // 通道和传输类型
             RegisterType<TransportOptions>();
-            RegisterType<KcpOptions>();
             RegisterType<TransportType>();
 
             // 框架内部类型
-            RegisterType<TransportChannel>();
             RegisterType<TcpTransport>();
             RegisterType<KcpTransport>();
-            // RegisterType<PulseRPCSerializerProvider>();
             RegisterType<ISerializer>();
+
+            // Memory 和 Buffer 类型
+            RegisterType<ReadOnlyMemory<byte>>();
+            RegisterType<Memory<byte>>();
+            RegisterType<ArraySegment<byte>>();
+            RegisterType<System.Buffers.ArrayBufferWriter<byte>>();
+
+            // Task 类型组合
+            RegisterType<System.Threading.Tasks.Task<bool>>();
+            RegisterType<System.Threading.Tasks.Task<int>>();
+            RegisterType<System.Threading.Tasks.Task<string>>();
+            RegisterType<System.Threading.Tasks.Task<object>>();
+            RegisterType<System.Threading.Tasks.Task<byte[]>>();
+            RegisterType<System.Threading.Tasks.ValueTask<bool>>();
+            RegisterType<System.Threading.Tasks.ValueTask<ReadOnlyMemory<byte>>>();
+
+            // TaskCompletionSource 类型
+            RegisterType<System.Threading.Tasks.TaskCompletionSource<object>>();
+            RegisterType<System.Threading.Tasks.TaskCompletionSource<bool>>();
+
+            // 委托类型
+            RegisterType<Action<ReadOnlyMemory<byte>>>();
+            RegisterType<Action<string, byte[]>>();
+            RegisterType<Action<object>>();
+            RegisterType<Func<bool>>();
+            RegisterType<Func<object>>();
+            RegisterType<Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<bool>>>();
+            RegisterType<Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<object>>>();
         }
 
         /// <summary>
@@ -114,24 +146,56 @@ namespace PulseRPC.AOT
         /// </summary>
         private static void PreserveGenericMethods()
         {
-            // 序列化器方法
+            // 序列化器方法 - Serialize<T>
             PreserveGenericMethod<ISerializer, bool>("Serialize");
             PreserveGenericMethod<ISerializer, int>("Serialize");
+            PreserveGenericMethod<ISerializer, long>("Serialize");
             PreserveGenericMethod<ISerializer, string>("Serialize");
             PreserveGenericMethod<ISerializer, byte[]>("Serialize");
+            PreserveGenericMethod<ISerializer, object>("Serialize");
             PreserveGenericMethod<ISerializer, Dictionary<string, object>>("Serialize");
+            PreserveGenericMethod<ISerializer, Dictionary<string, string>>("Serialize");
+            PreserveGenericMethod<ISerializer, List<string>>("Serialize");
+            PreserveGenericMethod<ISerializer, List<int>>("Serialize");
 
+            // 序列化器方法 - Deserialize<T>
             PreserveGenericMethod<ISerializer, bool>("Deserialize");
             PreserveGenericMethod<ISerializer, int>("Deserialize");
+            PreserveGenericMethod<ISerializer, long>("Deserialize");
             PreserveGenericMethod<ISerializer, string>("Deserialize");
             PreserveGenericMethod<ISerializer, byte[]>("Deserialize");
+            PreserveGenericMethod<ISerializer, object>("Deserialize");
             PreserveGenericMethod<ISerializer, Dictionary<string, object>>("Deserialize");
+            PreserveGenericMethod<ISerializer, Dictionary<string, string>>("Deserialize");
+            PreserveGenericMethod<ISerializer, List<string>>("Deserialize");
+            PreserveGenericMethod<ISerializer, List<int>>("Deserialize");
 
-            // 通道方法 - 注释掉因为可能不需要
-            // PreserveGenericMethod<IMessageChannel, byte[]>("SubscribeToEvent");
-            // PreserveGenericMethod<IMessageChannel, string>("SubscribeToEvent");
-            // PreserveGenericMethod<IMessageChannel, int>("SubscribeToEvent");
-            // PreserveGenericMethod<IMessageChannel, Dictionary<string, object>>("SubscribeToEvent");
+            // 通道方法 - InvokeAsync<TRequest, TResponse>
+            PreserveGenericMethod2<ITransport, object, object>("InvokeAsync");
+
+            // 通道方法 - SendEventAsync<T>
+            // PreserveGenericMethod<TransportChannel, object>("SendEventAsync");
+            // PreserveGenericMethod<TransportChannel, string>("SendEventAsync");
+            // PreserveGenericMethod<TransportChannel, int>("SendEventAsync");
+            // PreserveGenericMethod<TransportChannel, byte[]>("SendEventAsync");
+            // PreserveGenericMethod<TransportChannel, Dictionary<string, object>>("SendEventAsync");
+
+            // 通道方法 - SubscribeToEvent<T>
+            // PreserveGenericMethod<TransportChannel, object>("SubscribeToEvent");
+            // PreserveGenericMethod<TransportChannel, string>("SubscribeToEvent");
+            // PreserveGenericMethod<TransportChannel, int>("SubscribeToEvent");
+            // PreserveGenericMethod<TransportChannel, byte[]>("SubscribeToEvent");
+            // PreserveGenericMethod<TransportChannel, Dictionary<string, object>>("SubscribeToEvent");
+
+            // Task 返回值类型方法
+            PreserveGenericMethod<System.Threading.Tasks.Task<bool>, bool>("Result");
+            PreserveGenericMethod<System.Threading.Tasks.Task<int>, int>("Result");
+            PreserveGenericMethod<System.Threading.Tasks.Task<object>, object>("Result");
+            PreserveGenericMethod<System.Threading.Tasks.Task<string>, string>("Result");
+
+            // ValueTask 返回值类型方法
+            PreserveGenericMethod<System.Threading.Tasks.ValueTask<bool>, bool>("Result");
+            PreserveGenericMethod<System.Threading.Tasks.ValueTask<ReadOnlyMemory<byte>>, ReadOnlyMemory<byte>>("Result");
         }
 
         /// <summary>
@@ -144,12 +208,21 @@ namespace PulseRPC.AOT
         }
 
         /// <summary>
-        /// 预先实例化泛型方法
+        /// 预先实例化泛型方法（单个类型参数）
         /// </summary>
         private static void PreserveGenericMethod<TType, TParam>(string methodName)
         {
             // 这个方法实际上并不会调用任何东西，只是为了确保IL2CPP编译器在编译时会保留这些泛型方法
             RuntimeMethodCache<TType, TParam>.PreserveMethod(methodName);
+        }
+
+        /// <summary>
+        /// 预先实例化泛型方法（两个类型参数）
+        /// </summary>
+        private static void PreserveGenericMethod2<TType, TParam1, TParam2>(string methodName)
+        {
+            // 这个方法实际上并不会调用任何东西，只是为了确保IL2CPP编译器在编译时会保留这些泛型方法
+            RuntimeMethodCache2<TType, TParam1, TParam2>.PreserveMethod(methodName);
         }
 
         /// <summary>
@@ -168,7 +241,7 @@ namespace PulseRPC.AOT
         }
 
         /// <summary>
-        /// 运行时方法缓存
+        /// 运行时方法缓存（单个类型参数）
         /// </summary>
         private static class RuntimeMethodCache<TType, TParam>
         {
@@ -181,6 +254,26 @@ namespace PulseRPC.AOT
                 // 仅用于防止被优化掉
                 _ = Type;
                 _ = ParamType;
+                _ = methodName;
+            }
+        }
+
+        /// <summary>
+        /// 运行时方法缓存（两个类型参数）
+        /// </summary>
+        private static class RuntimeMethodCache2<TType, TParam1, TParam2>
+        {
+            // 此字段仅用于确保方法被保留
+            private static readonly Type Type = typeof(TType);
+            private static readonly Type ParamType1 = typeof(TParam1);
+            private static readonly Type ParamType2 = typeof(TParam2);
+
+            public static void PreserveMethod(string methodName)
+            {
+                // 仅用于防止被优化掉
+                _ = Type;
+                _ = ParamType1;
+                _ = ParamType2;
                 _ = methodName;
             }
         }
