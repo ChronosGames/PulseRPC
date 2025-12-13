@@ -22,10 +22,7 @@ public static class ReceiverDispatcherGenerator
     {
         var interfaceName = interfaceSymbol.Name;
         var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;
-        // 全局命名空间时使用默认命名空间
-        var namespaceName = isGlobalNamespace
-            ? "PulseRPC.Generated"
-            : interfaceSymbol.ContainingNamespace.ToDisplayString();
+        var namespaceName = isGlobalNamespace ? null : interfaceSymbol.ContainingNamespace.ToDisplayString();
         var dispatcherClassName = GetDispatcherClassName(interfaceName);
 
         // 为所有方法生成协议号
@@ -36,16 +33,26 @@ public static class ReceiverDispatcherGenerator
         GenerateFileHeader(sb, interfaceSymbol);
         GenerateUsingStatements(sb, namespaceName);
 
-        sb.AppendLine($"namespace {namespaceName}");
-        sb.AppendLine("{");
+        // 缩进：全局命名空间时无缩进，否则有4空格缩进
+        var indent = isGlobalNamespace ? "" : "    ";
+
+        // 全局命名空间时不生成 namespace 块
+        if (!isGlobalNamespace)
+        {
+            sb.AppendLine($"namespace {namespaceName}");
+            sb.AppendLine("{");
+        }
 
         // 生成调度器类
-        GenerateDispatcherClass(sb, interfaceSymbol, dispatcherClassName, protocolIds);
+        GenerateDispatcherClass(sb, interfaceSymbol, dispatcherClassName, protocolIds, indent);
 
         // 生成扩展方法
-        GenerateExtensionMethods(sb, interfaceSymbol, dispatcherClassName);
+        GenerateExtensionMethods(sb, interfaceSymbol, dispatcherClassName, indent);
 
-        sb.AppendLine("}");
+        if (!isGlobalNamespace)
+        {
+            sb.AppendLine("}");
+        }
 
         return sb.ToString();
     }
@@ -68,7 +75,7 @@ public static class ReceiverDispatcherGenerator
         sb.AppendLine();
     }
 
-    private static void GenerateUsingStatements(StringBuilder sb, string namespaceName)
+    private static void GenerateUsingStatements(StringBuilder sb, string? namespaceName)
     {
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Collections.Generic;");
@@ -86,54 +93,58 @@ public static class ReceiverDispatcherGenerator
         StringBuilder sb,
         INamedTypeSymbol interfaceSymbol,
         string dispatcherClassName,
-        Dictionary<string, ushort> protocolIds)
+        Dictionary<string, ushort> protocolIds,
+        string indent)
     {
         var interfaceName = interfaceSymbol.Name;
         var interfaceFullName = interfaceSymbol.ToDisplayString();
+        var memberIndent = indent + "    ";
+        var bodyIndent = memberIndent + "    ";
 
-        sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// {interfaceName} 的客户端调度器");
-        sb.AppendLine($"    /// 处理反序列化和调度到用户实现");
-        sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public sealed class {dispatcherClassName} : IDisposable");
-        sb.AppendLine("    {");
+        sb.AppendLine($"{indent}/// <summary>");
+        sb.AppendLine($"{indent}/// {interfaceName} 的客户端调度器");
+        sb.AppendLine($"{indent}/// 处理反序列化和调度到用户实现");
+        sb.AppendLine($"{indent}/// </summary>");
+        sb.AppendLine($"{indent}public sealed class {dispatcherClassName} : IDisposable");
+        sb.AppendLine($"{indent}{{");
 
         // 字段
-        sb.AppendLine($"        private readonly {interfaceFullName} _implementation;");
-        sb.AppendLine("        private readonly List<ISubscriptionToken> _subscriptions = new();");
-        sb.AppendLine("        private bool _disposed;");
+        sb.AppendLine($"{memberIndent}private readonly {interfaceFullName} _implementation;");
+        sb.AppendLine($"{memberIndent}private readonly List<ISubscriptionToken> _subscriptions = new();");
+        sb.AppendLine($"{memberIndent}private bool _disposed;");
         sb.AppendLine();
 
         // 协议号常量
-        GenerateProtocolIdConstants(sb, interfaceSymbol, protocolIds);
+        GenerateProtocolIdConstants(sb, interfaceSymbol, protocolIds, memberIndent);
 
         // 构造函数
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 创建调度器实例");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        public {dispatcherClassName}({interfaceFullName} implementation)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            _implementation = implementation ?? throw new ArgumentNullException(nameof(implementation));");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 创建调度器实例");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public {dispatcherClassName}({interfaceFullName} implementation)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}_implementation = implementation ?? throw new ArgumentNullException(nameof(implementation));");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
 
         // RegisterTo 方法
-        GenerateRegisterToMethod(sb, interfaceSymbol, protocolIds);
+        GenerateRegisterToMethod(sb, interfaceSymbol, protocolIds, memberIndent, bodyIndent);
 
         // Dispose 方法
-        GenerateDisposeMethod(sb);
+        GenerateDisposeMethod(sb, memberIndent, bodyIndent);
 
-        sb.AppendLine("    }");
+        sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
 
     private static void GenerateProtocolIdConstants(
         StringBuilder sb,
         INamedTypeSymbol interfaceSymbol,
-        Dictionary<string, ushort> protocolIds)
+        Dictionary<string, ushort> protocolIds,
+        string indent)
     {
-        sb.AppendLine("        // ==================== 协议号常量 ====================");
-        sb.AppendLine("        // 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
+        sb.AppendLine($"{indent}// ==================== 协议号常量 ====================");
+        sb.AppendLine($"{indent}// 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
         sb.AppendLine();
 
         foreach (var member in interfaceSymbol.GetMembers())
@@ -147,7 +158,7 @@ public static class ReceiverDispatcherGenerator
                 if (protocolIds.TryGetValue(methodKey, out var protocolId))
                 {
                     var constName = $"Protocol_{methodSymbol.Name}";
-                    sb.AppendLine($"        private const ushort {constName} = 0x{protocolId:X4};");
+                    sb.AppendLine($"{indent}private const ushort {constName} = 0x{protocolId:X4};");
                 }
             }
         }
@@ -157,17 +168,22 @@ public static class ReceiverDispatcherGenerator
     private static void GenerateRegisterToMethod(
         StringBuilder sb,
         INamedTypeSymbol interfaceSymbol,
-        Dictionary<string, ushort> protocolIds)
+        Dictionary<string, ushort> protocolIds,
+        string memberIndent,
+        string bodyIndent)
     {
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 注册到通道");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        /// <param name=\"channel\">客户端通道</param>");
-        sb.AppendLine("        /// <returns>复合订阅令牌</returns>");
-        sb.AppendLine("        public ISubscriptionToken RegisterTo(IClientChannel channel)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (channel == null) throw new ArgumentNullException(nameof(channel));");
-        sb.AppendLine("            if (_disposed) throw new ObjectDisposedException(nameof(" + GetDispatcherClassName(interfaceSymbol.Name) + "));");
+        var innerIndent = bodyIndent + "    ";
+        var deepIndent = innerIndent + "    ";
+
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 注册到通道");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}/// <param name=\"channel\">客户端通道</param>");
+        sb.AppendLine($"{memberIndent}/// <returns>复合订阅令牌</returns>");
+        sb.AppendLine($"{memberIndent}public ISubscriptionToken RegisterTo(IClientChannel channel)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}if (channel == null) throw new ArgumentNullException(nameof(channel));");
+        sb.AppendLine($"{bodyIndent}if (_disposed) throw new ObjectDisposedException(nameof({GetDispatcherClassName(interfaceSymbol.Name)}));");
         sb.AppendLine();
 
         // 为每个方法注册处理器
@@ -177,21 +193,24 @@ public static class ReceiverDispatcherGenerator
                 methodSymbol.DeclaredAccessibility == Accessibility.Public &&
                 methodSymbol.MethodKind == MethodKind.Ordinary)
             {
-                GenerateEventHandlerRegistration(sb, methodSymbol, protocolIds);
+                GenerateEventHandlerRegistration(sb, methodSymbol, protocolIds, bodyIndent, innerIndent, deepIndent);
             }
         }
 
         sb.AppendLine();
-        sb.AppendLine("            // 返回复合订阅令牌");
-        sb.AppendLine("            return new CompositeSubscriptionToken(_subscriptions);");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{bodyIndent}// 返回复合订阅令牌");
+        sb.AppendLine($"{bodyIndent}return new CompositeSubscriptionToken(_subscriptions);");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
     }
 
     private static void GenerateEventHandlerRegistration(
         StringBuilder sb,
         IMethodSymbol methodSymbol,
-        Dictionary<string, ushort> protocolIds)
+        Dictionary<string, ushort> protocolIds,
+        string bodyIndent,
+        string innerIndent,
+        string deepIndent)
     {
         var methodName = methodSymbol.Name;
         var constName = $"Protocol_{methodName}";
@@ -201,54 +220,56 @@ public static class ReceiverDispatcherGenerator
         var isVoidReturn = methodSymbol.ReturnsVoid;
         var callPrefix = isVoidReturn ? "" : "_ = ";
 
-        sb.AppendLine($"            // 注册 {methodName} 事件处理器");
-        sb.AppendLine($"            _subscriptions.Add(channel.RegisterEventHandler(");
-        sb.AppendLine($"                protocolId: {constName},");
-        sb.AppendLine($"                deserializeAndInvoke: (ReadOnlyMemory<byte> __data__) =>");
-        sb.AppendLine("                {");
+        sb.AppendLine($"{bodyIndent}// 注册 {methodName} 事件处理器");
+        sb.AppendLine($"{bodyIndent}_subscriptions.Add(channel.RegisterEventHandler(");
+        sb.AppendLine($"{innerIndent}protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}deserializeAndInvoke: (ReadOnlyMemory<byte> __data__) =>");
+        sb.AppendLine($"{innerIndent}{{");
 
         if (parameters.Length == 0)
         {
             // 无参数方法
-            sb.AppendLine($"                    {callPrefix}_implementation.{methodName}();");
+            sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}();");
         }
         else if (parameters.Length == 1)
         {
             // 单参数方法
             var param = parameters[0];
-            sb.AppendLine($"                    var __arg__ = MemoryPackSerializer.Deserialize<{param.Type.ToDisplayString()}>(__data__.Span)!;");
-            sb.AppendLine($"                    {callPrefix}_implementation.{methodName}(__arg__);");
+            sb.AppendLine($"{deepIndent}var __arg__ = MemoryPackSerializer.Deserialize<{param.Type.ToDisplayString()}>(__data__.Span)!;");
+            sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}(__arg__);");
         }
         else
         {
             // 多参数方法 - 使用元组
             var tupleType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
-            sb.AppendLine($"                    var __args__ = MemoryPackSerializer.Deserialize<{tupleType}>(__data__.Span)!;");
+            sb.AppendLine($"{deepIndent}var __args__ = MemoryPackSerializer.Deserialize<{tupleType}>(__data__.Span)!;");
 
             var argList = string.Join(", ", Enumerable.Range(0, parameters.Length).Select(i => $"__args__.Item{i + 1}"));
-            sb.AppendLine($"                    {callPrefix}_implementation.{methodName}({argList});");
+            sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}({argList});");
         }
 
-        sb.AppendLine("                }));");
+        sb.AppendLine($"{innerIndent}}}));");
         sb.AppendLine();
     }
 
-    private static void GenerateDisposeMethod(StringBuilder sb)
+    private static void GenerateDisposeMethod(StringBuilder sb, string memberIndent, string bodyIndent)
     {
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 释放资源");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public void Dispose()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (_disposed) return;");
-        sb.AppendLine("            _disposed = true;");
+        var innerIndent = bodyIndent + "    ";
+
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 释放资源");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public void Dispose()");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}if (_disposed) return;");
+        sb.AppendLine($"{bodyIndent}_disposed = true;");
         sb.AppendLine();
-        sb.AppendLine("            foreach (var subscription in _subscriptions)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                subscription.Dispose();");
-        sb.AppendLine("            }");
-        sb.AppendLine("            _subscriptions.Clear();");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{bodyIndent}foreach (var subscription in _subscriptions)");
+        sb.AppendLine($"{bodyIndent}{{");
+        sb.AppendLine($"{innerIndent}subscription.Dispose();");
+        sb.AppendLine($"{bodyIndent}}}");
+        sb.AppendLine($"{bodyIndent}_subscriptions.Clear();");
+        sb.AppendLine($"{memberIndent}}}");
     }
 
     /// <summary>
@@ -257,7 +278,8 @@ public static class ReceiverDispatcherGenerator
     private static void GenerateExtensionMethods(
         StringBuilder sb,
         INamedTypeSymbol interfaceSymbol,
-        string dispatcherClassName)
+        string dispatcherClassName,
+        string indent)
     {
         var interfaceName = interfaceSymbol.Name;
         var interfaceFullName = interfaceSymbol.ToDisplayString();
@@ -265,28 +287,30 @@ public static class ReceiverDispatcherGenerator
             ? interfaceName.Substring(1) + "ReceiverExtensions"
             : interfaceName + "ReceiverExtensions";
 
-        sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// {interfaceName} 的 IClientChannel 扩展方法");
-        sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public static class {extensionClassName}");
-        sb.AppendLine("    {");
+        var memberIndent = indent + "    ";
+        var bodyIndent = memberIndent + "    ";
+
+        sb.AppendLine($"{indent}/// <summary>");
+        sb.AppendLine($"{indent}/// {interfaceName} 的 IClientChannel 扩展方法");
+        sb.AppendLine($"{indent}/// </summary>");
+        sb.AppendLine($"{indent}public static class {extensionClassName}");
+        sb.AppendLine($"{indent}{{");
 
         // RegisterReceiver 扩展方法
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 注册 {interfaceName} 接收器");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        /// <param name=\"channel\">客户端通道</param>");
-        sb.AppendLine($"        /// <param name=\"receiver\">接收器实现</param>");
-        sb.AppendLine($"        /// <returns>订阅令牌，用于取消注册</returns>");
-        sb.AppendLine($"        public static ISubscriptionToken RegisterReceiver(");
-        sb.AppendLine($"            this IClientChannel channel,");
-        sb.AppendLine($"            {interfaceFullName} receiver)");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            var dispatcher = new {dispatcherClassName}(receiver);");
-        sb.AppendLine("            return dispatcher.RegisterTo(channel);");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 注册 {interfaceName} 接收器");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}/// <param name=\"channel\">客户端通道</param>");
+        sb.AppendLine($"{memberIndent}/// <param name=\"receiver\">接收器实现</param>");
+        sb.AppendLine($"{memberIndent}/// <returns>订阅令牌，用于取消注册</returns>");
+        sb.AppendLine($"{memberIndent}public static ISubscriptionToken RegisterReceiver(");
+        sb.AppendLine($"{bodyIndent}this IClientChannel channel,");
+        sb.AppendLine($"{bodyIndent}{interfaceFullName} receiver)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}var dispatcher = new {dispatcherClassName}(receiver);");
+        sb.AppendLine($"{bodyIndent}return dispatcher.RegisterTo(channel);");
+        sb.AppendLine($"{memberIndent}}}");
 
-        sb.AppendLine("    }");
+        sb.AppendLine($"{indent}}}");
     }
 }
-
