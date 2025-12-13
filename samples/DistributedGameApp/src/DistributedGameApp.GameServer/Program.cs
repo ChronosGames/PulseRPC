@@ -101,7 +101,7 @@ serviceClientManager.RegisterHubProxyFactory(
     (hubType, channel) => PulseRPC.Generated.HubProxyFactory.Instance.Create(hubType, channel));
 
 await serviceClientManager.InitializeAsync(
-    new[] { ServerType.Battle, ServerType.Backend },  // BackendServer 主要连接 BattleServer
+    [ServerType.Battle, ServerType.Backend],  // BackendServer 主要连接 BattleServer
     RoutingStrategy.ConsistentHash);
 
 await app.RunAsync();

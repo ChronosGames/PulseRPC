@@ -1,4 +1,6 @@
+using DistributedGameApp.GameServer.Hubs;
 using DistributedGameApp.Shared.Hubs;
+using DistributedGameApp.Shared.Receivers;
 using PulseRPC;
 
 namespace DistributedGameApp.GameServer;
@@ -13,6 +15,7 @@ namespace DistributedGameApp.GameServer;
 /// </remarks>
 [PulseClientGeneration(typeof(IBackendHub))]
 [PulseClientGeneration(typeof(IBattleHub))]
+[PulseClientGeneration(typeof(IGameReceiver))]
 internal static class HubClientGeneration
 {
     // 这个类仅用于触发源生成器生成客户端代理

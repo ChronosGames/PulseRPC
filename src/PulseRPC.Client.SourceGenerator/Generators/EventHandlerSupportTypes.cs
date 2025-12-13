@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.CodeAnalysis;
 
+
 namespace PulseRPC.Generator.Generators;
 
 /// <summary>
@@ -41,6 +42,7 @@ public static class EventHandlerSupportTypes
         sb.AppendLine();
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Collections.Concurrent;");
+        sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Threading;");
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using System.Diagnostics;");
@@ -366,12 +368,12 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    public sealed class EventHandlerMetrics");
         sb.AppendLine("    {");
-        sb.AppendLine("        public long TotalEventsReceived { get; init; }");
-        sb.AppendLine("        public long TotalEventsProcessed { get; init; }");
-        sb.AppendLine("        public long TotalErrors { get; init; }");
-        sb.AppendLine("        public long TotalBatchesProcessed { get; init; }");
-        sb.AppendLine("        public long TotalBatchErrors { get; init; }");
-        sb.AppendLine("        public Dictionary<string, MethodMetrics> MethodMetrics { get; init; } = new();");
+        sb.AppendLine("        public long TotalEventsReceived { get; set; }");
+        sb.AppendLine("        public long TotalEventsProcessed { get; set; }");
+        sb.AppendLine("        public long TotalErrors { get; set; }");
+        sb.AppendLine("        public long TotalBatchesProcessed { get; set; }");
+        sb.AppendLine("        public long TotalBatchErrors { get; set; }");
+        sb.AppendLine("        public Dictionary<string, MethodMetrics> MethodMetrics { get; set; } = new();");
         sb.AppendLine();
 
         sb.AppendLine("        public double SuccessRate => TotalEventsReceived > 0 ? (double)TotalEventsProcessed / TotalEventsReceived : 0;");
@@ -384,14 +386,14 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    public sealed class MethodMetrics");
         sb.AppendLine("    {");
-        sb.AppendLine("        public long CallCount { get; init; }");
-        sb.AppendLine("        public long SuccessCount { get; init; }");
-        sb.AppendLine("        public long ErrorCount { get; init; }");
-        sb.AppendLine("        public double AverageDuration { get; init; }");
-        sb.AppendLine("        public double MaxDuration { get; init; }");
-        sb.AppendLine("        public double MinDuration { get; init; }");
-        sb.AppendLine("        public Exception? LastError { get; init; }");
-        sb.AppendLine("        public DateTime LastErrorTime { get; init; }");
+        sb.AppendLine("        public long CallCount { get; set; }");
+        sb.AppendLine("        public long SuccessCount { get; set; }");
+        sb.AppendLine("        public long ErrorCount { get; set; }");
+        sb.AppendLine("        public double AverageDuration { get; set; }");
+        sb.AppendLine("        public double MaxDuration { get; set; }");
+        sb.AppendLine("        public double MinDuration { get; set; }");
+        sb.AppendLine("        public Exception? LastError { get; set; }");
+        sb.AppendLine("        public DateTime LastErrorTime { get; set; }");
         sb.AppendLine();
 
         sb.AppendLine("        public double SuccessRate => CallCount > 0 ? (double)SuccessCount / CallCount : 0;");
