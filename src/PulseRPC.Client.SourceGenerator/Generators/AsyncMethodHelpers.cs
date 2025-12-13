@@ -118,22 +118,6 @@ public static class AsyncMethodHelpers
         sb.AppendLine("        }");
         sb.AppendLine();
 
-        // 超时包装
-        sb.AppendLine("        public static async Task<T> WithTimeoutAsync<T>(Task<T> task, TimeSpan timeout)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            using var cts = new CancellationTokenSource(timeout);");
-        sb.AppendLine("            ");
-        sb.AppendLine("            try");
-        sb.AppendLine("            {");
-        sb.AppendLine("                return await task.WaitAsync(cancellationToken: cts.Token).ConfigureAwait(false);");
-        sb.AppendLine("            }");
-        sb.AppendLine("            catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                throw new TimeoutException($\"Operation timed out after {timeout.TotalMilliseconds}ms\");");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
         // 结束类和命名空间
         sb.AppendLine("    }");
         sb.AppendLine("}");
