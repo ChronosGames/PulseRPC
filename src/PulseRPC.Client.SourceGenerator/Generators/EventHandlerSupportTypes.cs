@@ -749,6 +749,7 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("            throw lastException!;");
         sb.AppendLine("        }");
         sb.AppendLine();
+        sb.AppendLine("    }");
 
         // 结束命名空间
         sb.AppendLine("}");
