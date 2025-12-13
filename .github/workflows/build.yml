@@ -118,3 +118,5 @@ jobs:
     if: always()
     uses: ChronosGames/Actions/.github/workflows/actions-timeline.yaml@main
     secrets: inherit
+    permissions:
+      actions: read
