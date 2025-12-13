@@ -193,6 +193,10 @@ public static class ReceiverDispatcherGenerator
         var constName = $"Protocol_{methodName}";
         var parameters = methodSymbol.Parameters;
 
+        // 判断返回类型是否为 void - void 不能赋值给 discard
+        var isVoidReturn = methodSymbol.ReturnsVoid;
+        var callPrefix = isVoidReturn ? "" : "_ = ";
+
         sb.AppendLine($"            // 注册 {methodName} 事件处理器");
         sb.AppendLine($"            _subscriptions.Add(channel.RegisterEventHandler(");
         sb.AppendLine($"                protocolId: {constName},");
@@ -202,14 +206,14 @@ public static class ReceiverDispatcherGenerator
         if (parameters.Length == 0)
         {
             // 无参数方法
-            sb.AppendLine($"                    _ = _implementation.{methodName}();");
+            sb.AppendLine($"                    {callPrefix}_implementation.{methodName}();");
         }
         else if (parameters.Length == 1)
         {
             // 单参数方法
             var param = parameters[0];
             sb.AppendLine($"                    var __arg__ = MemoryPackSerializer.Deserialize<{param.Type.ToDisplayString()}>(__data__.Span)!;");
-            sb.AppendLine($"                    _ = _implementation.{methodName}(__arg__);");
+            sb.AppendLine($"                    {callPrefix}_implementation.{methodName}(__arg__);");
         }
         else
         {
@@ -218,7 +222,7 @@ public static class ReceiverDispatcherGenerator
             sb.AppendLine($"                    var __args__ = MemoryPackSerializer.Deserialize<{tupleType}>(__data__.Span)!;");
 
             var argList = string.Join(", ", Enumerable.Range(0, parameters.Length).Select(i => $"__args__.Item{i + 1}"));
-            sb.AppendLine($"                    _ = _implementation.{methodName}({argList});");
+            sb.AppendLine($"                    {callPrefix}_implementation.{methodName}({argList});");
         }
 
         sb.AppendLine("                }));");

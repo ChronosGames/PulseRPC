@@ -47,6 +47,7 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using System.Diagnostics;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
+        sb.AppendLine("using System.Linq;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
         sb.AppendLine();
@@ -755,7 +756,7 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("            using var cts = new CancellationTokenSource(timeout);");
         sb.AppendLine("            try");
         sb.AppendLine("            {");
-        sb.AppendLine("                return await task.WaitAsync(cts.Token).ConfigureAwait(false);");
+        sb.AppendLine("                return await task.WaitAsync(cancellationToken: cts.Token).ConfigureAwait(false);");
         sb.AppendLine("            }");
         sb.AppendLine("            catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)");
         sb.AppendLine("            {");

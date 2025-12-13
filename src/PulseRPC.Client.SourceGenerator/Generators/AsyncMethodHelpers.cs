@@ -125,7 +125,7 @@ public static class AsyncMethodHelpers
         sb.AppendLine("            ");
         sb.AppendLine("            try");
         sb.AppendLine("            {");
-        sb.AppendLine("                return await task.WaitAsync(cts.Token).ConfigureAwait(false);");
+        sb.AppendLine("                return await task.WaitAsync(cancellationToken: cts.Token).ConfigureAwait(false);");
         sb.AppendLine("            }");
         sb.AppendLine("            catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)");
         sb.AppendLine("            {");
