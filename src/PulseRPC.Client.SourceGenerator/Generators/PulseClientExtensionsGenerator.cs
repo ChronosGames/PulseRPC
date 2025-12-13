@@ -102,8 +102,8 @@ public static class PulseClientExtensionsGenerator
 
             var proxyTypeName = $"{fullTypeName}Proxy";
 
-            sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务");
-            sb.AppendLine($"            if (serviceType == typeof({fullTypeName}))");
+            sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务（使用 IsAssignableFrom 支持接口实现类）");
+            sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(serviceType))");
             sb.AppendLine("            {");
             sb.AppendLine($"                // 通过连接路由器获取最佳连接");
             sb.AppendLine($"                var connection = await client.Router.RouteAsync(\"{interfaceName}\", null, cancellationToken);");
@@ -157,8 +157,8 @@ public static class PulseClientExtensionsGenerator
 
             var proxyTypeName = $"{fullTypeName}Proxy";
 
-            sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务");
-            sb.AppendLine($"            if (serviceType == typeof({fullTypeName}))");
+            sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务（使用 IsAssignableFrom 支持接口实现类）");
+            sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(serviceType))");
             sb.AppendLine("            {");
             sb.AppendLine($"                return (T)(object)new {proxyTypeName}(connection);");
             sb.AppendLine("            }");
