@@ -141,33 +141,6 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var factoryFileName = "PulseClientFactoryExtensions.g.cs";
                 spc.AddSource(factoryFileName, SourceText.From(factoryExtensionsCode, Encoding.UTF8));
             }
-
-            // 生成服务处理器（用于 RegisterHub）
-            foreach (var serviceTypeInfo in uniqueServiceTypes)
-            {
-                if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
-                {
-                    var handlerCode = ServiceHandlerGenerator.GenerateServiceHandler(namedType);
-                    var handlerFileName = $"{GetSafeFileName(namedType)}ServiceHandler.g.cs";
-                    spc.AddSource(handlerFileName, SourceText.From(handlerCode, Encoding.UTF8));
-                }
-            }
-
-            // 生成 ITransportChannel 扩展方法（用于 GetHubAsync 和 RegisterHub）
-            if (serviceNamedTypes.Length > 0)
-            {
-                var channelExtensionsCode = TransportChannelExtensionsGenerator.GenerateExtensions(serviceNamedTypes, channelNames);
-                var channelExtensionsFileName = "TransportChannelExtensions.g.cs";
-                spc.AddSource(channelExtensionsFileName, SourceText.From(channelExtensionsCode, Encoding.UTF8));
-            }
-
-            // 生成 HubProxyFactory（编译时类型安全的代理创建，无需反射）
-            if (serviceNamedTypes.Length > 0)
-            {
-                var factoryCode = HubProxyFactoryGenerator.GenerateHubProxyFactory(serviceNamedTypes);
-                var factoryFileName = "HubProxyFactory.g.cs";
-                spc.AddSource(factoryFileName, SourceText.From(factoryCode, Encoding.UTF8));
-            }
         });
 
         // 注册事件处理器源代码输出
@@ -222,21 +195,21 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             }
 
             // 生成统一的客户端扩展方法（使用去重后的类型）
-            var namedTypes = uniqueEventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
-            if (namedTypes.Length > 0)
-            {
-                var enhancedExtensionsCode = EnhancedEventListenerExtensions.GenerateEnhancedExtensions(namedTypes);
-                var enhancedFileName = "PulseRPC.Client.Extensions.g.cs";
-                spc.AddSource(enhancedFileName, SourceText.From(enhancedExtensionsCode, Encoding.UTF8));
-
-                // 生成统一接收器注册扩展方法（RegisterAllReceivers<T>）
-                var unifiedRegistrationCode = UnifiedReceiverRegistrationGenerator.Generate(namedTypes);
-                if (!string.IsNullOrEmpty(unifiedRegistrationCode))
-                {
-                    spc.AddSource("PulseRPC.Client.UnifiedReceiverRegistration.g.cs",
-                        SourceText.From(unifiedRegistrationCode, Encoding.UTF8));
-                }
-            }
+            // var namedTypes = uniqueEventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+            // if (namedTypes.Length > 0)
+            // {
+            //     var enhancedExtensionsCode = EnhancedEventListenerExtensions.GenerateEnhancedExtensions(namedTypes);
+            //     var enhancedFileName = "PulseRPC.Client.Extensions.g.cs";
+            //     spc.AddSource(enhancedFileName, SourceText.From(enhancedExtensionsCode, Encoding.UTF8));
+            //
+            //     // 生成统一接收器注册扩展方法（RegisterAllReceivers<T>）
+            //     var unifiedRegistrationCode = UnifiedReceiverRegistrationGenerator.Generate(namedTypes);
+            //     if (!string.IsNullOrEmpty(unifiedRegistrationCode))
+            //     {
+            //         spc.AddSource("PulseRPC.Client.UnifiedReceiverRegistration.g.cs",
+            //             SourceText.From(unifiedRegistrationCode, Encoding.UTF8));
+            //     }
+            // }
         });
     }
 
