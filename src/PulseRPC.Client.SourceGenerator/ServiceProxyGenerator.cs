@@ -141,6 +141,14 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var factoryFileName = "PulseClientFactoryExtensions.g.cs";
                 spc.AddSource(factoryFileName, SourceText.From(factoryExtensionsCode, Encoding.UTF8));
             }
+
+            // 生成 IClientChannel 泛型扩展方法（GetHub<T>, RegisterReceiver<T>）
+            if (serviceNamedTypes.Length > 0 || eventNamedTypes.Length > 0)
+            {
+                var channelExtensionsCode = ClientChannelGenericExtensionsGenerator.Generate(serviceNamedTypes, eventNamedTypes);
+                var channelExtensionsFileName = "ClientChannelGenericExtensions.g.cs";
+                spc.AddSource(channelExtensionsFileName, SourceText.From(channelExtensionsCode, Encoding.UTF8));
+            }
         });
 
         // 注册事件处理器源代码输出
