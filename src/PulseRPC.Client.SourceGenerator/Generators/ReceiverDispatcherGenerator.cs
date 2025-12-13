@@ -21,7 +21,11 @@ public static class ReceiverDispatcherGenerator
     public static string GenerateReceiverDispatcher(INamedTypeSymbol interfaceSymbol, SourceProductionContext context)
     {
         var interfaceName = interfaceSymbol.Name;
-        var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
+        var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;
+        // 全局命名空间时使用默认命名空间
+        var namespaceName = isGlobalNamespace
+            ? "PulseRPC.Generated"
+            : interfaceSymbol.ContainingNamespace.ToDisplayString();
         var dispatcherClassName = GetDispatcherClassName(interfaceName);
 
         // 为所有方法生成协议号

@@ -298,7 +298,11 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     private static string GenerateServiceProxy(INamedTypeSymbol interfaceSymbol, SourceProductionContext context)
     {
         var interfaceName = interfaceSymbol.Name;
-        var namespaceName = interfaceSymbol.ContainingNamespace.ToDisplayString();
+        var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;
+        // 全局命名空间时使用默认命名空间
+        var namespaceName = isGlobalNamespace
+            ? "PulseRPC.Generated"
+            : interfaceSymbol.ContainingNamespace.ToDisplayString();
 
         // 获取通道特性
         var defaultChannelName = GetChannelAttributeValue(interfaceSymbol) ?? "default";
@@ -333,8 +337,8 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             sb.AppendLine($"using {ns};");
         }
 
-        // 添加当前类型的命名空间
-        if (!interfaceSymbol.ContainingNamespace.IsGlobalNamespace)
+        // 添加当前类型的命名空间（非全局命名空间时）
+        if (!isGlobalNamespace)
         {
             sb.AppendLine($"using {interfaceSymbol.ContainingNamespace.ToDisplayString()};");
         }
