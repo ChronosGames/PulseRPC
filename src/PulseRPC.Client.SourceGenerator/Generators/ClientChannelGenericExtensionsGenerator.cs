@@ -128,7 +128,7 @@ public static class ClientChannelGenericExtensionsGenerator
         sb.AppendLine("            var hubType = typeof(T);");
         sb.AppendLine();
 
-        // 为每个 Hub 类型生成类型检查
+        // 为每个 Hub 类型生成类型检查（使用 IsAssignableFrom 支持接口实现类）
         foreach (var hubType in hubTypes)
         {
             if (hubType == null) continue;
@@ -136,7 +136,7 @@ public static class ClientChannelGenericExtensionsGenerator
             var fullTypeName = GetFullTypeName(hubType);
             var proxyTypeName = $"{fullTypeName}Proxy";
 
-            sb.AppendLine($"            if (hubType == typeof({fullTypeName}))");
+            sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(hubType))");
             sb.AppendLine("            {");
             sb.AppendLine($"                return (T)(object)new {proxyTypeName}(channel);");
             sb.AppendLine("            }");
@@ -190,7 +190,7 @@ public static class ClientChannelGenericExtensionsGenerator
         sb.AppendLine("            var receiverType = typeof(T);");
         sb.AppendLine();
 
-        // 为每个 Receiver 类型生成类型检查
+        // 为每个 Receiver 类型生成类型检查（使用 IsAssignableFrom 支持接口实现类）
         foreach (var receiverType in receiverTypes)
         {
             if (receiverType == null) continue;
@@ -199,7 +199,7 @@ public static class ClientChannelGenericExtensionsGenerator
             var interfaceName = receiverType.Name;
             var dispatcherTypeName = GetDispatcherTypeName(interfaceName, fullTypeName);
 
-            sb.AppendLine($"            if (receiverType == typeof({fullTypeName}))");
+            sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(receiverType))");
             sb.AppendLine("            {");
             sb.AppendLine($"                var dispatcher = new {dispatcherTypeName}(({fullTypeName})receiver);");
             sb.AppendLine($"                return dispatcher.RegisterTo(channel);");
