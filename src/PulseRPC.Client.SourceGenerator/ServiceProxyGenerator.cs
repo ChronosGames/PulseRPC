@@ -299,10 +299,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     {
         var interfaceName = interfaceSymbol.Name;
         var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;
-        // 全局命名空间时使用默认命名空间
-        var namespaceName = isGlobalNamespace
-            ? "PulseRPC.Generated"
-            : interfaceSymbol.ContainingNamespace.ToDisplayString();
+        var namespaceName = isGlobalNamespace ? null : interfaceSymbol.ContainingNamespace.ToDisplayString();
 
         // 获取通道特性
         var defaultChannelName = GetChannelAttributeValue(interfaceSymbol) ?? "default";
@@ -332,7 +329,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         foreach (var ns in additionalNamespaces.OrderBy(x => x))
         {
             // 跳过已经添加的系统命名空间和当前接口的命名空间
-            if (ns.StartsWith("System") || ns == namespaceName)
+            if (ns.StartsWith("System") || (!isGlobalNamespace && ns == namespaceName))
                 continue;
             sb.AppendLine($"using {ns};");
         }
@@ -345,31 +342,39 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
         sb.AppendLine();
 
-        // 生成命名空间
-        sb.AppendLine($"namespace {namespaceName}");
-        sb.AppendLine("{");
+        // 全局命名空间时不生成 namespace 块
+        if (!isGlobalNamespace)
+        {
+            sb.AppendLine($"namespace {namespaceName}");
+            sb.AppendLine("{");
+        }
+
+        // 缩进：全局命名空间时无缩进，否则有4空格缩进
+        var indent = isGlobalNamespace ? "" : "    ";
+        var memberIndent = indent + "    ";
+        var bodyIndent = memberIndent + "    ";
 
         // 生成基于 IClientChannel 的代理类
-        sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// 自动生成的 {interfaceName} 客户端代理");
-        sb.AppendLine($"    /// 使用协议号进行高性能方法路由");
-        sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public sealed class {interfaceName}Proxy : {interfaceName}");
-        sb.AppendLine("    {");
-        sb.AppendLine("        private readonly IClientChannel _connection;");
+        sb.AppendLine($"{indent}/// <summary>");
+        sb.AppendLine($"{indent}/// 自动生成的 {interfaceName} 客户端代理");
+        sb.AppendLine($"{indent}/// 使用协议号进行高性能方法路由");
+        sb.AppendLine($"{indent}/// </summary>");
+        sb.AppendLine($"{indent}public sealed class {interfaceName}Proxy : {interfaceName}");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{memberIndent}private readonly IClientChannel _connection;");
         sb.AppendLine();
 
         // 生成协议号常量
-        GenerateProtocolIdConstants(sb, interfaceSymbol, protocolIds);
+        GenerateProtocolIdConstants(sb, interfaceSymbol, protocolIds, memberIndent);
 
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 初始化 {interfaceName} 连接代理");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        /// <param name=\"connection\">连接</param>");
-        sb.AppendLine($"        public {interfaceName}Proxy(IClientChannel connection)");
-        sb.AppendLine("        {");
-        sb.AppendLine($"            _connection = connection ?? throw new ArgumentNullException(nameof(connection));");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 初始化 {interfaceName} 连接代理");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}/// <param name=\"connection\">连接</param>");
+        sb.AppendLine($"{memberIndent}public {interfaceName}Proxy(IClientChannel connection)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}_connection = connection ?? throw new ArgumentNullException(nameof(connection));");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
 
         // 生成基于连接上下文的方法实现（包括继承的接口方法）
@@ -385,12 +390,17 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             ushort protocolId = protocolIds.TryGetValue(methodKey, out var id) ? id : (ushort)0;
 
             // 生成基于连接上下文的方法实现
-            GenerateConnectionContextMethodImplementation(sb, methodSymbol2, protocolId, defaultChannelName, namespaceName, interfaceName);
+            GenerateConnectionContextMethodImplementation(sb, methodSymbol2, protocolId, defaultChannelName, namespaceName, interfaceName, memberIndent, bodyIndent);
         }
 
-        // 结束连接代理类和命名空间
-        sb.AppendLine("    }");
-        sb.AppendLine("}");
+        // 结束连接代理类
+        sb.AppendLine($"{indent}}}");
+
+        // 结束命名空间（非全局命名空间时）
+        if (!isGlobalNamespace)
+        {
+            sb.AppendLine("}");
+        }
 
         return sb.ToString();
     }
@@ -398,10 +408,10 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     /// <summary>
     /// 生成协议号常量（包括继承的接口方法）
     /// </summary>
-    private static void GenerateProtocolIdConstants(StringBuilder sb, INamedTypeSymbol interfaceSymbol, Dictionary<string, ushort> protocolIds)
+    private static void GenerateProtocolIdConstants(StringBuilder sb, INamedTypeSymbol interfaceSymbol, Dictionary<string, ushort> protocolIds, string indent)
     {
-        sb.AppendLine("        // ==================== 协议号常量 ====================");
-        sb.AppendLine("        // 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
+        sb.AppendLine($"{indent}// ==================== 协议号常量 ====================");
+        sb.AppendLine($"{indent}// 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
         sb.AppendLine();
 
         foreach (var method in GetAllInterfaceMethods(interfaceSymbol))
@@ -418,12 +428,12 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var methodSignature = ProtocolIdGenerator.BuildMethodSignature(method);
                 var constName = ProtocolIdGenerator.GetProtocolIdConstantName(method);
 
-                sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// 协议号: {method.Name}");
-                sb.AppendLine($"        /// 方法签名: {methodSignature}");
-                sb.AppendLine($"        /// 声明接口: {declaringInterface.ToDisplayString()}");
-                sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        private const ushort {constName} = 0x{protocolId:X4}; // {protocolId}");
+                sb.AppendLine($"{indent}/// <summary>");
+                sb.AppendLine($"{indent}/// 协议号: {method.Name}");
+                sb.AppendLine($"{indent}/// 方法签名: {methodSignature}");
+                sb.AppendLine($"{indent}/// 声明接口: {declaringInterface.ToDisplayString()}");
+                sb.AppendLine($"{indent}/// </summary>");
+                sb.AppendLine($"{indent}private const ushort {constName} = 0x{protocolId:X4}; // {protocolId}");
                 sb.AppendLine();
             }
         }
@@ -815,8 +825,10 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         IMethodSymbol methodSymbol,
         ushort protocolId,
         string defaultChannelName,
-        string namespaceName,
-        string interfaceName)
+        string? namespaceName,
+        string interfaceName,
+        string memberIndent,
+        string bodyIndent)
     {
         var methodName = methodSymbol.Name;
         var returnType = methodSymbol.ReturnType.ToDisplayString();
@@ -827,10 +839,10 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
         var methodSignature = ProtocolIdGenerator.BuildMethodSignature(methodSymbol);
 
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 调用 {methodName} 方法");
-        sb.AppendLine($"        /// Protocol ID: 0x{protocolId:X4} ({protocolId})");
-        sb.AppendLine($"        /// </summary>");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 调用 {methodName} 方法");
+        sb.AppendLine($"{memberIndent}/// Protocol ID: 0x{protocolId:X4} ({protocolId})");
+        sb.AppendLine($"{memberIndent}/// </summary>");
 
         // 生成方法签名
         var parameters = methodSymbol.Parameters;
@@ -842,14 +854,14 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
         if (isAsync)
         {
-            sb.AppendLine($"        public async {returnType} {methodName}({paramList})");
+            sb.AppendLine($"{memberIndent}public async {returnType} {methodName}({paramList})");
         }
         else
         {
-            sb.AppendLine($"        public {returnType} {methodName}({paramList})");
+            sb.AppendLine($"{memberIndent}public {returnType} {methodName}({paramList})");
         }
 
-        sb.AppendLine("        {");
+        sb.AppendLine($"{memberIndent}{{");
 
         if (isAsync)
         {
@@ -868,7 +880,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             if (returnType == "System.Threading.Tasks.Task" || returnType == "System.Threading.Tasks.ValueTask")
             {
                 // OneWay/Command 方法（无返回值）- 使用零拷贝路径
-                GenerateCommandMethodBody(sb, methodSymbol, interfaceName, methodName, dataParameters, tokenName, protocolId);
+                GenerateCommandMethodBody(sb, methodSymbol, interfaceName, methodName, dataParameters, tokenName, protocolId, bodyIndent);
             }
             else
             {
@@ -878,25 +890,25 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                     .Replace("System.Threading.Tasks.ValueTask<", string.Empty)
                     .TrimEnd('>');
 
-                GenerateRequestMethodBody(sb, methodSymbol, interfaceName, methodName, dataParameters, taskType, tokenName, protocolId);
+                GenerateRequestMethodBody(sb, methodSymbol, interfaceName, methodName, dataParameters, taskType, tokenName, protocolId, bodyIndent);
             }
         }
         else
         {
             // 生成同步实现（通过异步包装）
-            sb.AppendLine($"            // 同步方法通过异步实现");
+            sb.AppendLine($"{bodyIndent}// 同步方法通过异步实现");
             var asyncCall = $"{methodName}Async({string.Join(", ", parameters.Select(p => p.Name))})";
             if (returnType == "void")
             {
-                sb.AppendLine($"            {asyncCall}.GetAwaiter().GetResult();");
+                sb.AppendLine($"{bodyIndent}{asyncCall}.GetAwaiter().GetResult();");
             }
             else
             {
-                sb.AppendLine($"            return {asyncCall}.GetAwaiter().GetResult();");
+                sb.AppendLine($"{bodyIndent}return {asyncCall}.GetAwaiter().GetResult();");
             }
         }
 
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
     }
 
@@ -911,73 +923,75 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         List<IParameterSymbol> dataParameters,
         string responseType,
         string tokenName,
-        ushort protocolId)
+        ushort protocolId,
+        string indent)
     {
         var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
+        var innerIndent = indent + "    ";
 
-        sb.AppendLine($"            // ========== 零拷贝优化路径：Request/Response ==========");
-        sb.AppendLine($"            // 使用协议号: {constName} = 0x{protocolId:X4} ({protocolId})");
-        sb.AppendLine($"            // Step 1: 租借序列化缓冲区");
-        sb.AppendLine($"            var __buffer__ = _connection.RentSerializationBuffer(256);");
-        sb.AppendLine($"            try");
-        sb.AppendLine($"            {{");
+        sb.AppendLine($"{indent}// ========== 零拷贝优化路径：Request/Response ==========");
+        sb.AppendLine($"{indent}// 使用协议号: {constName} = 0x{protocolId:X4} ({protocolId})");
+        sb.AppendLine($"{indent}// Step 1: 租借序列化缓冲区");
+        sb.AppendLine($"{indent}var __buffer__ = _connection.RentSerializationBuffer(256);");
+        sb.AppendLine($"{indent}try");
+        sb.AppendLine($"{indent}{{");
 
         // Step 2: 显式 MemoryPack 序列化
         if (dataParameters.Count == 0)
         {
             // 无参数
-            sb.AppendLine($"                // 无参数，序列化空对象");
-            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, PulseRPC.EmptyResponse.Instance);");
+            sb.AppendLine($"{innerIndent}// 无参数，序列化空对象");
+            sb.AppendLine($"{innerIndent}MemoryPack.MemoryPackSerializer.Serialize(__buffer__, PulseRPC.EmptyResponse.Instance);");
         }
         else if (dataParameters.Count == 1)
         {
             // 单参数
             var param = dataParameters[0];
-            sb.AppendLine($"                // 序列化单个参数");
-            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, {param.Name});");
+            sb.AppendLine($"{innerIndent}// 序列化单个参数");
+            sb.AppendLine($"{innerIndent}MemoryPack.MemoryPackSerializer.Serialize(__buffer__, {param.Name});");
         }
         else
         {
             // 多参数：创建元组
             var tupleType = "(" + string.Join(", ", dataParameters.Select(p => p.Type.ToDisplayString())) + ")";
             var tupleValues = "(" + string.Join(", ", dataParameters.Select(p => p.Name)) + ")";
-            sb.AppendLine($"                // 序列化多个参数为元组");
-            sb.AppendLine($"                var __request__ = {tupleValues};");
-            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, __request__);");
+            sb.AppendLine($"{innerIndent}// 序列化多个参数为元组");
+            sb.AppendLine($"{innerIndent}var __request__ = {tupleValues};");
+            sb.AppendLine($"{innerIndent}MemoryPack.MemoryPackSerializer.Serialize(__buffer__, __request__);");
         }
 
         sb.AppendLine($"");
-        sb.AppendLine($"                // Step 3: 获取已序列化的字节");
-        sb.AppendLine($"                var __serializedRequest__ = __buffer__ is System.Buffers.ArrayBufferWriter<byte> __abw__ ");
-        sb.AppendLine($"                    ? __abw__.WrittenMemory ");
-        sb.AppendLine($"                    : System.ReadOnlyMemory<byte>.Empty;");
+        sb.AppendLine($"{innerIndent}// Step 3: 获取已序列化的字节");
+        sb.AppendLine($"{innerIndent}var __serializedRequest__ = __buffer__ is System.Buffers.ArrayBufferWriter<byte> __abw__ ");
+        sb.AppendLine($"{innerIndent}    ? __abw__.WrittenMemory ");
+        sb.AppendLine($"{innerIndent}    : System.ReadOnlyMemory<byte>.Empty;");
         sb.AppendLine($"");
-        sb.AppendLine($"                // Step 4: 使用协议号发送并等待响应（零拷贝）");
-        sb.AppendLine($"                var __responseBytes__ = await _connection.InvokeRawAsync(");
-        sb.AppendLine($"                    protocolId: {constName},");
-        sb.AppendLine($"                    serializedRequest: __serializedRequest__,");
-        sb.AppendLine($"                    cancellationToken: {tokenName}");
-        sb.AppendLine($"                );");
+        sb.AppendLine($"{innerIndent}// Step 4: 使用协议号发送并等待响应（零拷贝）");
+        sb.AppendLine($"{innerIndent}var __responseBytes__ = await _connection.InvokeRawAsync(");
+        sb.AppendLine($"{innerIndent}    protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}    serializedRequest: __serializedRequest__,");
+        sb.AppendLine($"{innerIndent}    cancellationToken: {tokenName}");
+        sb.AppendLine($"{innerIndent});");
         sb.AppendLine($"");
 
         // Step 5: 反序列化响应
         if (responseType == "PulseRPC.EmptyResponse" || responseType == "EmptyResponse")
         {
-            sb.AppendLine($"                // 空响应，直接返回");
-            sb.AppendLine($"                return;");
+            sb.AppendLine($"{innerIndent}// 空响应，直接返回");
+            sb.AppendLine($"{innerIndent}return;");
         }
         else
         {
-            sb.AppendLine($"                // Step 5: 显式反序列化响应");
-            sb.AppendLine($"                return MemoryPack.MemoryPackSerializer.Deserialize<{responseType}>(__responseBytes__.Span)!;");
+            sb.AppendLine($"{innerIndent}// Step 5: 显式反序列化响应");
+            sb.AppendLine($"{innerIndent}return MemoryPack.MemoryPackSerializer.Deserialize<{responseType}>(__responseBytes__.Span)!;");
         }
 
-        sb.AppendLine($"            }}");
-        sb.AppendLine($"            finally");
-        sb.AppendLine($"            {{");
-        sb.AppendLine($"                // Step 6: 归还缓冲区");
-        sb.AppendLine($"                _connection.ReturnSerializationBuffer(__buffer__);");
-        sb.AppendLine($"            }}");
+        sb.AppendLine($"{indent}}}");
+        sb.AppendLine($"{indent}finally");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{innerIndent}// Step 6: 归还缓冲区");
+        sb.AppendLine($"{innerIndent}_connection.ReturnSerializationBuffer(__buffer__);");
+        sb.AppendLine($"{indent}}}");
     }
 
     /// <summary>
@@ -990,55 +1004,57 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         string methodName,
         List<IParameterSymbol> dataParameters,
         string tokenName,
-        ushort protocolId)
+        ushort protocolId,
+        string indent)
     {
         var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
+        var innerIndent = indent + "    ";
 
-        sb.AppendLine($"            // ========== 零拷贝优化路径：Command/OneWay ==========");
-        sb.AppendLine($"            // 使用协议号: {constName} = 0x{protocolId:X4} ({protocolId})");
-        sb.AppendLine($"            // Step 1: 租借序列化缓冲区");
-        sb.AppendLine($"            var __buffer__ = _connection.RentSerializationBuffer(256);");
-        sb.AppendLine($"            try");
-        sb.AppendLine($"            {{");
+        sb.AppendLine($"{indent}// ========== 零拷贝优化路径：Command/OneWay ==========");
+        sb.AppendLine($"{indent}// 使用协议号: {constName} = 0x{protocolId:X4} ({protocolId})");
+        sb.AppendLine($"{indent}// Step 1: 租借序列化缓冲区");
+        sb.AppendLine($"{indent}var __buffer__ = _connection.RentSerializationBuffer(256);");
+        sb.AppendLine($"{indent}try");
+        sb.AppendLine($"{indent}{{");
 
         // Step 2: 显式 MemoryPack 序列化
         if (dataParameters.Count == 0)
         {
-            sb.AppendLine($"                // 无参数，序列化空对象");
-            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, PulseRPC.EmptyResponse.Instance);");
+            sb.AppendLine($"{innerIndent}// 无参数，序列化空对象");
+            sb.AppendLine($"{innerIndent}MemoryPack.MemoryPackSerializer.Serialize(__buffer__, PulseRPC.EmptyResponse.Instance);");
         }
         else if (dataParameters.Count == 1)
         {
             var param = dataParameters[0];
-            sb.AppendLine($"                // 序列化单个参数");
-            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, {param.Name});");
+            sb.AppendLine($"{innerIndent}// 序列化单个参数");
+            sb.AppendLine($"{innerIndent}MemoryPack.MemoryPackSerializer.Serialize(__buffer__, {param.Name});");
         }
         else
         {
             var tupleValues = "(" + string.Join(", ", dataParameters.Select(p => p.Name)) + ")";
-            sb.AppendLine($"                // 序列化多个参数为元组");
-            sb.AppendLine($"                var __command__ = {tupleValues};");
-            sb.AppendLine($"                MemoryPack.MemoryPackSerializer.Serialize(__buffer__, __command__);");
+            sb.AppendLine($"{innerIndent}// 序列化多个参数为元组");
+            sb.AppendLine($"{innerIndent}var __command__ = {tupleValues};");
+            sb.AppendLine($"{innerIndent}MemoryPack.MemoryPackSerializer.Serialize(__buffer__, __command__);");
         }
 
         sb.AppendLine($"");
-        sb.AppendLine($"                // Step 3: 获取已序列化的字节");
-        sb.AppendLine($"                var __serializedCommand__ = __buffer__ is System.Buffers.ArrayBufferWriter<byte> __abw__");
-        sb.AppendLine($"                    ? __abw__.WrittenMemory");
-        sb.AppendLine($"                    : System.ReadOnlyMemory<byte>.Empty;");
+        sb.AppendLine($"{innerIndent}// Step 3: 获取已序列化的字节");
+        sb.AppendLine($"{innerIndent}var __serializedCommand__ = __buffer__ is System.Buffers.ArrayBufferWriter<byte> __abw__");
+        sb.AppendLine($"{innerIndent}    ? __abw__.WrittenMemory");
+        sb.AppendLine($"{innerIndent}    : System.ReadOnlyMemory<byte>.Empty;");
         sb.AppendLine($"");
-        sb.AppendLine($"                // Step 4: 使用协议号发送（零拷贝，无需等待响应）");
-        sb.AppendLine($"                await _connection.SendCommandAsync(");
-        sb.AppendLine($"                    protocolId: {constName},");
-        sb.AppendLine($"                    serializedCommand: __serializedCommand__,");
-        sb.AppendLine($"                    cancellationToken: {tokenName}");
-        sb.AppendLine($"                );");
-        sb.AppendLine($"            }}");
-        sb.AppendLine($"            finally");
-        sb.AppendLine($"            {{");
-        sb.AppendLine($"                // Step 5: 归还缓冲区");
-        sb.AppendLine($"                _connection.ReturnSerializationBuffer(__buffer__);");
-        sb.AppendLine($"            }}");
+        sb.AppendLine($"{innerIndent}// Step 4: 使用协议号发送（零拷贝，无需等待响应）");
+        sb.AppendLine($"{innerIndent}await _connection.SendCommandAsync(");
+        sb.AppendLine($"{innerIndent}    protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}    serializedCommand: __serializedCommand__,");
+        sb.AppendLine($"{innerIndent}    cancellationToken: {tokenName}");
+        sb.AppendLine($"{innerIndent});");
+        sb.AppendLine($"{indent}}}");
+        sb.AppendLine($"{indent}finally");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{innerIndent}// Step 5: 归还缓冲区");
+        sb.AppendLine($"{innerIndent}_connection.ReturnSerializationBuffer(__buffer__);");
+        sb.AppendLine($"{indent}}}");
     }
 
     /// <summary>

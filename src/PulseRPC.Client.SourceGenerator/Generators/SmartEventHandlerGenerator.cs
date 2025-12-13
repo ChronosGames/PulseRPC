@@ -16,10 +16,7 @@ public static class SmartEventHandlerGenerator
     {
         var interfaceName = interfaceSymbol.Name;
         var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;
-        // 全局命名空间时使用默认命名空间
-        var namespaceName = isGlobalNamespace
-            ? "PulseRPC.Generated"
-            : interfaceSymbol.ContainingNamespace.ToDisplayString();
+        var namespaceName = isGlobalNamespace ? null : interfaceSymbol.ContainingNamespace.ToDisplayString();
         var handlerClassName = GetHandlerClassName(interfaceName);
         var channelName = GetChannelAttributeValue(interfaceSymbol) ?? "default";
 
@@ -31,17 +28,23 @@ public static class SmartEventHandlerGenerator
         // 生成文件头
         GenerateFileHeader(sb);
 
-        // 生成命名空间
-        sb.AppendLine($"namespace {namespaceName}");
-        sb.AppendLine("{");
+        // 全局命名空间时不生成 namespace 块
+        if (!isGlobalNamespace)
+        {
+            sb.AppendLine($"namespace {namespaceName}");
+            sb.AppendLine("{");
+        }
 
         // 生成智能事件处理器类（只生成特定于此接口的处理器）
-        GenerateSmartHandlerClass(sb, interfaceSymbol, handlerClassName, channelName, protocolIds);
+        GenerateSmartHandlerClass(sb, interfaceSymbol, handlerClassName, channelName, protocolIds, isGlobalNamespace);
 
         // CompositeSubscriptionToken 已在 PulseRPC.Abstractions 中定义，无需重复生成
 
         // 结束命名空间
-        sb.AppendLine("}");
+        if (!isGlobalNamespace)
+        {
+            sb.AppendLine("}");
+        }
 
         return sb.ToString();
     }
@@ -65,106 +68,111 @@ public static class SmartEventHandlerGenerator
         sb.AppendLine();
     }
 
-    private static void GenerateSmartHandlerClass(StringBuilder sb, INamedTypeSymbol interfaceSymbol, string handlerClassName, string channelName, Dictionary<string, ushort> protocolIds)
+    private static void GenerateSmartHandlerClass(StringBuilder sb, INamedTypeSymbol interfaceSymbol, string handlerClassName, string channelName, Dictionary<string, ushort> protocolIds, bool isGlobalNamespace)
     {
         var interfaceName = interfaceSymbol.Name;
+        // 缩进：全局命名空间时无缩进，否则有4空格缩进
+        var indent = isGlobalNamespace ? "" : "    ";
+        var memberIndent = indent + "    ";
+        var bodyIndent = memberIndent + "    ";
 
-        sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// 智能事件处理器 - 为 {interfaceName} 提供高性能事件处理功能");
-        sb.AppendLine($"    /// 使用协议号进行高性能事件路由");
-        sb.AppendLine($"    /// </summary>");
+        sb.AppendLine($"{indent}/// <summary>");
+        sb.AppendLine($"{indent}/// 智能事件处理器 - 为 {interfaceName} 提供高性能事件处理功能");
+        sb.AppendLine($"{indent}/// 使用协议号进行高性能事件路由");
+        sb.AppendLine($"{indent}/// </summary>");
         var smartClassName = interfaceSymbol.Name.StartsWith("I")
             ? $"{interfaceSymbol.Name.Substring(1)}SmartHandler"
             : $"{interfaceSymbol.Name}SmartHandler";
-        sb.AppendLine($"    public sealed class {smartClassName} : IDisposable");
-        sb.AppendLine("    {");
-        sb.AppendLine($"        private readonly ConcurrentDictionary<{interfaceName}, SubscriptionContext> _subscriptions = new();");
-        sb.AppendLine("        private readonly EventMetrics _metrics = new();");
-        sb.AppendLine("        private readonly BatchProcessor _batchProcessor;");
-        sb.AppendLine("        private readonly CancellationTokenSource _cancellationTokenSource = new();");
-        sb.AppendLine("        private volatile bool _disposed;");
+        sb.AppendLine($"{indent}public sealed class {smartClassName} : IDisposable");
+        sb.AppendLine($"{indent}{{");
+        sb.AppendLine($"{memberIndent}private readonly ConcurrentDictionary<{interfaceName}, SubscriptionContext> _subscriptions = new();");
+        sb.AppendLine($"{memberIndent}private readonly EventMetrics _metrics = new();");
+        sb.AppendLine($"{memberIndent}private readonly BatchProcessor _batchProcessor;");
+        sb.AppendLine($"{memberIndent}private readonly CancellationTokenSource _cancellationTokenSource = new();");
+        sb.AppendLine($"{memberIndent}private volatile bool _disposed;");
         sb.AppendLine();
 
         // 生成协议号常量
-        GenerateProtocolIdConstants(sb, interfaceSymbol, protocolIds);
+        GenerateProtocolIdConstants(sb, interfaceSymbol, protocolIds, memberIndent);
         sb.AppendLine();
 
-        sb.AppendLine($"        public {smartClassName}()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            _batchProcessor = new BatchProcessor(_metrics);");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}public {smartClassName}()");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}_batchProcessor = new BatchProcessor(_metrics);");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
 
-        sb.AppendLine($"        internal {smartClassName}(EventMetrics? customMetrics)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (customMetrics != null)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                _metrics = customMetrics;");
-        sb.AppendLine("            }");
-        sb.AppendLine("            _batchProcessor = new BatchProcessor(_metrics);");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}internal {smartClassName}(EventMetrics? customMetrics)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}if (customMetrics != null)");
+        sb.AppendLine($"{bodyIndent}{{");
+        sb.AppendLine($"{bodyIndent}    _metrics = customMetrics;");
+        sb.AppendLine($"{bodyIndent}}}");
+        sb.AppendLine($"{bodyIndent}_batchProcessor = new BatchProcessor(_metrics);");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
 
         // 生成订阅方法
-        GenerateSubscriptionMethods(sb, interfaceSymbol);
+        GenerateSubscriptionMethods(sb, interfaceSymbol, memberIndent, bodyIndent);
 
         // 生成通道集成方法
-        GenerateChannelIntegrationMethods(sb, interfaceSymbol);
+        GenerateChannelIntegrationMethods(sb, interfaceSymbol, memberIndent, bodyIndent);
 
         // 生成监控方法
-        GenerateMonitoringMethods(sb);
+        GenerateMonitoringMethods(sb, memberIndent, bodyIndent);
 
         // 生成配置方法
-        GenerateConfigurationMethods(sb, interfaceSymbol);
+        GenerateConfigurationMethods(sb, interfaceSymbol, memberIndent);
 
         // 生成释放方法
-        GenerateDisposeMethod(sb);
+        GenerateDisposeMethod(sb, memberIndent, bodyIndent);
 
-        sb.AppendLine("    }");
+        sb.AppendLine($"{indent}}}");
         sb.AppendLine();
     }
 
-    private static void GenerateSubscriptionMethods(StringBuilder sb, INamedTypeSymbol interfaceSymbol)
+    private static void GenerateSubscriptionMethods(StringBuilder sb, INamedTypeSymbol interfaceSymbol, string memberIndent, string bodyIndent)
     {
         var interfaceName = interfaceSymbol.Name;
+        var innerIndent = bodyIndent + "    ";
 
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 订阅事件接收器");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        public void Subscribe({interfaceName} receiver, SmartSubscriptionOptions? options = null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            ThrowIfDisposed();");
-        sb.AppendLine("            options ??= SmartSubscriptionOptions.Default;");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 订阅事件接收器");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public void Subscribe({interfaceName} receiver, SmartSubscriptionOptions? options = null)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}ThrowIfDisposed();");
+        sb.AppendLine($"{bodyIndent}options ??= SmartSubscriptionOptions.Default;");
         sb.AppendLine();
-        sb.AppendLine("            var context = new SubscriptionContext(receiver, options, _metrics);");
-        sb.AppendLine("            _subscriptions.TryAdd(receiver, context);");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 取消订阅事件接收器");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        public bool Unsubscribe({interfaceName} receiver)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (_subscriptions.TryRemove(receiver, out var context))");
-        sb.AppendLine("            {");
-        sb.AppendLine("                context.Dispose();");
-        sb.AppendLine("                return true;");
-        sb.AppendLine("            }");
-        sb.AppendLine("            return false;");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{bodyIndent}var context = new SubscriptionContext(receiver, options, _metrics);");
+        sb.AppendLine($"{bodyIndent}_subscriptions.TryAdd(receiver, context);");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
 
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 异步订阅事件接收器");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        public Task<ISubscriptionToken> SubscribeAsync({interfaceName} receiver, SmartSubscriptionOptions? options = null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            Subscribe(receiver, options);");
-        sb.AppendLine("            var context = _subscriptions.GetValueOrDefault(receiver);");
-        sb.AppendLine("            var token = new SmartSubscriptionToken(null!, context!, () => Unsubscribe(receiver));");
-        sb.AppendLine("            return Task.FromResult<ISubscriptionToken>(token);");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 取消订阅事件接收器");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public bool Unsubscribe({interfaceName} receiver)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}if (_subscriptions.TryRemove(receiver, out var context))");
+        sb.AppendLine($"{bodyIndent}{{");
+        sb.AppendLine($"{innerIndent}context.Dispose();");
+        sb.AppendLine($"{innerIndent}return true;");
+        sb.AppendLine($"{bodyIndent}}}");
+        sb.AppendLine($"{bodyIndent}return false;");
+        sb.AppendLine($"{memberIndent}}}");
+        sb.AppendLine();
+
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 异步订阅事件接收器");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public Task<ISubscriptionToken> SubscribeAsync({interfaceName} receiver, SmartSubscriptionOptions? options = null)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}Subscribe(receiver, options);");
+        sb.AppendLine($"{bodyIndent}var context = _subscriptions.GetValueOrDefault(receiver);");
+        sb.AppendLine($"{bodyIndent}var token = new SmartSubscriptionToken(null!, context!, () => Unsubscribe(receiver));");
+        sb.AppendLine($"{bodyIndent}return Task.FromResult<ISubscriptionToken>(token);");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
 
         // 为每个接口方法生成智能分发方法
@@ -172,22 +180,24 @@ public static class SmartEventHandlerGenerator
         {
             if (member is IMethodSymbol methodSymbol && methodSymbol.DeclaredAccessibility == Accessibility.Public)
             {
-                GenerateSmartDispatchMethod(sb, methodSymbol, interfaceName);
+                GenerateSmartDispatchMethod(sb, methodSymbol, interfaceName, memberIndent, bodyIndent);
             }
         }
     }
 
-    private static void GenerateSmartDispatchMethod(StringBuilder sb, IMethodSymbol methodSymbol, string interfaceName)
+    private static void GenerateSmartDispatchMethod(StringBuilder sb, IMethodSymbol methodSymbol, string interfaceName, string memberIndent, string bodyIndent)
     {
         var methodName = methodSymbol.Name;
         var returnType = methodSymbol.ReturnType.ToDisplayString();
         var isAsync = IsAsyncMethod(methodSymbol);
         var parameters = methodSymbol.Parameters;
+        var innerIndent = bodyIndent + "    ";
+        var deepIndent = innerIndent + "    ";
 
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 智能分发 {methodName} 事件");
-        sb.AppendLine($"        /// </summary>");
-        sb.Append($"        public async Task Dispatch{methodName}Async(");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 智能分发 {methodName} 事件");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.Append($"{memberIndent}public async Task Dispatch{methodName}Async(");
 
         // 生成参数列表
         for (var i = 0; i < parameters.Length; i++)
@@ -197,71 +207,73 @@ public static class SmartEventHandlerGenerator
         }
 
         sb.AppendLine(")");
-        sb.AppendLine("        {");
-        sb.AppendLine("            ThrowIfDisposed();");
-        sb.AppendLine($"            _metrics.RecordEventReceived(\"{methodName}\");");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}ThrowIfDisposed();");
+        sb.AppendLine($"{bodyIndent}_metrics.RecordEventReceived(\"{methodName}\");");
         sb.AppendLine();
 
-        sb.AppendLine("            var tasks = new List<Task>();");
-        sb.AppendLine("            ");
-        sb.AppendLine("            foreach (var kvp in _subscriptions)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                var receiver = kvp.Key;");
-        sb.AppendLine("                var context = kvp.Value;");
+        sb.AppendLine($"{bodyIndent}var tasks = new List<Task>();");
+        sb.AppendLine($"{bodyIndent}");
+        sb.AppendLine($"{bodyIndent}foreach (var kvp in _subscriptions)");
+        sb.AppendLine($"{bodyIndent}{{");
+        sb.AppendLine($"{innerIndent}var receiver = kvp.Key;");
+        sb.AppendLine($"{innerIndent}var context = kvp.Value;");
         sb.AppendLine();
 
         var parameterNames = string.Join(", ", parameters.Select(p => p.Name));
 
         if (isAsync)
         {
-            sb.AppendLine("                if (context.Options.EnableBatchProcessing)");
-            sb.AppendLine("                {");
-            sb.AppendLine($"                    await _batchProcessor.QueueEventAsync(\"{methodName}\", new object[] {{ {parameterNames} }}, ");
-            sb.AppendLine($"                        async data => ");
-            sb.AppendLine("                        {");
-            sb.AppendLine("                            var args = (object[])data;");
+            sb.AppendLine($"{innerIndent}if (context.Options.EnableBatchProcessing)");
+            sb.AppendLine($"{innerIndent}{{");
+            sb.AppendLine($"{deepIndent}await _batchProcessor.QueueEventAsync(\"{methodName}\", new object[] {{ {parameterNames} }}, ");
+            sb.AppendLine($"{deepIndent}    async data => ");
+            sb.AppendLine($"{deepIndent}    {{");
+            sb.AppendLine($"{deepIndent}        var args = (object[])data;");
             for (int i = 0; i < parameters.Length; i++)
             {
-                sb.AppendLine($"                            var param{i} = ({parameters[i].Type.ToDisplayString()})args[{i}];");
+                sb.AppendLine($"{deepIndent}        var param{i} = ({parameters[i].Type.ToDisplayString()})args[{i}];");
             }
             var typedParams = string.Join(", ", Enumerable.Range(0, parameters.Length).Select(i => $"param{i}"));
-            sb.AppendLine($"                            var monitoredReceiver = new MonitoredEventReceiver<{interfaceName}>(receiver, context);");
-            sb.AppendLine($"                            await monitoredReceiver.InvokeMethodAsync(\"{methodName}\", r => r.{methodName}({typedParams}));");
-            sb.AppendLine("                        });");
-            sb.AppendLine("                }");
-            sb.AppendLine("                else");
-            sb.AppendLine("                {");
-            sb.AppendLine($"                    var monitoredReceiver = new MonitoredEventReceiver<{interfaceName}>(receiver, context);");
-            sb.AppendLine($"                    tasks.Add(monitoredReceiver.InvokeMethodAsync(\"{methodName}\", r => r.{methodName}({parameterNames})));");
-            sb.AppendLine("                }");
+            sb.AppendLine($"{deepIndent}        var monitoredReceiver = new MonitoredEventReceiver<{interfaceName}>(receiver, context);");
+            sb.AppendLine($"{deepIndent}        await monitoredReceiver.InvokeMethodAsync(\"{methodName}\", r => r.{methodName}({typedParams}));");
+            sb.AppendLine($"{deepIndent}    }});");
+            sb.AppendLine($"{innerIndent}}}");
+            sb.AppendLine($"{innerIndent}else");
+            sb.AppendLine($"{innerIndent}{{");
+            sb.AppendLine($"{deepIndent}var monitoredReceiver = new MonitoredEventReceiver<{interfaceName}>(receiver, context);");
+            sb.AppendLine($"{deepIndent}tasks.Add(monitoredReceiver.InvokeMethodAsync(\"{methodName}\", r => r.{methodName}({parameterNames})));");
+            sb.AppendLine($"{innerIndent}}}");
         }
         else
         {
-            sb.AppendLine($"                var monitoredReceiver = new MonitoredEventReceiver<{interfaceName}>(receiver, context);");
-            sb.AppendLine($"                tasks.Add(Task.Run(async () => await monitoredReceiver.InvokeMethodAsync(\"{methodName}\", r => Task.Run(() => r.{methodName}({parameterNames})))));");
+            sb.AppendLine($"{innerIndent}var monitoredReceiver = new MonitoredEventReceiver<{interfaceName}>(receiver, context);");
+            sb.AppendLine($"{innerIndent}tasks.Add(Task.Run(async () => await monitoredReceiver.InvokeMethodAsync(\"{methodName}\", r => Task.Run(() => r.{methodName}({parameterNames})))));");
         }
 
-        sb.AppendLine("            }");
+        sb.AppendLine($"{bodyIndent}}}");
         sb.AppendLine();
-        sb.AppendLine("            if (tasks.Count > 0)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                await Task.WhenAll(tasks);");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{bodyIndent}if (tasks.Count > 0)");
+        sb.AppendLine($"{bodyIndent}{{");
+        sb.AppendLine($"{innerIndent}await Task.WhenAll(tasks);");
+        sb.AppendLine($"{bodyIndent}}}");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
     }
 
-    private static void GenerateChannelIntegrationMethods(StringBuilder sb, INamedTypeSymbol interfaceSymbol)
+    private static void GenerateChannelIntegrationMethods(StringBuilder sb, INamedTypeSymbol interfaceSymbol, string memberIndent, string bodyIndent)
     {
         var interfaceName = interfaceSymbol.Name;
+        var innerIndent = bodyIndent + "    ";
+        var deepIndent = innerIndent + "    ";
 
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 连接到 IClientChannel 并订阅所有事件");
-        sb.AppendLine($"        /// </summary>");
-        sb.AppendLine($"        public async Task<ISubscriptionToken> ConnectToChannelAsync(PulseRPC.Client.IClientChannel channel)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            ThrowIfDisposed();");
-        sb.AppendLine("            var tokens = new List<ISubscriptionToken>();");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 连接到 IClientChannel 并订阅所有事件");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public async Task<ISubscriptionToken> ConnectToChannelAsync(PulseRPC.Client.IClientChannel channel)");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}ThrowIfDisposed();");
+        sb.AppendLine($"{bodyIndent}var tokens = new List<ISubscriptionToken>();");
         sb.AppendLine();
 
         // 为每个接口方法生成通道订阅
@@ -269,13 +281,13 @@ public static class SmartEventHandlerGenerator
         {
             if (member is IMethodSymbol methodSymbol && methodSymbol.DeclaredAccessibility == Accessibility.Public)
             {
-                GenerateChannelEventSubscription(sb, methodSymbol, interfaceName);
+                GenerateChannelEventSubscription(sb, methodSymbol, interfaceName, bodyIndent, innerIndent, deepIndent);
             }
         }
 
-        sb.AppendLine("            // 返回复合订阅令牌");
-        sb.AppendLine("            return new CompositeSubscriptionToken(tokens);");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{bodyIndent}// 返回复合订阅令牌");
+        sb.AppendLine($"{bodyIndent}return new CompositeSubscriptionToken(tokens);");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
 
         // 为每个接口方法生成智能分发方法（用于从通道事件调用）
@@ -283,12 +295,12 @@ public static class SmartEventHandlerGenerator
         {
             if (member is IMethodSymbol methodSymbol && methodSymbol.DeclaredAccessibility == Accessibility.Public)
             {
-                GenerateChannelDispatchMethod(sb, methodSymbol, interfaceName);
+                GenerateChannelDispatchMethod(sb, methodSymbol, interfaceName, memberIndent, bodyIndent);
             }
         }
     }
 
-    private static void GenerateChannelEventSubscription(StringBuilder sb, IMethodSymbol methodSymbol, string interfaceName)
+    private static void GenerateChannelEventSubscription(StringBuilder sb, IMethodSymbol methodSymbol, string interfaceName, string bodyIndent, string innerIndent, string deepIndent)
     {
         var methodName = methodSymbol.Name;
         var parameters = methodSymbol.Parameters;
@@ -310,54 +322,54 @@ public static class SmartEventHandlerGenerator
             eventDataType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
         }
 
-        sb.AppendLine($"            // ========== 零拷贝优化路径：Server Sent Event ==========");
-        sb.AppendLine($"            // 订阅 {methodName} 事件（使用协议号，零拷贝反序列化）");
-        sb.AppendLine($"            // Protocol ID: {constName}");
-        sb.AppendLine($"            tokens.Add(channel.RegisterEventHandler(");
-        sb.AppendLine($"                protocolId: {constName},");
-        sb.AppendLine($"                deserializeAndInvoke: (System.ReadOnlyMemory<byte> __rawEventData__) =>");
-        sb.AppendLine($"                {{");
-        sb.AppendLine($"                    // 显式反序列化（编译时已知类型）");
-        sb.AppendLine($"                    var __eventData__ = MemoryPack.MemoryPackSerializer.Deserialize<{eventDataType}>(__rawEventData__.Span)!;");
-        sb.AppendLine($"                    // 调用分发方法");
-        sb.AppendLine($"                    _ = Dispatch{methodName}FromChannelAsync(__eventData__);");
-        sb.AppendLine($"                }}));");
+        sb.AppendLine($"{bodyIndent}// ========== 零拷贝优化路径：Server Sent Event ==========");
+        sb.AppendLine($"{bodyIndent}// 订阅 {methodName} 事件（使用协议号，零拷贝反序列化）");
+        sb.AppendLine($"{bodyIndent}// Protocol ID: {constName}");
+        sb.AppendLine($"{bodyIndent}tokens.Add(channel.RegisterEventHandler(");
+        sb.AppendLine($"{innerIndent}protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}deserializeAndInvoke: (System.ReadOnlyMemory<byte> __rawEventData__) =>");
+        sb.AppendLine($"{innerIndent}{{");
+        sb.AppendLine($"{deepIndent}// 显式反序列化（编译时已知类型）");
+        sb.AppendLine($"{deepIndent}var __eventData__ = MemoryPack.MemoryPackSerializer.Deserialize<{eventDataType}>(__rawEventData__.Span)!;");
+        sb.AppendLine($"{deepIndent}// 调用分发方法");
+        sb.AppendLine($"{deepIndent}_ = Dispatch{methodName}FromChannelAsync(__eventData__);");
+        sb.AppendLine($"{innerIndent}}}));");
         sb.AppendLine();
     }
 
-    private static void GenerateChannelDispatchMethod(StringBuilder sb, IMethodSymbol methodSymbol, string interfaceName)
+    private static void GenerateChannelDispatchMethod(StringBuilder sb, IMethodSymbol methodSymbol, string interfaceName, string memberIndent, string bodyIndent)
     {
         var methodName = methodSymbol.Name;
         var parameters = methodSymbol.Parameters;
 
-        sb.AppendLine($"        /// <summary>");
-        sb.AppendLine($"        /// 从通道分发 {methodName} 事件到智能处理器（零拷贝优化）");
-        sb.AppendLine($"        /// </summary>");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 从通道分发 {methodName} 事件到智能处理器（零拷贝优化）");
+        sb.AppendLine($"{memberIndent}/// </summary>");
 
         // 确定参数类型和处理方式
         if (parameters.Length == 0)
         {
-            sb.AppendLine($"        private async Task Dispatch{methodName}FromChannelAsync(object eventData)");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            await Dispatch{methodName}Async();");
-            sb.AppendLine("        }");
+            sb.AppendLine($"{memberIndent}private async Task Dispatch{methodName}FromChannelAsync(object eventData)");
+            sb.AppendLine($"{memberIndent}{{");
+            sb.AppendLine($"{bodyIndent}await Dispatch{methodName}Async();");
+            sb.AppendLine($"{memberIndent}}}");
         }
         else if (parameters.Length == 1)
         {
             var paramType = parameters[0].Type.ToDisplayString();
             var paramName = parameters[0].Name;
-            sb.AppendLine($"        private async Task Dispatch{methodName}FromChannelAsync({paramType} {paramName})");
-            sb.AppendLine("        {");
-            sb.AppendLine($"            await Dispatch{methodName}Async({paramName});");
-            sb.AppendLine("        }");
+            sb.AppendLine($"{memberIndent}private async Task Dispatch{methodName}FromChannelAsync({paramType} {paramName})");
+            sb.AppendLine($"{memberIndent}{{");
+            sb.AppendLine($"{bodyIndent}await Dispatch{methodName}Async({paramName});");
+            sb.AppendLine($"{memberIndent}}}");
         }
         else
         {
             // 多个参数的情况下，使用元组解构
             var tupleType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
-            sb.AppendLine($"        private async Task Dispatch{methodName}FromChannelAsync({tupleType} eventData)");
-            sb.AppendLine("        {");
-            sb.Append($"            await Dispatch{methodName}Async(");
+            sb.AppendLine($"{memberIndent}private async Task Dispatch{methodName}FromChannelAsync({tupleType} eventData)");
+            sb.AppendLine($"{memberIndent}{{");
+            sb.Append($"{bodyIndent}await Dispatch{methodName}Async(");
 
             // 生成参数列表（从元组解构）
             for (var i = 0; i < parameters.Length; i++)
@@ -367,72 +379,74 @@ public static class SmartEventHandlerGenerator
             }
 
             sb.AppendLine(");");
-            sb.AppendLine("        }");
+            sb.AppendLine($"{memberIndent}}}");
         }
         sb.AppendLine();
     }
 
-    private static void GenerateMonitoringMethods(StringBuilder sb)
+    private static void GenerateMonitoringMethods(StringBuilder sb, string memberIndent, string bodyIndent)
     {
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 获取性能监控指标");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public EventHandlerMetrics GetMetrics()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            return _metrics.GetSnapshot();");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 获取性能监控指标");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public EventHandlerMetrics GetMetrics()");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}return _metrics.GetSnapshot();");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
     }
 
-    private static void GenerateConfigurationMethods(StringBuilder sb, INamedTypeSymbol interfaceSymbol)
+    private static void GenerateConfigurationMethods(StringBuilder sb, INamedTypeSymbol interfaceSymbol, string memberIndent)
     {
         var interfaceName = interfaceSymbol.Name;
 
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 获取活跃订阅数量");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public int ActiveSubscriptionCount => _subscriptions.Count;");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 获取活跃订阅数量");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public int ActiveSubscriptionCount => _subscriptions.Count;");
         sb.AppendLine();
 
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 获取所有活跃的订阅者");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine($"        public IReadOnlyList<{interfaceName}> GetActiveSubscribers()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            return _subscriptions.Keys.ToList();");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 获取所有活跃的订阅者");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public IReadOnlyList<{interfaceName}> GetActiveSubscribers()");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{memberIndent}    return _subscriptions.Keys.ToList();");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
     }
 
-    private static void GenerateDisposeMethod(StringBuilder sb)
+    private static void GenerateDisposeMethod(StringBuilder sb, string memberIndent, string bodyIndent)
     {
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 释放资源");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public void Dispose()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (_disposed) return;");
-        sb.AppendLine("            ");
-        sb.AppendLine("            _cancellationTokenSource.Cancel();");
-        sb.AppendLine("            ");
-        sb.AppendLine("            // 取消所有订阅");
-        sb.AppendLine("            foreach (var context in _subscriptions.Values)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                context.Dispose();");
-        sb.AppendLine("            }");
-        sb.AppendLine("            _subscriptions.Clear();");
-        sb.AppendLine("            ");
-        sb.AppendLine("            _batchProcessor.Dispose();");
-        sb.AppendLine("            _cancellationTokenSource.Dispose();");
-        sb.AppendLine("            _disposed = true;");
-        sb.AppendLine("        }");
+        var innerIndent = bodyIndent + "    ";
+
+        sb.AppendLine($"{memberIndent}/// <summary>");
+        sb.AppendLine($"{memberIndent}/// 释放资源");
+        sb.AppendLine($"{memberIndent}/// </summary>");
+        sb.AppendLine($"{memberIndent}public void Dispose()");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}if (_disposed) return;");
+        sb.AppendLine($"{bodyIndent}");
+        sb.AppendLine($"{bodyIndent}_cancellationTokenSource.Cancel();");
+        sb.AppendLine($"{bodyIndent}");
+        sb.AppendLine($"{bodyIndent}// 取消所有订阅");
+        sb.AppendLine($"{bodyIndent}foreach (var context in _subscriptions.Values)");
+        sb.AppendLine($"{bodyIndent}{{");
+        sb.AppendLine($"{innerIndent}context.Dispose();");
+        sb.AppendLine($"{bodyIndent}}}");
+        sb.AppendLine($"{bodyIndent}_subscriptions.Clear();");
+        sb.AppendLine($"{bodyIndent}");
+        sb.AppendLine($"{bodyIndent}_batchProcessor.Dispose();");
+        sb.AppendLine($"{bodyIndent}_cancellationTokenSource.Dispose();");
+        sb.AppendLine($"{bodyIndent}_disposed = true;");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
 
-        sb.AppendLine("        private void ThrowIfDisposed()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (_disposed)");
-        sb.AppendLine("                throw new ObjectDisposedException(GetType().Name);");
-        sb.AppendLine("        }");
+        sb.AppendLine($"{memberIndent}private void ThrowIfDisposed()");
+        sb.AppendLine($"{memberIndent}{{");
+        sb.AppendLine($"{bodyIndent}if (_disposed)");
+        sb.AppendLine($"{bodyIndent}    throw new ObjectDisposedException(GetType().Name);");
+        sb.AppendLine($"{memberIndent}}}");
         sb.AppendLine();
     }
 
@@ -448,10 +462,10 @@ public static class SmartEventHandlerGenerator
     /// <summary>
     /// 生成协议号常量
     /// </summary>
-    private static void GenerateProtocolIdConstants(StringBuilder sb, INamedTypeSymbol interfaceSymbol, Dictionary<string, ushort> protocolIds)
+    private static void GenerateProtocolIdConstants(StringBuilder sb, INamedTypeSymbol interfaceSymbol, Dictionary<string, ushort> protocolIds, string indent)
     {
-        sb.AppendLine("        // ==================== 事件协议号常量 ====================");
-        sb.AppendLine("        // 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
+        sb.AppendLine($"{indent}// ==================== 事件协议号常量 ====================");
+        sb.AppendLine($"{indent}// 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
 
         foreach (var member in interfaceSymbol.GetMembers())
         {
@@ -468,11 +482,11 @@ public static class SmartEventHandlerGenerator
                 var methodSignature = ProtocolIdGenerator.BuildMethodSignature(methodSymbol);
                 var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
 
-                sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// 协议号: {methodSymbol.Name}");
-                sb.AppendLine($"        /// 方法签名: {methodSignature}");
-                sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        private const ushort {constName} = 0x{protocolId:X4}; // {protocolId}");
+                sb.AppendLine($"{indent}/// <summary>");
+                sb.AppendLine($"{indent}/// 协议号: {methodSymbol.Name}");
+                sb.AppendLine($"{indent}/// 方法签名: {methodSignature}");
+                sb.AppendLine($"{indent}/// </summary>");
+                sb.AppendLine($"{indent}private const ushort {constName} = 0x{protocolId:X4}; // {protocolId}");
             }
         }
     }
