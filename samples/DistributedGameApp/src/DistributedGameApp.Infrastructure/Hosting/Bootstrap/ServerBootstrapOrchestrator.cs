@@ -40,6 +40,11 @@ public sealed class ServerBootstrapOrchestrator : IHostedService
             new Phase5_ConnectToOtherNodes(
                 _serviceProvider.GetRequiredService<ILogger<Phase5_ConnectToOtherNodes>>()),
 
+            // Phase 5.5: 初始化跨服务客户端连接（在注册到 Consul 之前）
+            // 确保依赖服务可用后再对外提供服务
+            new Phase5_5_InitializeServiceClient(
+                _serviceProvider.GetRequiredService<ILogger<Phase5_5_InitializeServiceClient>>()),
+
             new Phase6_RegisterToConsul(
                 _serviceProvider.GetRequiredService<ILogger<Phase6_RegisterToConsul>>()),
 

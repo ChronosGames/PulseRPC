@@ -1,4 +1,3 @@
-using DistributedGameApp.Infrastructure.Consul;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Client;

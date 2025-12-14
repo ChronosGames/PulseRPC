@@ -2,6 +2,7 @@ using DistributedGameApp.Infrastructure.Consul;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
 using System.Collections.Concurrent;
+using PulseRPC;
 
 namespace DistributedGameApp.Infrastructure.ServiceClient;
 
@@ -191,7 +192,14 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// <param name="serverType">服务器类型</param>
     /// <param name="shardId">分片ID（通常是 UserId/PlayerId/MatchId）</param>
     /// <param name="autoRefresh">如果没有连接，是否自动刷新服务列表（默认true）</param>
-    public IServiceConnection? GetServer(ServerType serverType, string shardId, bool autoRefresh = true)
+    /// <param name="timeout">等待连接的超时时间（默认null使用配置值，配置默认10秒）</param>
+    /// <param name="retryInterval">重试间隔（默认null使用配置值，配置默认500ms）</param>
+    public IServiceConnection? GetServer(
+        ServerType serverType,
+        string shardId,
+        bool autoRefresh = true,
+        TimeSpan? timeout = null,
+        TimeSpan? retryInterval = null)
     {
         EnsureInitialized();
 
@@ -209,44 +217,89 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         // 使用路由器获取连接
         var connection = router.GetConnection(shardId);
 
-        // 如果没有连接且允许自动刷新，尝试刷新服务列表
-        if (connection == null && autoRefresh && manager.ConnectionCount == 0)
+        // 如果有连接，直接返回
+        if (connection != null)
         {
-            _logger.LogInformation("未找到可用连接，同步刷新服务列表: ServerType={ServerType}", serverType);
-
-            try
-            {
-                // ✅ 方案1: 同步等待刷新完成（解决初始连接时序问题）
-                manager.RefreshServicesAsync().GetAwaiter().GetResult();
-
-                // 刷新后再次尝试获取连接
-                connection = router.GetConnection(shardId);
-
-                if (connection != null)
-                {
-                    _logger.LogInformation("刷新后成功获取连接: ServerType={ServerType}, ShardId={ShardId}",
-                        serverType, shardId);
-                    return GetOrCreateAdapter(connection);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "同步刷新服务列表失败: ServerType={ServerType}", serverType);
-            }
-
-            _logger.LogWarning("无法获取服务连接（刷新后仍无可用连接）: ServerType={ServerType}, ShardId={ShardId}",
-                serverType, shardId);
-            return null;
+            return GetOrCreateAdapter(connection);
         }
 
-        if (connection == null)
+        // 没有连接，尝试按需连接（带超时重试）
+        if (!autoRefresh)
         {
             _logger.LogWarning("无法获取服务连接: ServerType={ServerType}, ShardId={ShardId}",
                 serverType, shardId);
             return null;
         }
 
-        return GetOrCreateAdapter(connection);
+        // 使用配置的超时和重试间隔
+        var effectiveTimeout = timeout ?? TimeSpan.FromSeconds(10);
+        var effectiveRetryInterval = retryInterval ?? TimeSpan.FromMilliseconds(500);
+
+        return GetServerWithRetry(serverType, shardId, manager, router, effectiveTimeout, effectiveRetryInterval);
+    }
+
+    /// <summary>
+    /// 带重试的获取服务连接（按需连接）
+    /// </summary>
+    private IServiceConnection? GetServerWithRetry(
+        ServerType serverType,
+        string shardId,
+        ServiceConnectionManager manager,
+        ServiceRouter router,
+        TimeSpan timeout,
+        TimeSpan retryInterval)
+    {
+        var startTime = DateTime.UtcNow;
+        var retryCount = 0;
+
+        _logger.LogDebug("开始按需连接: ServerType={ServerType}, Timeout={Timeout}ms",
+            serverType, timeout.TotalMilliseconds);
+
+        while (DateTime.UtcNow - startTime < timeout)
+        {
+            try
+            {
+                // 刷新服务列表
+                manager.RefreshServicesAsync().GetAwaiter().GetResult();
+
+                // 尝试获取连接
+                var connection = router.GetConnection(shardId);
+
+                if (connection != null)
+                {
+                    if (retryCount > 0)
+                    {
+                        _logger.LogInformation(
+                            "按需连接成功: ServerType={ServerType}, 重试次数={RetryCount}, 耗时={ElapsedMs}ms",
+                            serverType, retryCount, (DateTime.UtcNow - startTime).TotalMilliseconds);
+                    }
+                    return GetOrCreateAdapter(connection);
+                }
+
+                retryCount++;
+                var remaining = timeout - (DateTime.UtcNow - startTime);
+
+                if (remaining > TimeSpan.Zero)
+                {
+                    _logger.LogDebug(
+                        "等待服务就绪: ServerType={ServerType}, 重试={RetryCount}, 剩余={RemainingMs}ms",
+                        serverType, retryCount, remaining.TotalMilliseconds);
+
+                    Thread.Sleep(retryInterval);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "刷新服务列表异常: ServerType={ServerType}", serverType);
+                Thread.Sleep(retryInterval);
+            }
+        }
+
+        _logger.LogWarning(
+            "按需连接超时: ServerType={ServerType}, ShardId={ShardId}, Timeout={Timeout}ms, 重试次数={RetryCount}",
+            serverType, shardId, timeout.TotalMilliseconds, retryCount);
+
+        return null;
     }
 
     /// <summary>
@@ -354,7 +407,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// <typeparam name="THub">Hub 接口类型</typeparam>
     /// <param name="serviceId">服务ID/分片键 (如 userId, roomId, matchId 等)，为空时使用自动路由</param>
     /// <returns>Hub 代理实例，可以直接调用 Hub 方法</returns>
-    public THub? GetHub<THub>(string serviceId = "") where THub : class
+    public THub? GetHub<THub>(string serviceId = "") where THub : class, IPulseHub
     {
         EnsureInitialized();
 
@@ -486,7 +539,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// <typeparam name="THub">Hub 接口类型</typeparam>
     /// <param name="nodeId">节点ID</param>
     /// <returns>Hub 代理实例，可以直接调用 Hub 方法</returns>
-    public THub? GetHub<THub>(int nodeId) where THub : class
+    public THub? GetHub<THub>(int nodeId) where THub : class, IPulseHub
     {
         // 使用节点ID作为分片键
         var serviceId = $"node-{nodeId}";
@@ -715,7 +768,7 @@ public interface IHubProxyFactory
     /// <typeparam name="THub">Hub 接口类型</typeparam>
     /// <param name="channel">客户端通道</param>
     /// <returns>代理实例，如果类型不支持则返回 null</returns>
-    THub? Create<THub>(PulseRPC.Client.IClientChannel channel) where THub : class;
+    THub? Create<THub>(PulseRPC.Client.IClientChannel channel) where THub : class, IPulseHub;
 }
 
 /// <summary>
@@ -730,7 +783,7 @@ internal class DelegateHubProxyFactory : IHubProxyFactory
         _createFunc = createFunc ?? throw new ArgumentNullException(nameof(createFunc));
     }
 
-    public THub? Create<THub>(PulseRPC.Client.IClientChannel channel) where THub : class
+    public THub? Create<THub>(PulseRPC.Client.IClientChannel channel) where THub : class, IPulseHub
     {
         return _createFunc(typeof(THub), channel) as THub;
     }

@@ -277,11 +277,11 @@ public class ServerConnectionManager : IDisposable
 
         // 调用源代码生成的 RegisterAllReceivers 扩展方法
         // 自动注册 receiver 实现的所有 IPulseReceiver 接口
-        var tokens = connection.Channel.RegisterAllReceivers(receiver);
+        var tokens = connection.Channel.RegisterReceiver(receiver);
         connection.EventSubscriptions.AddRange(tokens);
 
         _logger.LogInformation("已注册 {Count} 个接收器到服务器: {ServerName}",
-            tokens.Count, connection.ServerName);
+            tokens, connection.ServerName);
     }
 
     /// <summary>

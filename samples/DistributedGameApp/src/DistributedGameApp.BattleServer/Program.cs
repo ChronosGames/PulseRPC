@@ -1,7 +1,9 @@
+using DistributedGameApp.BattleServer;
 using DistributedGameApp.BattleServer.Hubs;
 using DistributedGameApp.BattleServer.Services;
 using DistributedGameApp.Infrastructure.Authentication;
 using DistributedGameApp.Infrastructure.Hosting;
+using DistributedGameApp.Infrastructure.Hosting.Bootstrap;
 using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.Configuration;
@@ -14,6 +16,16 @@ var builder = Host.CreateApplicationBuilder(args);
 
 // 配置 JWT 选项
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+
+// 配置服务类型（BattleServer 调用 GameServer 和 BackendServer）
+// 服务可以按任意顺序启动，运行时按需建立连接
+builder.Services.Configure<ServiceDependencyOptions>(options =>
+{
+    options.ServerTypes = [ServerType.Game, ServerType.Backend];
+    options.RoutingStrategy = RoutingStrategy.ConsistentHash;
+    options.RequestTimeout = TimeSpan.FromSeconds(10);
+    options.RequestRetryInterval = TimeSpan.FromMilliseconds(500);
+});
 
 // 使用统一的 ServerBootstrapper 配置服务器
 builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapperOptions
@@ -61,10 +73,10 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 
 var app = builder.Build();
 
-// 初始化 UnifiedServiceClientManager（通用版）
-var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
-await serviceClientManager.InitializeAsync(
-    [ServerType.Game, ServerType.Backend],  // BackendServer 主要连接 BattleServer
-    RoutingStrategy.ConsistentHash);
+// ✅ 服务客户端初始化已移至 Bootstrap 流程中（Phase 5.5）
+// BattleServer 是底层服务，没有硬依赖，可以独立启动
+// GameServer 和 BackendServer 作为延迟依赖，在运行时按需建立连接
+app.Services.GetRequiredService<UnifiedServiceClientManager>().RegisterHubProxyFactory(new HubProxyFactory());
+
 
 await app.RunAsync();
