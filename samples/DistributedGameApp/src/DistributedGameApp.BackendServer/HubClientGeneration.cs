@@ -1,5 +1,7 @@
+using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Hubs;
 using PulseRPC;
+using PulseRPC.Client;
 
 namespace DistributedGameApp.BackendServer;
 
@@ -19,3 +21,10 @@ internal static class HubClientGeneration
     // 不包含任何运行时代码
 }
 
+public class HubProxyFactory : IHubProxyFactory
+{
+    public THub? Create<THub>(IClientChannel channel) where THub : class, IPulseHub
+    {
+        return channel.GetHub<THub>();
+    }
+}

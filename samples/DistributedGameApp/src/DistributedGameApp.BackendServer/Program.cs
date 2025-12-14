@@ -1,7 +1,9 @@
+using DistributedGameApp.BackendServer;
 using DistributedGameApp.BackendServer.Hubs;
 using DistributedGameApp.BackendServer.Repositories;
 using DistributedGameApp.BackendServer.Services;
 using DistributedGameApp.Infrastructure.Hosting;
+using DistributedGameApp.Infrastructure.Hosting.Bootstrap;
 using DistributedGameApp.Infrastructure.ServiceClient;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,6 +13,16 @@ using PulseRPC.Server;
 using PulseRPC.Server.Extensions;
 
 var builder = Host.CreateApplicationBuilder(args);
+
+// 配置服务类型（BackendServer 调用 BattleServer 和 GameServer）
+// 服务可以按任意顺序启动，运行时按需建立连接
+builder.Services.Configure<ServiceDependencyOptions>(options =>
+{
+    options.ServerTypes = [ServerType.Battle, ServerType.Game];
+    options.RoutingStrategy = RoutingStrategy.ConsistentHash;
+    options.RequestTimeout = TimeSpan.FromSeconds(10);
+    options.RequestRetryInterval = TimeSpan.FromMilliseconds(500);
+});
 
 // 使用统一的 ServerBootstrapper 配置服务器
 builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapperOptions
@@ -63,15 +75,12 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 
 var app = builder.Build();
 
-// 初始化 UnifiedServiceClientManager（通用版）
-var serviceClientManager = app.Services.GetRequiredService<UnifiedServiceClientManager>();
-
-// 注册 HubProxyFactory（编译时类型安全，无反射）
-serviceClientManager.RegisterHubProxyFactory(
-    (hubType, channel) => PulseRPC.Generated.HubProxyFactory.Instance.Create(hubType, channel));
-
-await serviceClientManager.InitializeAsync(
-    new[] { ServerType.Battle, ServerType.Game, },  // BackendServer 主要连接 BattleServer
-    RoutingStrategy.ConsistentHash);
+// ✅ 服务客户端初始化已移至 Bootstrap 流程中（Phase 5.5）
+// UnifiedServiceClientManager 会在 ServerBootstrapOrchestrator 的 Phase5_5 阶段自动初始化
+// 这确保了：
+// 1. 在 Consul 注册之前初始化，等待依赖服务（BattleServer, GameServer）就绪
+// 2. 只有当所有依赖服务可用时，才注册到 Consul 并开始接受请求
+// 3. 避免因服务启动顺序导致的连接失败问题
+app.Services.GetRequiredService<UnifiedServiceClientManager>().RegisterHubProxyFactory(new HubProxyFactory());
 
 await app.RunAsync();
