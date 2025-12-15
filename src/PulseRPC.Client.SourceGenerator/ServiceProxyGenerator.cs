@@ -99,7 +99,8 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 {
                     var proxyCode = GenerateServiceProxy(namedType, spc);
                     // 使用完整类型名称（包含命名空间）确保文件名唯一
-                    var fileName = $"{GetSafeFileName(namedType)}Proxy.g.cs";
+                    // 格式: {Namespace}_{TypeNameWithoutI}.Proxy.g.cs
+                    var fileName = $"{GetSafeFileName(namedType)}.Proxy.g.cs";
                     spc.AddSource(fileName, SourceText.From(proxyCode, Encoding.UTF8));
                 }
                 else
@@ -127,27 +128,25 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 .ToList();
             var eventNamedTypes = uniqueEventTypesForExtensions.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
 
+            // 生成服务扩展方法
             if (serviceNamedTypes.Length > 0)
             {
                 var extensionsCode = GenerateChannelManagerExtensions(serviceNamedTypes, eventNamedTypes);
-                var fileName = "PulseRPC.Services.g.cs";
-                spc.AddSource(fileName, SourceText.From(extensionsCode, Encoding.UTF8));
+                spc.AddSource("PulseRPC.Client.Generated.ServiceExtensions.g.cs", SourceText.From(extensionsCode, Encoding.UTF8));
             }
 
             // 生成 PulseClient 工厂扩展方法
             if (serviceNamedTypes.Length > 0 || eventNamedTypes.Length > 0)
             {
                 var factoryExtensionsCode = PulseClientExtensionsGenerator.GeneratePulseClientExtensions(serviceNamedTypes, eventNamedTypes);
-                var factoryFileName = "PulseClientFactoryExtensions.g.cs";
-                spc.AddSource(factoryFileName, SourceText.From(factoryExtensionsCode, Encoding.UTF8));
+                spc.AddSource("PulseRPC.Client.Generated.FactoryExtensions.g.cs", SourceText.From(factoryExtensionsCode, Encoding.UTF8));
             }
 
             // 生成 IClientChannel 泛型扩展方法（GetHub<T>, RegisterReceiver<T>）
             if (serviceNamedTypes.Length > 0 || eventNamedTypes.Length > 0)
             {
                 var channelExtensionsCode = ClientChannelGenericExtensionsGenerator.Generate(serviceNamedTypes, eventNamedTypes);
-                var channelExtensionsFileName = "ClientChannelGenericExtensions.g.cs";
-                spc.AddSource(channelExtensionsFileName, SourceText.From(channelExtensionsCode, Encoding.UTF8));
+                spc.AddSource("PulseRPC.Client.Generated.ChannelExtensions.g.cs", SourceText.From(channelExtensionsCode, Encoding.UTF8));
             }
         });
 
@@ -155,6 +154,10 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(allEventTypes.Combine(configProvider), (spc, combined) =>
         {
             var eventTypes = combined.Left;
+            var configOptions = combined.Right;
+
+            // 读取 SmartHandler 生成配置
+            var generateSmartHandlers = ShouldGenerateSmartHandlers(configOptions);
 
             // 去重事件类型（同一个接口可能被多个类的 PulseClientGeneration 特性引用）
             var uniqueEventTypes = eventTypes
@@ -163,29 +166,31 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 .Select(g => g.First())
                 .ToList();
 
-            // 生成支持类型（只需要生成一次）
-            if (uniqueEventTypes.Count > 0)
+            // 生成支持类型（只需要生成一次，且仅在生成 SmartHandler 时需要）
+            if (uniqueEventTypes.Count > 0 && generateSmartHandlers)
             {
                 var supportTypesCode = EventHandlerSupportTypes.GenerateSupportTypes();
-                spc.AddSource("PulseRPC.Client.SupportTypes.g.cs", SourceText.From(supportTypesCode, Encoding.UTF8));
+                spc.AddSource("PulseRPC.Client.Generated.SupportTypes.g.cs", SourceText.From(supportTypesCode, Encoding.UTF8));
             }
 
-            // 生成智能事件处理器和接收器调度器
+            // 生成事件处理器
             foreach (var eventTypeInfo in uniqueEventTypes)
             {
                 if (eventTypeInfo.Type is INamedTypeSymbol namedType)
                 {
-                    // 生成智能事件处理器（保持向后兼容）
-                    var smartHandlerCode = SmartEventHandlerGenerator.GenerateSmartEventHandler(namedType, spc);
-                    var smartHandlerBaseName = namedType.Name.StartsWith("I") ? namedType.Name.Substring(1) : namedType.Name;
-                    // 使用完整类型名称（包含命名空间）确保文件名唯一
-                    var smartHandlerFileName = $"{GetSafeFileName(namedType).Replace(namedType.Name, smartHandlerBaseName)}SmartHandler.g.cs";
-                    spc.AddSource(smartHandlerFileName, SourceText.From(smartHandlerCode, Encoding.UTF8));
+                    // 根据配置决定是否生成智能事件处理器
+                    // 格式: {Namespace}_{TypeNameWithoutI}.SmartHandler.g.cs
+                    if (generateSmartHandlers)
+                    {
+                        var smartHandlerCode = SmartEventHandlerGenerator.GenerateSmartEventHandler(namedType, spc);
+                        var smartHandlerFileName = $"{GetSafeFileName(namedType)}.SmartHandler.g.cs";
+                        spc.AddSource(smartHandlerFileName, SourceText.From(smartHandlerCode, Encoding.UTF8));
+                    }
 
-                    // 生成接收器调度器（新增：简化的 IPulseReceiver 注册）
+                    // 始终生成接收器调度器（轻量级，推荐使用）
+                    // 格式: {Namespace}_{TypeNameWithoutI}.Dispatcher.g.cs
                     var dispatcherCode = ReceiverDispatcherGenerator.GenerateReceiverDispatcher(namedType, spc);
-                    var dispatcherBaseName = namedType.Name.StartsWith("I") ? namedType.Name.Substring(1) : namedType.Name;
-                    var dispatcherFileName = $"{GetSafeFileName(namedType).Replace(namedType.Name, dispatcherBaseName)}Dispatcher.g.cs";
+                    var dispatcherFileName = $"{GetSafeFileName(namedType)}.Dispatcher.g.cs";
                     spc.AddSource(dispatcherFileName, SourceText.From(dispatcherCode, Encoding.UTF8));
                 }
                 else
@@ -202,22 +207,18 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 }
             }
 
-            // 生成统一的客户端扩展方法（使用去重后的类型）
-            // var namedTypes = uniqueEventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
-            // if (namedTypes.Length > 0)
-            // {
-            //     var enhancedExtensionsCode = EnhancedEventListenerExtensions.GenerateEnhancedExtensions(namedTypes);
-            //     var enhancedFileName = "PulseRPC.Client.Extensions.g.cs";
-            //     spc.AddSource(enhancedFileName, SourceText.From(enhancedExtensionsCode, Encoding.UTF8));
-            //
-            //     // 生成统一接收器注册扩展方法（RegisterAllReceivers<T>）
-            //     var unifiedRegistrationCode = UnifiedReceiverRegistrationGenerator.Generate(namedTypes);
-            //     if (!string.IsNullOrEmpty(unifiedRegistrationCode))
-            //     {
-            //         spc.AddSource("PulseRPC.Client.UnifiedReceiverRegistration.g.cs",
-            //             SourceText.From(unifiedRegistrationCode, Encoding.UTF8));
-            //     }
-            // }
+            // 生成统一接收器注册扩展方法（RegisterAllReceivers<T>）
+            var namedEventTypes = uniqueEventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
+            if (namedEventTypes.Length > 0)
+            {
+                var unifiedRegistrationCode = UnifiedReceiverRegistrationGenerator.Generate(namedEventTypes);
+                if (!string.IsNullOrEmpty(unifiedRegistrationCode))
+                {
+                    spc.AddSource("PulseRPC.Client.Generated.UnifiedReceiverRegistration.g.cs",
+                        SourceText.From(unifiedRegistrationCode, Encoding.UTF8));
+                }
+            }
+
         });
     }
 
@@ -805,17 +806,23 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
     /// <summary>
     /// 获取安全的文件名（将命名空间中的点替换为下划线，确保文件名唯一）
+    /// 统一去掉接口名称的 I 前缀
     /// </summary>
     private static string GetSafeFileName(INamedTypeSymbol typeSymbol)
     {
+        // 统一去掉 I 前缀
+        var typeName = typeSymbol.Name.StartsWith("I") && typeSymbol.Name.Length > 1 && char.IsUpper(typeSymbol.Name[1])
+            ? typeSymbol.Name.Substring(1)
+            : typeSymbol.Name;
+
         if (typeSymbol.ContainingNamespace.IsGlobalNamespace)
         {
-            return typeSymbol.Name;
+            return typeName;
         }
         else
         {
             // 使用完整的类型名（包含命名空间），将点替换为下划线以生成有效的文件名
-            var fullTypeName = $"{typeSymbol.ContainingNamespace.ToDisplayString()}.{typeSymbol.Name}";
+            var fullTypeName = $"{typeSymbol.ContainingNamespace.ToDisplayString()}.{typeName}";
             return fullTypeName.Replace('.', '_');
         }
     }
@@ -1150,5 +1157,25 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
         // 返回空数组
         return Array.Empty<string>();
+    }
+
+    /// <summary>
+    /// 从 MSBuild 配置中读取是否生成 SmartHandler
+    /// </summary>
+    /// <param name="configOptions">配置选项提供器</param>
+    /// <returns>是否生成 SmartHandler，默认为 true（保持向后兼容）</returns>
+    private static bool ShouldGenerateSmartHandlers(AnalyzerConfigOptionsProvider configOptions)
+    {
+        // 尝试读取全局配置: PulseRPC_GenerateSmartHandlers
+        if (configOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_GenerateSmartHandlers", out var value))
+        {
+            if (bool.TryParse(value, out var result))
+            {
+                return result;
+            }
+        }
+
+        // 默认生成（保持向后兼容）
+        return true;
     }
 }
