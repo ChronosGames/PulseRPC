@@ -33,6 +33,9 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     // 每种服务类型一个连接管理器 + 路由器
     private readonly ConcurrentDictionary<ServerType, (ServiceConnectionManager Manager, ServiceRouter Router)> _serverManagers = new();
 
+    // Adapter 缓存（避免高频场景下重复创建对象）
+    private readonly ConcurrentDictionary<string, ServiceConnectionAdapter> _adapterCache = new();
+
     private bool _isInitialized;
     private bool _isDisposed;
 
@@ -129,6 +132,9 @@ public class UnifiedServiceClientManager : IAsyncDisposable
             serviceName,
             _authenticationProvider);
 
+        // 订阅连接移除事件，清理 Adapter 缓存
+        manager.ConnectionRemoved += OnConnectionRemoved;
+
         // 创建路由器
         var routerLogger = _loggerFactory.CreateLogger<ServiceRouter>();
         var router = new ServiceRouter(manager, routerLogger, strategy);
@@ -220,7 +226,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
                 {
                     _logger.LogInformation("刷新后成功获取连接: ServerType={ServerType}, ShardId={ShardId}",
                         serverType, shardId);
-                    return new ServiceConnectionAdapter(connection);
+                    return GetOrCreateAdapter(connection);
                 }
             }
             catch (Exception ex)
@@ -240,7 +246,28 @@ public class UnifiedServiceClientManager : IAsyncDisposable
             return null;
         }
 
-        return new ServiceConnectionAdapter(connection);
+        return GetOrCreateAdapter(connection);
+    }
+
+    /// <summary>
+    /// 获取或创建 Adapter（缓存以减少对象分配）
+    /// </summary>
+    private ServiceConnectionAdapter GetOrCreateAdapter(ServiceConnection connection)
+    {
+        var serviceId = connection.ServiceInfo.ServiceId;
+        return _adapterCache.GetOrAdd(serviceId, _ => new ServiceConnectionAdapter(connection));
+    }
+
+    /// <summary>
+    /// 连接移除时清理缓存
+    /// </summary>
+    private void OnConnectionRemoved(object? sender, ServiceConnection connection)
+    {
+        var serviceId = connection.ServiceInfo.ServiceId;
+        if (_adapterCache.TryRemove(serviceId, out _))
+        {
+            _logger.LogDebug("已从缓存移除 Adapter: {ServiceId}", serviceId);
+        }
     }
 
     /// <summary>
@@ -276,7 +303,8 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         var (manager, router) = managerAndRouter;
         var connections = router.GetAllConnections();
 
-        return connections.Select(c => (IServiceConnection)new ServiceConnectionAdapter(c)).ToList();
+        // 使用缓存的 Adapter
+        return connections.Select(c => (IServiceConnection)GetOrCreateAdapter(c)).ToList();
     }
 
     /// <summary>
@@ -576,11 +604,17 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         {
             _logger.LogInformation("释放服务类型: {ServerType}", serverType);
 
+            // 取消事件订阅
+            manager.ConnectionRemoved -= OnConnectionRemoved;
+
             router.Dispose();
             await manager.DisposeAsync();
         }
 
         _serverManagers.Clear();
+
+        // 清理 Adapter 缓存
+        _adapterCache.Clear();
 
         _logger.LogInformation("UnifiedServiceClientManager 已释放");
     }

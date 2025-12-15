@@ -12,6 +12,7 @@ namespace DistributedGameApp.Infrastructure.ServiceClient;
 /// </summary>
 /// <remarks>
 /// 统一的连接实现，适用于所有服务间通信（Backend, Battle, Game 等）
+/// 利用 PulseRPC.Client 内置的连接状态管理和心跳机制
 /// </remarks>
 public class ServiceConnection : IAsyncDisposable
 {
@@ -22,8 +23,6 @@ public class ServiceConnection : IAsyncDisposable
     private IPulseClient? _client;
     private IClientChannel? _channel;
     private bool _isDisposed;
-    private CancellationTokenSource? _cts;
-    private Task? _healthCheckTask;
 
     /// <summary>
     /// 服务信息
@@ -36,9 +35,9 @@ public class ServiceConnection : IAsyncDisposable
     public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
 
     /// <summary>
-    /// 最后健康检查时间
+    /// 最后活动时间（从 PulseRPC.Client 获取）
     /// </summary>
-    public DateTime LastHealthCheck { get; private set; } = DateTime.MinValue;
+    public DateTime LastHealthCheck => _channel?.Statistics.LastActiveAt ?? DateTime.MinValue;
 
     /// <summary>
     /// 连接建立时间
@@ -90,8 +89,6 @@ public class ServiceConnection : IAsyncDisposable
 
             try
             {
-                _cts = new CancellationTokenSource();
-
                 // 创建连接描述符
                 var descriptor = ConnectionDescriptor.CreateTcp(
                     _serviceInfo.ServiceId,
@@ -129,11 +126,11 @@ public class ServiceConnection : IAsyncDisposable
                     throw new InvalidOperationException($"无法获取连接: {_serviceInfo.ServiceId}");
                 }
 
+                // 订阅 PulseRPC.Client 的连接状态变更事件（内置心跳检测）
+                _channel.ConnectionStateChanged += OnChannelStateChanged;
+
                 ConnectedAt = DateTime.UtcNow;
                 ChangeState(ConnectionState.Connected);
-
-                // 启动健康检查
-                _healthCheckTask = RunHealthCheckAsync(_cts.Token);
 
                 _logger.LogInformation("成功连接到服务: {ServiceId}", _serviceInfo.ServiceId);
                 return true;
@@ -155,35 +152,26 @@ public class ServiceConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// 健康检查
+    /// 处理 PulseRPC.Client 的连接状态变更
     /// </summary>
-    private async Task RunHealthCheckAsync(CancellationToken cancellationToken)
+    private void OnChannelStateChanged(object? sender, TransportStateEventArgs e)
     {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+        _logger.LogDebug("通道状态变更: {ServiceId} {OldState} -> {NewState}",
+            _serviceInfo.ServiceId, e.PreviousState, e.CurrentState);
 
-                // 简单的连接状态检查
-                if (_channel != null && State == ConnectionState.Connected)
-                {
-                    LastHealthCheck = DateTime.UtcNow;
-                }
-                else
-                {
-                    _logger.LogWarning("健康检查失败: {ServiceId}", _serviceInfo.ServiceId);
-                    ChangeState(ConnectionState.Disconnected);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "健康检查异常: {ServiceId}", _serviceInfo.ServiceId);
-            }
+        // 根据传输层状态映射到本地连接状态
+        // PulseRPC.Transport.ConnectionState -> DistributedGameApp.Infrastructure.ServiceClient.ConnectionState
+        var newState = e.CurrentState switch
+        {
+            PulseRPC.Transport.ConnectionState.Connected => ConnectionState.Connected,
+            PulseRPC.Transport.ConnectionState.Connecting => ConnectionState.Connecting,
+            PulseRPC.Transport.ConnectionState.Reconnecting => ConnectionState.Connecting,
+            _ => ConnectionState.Disconnected
+        };
+
+        if (State != newState)
+        {
+            ChangeState(newState);
         }
     }
 
@@ -202,35 +190,22 @@ public class ServiceConnection : IAsyncDisposable
     /// <summary>
     /// 清理资源
     /// </summary>
-    private async Task CleanupAsync()
+    private Task CleanupAsync()
     {
-        if (_cts != null)
+        // 取消事件订阅
+        if (_channel != null)
         {
-            await _cts.CancelAsync();
-            _cts.Dispose();
-            _cts = null;
+            _channel.ConnectionStateChanged -= OnChannelStateChanged;
+            _channel = null;
         }
-
-        if (_healthCheckTask != null)
-        {
-            try
-            {
-                await _healthCheckTask;
-            }
-            catch
-            {
-                // Ignore
-            }
-            _healthCheckTask = null;
-        }
-
-        _channel = null;
 
         if (_client != null)
         {
             _client.Dispose();
             _client = null;
         }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

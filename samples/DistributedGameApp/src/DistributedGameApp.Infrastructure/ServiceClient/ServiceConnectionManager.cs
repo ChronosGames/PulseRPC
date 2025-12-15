@@ -23,6 +23,16 @@ public class ServiceConnectionManager : IAsyncDisposable
     private bool _isInitialized;
     private bool _isDisposed;
 
+    /// <summary>
+    /// 连接添加事件
+    /// </summary>
+    public event EventHandler<ServiceConnection>? ConnectionAdded;
+
+    /// <summary>
+    /// 连接移除事件
+    /// </summary>
+    public event EventHandler<ServiceConnection>? ConnectionRemoved;
+
     public ServiceConnectionManager(
         ConsulServiceDiscovery serviceDiscovery,
         ILoggerFactory loggerFactory,
@@ -162,6 +172,10 @@ public class ServiceConnectionManager : IAsyncDisposable
                 if (_connections.TryRemove(serviceId, out var connection))
                 {
                     _logger.LogInformation("移除失效的服务连接: {ServiceId}", serviceId);
+
+                    // 触发连接移除事件
+                    ConnectionRemoved?.Invoke(this, connection);
+
                     await connection.DisposeAsync();
                 }
             }
@@ -203,6 +217,9 @@ public class ServiceConnectionManager : IAsyncDisposable
                     _connections[service.ServiceId] = connection;
                     _logger.LogInformation("连接成功: {ServiceId} ({Host}:{Port})",
                         service.ServiceId, service.Host, service.TcpPort);
+
+                    // 触发连接添加事件
+                    ConnectionAdded?.Invoke(this, connection);
                 }
                 else
                 {
@@ -255,7 +272,14 @@ public class ServiceConnectionManager : IAsyncDisposable
         if (_isDisposed)
             throw new ObjectDisposedException(nameof(ServiceConnectionManager));
 
-        return _connections.TryAdd(connection.ServiceInfo.ServiceId, connection);
+        if (_connections.TryAdd(connection.ServiceInfo.ServiceId, connection))
+        {
+            // 触发连接添加事件
+            ConnectionAdded?.Invoke(this, connection);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -268,6 +292,9 @@ public class ServiceConnectionManager : IAsyncDisposable
 
         if (_connections.TryRemove(serviceId, out var connection))
         {
+            // 触发连接移除事件
+            ConnectionRemoved?.Invoke(this, connection);
+
             await connection.DisposeAsync();
             _logger.LogInformation("连接已移除: {ServiceId}", serviceId);
             return true;
@@ -306,10 +333,14 @@ public class ServiceConnectionManager : IAsyncDisposable
         _logger.LogInformation("正在释放 ServiceConnectionManager: {ServiceType}", _serviceTypeName);
 
         // 并行释放所有连接
-        var disposeTasks = _connections.Values.Select(async connection =>
+        var connections = _connections.Values.ToList();
+        var disposeTasks = connections.Select(async connection =>
         {
             try
             {
+                // 触发连接移除事件
+                ConnectionRemoved?.Invoke(this, connection);
+
                 await connection.DisposeAsync();
             }
             catch (Exception ex)
