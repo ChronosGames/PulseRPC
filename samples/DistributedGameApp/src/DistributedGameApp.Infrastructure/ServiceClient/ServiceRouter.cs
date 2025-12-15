@@ -7,6 +7,9 @@ namespace DistributedGameApp.Infrastructure.ServiceClient;
 /// <summary>
 /// 通用服务路由器 - 支持多种路由策略
 /// </summary>
+/// <remarks>
+/// 使用事件驱动更新一致性哈希环，避免每次查询时同步
+/// </remarks>
 public class ServiceRouter : IDisposable
 {
     private readonly ServiceConnectionManager _connectionManager;
@@ -31,7 +34,54 @@ public class ServiceRouter : IDisposable
         if (_strategy == RoutingStrategy.ConsistentHash)
         {
             _consistentHash = new ConsistentHash<string>(virtualNodesPerNode);
+
+            // 订阅连接变更事件，事件驱动更新哈希环
+            _connectionManager.ConnectionAdded += OnConnectionAdded;
+            _connectionManager.ConnectionRemoved += OnConnectionRemoved;
+
+            // 初始化现有连接到哈希环
+            InitializeExistingConnections();
         }
+    }
+
+    /// <summary>
+    /// 初始化现有连接到哈希环
+    /// </summary>
+    private void InitializeExistingConnections()
+    {
+        if (_consistentHash == null) return;
+
+        var connections = _connectionManager.GetAllConnections();
+        foreach (var connection in connections)
+        {
+            _consistentHash.AddNode(connection.ServiceInfo.ServiceId);
+        }
+
+        _logger.LogDebug("一致性哈希环初始化完成，节点数: {NodeCount}", connections.Count);
+    }
+
+    /// <summary>
+    /// 连接添加事件处理
+    /// </summary>
+    private void OnConnectionAdded(object? sender, ServiceConnection connection)
+    {
+        if (_consistentHash == null || _isDisposed) return;
+
+        _consistentHash.AddNode(connection.ServiceInfo.ServiceId);
+        _logger.LogDebug("一致性哈希环添加节点: {ServiceId}, 当前节点数: {NodeCount}",
+            connection.ServiceInfo.ServiceId, _consistentHash.NodeCount);
+    }
+
+    /// <summary>
+    /// 连接移除事件处理
+    /// </summary>
+    private void OnConnectionRemoved(object? sender, ServiceConnection connection)
+    {
+        if (_consistentHash == null || _isDisposed) return;
+
+        _consistentHash.RemoveNode(connection.ServiceInfo.ServiceId);
+        _logger.LogDebug("一致性哈希环移除节点: {ServiceId}, 当前节点数: {NodeCount}",
+            connection.ServiceInfo.ServiceId, _consistentHash.NodeCount);
     }
 
     /// <summary>
@@ -72,7 +122,7 @@ public class ServiceRouter : IDisposable
     }
 
     /// <summary>
-    /// 一致性哈希路由
+    /// 一致性哈希路由（事件驱动，O(1) 复杂度）
     /// </summary>
     private ServiceConnection? GetConnectionByConsistentHash(string routingKey)
     {
@@ -82,38 +132,33 @@ public class ServiceRouter : IDisposable
             return null;
         }
 
-        var connections = _connectionManager.GetAllConnections();
-        if (connections.Count == 0)
+        // 快速检查：如果哈希环为空，直接返回
+        if (_consistentHash.NodeCount == 0)
         {
-            _logger.LogWarning("没有可用的连接");
+            _logger.LogWarning("一致性哈希环为空，没有可用的连接");
             return null;
         }
 
-        // 确保哈希环包含所有当前连接
-        var currentNodes = connections.Select(c => c.ServiceInfo.ServiceId).ToHashSet();
-        var hashNodes = _consistentHash.GetAllNodes().ToHashSet();
-
-        // 添加新节点
-        foreach (var node in currentNodes.Except(hashNodes))
-        {
-            _consistentHash.AddNode(node);
-        }
-
-        // 移除失效节点
-        foreach (var node in hashNodes.Except(currentNodes))
-        {
-            _consistentHash.RemoveNode(node);
-        }
-
-        // 根据路由键获取节点
+        // O(log n) 查找：直接从哈希环获取节点
         var selectedNode = _consistentHash.GetNode(routingKey);
         if (string.IsNullOrEmpty(selectedNode))
         {
             _logger.LogWarning("一致性哈希未找到节点: {RoutingKey}", routingKey);
+            return null;
+        }
+
+        // O(1) 查找：从连接管理器获取连接
+        var connection = _connectionManager.GetConnection(selectedNode);
+        if (connection == null || connection.State != ConnectionState.Connected)
+        {
+            // 节点存在于哈希环但连接不可用，可能是状态不一致
+            // 回退到其他可用连接
+            _logger.LogWarning("选中的节点连接不可用: {ServiceId}, 尝试回退", selectedNode);
+            var connections = _connectionManager.GetAllConnections();
             return connections.FirstOrDefault();
         }
 
-        return connections.FirstOrDefault(c => c.ServiceInfo.ServiceId == selectedNode);
+        return connection;
     }
 
     /// <summary>
@@ -188,6 +233,14 @@ public class ServiceRouter : IDisposable
             return;
 
         _isDisposed = true;
+
+        // 取消事件订阅
+        if (_strategy == RoutingStrategy.ConsistentHash)
+        {
+            _connectionManager.ConnectionAdded -= OnConnectionAdded;
+            _connectionManager.ConnectionRemoved -= OnConnectionRemoved;
+        }
+
         _consistentHash?.Clear();
     }
 }
