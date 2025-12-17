@@ -266,7 +266,12 @@ public static class ServiceAnalyzer
             // 处理 Task<T> 和 ValueTask<T>
             if (namedType.IsGenericType && namedType.ConstructedFrom.Name is "Task" or "ValueTask")
             {
-                return namedType.TypeArguments.Length > 0 ? namedType.TypeArguments[0].ToDisplayString() : null;
+                if (namedType.TypeArguments.Length > 0)
+                {
+                    // 使用完全限定格式确保包含命名空间
+                    return namedType.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                }
+                return null;
             }
 
             // 处理非泛型 Task 和 ValueTask
@@ -276,8 +281,8 @@ public static class ServiceAnalyzer
             }
         }
 
-        // 其他同步返回类型
-        return returnType.ToDisplayString();
+        // 其他同步返回类型，使用完全限定格式
+        return returnType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
     }
 
 }

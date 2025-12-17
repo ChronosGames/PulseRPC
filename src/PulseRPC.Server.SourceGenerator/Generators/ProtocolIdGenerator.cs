@@ -265,12 +265,13 @@ public static class ProtocolIdGenerator
             foreach (var method in service.Methods)
             {
                 var paramTypesArray = method.Parameters.Count > 0
-                    ? $"new[] {{ {string.Join(", ", method.Parameters.Select(p => $"typeof({p.TypeFullName})"))} }}"
+                    ? $"new[] {{ {string.Join(", ", method.Parameters.Select(p => $"typeof({RemoveNullableMarker(p.TypeFullName)})"))} }}"
                     : "Type.EmptyTypes";
 
+                var serviceTypeName = RemoveNullableMarker(service.InterfaceFullName);
                 sb.AppendLine($"        // {service.InterfaceName}.{method.MethodName}");
-                sb.AppendLine($"        {{ (typeof({service.InterfaceFullName}), new ProtocolId(0x{method.ProtocolId:X4})), ");
-                sb.AppendLine($"          typeof({service.InterfaceFullName}).GetMethod(\"{method.MethodName}\", {paramTypesArray})! }},");
+                sb.AppendLine($"        {{ (typeof({serviceTypeName}), new ProtocolId(0x{method.ProtocolId:X4})), ");
+                sb.AppendLine($"          typeof({serviceTypeName}).GetMethod(\"{method.MethodName}\", {paramTypesArray})! }},");
             }
         }
 
@@ -299,5 +300,271 @@ public static class ProtocolIdGenerator
         sb.AppendLine("    {");
         sb.AppendLine("        return _methodMapping.ContainsKey((serviceType, protocolId));");
         sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// 移除类型名中的可空引用类型标记（?），保留可空值类型标记
+    /// 因为 typeof(string?) 是无效的，但 typeof(int?) 是有效的
+    /// 例如：string? -> string, int? -> int?, Dictionary&lt;string?, int?&gt; -> Dictionary&lt;string, int?&gt;
+    /// </summary>
+    private static string RemoveNullableMarker(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return typeName;
+
+        var trimmed = typeName.Trim();
+        return ProcessTypeName(trimmed, 0, trimmed.Length);
+    }
+
+    /// <summary>
+    /// 递归处理类型名，移除可空引用类型标记
+    /// </summary>
+    private static string ProcessTypeName(string text, int start, int end)
+    {
+        var result = new StringBuilder(end - start);
+        var i = start;
+
+        while (i < end)
+        {
+            var ch = text[i];
+
+            if (ch == '?')
+            {
+                // 找到可空标记，需要判断前面的类型
+                var typeStart = FindPrecedingTypeNameStart(text, i, start);
+                var typeName = text.Substring(typeStart, i - typeStart).Trim();
+
+                if (IsValueType(typeName))
+                {
+                    // 值类型可空标记，保留
+                    result.Append(ch);
+                }
+                // 否则是引用类型可空标记，跳过（移除）
+            }
+            else if (ch == '<')
+            {
+                // 泛型类型开始
+                result.Append(ch);
+                i++;
+
+                // 找到泛型参数列表的结束位置
+                var genericEnd = FindMatchingBracket(text, i, end, '<', '>');
+                if (genericEnd < 0)
+                {
+                    // 未找到匹配的 >，直接复制剩余内容
+                    while (i < end)
+                    {
+                        result.Append(text[i++]);
+                    }
+                    break;
+                }
+
+                // 递归处理泛型参数
+                var genericParams = ProcessGenericParameters(text, i, genericEnd);
+                result.Append(genericParams);
+                result.Append('>'); // 添加闭合的 >
+                i = genericEnd + 1;
+                continue;
+            }
+            else if (ch == '(')
+            {
+                // 元组类型开始
+                result.Append(ch);
+                i++;
+
+                // 找到元组的结束位置
+                var tupleEnd = FindMatchingBracket(text, i, end, '(', ')');
+                if (tupleEnd < 0)
+                {
+                    // 未找到匹配的 )，直接复制剩余内容
+                    while (i < end)
+                    {
+                        result.Append(text[i++]);
+                    }
+                    break;
+                }
+
+                // 递归处理元组元素
+                var tupleElements = ProcessTupleElements(text, i, tupleEnd);
+                result.Append(tupleElements);
+                result.Append(')'); // 添加闭合的 )
+                i = tupleEnd + 1;
+                continue;
+            }
+            else
+            {
+                result.Append(ch);
+            }
+
+            i++;
+        }
+
+        return result.ToString();
+    }
+
+    /// <summary>
+    /// 处理泛型参数列表
+    /// </summary>
+    private static string ProcessGenericParameters(string text, int start, int end)
+    {
+        var result = new StringBuilder();
+        var paramStart = start;
+        var depth = 0;
+
+        for (int i = start; i < end; i++)
+        {
+            var ch = text[i];
+
+            if (ch == '<')
+            {
+                depth++;
+                // 继续处理，让 ProcessTypeName 递归处理嵌套泛型
+            }
+            else if (ch == '>')
+            {
+                depth--;
+                // 继续处理，让 ProcessTypeName 递归处理嵌套泛型
+            }
+            else if (ch == ',' && depth == 0)
+            {
+                // 顶层逗号，分隔参数
+                var param = ProcessTypeName(text, paramStart, i);
+                result.Append(param);
+                result.Append(',');
+                paramStart = i + 1;
+            }
+        }
+
+        // 处理最后一个参数
+        if (paramStart < end)
+        {
+            var param = ProcessTypeName(text, paramStart, end);
+            result.Append(param);
+        }
+
+        return result.ToString();
+    }
+
+    /// <summary>
+    /// 处理元组元素
+    /// </summary>
+    private static string ProcessTupleElements(string text, int start, int end)
+    {
+        var result = new StringBuilder();
+        var elementStart = start;
+        var depth = 0;
+
+        for (int i = start; i < end; i++)
+        {
+            var ch = text[i];
+
+            if (ch == '(')
+            {
+                depth++;
+                // 继续处理，让 ProcessTypeName 递归处理嵌套元组
+            }
+            else if (ch == ')')
+            {
+                depth--;
+                // 继续处理，让 ProcessTypeName 递归处理嵌套元组
+            }
+            else if (ch == ',' && depth == 0)
+            {
+                // 顶层逗号，分隔元素
+                var element = ProcessTypeName(text, elementStart, i);
+                result.Append(element);
+                result.Append(',');
+                elementStart = i + 1;
+            }
+        }
+
+        // 处理最后一个元素
+        if (elementStart < end)
+        {
+            var element = ProcessTypeName(text, elementStart, end);
+            result.Append(element);
+        }
+
+        return result.ToString();
+    }
+
+    /// <summary>
+    /// 查找匹配的括号位置
+    /// </summary>
+    private static int FindMatchingBracket(string text, int start, int end, char open, char close)
+    {
+        var depth = 1;
+        for (int i = start; i < end; i++)
+        {
+            if (text[i] == open)
+                depth++;
+            else if (text[i] == close)
+            {
+                depth--;
+                if (depth == 0)
+                    return i;
+            }
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// 向前查找类型名的起始位置（跳过空格、逗号等分隔符）
+    /// </summary>
+    private static int FindPrecedingTypeNameStart(string text, int position, int limit)
+    {
+        var i = position - 1;
+        // 跳过空格和分隔符
+        while (i >= limit && (char.IsWhiteSpace(text[i]) || text[i] == ',' || text[i] == '<' || text[i] == '('))
+        {
+            i--;
+        }
+
+        // 继续向前查找类型名的开始（字母、数字、下划线、点）
+        while (i >= limit && (char.IsLetterOrDigit(text[i]) || text[i] == '_' || text[i] == '.'))
+        {
+            i--;
+        }
+
+        return i + 1;
+    }
+
+    /// <summary>
+    /// 判断类型名是否为值类型
+    /// </summary>
+    private static bool IsValueType(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return false;
+
+        var trimmed = typeName.Trim();
+
+        // 移除命名空间前缀，只保留类型名
+        var lastDot = trimmed.LastIndexOf('.');
+        var simpleName = lastDot >= 0 ? trimmed.Substring(lastDot + 1) : trimmed;
+
+        // C# 内置值类型
+        var builtInValueTypes = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "bool", "byte", "sbyte", "char", "decimal", "double", "float",
+            "int", "uint", "long", "ulong", "short", "ushort",
+            "Guid", "DateTime", "DateTimeOffset", "TimeSpan", "DateOnly", "TimeOnly"
+        };
+
+        if (builtInValueTypes.Contains(simpleName))
+            return true;
+
+        // 检查是否是 Nullable<T> 类型
+        if (simpleName.StartsWith("Nullable<", StringComparison.Ordinal) || 
+            simpleName.StartsWith("System.Nullable<", StringComparison.Ordinal))
+            return true;
+
+        // 检查是否是元组类型（元组是值类型）
+        if (trimmed.StartsWith('(') && trimmed.EndsWith(')'))
+            return true;
+
+        // 对于其他类型，假设是引用类型
+        // 注意：自定义结构体可能无法准确识别，但这是安全的默认行为
+        return false;
     }
 }

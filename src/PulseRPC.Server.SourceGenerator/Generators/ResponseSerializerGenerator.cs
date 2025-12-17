@@ -40,6 +40,7 @@ public static class ResponseSerializerGenerator
 
     private static void GenerateUsings(StringBuilder sb, List<ServiceModel> services)
     {
+        // 只保留必要的系统命名空间，不使用自定义类型的命名空间
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Buffers;");
         sb.AppendLine("using System.Collections.Generic;");
@@ -49,12 +50,7 @@ public static class ResponseSerializerGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using MemoryPack;");
         sb.AppendLine("using PulseRPC.Serialization;");
-
-        foreach (var ns in CollectNamespaces(services))
-        {
-            sb.AppendLine($"using {ns};");
-        }
-
+        // 不再收集和添加自定义类型的命名空间
         sb.AppendLine();
     }
 
@@ -210,11 +206,28 @@ public static class ResponseSerializerGenerator
             sb.AppendLine("                    throw new ArgumentNullException(nameof(response));");
             sb.AppendLine("                }");
             sb.AppendLine();
-            sb.AppendLine($"                if (response is {info.ResponseTypeName} typed)");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typed);");
-            sb.AppendLine("                    return;");
-            sb.AppendLine("                }");
+
+            // 检测是否为元组类型，元组类型不能使用模式匹配
+            if (IsTupleType(info.ResponseTypeName))
+            {
+                // 对于元组类型，使用类型检查和转换
+                sb.AppendLine($"                if (response.GetType() == typeof({info.ResponseTypeName}))");
+                sb.AppendLine("                {");
+                sb.AppendLine($"                    var typed = ({info.ResponseTypeName})response;");
+                sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typed);");
+                sb.AppendLine("                    return;");
+                sb.AppendLine("                }");
+            }
+            else
+            {
+                // 对于非元组类型，使用模式匹配
+                sb.AppendLine($"                if (response is {info.ResponseTypeName} typed)");
+                sb.AppendLine("                {");
+                sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typed);");
+                sb.AppendLine("                    return;");
+                sb.AppendLine("                }");
+            }
+
             sb.AppendLine();
             sb.AppendLine($"                throw new InvalidCastException($\"期待类型 {{typeof({info.ResponseTypeName})}} 但接收到 {{response.GetType()}}\");");
             sb.AppendLine("            }");
@@ -290,9 +303,18 @@ public static class ResponseSerializerGenerator
 
                 // responseType 为 null 表示 void 返回，否则为 MemoryPackable 类型
                 var responseType = string.IsNullOrWhiteSpace(method.ResponseTypeFullName) ? null : method.ResponseTypeFullName;
+
+                // 移除末尾的可空标记
                 if (!string.IsNullOrEmpty(responseType) && responseType.EndsWith('?'))
                 {
                     responseType = responseType[..^1];
+                }
+
+                // 对于元组类型，移除元素名称（如 guild, member 等）
+                // 例如：(GuildEntity? guild, GuildMember? member) -> (GuildEntity?, GuildMember?)
+                if (!string.IsNullOrEmpty(responseType) && IsTupleType(responseType))
+                {
+                    responseType = StripTupleElementNames(responseType);
                 }
 
                 list.Add(new ResponseSerializerInfo(
@@ -313,7 +335,7 @@ public static class ResponseSerializerGenerator
 
         foreach (var service in services)
         {
-            if (!string.IsNullOrWhiteSpace(service.Namespace))
+            if (!string.IsNullOrWhiteSpace(service.Namespace) && IsValidNamespace(service.Namespace))
             {
                 set.Add(service.Namespace);
             }
@@ -327,41 +349,106 @@ public static class ResponseSerializerGenerator
             }
         }
 
-        return set.OrderBy(n => n);
+        // Filter out any invalid namespaces and return sorted
+        return set.Where(IsValidNamespace).OrderBy(n => n);
     }
 
     /// <summary>
-    /// 从类型全名中提取所有命名空间（包括泛型参数）
+    /// Validates that a namespace string is a valid C# namespace identifier
+    /// </summary>
+    private static bool IsValidNamespace(string ns)
+    {
+        if (string.IsNullOrWhiteSpace(ns))
+            return false;
+
+        // Namespace should not contain generic markers, special chars, or be a keyword
+        if (ns.Contains('<') || ns.Contains('>') || ns.Contains('?') ||
+            ns.Contains('[') || ns.Contains(']') || ns.Contains(' ') ||
+            ns.Contains('@') || ns.Contains('`'))
+            return false;
+
+        // Each part of the namespace should be a valid identifier
+        var parts = ns.Split('.');
+        foreach (var part in parts)
+        {
+            if (string.IsNullOrEmpty(part))
+                return false;
+
+            // First character must be letter or underscore
+            if (!char.IsLetter(part[0]) && part[0] != '_')
+                return false;
+
+            // Remaining characters must be letters, digits, or underscores
+            for (var i = 1; i < part.Length; i++)
+            {
+                if (!char.IsLetterOrDigit(part[i]) && part[i] != '_')
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 从类型全名中提取所有命名空间（包括泛型参数和元组元素）
     /// </summary>
     private static void ExtractNamespacesFromType(string typeFullName, HashSet<string> namespaces)
     {
+        if (string.IsNullOrWhiteSpace(typeFullName))
+            return;
+
+        var trimmed = typeFullName.Trim();
+
         // 移除可能的可空标记
-        if (typeFullName.EndsWith('?'))
+        if (trimmed.EndsWith('?'))
         {
-            typeFullName = typeFullName[..^1];
+            trimmed = trimmed[..^1].Trim();
+        }
+
+        // 移除参数名（如果类型名包含参数名，如 "Guild? guild" -> "Guild?"）
+        // 查找最后一个空格，如果后面跟着有效的标识符，则可能是参数名
+        // 但要注意：空格可能也在类型名内部（如泛型参数中的空格），所以需要更智能的判断
+        trimmed = RemoveParameterName(trimmed);
+
+        // 检查是否是元组类型
+        if (trimmed.StartsWith('(') && trimmed.EndsWith(')'))
+        {
+            // 提取元组元素（移除外层的括号）
+            var tupleContent = trimmed.Substring(1, trimmed.Length - 2).Trim();
+            var elements = SplitTupleElements(tupleContent);
+            foreach (var element in elements)
+            {
+                var elementTrimmed = element.Trim();
+                if (!string.IsNullOrWhiteSpace(elementTrimmed))
+                {
+                    // 递归处理每个元组元素
+                    ExtractNamespacesFromType(elementTrimmed, namespaces);
+                }
+            }
+            return;
         }
 
         // 检查是否是泛型类型
-        var genericStart = typeFullName.IndexOf('<');
+        var genericStart = trimmed.IndexOf('<');
         if (genericStart > 0)
         {
             // 提取泛型定义的命名空间（如 System.Collections.Generic.List<T> 中的 System.Collections.Generic）
-            var genericDefinition = typeFullName[..genericStart];
+            var genericDefinition = trimmed[..genericStart];
             var lastDot = genericDefinition.LastIndexOf('.');
             if (lastDot > 0)
             {
                 var ns = genericDefinition[..lastDot];
-                if (!string.IsNullOrWhiteSpace(ns))
+                if (!string.IsNullOrWhiteSpace(ns) && IsValidNamespace(ns))
                 {
                     namespaces.Add(ns);
                 }
             }
 
             // 提取泛型参数的命名空间
-            var genericEnd = typeFullName.LastIndexOf('>');
+            var genericEnd = trimmed.LastIndexOf('>');
             if (genericEnd > genericStart)
             {
-                var genericArgs = typeFullName.Substring(genericStart + 1, genericEnd - genericStart - 1);
+                var genericArgs = trimmed.Substring(genericStart + 1, genericEnd - genericStart - 1);
 
                 // 处理多个泛型参数（用逗号分隔）
                 var args = SplitGenericArguments(genericArgs);
@@ -379,16 +466,77 @@ public static class ResponseSerializerGenerator
         else
         {
             // 非泛型类型，直接提取命名空间
-            var lastDot = typeFullName.LastIndexOf('.');
+            var lastDot = trimmed.LastIndexOf('.');
             if (lastDot > 0)
             {
-                var ns = typeFullName[..lastDot];
-                if (!string.IsNullOrWhiteSpace(ns))
+                var ns = trimmed[..lastDot];
+                if (!string.IsNullOrWhiteSpace(ns) && IsValidNamespace(ns))
                 {
                     namespaces.Add(ns);
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 移除类型名中的参数名
+    /// 例如："Libra.Modules.GuildSystem.Guild? guild" -> "Libra.Modules.GuildSystem.Guild?"
+    /// 例如："int count" -> "int"
+    /// </summary>
+    private static string RemoveParameterName(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return typeName;
+
+        var trimmed = typeName.Trim();
+
+        // 如果类型名包含泛型或元组，参数名应该在最后（在 > 或 ) 之后）
+        // 例如："List<int> items" -> "List<int>"
+        var genericEnd = trimmed.LastIndexOf('>');
+        var tupleEnd = trimmed.LastIndexOf(')');
+        var lastBracket = Math.Max(genericEnd, tupleEnd);
+
+        if (lastBracket >= 0)
+        {
+            // 有泛型或元组，参数名应该在括号之后
+            var afterBracket = trimmed.Substring(lastBracket + 1).Trim();
+            if (!string.IsNullOrWhiteSpace(afterBracket))
+            {
+                // 检查括号后是否有空格和标识符（参数名）
+                var spaceIndex = afterBracket.IndexOf(' ');
+                if (spaceIndex > 0 && spaceIndex < afterBracket.Length - 1)
+                {
+                    var afterSpace = afterBracket.Substring(spaceIndex + 1).Trim();
+                    if (IsValidIdentifier(afterSpace))
+                    {
+                        // 移除参数名
+                        return trimmed.Substring(0, lastBracket + 1 + spaceIndex).Trim();
+                    }
+                }
+            }
+        }
+        else
+        {
+            // 没有泛型或元组，查找最后一个空格
+            var lastSpace = trimmed.LastIndexOf(' ');
+            if (lastSpace > 0 && lastSpace < trimmed.Length - 1)
+            {
+                var afterSpace = trimmed.Substring(lastSpace + 1).Trim();
+                // 如果空格后是有效的 C# 标识符（可能是参数名），则移除它
+                if (IsValidIdentifier(afterSpace))
+                {
+                    // 但需要确保这不是类型名的一部分（如 "System.Collections.Generic"）
+                    // 检查空格前的部分是否以点结尾，如果是，则可能是命名空间的一部分
+                    var beforeSpace = trimmed.Substring(0, lastSpace).Trim();
+                    if (!beforeSpace.EndsWith('.'))
+                    {
+                        return beforeSpace;
+                    }
+                }
+            }
+        }
+
+        return trimmed;
     }
 
     /// <summary>
@@ -434,6 +582,75 @@ public static class ResponseSerializerGenerator
     }
 
     /// <summary>
+    /// 分割元组元素，正确处理嵌套元组
+    /// 例如：(string, int) 应该分割为 ["string", "int"]
+    /// 例如：((string, int), bool) 应该分割为 ["(string, int)", "bool"]
+    /// </summary>
+    private static List<string> SplitTupleElements(string tupleContent)
+    {
+        var result = new List<string>();
+        var current = new StringBuilder();
+        var depth = 0;
+
+        foreach (var ch in tupleContent)
+        {
+            if (ch == '(')
+            {
+                depth++;
+                current.Append(ch);
+            }
+            else if (ch == ')')
+            {
+                depth--;
+                current.Append(ch);
+            }
+            else if (ch == ',' && depth == 0)
+            {
+                // 顶层逗号，分隔元素
+                result.Add(current.ToString());
+                current.Clear();
+            }
+            else
+            {
+                current.Append(ch);
+            }
+        }
+
+        if (current.Length > 0)
+        {
+            result.Add(current.ToString());
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// 检查字符串是否是有效的 C# 标识符（用于检测参数名）
+    /// </summary>
+    private static bool IsValidIdentifier(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var trimmed = text.Trim();
+        if (trimmed.Length == 0)
+            return false;
+
+        // 第一个字符必须是字母、下划线或 @
+        if (!char.IsLetter(trimmed[0]) && trimmed[0] != '_' && trimmed[0] != '@')
+            return false;
+
+        // 其余字符必须是字母、数字或下划线
+        for (int i = 1; i < trimmed.Length; i++)
+        {
+            if (!char.IsLetterOrDigit(trimmed[i]) && trimmed[i] != '_')
+                return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// 生成模块初始化器 - 自动注册 ResponseSerializer
     /// </summary>
     private static void GenerateModuleInitializer(StringBuilder sb)
@@ -450,6 +667,98 @@ public static class ResponseSerializerGenerator
         sb.AppendLine("        System.Diagnostics.Debug.WriteLine(\"[PulseRPC] ResponseSerializer registered to global registry\");");
         sb.AppendLine("    }");
         sb.AppendLine();
+    }
+
+    /// <summary>
+    /// 检测类型名是否为元组类型
+    /// </summary>
+    private static bool IsTupleType(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return false;
+
+        // 元组类型通常以 '(' 开头并以 ')' 结尾
+        var trimmed = typeName.Trim();
+        return trimmed.StartsWith('(') && trimmed.EndsWith(')');
+    }
+
+    /// <summary>
+    /// 移除元组类型中的元素名称
+    /// 例如：(Libra.GuildEntity? guild, Libra.GuildMember? member) -> (Libra.GuildEntity?, Libra.GuildMember?)
+    /// </summary>
+    private static string StripTupleElementNames(string typeName)
+    {
+        if (string.IsNullOrWhiteSpace(typeName))
+            return typeName;
+
+        var trimmed = typeName.Trim();
+
+        // 如果不是元组类型，直接返回
+        if (!trimmed.StartsWith('(') || !trimmed.EndsWith(')'))
+            return trimmed;
+
+        // 提取元组内容（移除外层括号）
+        var tupleContent = trimmed.Substring(1, trimmed.Length - 2);
+        var elements = SplitTupleElements(tupleContent);
+        var cleanedElements = new List<string>();
+
+        foreach (var element in elements)
+        {
+            var cleanedElement = StripSingleElementName(element.Trim());
+            cleanedElements.Add(cleanedElement);
+        }
+
+        return $"({string.Join(", ", cleanedElements)})";
+    }
+
+    /// <summary>
+    /// 移除单个元组元素中的名称
+    /// 例如：Libra.GuildEntity? guild -> Libra.GuildEntity?
+    /// </summary>
+    private static string StripSingleElementName(string element)
+    {
+        if (string.IsNullOrWhiteSpace(element))
+            return element;
+
+        var trimmed = element.Trim();
+
+        // 如果是嵌套元组，递归处理
+        if (trimmed.StartsWith('(') && trimmed.EndsWith(')'))
+        {
+            return StripTupleElementNames(trimmed);
+        }
+
+        // 如果是泛型类型，需要特殊处理
+        var genericEnd = trimmed.LastIndexOf('>');
+        if (genericEnd >= 0)
+        {
+            // 泛型类型后可能有元素名称
+            // 例如: List<int> items
+            var afterGeneric = trimmed.Substring(genericEnd + 1).Trim();
+            if (!string.IsNullOrWhiteSpace(afterGeneric) && IsValidIdentifier(afterGeneric))
+            {
+                return trimmed.Substring(0, genericEnd + 1);
+            }
+            return trimmed;
+        }
+
+        // 非泛型类型：查找最后一个空格
+        // 例如：Libra.GuildEntity? guild
+        var lastSpace = trimmed.LastIndexOf(' ');
+        if (lastSpace > 0 && lastSpace < trimmed.Length - 1)
+        {
+            var beforeSpace = trimmed.Substring(0, lastSpace).Trim();
+            var afterSpace = trimmed.Substring(lastSpace + 1).Trim();
+
+            // 如果空格后是有效标识符（元素名），移除它
+            // 但要确保 beforeSpace 不以点结尾（不是命名空间的一部分）
+            if (IsValidIdentifier(afterSpace) && !beforeSpace.EndsWith('.'))
+            {
+                return beforeSpace;
+            }
+        }
+
+        return trimmed;
     }
 
     private static string GetSafeIdentifier(string value)

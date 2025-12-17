@@ -484,10 +484,16 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
         sb.AppendLine();
 
-        // 添加生成的命名空间 using
-        foreach (var receiver in receivers)
+        // 添加生成的命名空间 using（去重）
+        var generatedNamespaces = receivers
+            .Select(r => r.Namespace)
+            .Where(ns => !string.IsNullOrWhiteSpace(ns))
+            .Distinct()
+            .OrderBy(ns => ns);
+
+        foreach (var ns in generatedNamespaces)
         {
-            sb.AppendLine($"using {receiver.Namespace}.Generated;");
+            sb.AppendLine($"using {ns}.Generated;");
         }
         sb.AppendLine();
 
