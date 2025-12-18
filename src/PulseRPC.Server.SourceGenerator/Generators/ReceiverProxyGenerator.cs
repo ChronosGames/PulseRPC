@@ -154,9 +154,24 @@ public static class ReceiverProxyGenerator
     {
         var constName = $"Protocol_{method.MethodName}";
 
-        // 生成方法签名
+        // 生成方法签名 - 根据返回类型决定
         sb.AppendLine($"    /// <inheritdoc/>");
-        sb.Append($"    public async Task {method.MethodName}(");
+
+        if (method.ReturnsVoid)
+        {
+            // 返回 void 的方法
+            sb.Append($"    public void {method.MethodName}(");
+        }
+        else if (method.ReturnsTask || method.ReturnsValueTask)
+        {
+            // 返回 Task/ValueTask 的方法
+            sb.Append($"    public async {method.ReturnTypeName} {method.MethodName}(");
+        }
+        else
+        {
+            // 其他返回类型，默认使用 Task
+            sb.Append($"    public async Task {method.MethodName}(");
+        }
 
         for (var i = 0; i < method.Parameters.Count; i++)
         {
@@ -174,6 +189,35 @@ public static class ReceiverProxyGenerator
         sb.AppendLine();
 
         // 序列化参数
+        GenerateSerializationCode(sb, method);
+        sb.AppendLine();
+
+        // 构造消息包
+        sb.AppendLine($"        // 构造消息包（使用协议号）");
+        sb.AppendLine($"        var packet = BuildEventPacket({constName}, payload);");
+        sb.AppendLine();
+
+        // 根据返回类型生成不同的发送逻辑
+        if (method.ReturnsVoid)
+        {
+            // void 方法使用同步 Send（基于队列）
+            GenerateSyncSend(sb);
+        }
+        else
+        {
+            // Task/ValueTask 方法使用异步 SendAsync
+            GenerateAsyncSend(sb);
+        }
+
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// 生成序列化代码
+    /// </summary>
+    private static void GenerateSerializationCode(StringBuilder sb, ReceiverMethodModel method)
+    {
         if (method.Parameters.Count == 0)
         {
             sb.AppendLine("        // 无参数方法");
@@ -192,15 +236,33 @@ public static class ReceiverProxyGenerator
             sb.AppendLine($"        // 序列化多个参数为元组");
             sb.AppendLine($"        var payload = MemoryPackSerializer.Serialize(({tupleParams}));");
         }
-        sb.AppendLine();
+    }
 
-        // 构造消息包
-        sb.AppendLine($"        // 构造消息包（使用协议号）");
-        sb.AppendLine($"        var packet = BuildEventPacket({constName}, payload);");
-        sb.AppendLine();
+    /// <summary>
+    /// 生成同步发送逻辑（用于 void 返回类型，基于发送队列）
+    /// </summary>
+    private static void GenerateSyncSend(StringBuilder sb)
+    {
+        sb.AppendLine("        // 使用同步发送（基于队列，非阻塞入队）");
+        sb.AppendLine("        foreach (var target in targetList)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            try");
+        sb.AppendLine("            {");
+        sb.AppendLine("                target.Send(packet);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            catch");
+        sb.AppendLine("            {");
+        sb.AppendLine("                // 忽略发送失败（连接可能已断开）");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+    }
 
-        // 发送到所有目标
-        sb.AppendLine("        // 并行发送到所有目标");
+    /// <summary>
+    /// 生成异步发送逻辑（用于 Task/ValueTask 返回类型）
+    /// </summary>
+    private static void GenerateAsyncSend(StringBuilder sb)
+    {
+        sb.AppendLine("        // 并行异步发送到所有目标");
         sb.AppendLine("        var tasks = targetList.Select(async target =>");
         sb.AppendLine("        {");
         sb.AppendLine("            try");
@@ -214,8 +276,6 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("        });");
         sb.AppendLine();
         sb.AppendLine("        await Task.WhenAll(tasks);");
-        sb.AppendLine("    }");
-        sb.AppendLine();
     }
 
     private static void GenerateHelperMethods(StringBuilder sb)
