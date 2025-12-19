@@ -781,6 +781,13 @@ public static partial class ProtocolIdMapping
                     var returnType = methodSymbol.ReturnType.ToDisplayString();
                     var isAsync = IsAsyncMethod(methodSymbol);
 
+                    // 仅支持 Task/ValueTask 返回类型，跳过非异步方法（void 返回等）
+                    if (!isAsync)
+                    {
+                        // 跳过非 Task/ValueTask 返回类型的方法
+                        continue;
+                    }
+
                     var method = new ReceiverMethodModel
                     {
                         MethodName = methodSymbol.Name,

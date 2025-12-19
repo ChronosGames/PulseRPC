@@ -136,6 +136,13 @@ public static class ServiceAnalyzer
         var returnTypeFullName = returnType.ToDisplayString();
 
         var isAsync = IsAsyncMethod(returnType);
+
+        // 仅支持 Task/ValueTask 返回类型，跳过非异步方法
+        if (!isAsync)
+        {
+            return null;
+        }
+
         var isGenericTask = IsGenericTaskType(returnType);
         var responseTypeFullName = GetResponseTypeFullName(returnType);
 

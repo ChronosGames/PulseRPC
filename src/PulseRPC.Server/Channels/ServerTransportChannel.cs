@@ -82,22 +82,6 @@ public interface IServerChannel : IDisposable
     Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 同步发送数据（非阻塞入队）
-    /// </summary>
-    /// <remarks>
-    /// 调用线程将数据入队后立即返回，由后台线程负责实际发送。
-    /// 用于 void 返回类型的 Receiver 方法。
-    /// </remarks>
-    /// <param name="data">要发送的数据</param>
-    /// <returns>入队成功返回 true，队列已满返回 false</returns>
-    bool Send(ReadOnlyMemory<byte> data);
-
-    /// <summary>
-    /// 同步发送数据（非阻塞入队）- byte[] 重载
-    /// </summary>
-    bool Send(byte[] data);
-
-    /// <summary>
     /// 状态变更事件
     /// </summary>
     event EventHandler<TransportStateEventArgs>? StateChanged;
