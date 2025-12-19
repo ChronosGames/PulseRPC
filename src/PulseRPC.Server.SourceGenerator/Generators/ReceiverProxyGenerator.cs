@@ -154,15 +154,10 @@ public static class ReceiverProxyGenerator
     {
         var constName = $"Protocol_{method.MethodName}";
 
-        // 生成方法签名 - 根据返回类型决定
+        // 生成方法签名 - 仅支持 Task/ValueTask 返回类型
         sb.AppendLine($"    /// <inheritdoc/>");
 
-        if (method.ReturnsVoid)
-        {
-            // 返回 void 的方法
-            sb.Append($"    public void {method.MethodName}(");
-        }
-        else if (method.ReturnsTask || method.ReturnsValueTask)
+        if (method.ReturnsTask || method.ReturnsValueTask)
         {
             // 返回 Task/ValueTask 的方法
             sb.Append($"    public async {method.ReturnTypeName} {method.MethodName}(");
@@ -197,17 +192,8 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"        var packet = BuildEventPacket({constName}, payload);");
         sb.AppendLine();
 
-        // 根据返回类型生成不同的发送逻辑
-        if (method.ReturnsVoid)
-        {
-            // void 方法使用同步 Send（基于队列）
-            GenerateSyncSend(sb);
-        }
-        else
-        {
-            // Task/ValueTask 方法使用异步 SendAsync
-            GenerateAsyncSend(sb);
-        }
+        // 使用异步 SendAsync 发送
+        GenerateAsyncSend(sb);
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -236,25 +222,6 @@ public static class ReceiverProxyGenerator
             sb.AppendLine($"        // 序列化多个参数为元组");
             sb.AppendLine($"        var payload = MemoryPackSerializer.Serialize(({tupleParams}));");
         }
-    }
-
-    /// <summary>
-    /// 生成同步发送逻辑（用于 void 返回类型，基于发送队列）
-    /// </summary>
-    private static void GenerateSyncSend(StringBuilder sb)
-    {
-        sb.AppendLine("        // 使用同步发送（基于队列，非阻塞入队）");
-        sb.AppendLine("        foreach (var target in targetList)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            try");
-        sb.AppendLine("            {");
-        sb.AppendLine("                target.Send(packet);");
-        sb.AppendLine("            }");
-        sb.AppendLine("            catch");
-        sb.AppendLine("            {");
-        sb.AppendLine("                // 忽略发送失败（连接可能已断开）");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
     }
 
     /// <summary>

@@ -86,14 +86,6 @@ public sealed class ReceiverMethodModel
     public ushort ProtocolId { get; set; }
 
     /// <summary>
-    /// 是否返回 void
-    /// </summary>
-    public bool ReturnsVoid =>
-        ReturnTypeName == "void" ||
-        ReturnTypeName == "Void" ||
-        ReturnTypeName == "System.Void";
-
-    /// <summary>
     /// 是否返回 Task
     /// </summary>
     public bool ReturnsTask =>
