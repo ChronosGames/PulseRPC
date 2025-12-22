@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Client.Transport;
+using PulseRPC.Client.Health;
 using PulseRPC.Transport;
 using System.Collections.Concurrent;
 using PulseRPC.Client.Channels;
@@ -10,12 +11,13 @@ using PulseRPC.Serialization;
 namespace PulseRPC.Client;
 
 /// <summary>
-/// 连接管理器实现 - 管理所有连接的创建、维护和销毁
+/// 连接管理器实现 - 统一管理连接的创建、销毁、路由和生命周期
 /// </summary>
 public sealed class ConnectionManager : IConnectionManager
 {
     private readonly ILogger<ConnectionManager> _logger;
     private readonly ISerializerProvider _serializerProvider;
+    private readonly ILoadBalancer _loadBalancer;
     private readonly ConcurrentDictionary<string, IClientChannel> _connections = new();
     private readonly SemaphoreSlim _connectionSemaphore = new(1, 1);
     private volatile bool _disposed;
@@ -30,10 +32,12 @@ public sealed class ConnectionManager : IConnectionManager
     /// </summary>
     public ConnectionManager(
         ISerializerProvider? serializerProvider = null,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        ILoadBalancer? loadBalancer = null)
     {
         _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
         _logger = loggerFactory?.CreateLogger<ConnectionManager>() ?? NullLogger<ConnectionManager>.Instance;
+        _loadBalancer = loadBalancer ?? new ConnectionLoadBalancer(LoadBalancingStrategy.RoundRobin, loggerFactory?.CreateLogger<ConnectionLoadBalancer>() ?? NullLogger<ConnectionLoadBalancer>.Instance);
     }
 
     /// <summary>
@@ -302,8 +306,146 @@ public sealed class ConnectionManager : IConnectionManager
         _logger.LogInformation("连接管理器已关闭");
     }
 
-    public Task<int> CleanupIdleConnectionsAsync(TimeSpan? maxAge = null, CancellationToken cancellationToken = default)
+    #region 路由功能
+
+    /// <summary>
+    /// 根据服务名称路由到最佳连接
+    /// </summary>
+    public Task<IClientChannel?> RouteAsync(string serviceName, CancellationToken cancellationToken = default)
     {
-        throw new NotImplementedException();
+        ThrowIfDisposed();
+
+        if (string.IsNullOrEmpty(serviceName))
+        {
+            throw new ArgumentException("服务名称不能为空", nameof(serviceName));
+        }
+
+        // 1. 获取服务相关的连接（按服务名或标签匹配）
+        var candidates = GetServiceConnections(serviceName);
+
+        if (candidates.Count == 0)
+        {
+            // 如果没有匹配的服务连接，返回任意健康连接（降级策略）
+            candidates = _connections.Values
+                .Where(c => c.State == ExtendedConnectionState.Connected)
+                .ToList();
+
+            if (candidates.Count > 0)
+            {
+                _logger.LogDebug("未找到服务 {ServiceName} 的专用连接，使用降级策略返回可用连接", serviceName);
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            _logger.LogWarning("未找到服务 {ServiceName} 的可用连接", serviceName);
+            return Task.FromResult<IClientChannel?>(null);
+        }
+
+        // 2. 使用负载均衡器选择最佳连接
+        var selected = _loadBalancer.SelectConnection(candidates, LoadBalancingHint.None);
+        return Task.FromResult(selected);
     }
+
+    /// <summary>
+    /// 获取指定服务的所有可用连接
+    /// </summary>
+    public IReadOnlyList<IClientChannel> GetServiceConnections(string serviceName)
+    {
+        ThrowIfDisposed();
+
+        if (string.IsNullOrEmpty(serviceName))
+        {
+            return Array.Empty<IClientChannel>();
+        }
+
+        // 按服务名标签匹配，或者按连接名称前缀匹配
+        return _connections.Values
+            .Where(c => c.State == ExtendedConnectionState.Connected &&
+                       (c.Tags.TryGetValue("service", out var svc) && string.Equals(svc, serviceName, StringComparison.OrdinalIgnoreCase) ||
+                        c.Tags.TryGetValue("serviceName", out var sn) && string.Equals(sn, serviceName, StringComparison.OrdinalIgnoreCase) ||
+                        c.Descriptor?.Name?.Contains(serviceName, StringComparison.OrdinalIgnoreCase) == true))
+            .ToList();
+    }
+
+    #endregion
+
+    #region 生命周期管理
+
+    /// <summary>
+    /// 执行健康检查
+    /// </summary>
+    public Task<IReadOnlyList<HealthCheckResult>> PerformHealthChecksAsync(CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        var results = new List<HealthCheckResult>();
+        var connections = GetAllConnections();
+
+        foreach (var conn in connections)
+        {
+            var health = conn.State switch
+            {
+                ExtendedConnectionState.Connected => HealthStatus.Healthy,
+                ExtendedConnectionState.Connecting => HealthStatus.Degraded,
+                ExtendedConnectionState.Reconnecting => HealthStatus.Degraded,
+                ExtendedConnectionState.Disconnecting => HealthStatus.Degraded,
+                _ => HealthStatus.Unhealthy
+            };
+
+            results.Add(new HealthCheckResult
+            {
+                ConnectionId = conn.Id,
+                Health = health,
+                CheckedAt = DateTime.UtcNow,
+                Message = $"Connection state: {conn.State}"
+            });
+        }
+
+        _logger.LogDebug("健康检查完成: {Total} 个连接, {Healthy} 个健康",
+            results.Count, results.Count(r => r.Health == HealthStatus.Healthy));
+
+        return Task.FromResult<IReadOnlyList<HealthCheckResult>>(results);
+    }
+
+    /// <summary>
+    /// 清理空闲连接
+    /// </summary>
+    public async Task<int> CleanupIdleConnectionsAsync(TimeSpan? maxAge = null, CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        var timeout = maxAge ?? TimeSpan.FromMinutes(30);
+        var now = DateTime.UtcNow;
+        var cleaned = 0;
+
+        var idleConnections = GetAllConnections()
+            .Where(c => c.Statistics != null && c.Statistics.LastActiveAt < now - timeout)
+            .ToList();
+
+        if (idleConnections.Count == 0)
+        {
+            return 0;
+        }
+
+        _logger.LogInformation("开始清理 {Count} 个空闲连接（超时: {Timeout}）", idleConnections.Count, timeout);
+
+        foreach (var conn in idleConnections)
+        {
+            try
+            {
+                await DisconnectAsync(conn.Id, cancellationToken);
+                cleaned++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "清理空闲连接失败: {ConnectionId}", conn.Id);
+            }
+        }
+
+        _logger.LogInformation("清理完成: {Cleaned} 个连接已断开", cleaned);
+        return cleaned;
+    }
+
+    #endregion
 }

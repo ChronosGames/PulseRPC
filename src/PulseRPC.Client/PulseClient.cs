@@ -3,7 +3,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Authentication;
 using PulseRPC.Serialization;
 using PulseRPC.Client;
-using PulseRPC.Client.ConnectionPool;
+using PulseRPC.Client.Health;
 using PulseRPC.Messaging;
 using PulseRPC.Transport;
 
@@ -19,11 +19,8 @@ internal sealed class PulseClient : IPulseClient
     private readonly ClientOptions _clientOptions;
     private readonly RetryPolicy? _retryPolicy;
 
-    // 核心组件
+    // 核心组件（简化后只保留 ConnectionManager 和 LoadBalancer）
     private readonly IConnectionManager _connectionManager;
-    private readonly IConnectionRouter _connectionRouter;
-    private readonly IConnectionRegistry _connectionRegistry;
-    private readonly IConnectionLifecycleManager _connectionLifecycleManager;
     private readonly ILoadBalancer _loadBalancer;
 
     // 状态管理
@@ -36,24 +33,9 @@ internal sealed class PulseClient : IPulseClient
     private readonly DateTime _startTime = DateTime.UtcNow;
 
     /// <summary>
-    /// 连接管理器
+    /// 连接管理器（统一入口，包含路由、查询和生命周期管理功能）
     /// </summary>
     public IConnectionManager Connections => _connectionManager;
-
-    /// <summary>
-    /// 连接路由器
-    /// </summary>
-    public IConnectionRouter Router => _connectionRouter;
-
-    /// <summary>
-    /// 连接注册表
-    /// </summary>
-    public IConnectionRegistry Registry => _connectionRegistry;
-
-    /// <summary>
-    /// 连接生命周期管理器
-    /// </summary>
-    public IConnectionLifecycleManager Lifecycle => _connectionLifecycleManager;
 
     /// <summary>
     /// 负载均衡器
@@ -95,12 +77,9 @@ internal sealed class PulseClient : IPulseClient
         _statistics.ClientName = _clientOptions.Name;
         _statistics.StartTime = _startTime;
 
-        // 创建核心组件（暂时使用基础实现）
-        _connectionManager = new ConnectionManager(serializerProvider, logger);
-        _connectionRegistry = new SimpleConnectionRegistry();
-        _connectionRouter = new SimpleConnectionRouter(_connectionRegistry, logger.CreateLogger<SimpleConnectionRouter>());
-        _connectionLifecycleManager = new SimpleConnectionLifecycleManager(_connectionManager, logger.CreateLogger<SimpleConnectionLifecycleManager>());
+        // 创建核心组件（简化后只需要 ConnectionManager 和 LoadBalancer）
         _loadBalancer = CreateLoadBalancer(loadBalancingStrategy, loadBalancingOptions, logger);
+        _connectionManager = new ConnectionManager(serializerProvider, logger, _loadBalancer);
 
         _logger.LogInformation("PulseRPC 客户端已创建，初始连接数: {Count}", _initialConnections.Count);
     }
@@ -128,19 +107,12 @@ internal sealed class PulseClient : IPulseClient
         {
             _logger.LogInformation("开始初始化 PulseRPC 客户端");
 
-            // 初始化路由器默认规则
-            if (_connectionRouter is SimpleConnectionRouter simpleRouter)
-            {
-                simpleRouter.AddDefaultRules();
-            }
-
             // 连接到所有初始连接
             var connectionTasks = _initialConnections.Select(async descriptor =>
             {
                 try
                 {
-                    var connection = await _connectionManager.ConnectAsync(descriptor, cancellationToken);
-                    _connectionRegistry.RegisterConnection(connection);
+                    await _connectionManager.ConnectAsync(descriptor, cancellationToken);
                     _logger.LogInformation("连接成功: {ConnectionId}", descriptor.Id);
                 }
                 catch (Exception ex)
@@ -246,10 +218,7 @@ internal sealed class PulseClient : IPulseClient
         ThrowIfDisposed();
         EnsureRunning();
 
-        var connection = await _connectionManager.ConnectAsync(descriptor, cancellationToken);
-        _connectionRegistry.RegisterConnection(connection);
-
-        return connection;
+        return await _connectionManager.ConnectAsync(descriptor, cancellationToken);
     }
 
     /// <summary>
@@ -291,7 +260,6 @@ internal sealed class PulseClient : IPulseClient
         ThrowIfDisposed();
 
         await _connectionManager.DisconnectAsync(connectionId, cancellationToken);
-        _connectionRegistry.UnregisterConnection(connectionId);
     }
 
     /// <summary>
@@ -301,7 +269,7 @@ internal sealed class PulseClient : IPulseClient
     {
         ThrowIfDisposed();
 
-        var connectionsToDisconnect = _connectionRegistry.GetAllConnections().Where(predicate).ToList();
+        var connectionsToDisconnect = _connectionManager.GetAllConnections().Where(predicate).ToList();
 
         var disconnectTasks = connectionsToDisconnect.Select(async connection =>
         {
@@ -328,7 +296,7 @@ internal sealed class PulseClient : IPulseClient
 
         _statistics.Uptime = DateTime.UtcNow - _startTime;
         _statistics.TotalConnections = _connectionManager.Count;
-        _statistics.ActiveConnections = _connectionRegistry.GetAllConnections().Count(c => c.State == ExtendedConnectionState.Connected || c.State == ExtendedConnectionState.Active);
+        _statistics.ActiveConnections = _connectionManager.GetAllConnections().Count(c => c.State == ExtendedConnectionState.Connected);
         _statistics.Timestamp = DateTime.UtcNow;
 
         return _statistics;
@@ -342,19 +310,19 @@ internal sealed class PulseClient : IPulseClient
         ThrowIfDisposed();
 
         var checkStart = DateTime.UtcNow;
-        var connectionResults = await _connectionLifecycleManager.PerformHealthChecksAsync(cancellationToken);
+        var connectionResults = await _connectionManager.PerformHealthChecksAsync(cancellationToken);
 
-        var overallHealth = connectionResults.All(r => r.Health == ConnectionHealth.Healthy)
-            ? ConnectionHealth.Healthy
-            : connectionResults.Any(r => r.Health == ConnectionHealth.Healthy)
-                ? ConnectionHealth.Degraded
-                : ConnectionHealth.Unhealthy;
+        var overallHealth = connectionResults.All(r => r.Health == HealthStatus.Healthy)
+            ? HealthStatus.Healthy
+            : connectionResults.Any(r => r.Health == HealthStatus.Healthy)
+                ? HealthStatus.Degraded
+                : HealthStatus.Unhealthy;
 
         return new ClientHealthCheckResult
         {
             OverallHealth = overallHealth,
             ConnectionResults = connectionResults,
-            ServiceDiscoveryHealth = ConnectionHealth.Unknown,
+            ServiceDiscoveryHealth = HealthStatus.Unknown,
             CheckedAt = checkStart,
             TotalCheckTime = DateTime.UtcNow - checkStart
         };
