@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.Server.Core;
 using PulseRPC.Server.Models;
 
 namespace PulseRPC.Server.Observability;
@@ -217,7 +218,7 @@ public static class PipelineLogging
     /// </summary>
     public static void LogBackpressureActivated(
         this ILogger logger,
-        Configuration.BackpressureLevel level,
+        BackpressureLevel level,
         double queueSaturation)
     {
         logger.LogWarning(

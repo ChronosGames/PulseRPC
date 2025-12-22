@@ -11,6 +11,7 @@ using PulseRPC.Transport;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using PulseRPC.Server.Contexts;
 
 // 类型别名 - 服务间认证上下文
 // 使用统一的请求上下文
@@ -813,7 +814,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
                     try
                     {
                         // 设置认证上下文
-                        using (ServiceRequestContextProvider.SetContext(message.AuthContext!))
+                        using (UnifiedRequestContext.SetContext(message.AuthContext!))
                         {
                             // 对于方法调用消息，进行权限验证
                             if (message is MethodInvocationMessage methodMsg)
@@ -926,7 +927,7 @@ internal class AuthenticatedServiceMessageQueue : IAsyncDisposable
                 try
                 {
                     // 设置认证上下文
-                    using (ServiceRequestContextProvider.SetContext(message.AuthContext!))
+                    using (UnifiedRequestContext.SetContext(message.AuthContext!))
                     {
                         // 对于方法调用消息，进行权限验证
                         if (message is MethodInvocationMessage methodMsg)

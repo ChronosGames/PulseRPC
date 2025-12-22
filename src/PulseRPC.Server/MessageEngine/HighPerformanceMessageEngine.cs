@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using PulseRPC.Memory;
 using PulseRPC.Messaging;
 using PulseRPC.Scheduling;
+using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Memory;
 using PulseRPC.Server.Pipeline;
 using PulseRPC.Server.Processing;
@@ -431,7 +432,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
                 if (channel is ServerTransportChannel serverChannel)
                 {
-                    PulseRPC.Server.RequestContext.SetCurrent(serverChannel.Transport);
+                    TransportContextScope.SetCurrent(serverChannel.Transport);
 
                     // ✅ 设置 ServiceRequestContext（用于 GetCurrentCaller()）
                     var authContext = serverChannel.AuthenticationContext;
@@ -439,7 +440,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                     {
                         // 从认证上下文创建请求上下文
                         var requestContext = ServiceRequestContext.FromAuthenticationContext(authContext);
-                        serviceContextScope = ServiceRequestContextProvider.SetContext(requestContext);
+                        serviceContextScope = UnifiedRequestContext.SetContext(requestContext);
                     }
                     else
                     {
@@ -449,7 +450,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                             SourceType = CallSourceType.InternalService,
                             CallerId = envelope.ConnectionId ?? "Unknown"
                         };
-                        serviceContextScope = ServiceRequestContextProvider.SetContext(requestContext);
+                        serviceContextScope = UnifiedRequestContext.SetContext(requestContext);
                     }
                 }
 
@@ -484,7 +485,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 finally
                 {
                     // ✅ 清理 RequestContext 和 ServiceRequestContext
-                    PulseRPC.Server.RequestContext.Clear();
+                    TransportContextScope.Clear();
                     serviceContextScope?.Dispose();
                 }
 
