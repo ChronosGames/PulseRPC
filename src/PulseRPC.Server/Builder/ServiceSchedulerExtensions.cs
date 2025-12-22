@@ -104,13 +104,13 @@ public static class ServiceSchedulerExtensions
     /// <returns>The service collection for chaining.</returns>
     public static IServiceCollection AddServiceHealthMonitor(
         this IServiceCollection services,
-        Action<HealthMonitorOptions> configureOptions)
+        Action<BasicHealthMonitorOptions> configureOptions)
     {
         if (services == null)
             throw new ArgumentNullException(nameof(services));
 
         // Register configuration
-        var options = new HealthMonitorOptions();
+        var options = new BasicHealthMonitorOptions();
         configureOptions?.Invoke(options);
 
         services.AddSingleton(options);
@@ -118,7 +118,7 @@ public static class ServiceSchedulerExtensions
         // Register health monitor as singleton
         services.AddSingleton<ServiceHealthMonitor>(sp =>
         {
-            var healthOptions = sp.GetRequiredService<HealthMonitorOptions>();
+            var healthOptions = sp.GetRequiredService<BasicHealthMonitorOptions>();
             var logger = sp.GetService<ILogger<ServiceHealthMonitor>>();
             return new ServiceHealthMonitor(healthOptions, logger);
         });

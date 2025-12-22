@@ -105,9 +105,13 @@ public sealed class ServiceHealthInfo
 }
 
 /// <summary>
-/// 健康监控选项
+/// 基础健康监控选项 - 用于 ServiceHealthMonitor
 /// </summary>
-public sealed class HealthMonitorOptions
+/// <remarks>
+/// 注意：对于调度相关的健康监控配置，请使用 <see cref="Configuration.HealthMonitorOptions"/>。
+/// 此类专用于 <see cref="ServiceHealthMonitor"/> 的本地配置。
+/// </remarks>
+public sealed class BasicHealthMonitorOptions
 {
     /// <summary>连续失败阈值（触发熔断）</summary>
     public int FailureThreshold { get; set; } = 5;
@@ -134,17 +138,17 @@ public sealed class HealthMonitorOptions
 public sealed class ServiceHealthMonitor : IAsyncDisposable
 {
     private readonly ConcurrentDictionary<ServiceSchedulingKey, ServiceHealthInfo> _healthStates = new();
-    private readonly HealthMonitorOptions _options;
+    private readonly BasicHealthMonitorOptions _options;
     private readonly ILogger<ServiceHealthMonitor> _logger;
     private readonly Timer _checkTimer;
     private readonly CancellationTokenSource _cts = new();
     private bool _isDisposed;
 
     public ServiceHealthMonitor(
-        HealthMonitorOptions? options = null,
+        BasicHealthMonitorOptions? options = null,
         ILogger<ServiceHealthMonitor>? logger = null)
     {
-        _options = options ?? new HealthMonitorOptions();
+        _options = options ?? new BasicHealthMonitorOptions();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ServiceHealthMonitor>.Instance;
 
         // 定期健康检查

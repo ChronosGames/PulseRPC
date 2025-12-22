@@ -25,8 +25,8 @@ public sealed class ServiceRegistration
     /// <summary>
     /// Method name to compiled delegate mapping.
     /// </summary>
-    public IReadOnlyDictionary<string, CompiledMethodInvoker> Methods { get; init; }
-        = new Dictionary<string, CompiledMethodInvoker>();
+    public IReadOnlyDictionary<string, MethodInvokerMetadata> Methods { get; init; }
+        = new Dictionary<string, MethodInvokerMetadata>();
 
     /// <summary>
     /// Service handler for method invocations.
@@ -129,9 +129,13 @@ public sealed class ServiceRegistration
 }
 
 /// <summary>
-/// Placeholder for compiled method invoker (will be implemented in T023).
+/// Metadata and compiled delegate for a service method.
 /// </summary>
-public sealed class CompiledMethodInvoker
+/// <remarks>
+/// 注意：此类用于存储方法的元数据和编译后的委托。
+/// 对于运行时方法调用，请使用 <see cref="Services.CompiledMethodInvoker"/> 静态类。
+/// </remarks>
+public sealed class MethodInvokerMetadata
 {
     /// <summary>
     /// Method name.
@@ -149,7 +153,7 @@ public sealed class CompiledMethodInvoker
     public Type ReturnType { get; init; } = typeof(void);
 
     /// <summary>
-    /// Compiled delegate (will be set in T023).
+    /// Compiled delegate.
     /// </summary>
     public Delegate? CompiledDelegate { get; init; }
 

@@ -105,6 +105,44 @@ public static class IPulseServiceExtensions
                 }
             });
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // 别名方法 - 向后兼容 Builder/IPulseServiceExtensions.cs 中的方法名
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 添加 IPulseService 基础设施 (使用默认配置)
+    /// </summary>
+    /// <remarks>
+    /// 这是 <see cref="AddIPulseServiceScheduling(IServiceCollection)"/> 的别名方法。
+    /// </remarks>
+    public static IServiceCollection AddIPulseServiceInfrastructure(this IServiceCollection services)
+        => AddIPulseServiceScheduling(services);
+
+    /// <summary>
+    /// 添加 IPulseService 基础设施 (使用自定义配置)
+    /// </summary>
+    /// <remarks>
+    /// 这是 <see cref="AddIPulseServiceScheduling(IServiceCollection, Action{ServiceSchedulingOptions}?, Action{HealthMonitorOptions}?)"/> 的别名方法。
+    /// </remarks>
+    public static IServiceCollection AddIPulseServiceInfrastructure(
+        this IServiceCollection services,
+        Action<ServiceSchedulingOptions>? configureScheduling,
+        Action<HealthMonitorOptions>? configureHealthMonitoring)
+        => AddIPulseServiceScheduling(services, configureScheduling, configureHealthMonitoring);
+
+    /// <summary>
+    /// 添加 IPulseService 基础设施 (从配置文件读取)
+    /// </summary>
+    /// <remarks>
+    /// 这是 <see cref="AddIPulseServiceScheduling(IServiceCollection, IConfiguration, string, string)"/> 的别名方法。
+    /// </remarks>
+    public static IServiceCollection AddIPulseServiceInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration,
+        string schedulingSectionName = "ServiceScheduling",
+        string healthMonitoringSectionName = "HealthMonitoring")
+        => AddIPulseServiceScheduling(services, configuration, schedulingSectionName, healthMonitoringSectionName);
 }
 
 /// <summary>
