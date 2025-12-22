@@ -105,9 +105,8 @@ public static class PulseClientExtensionsGenerator
             sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务（使用 IsAssignableFrom 支持接口实现类）");
             sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(serviceType))");
             sb.AppendLine("            {");
-            sb.AppendLine($"                // 通过连接路由器获取最佳连接");
-            sb.AppendLine($"                var connection = await client.Router.RouteAsync(\"{interfaceName}\", null, cancellationToken);");
-            sb.AppendLine($"                var channel = client.Registry.GetConnection(connection.Id);");
+            sb.AppendLine($"                // 通过连接管理器路由到最佳连接");
+            sb.AppendLine($"                var channel = await client.Connections.RouteAsync(\"{interfaceName}\", cancellationToken);");
             sb.AppendLine("                if (channel == null)");
             sb.AppendLine("                {");
             sb.AppendLine($"                    throw new InvalidOperationException($\"无法找到 {interfaceName} 服务的可用连接\");");
@@ -137,7 +136,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("            if (string.IsNullOrEmpty(connectionId)) throw new ArgumentException(\"连接ID不能为空\", nameof(connectionId));");
         sb.AppendLine();
         sb.AppendLine("            var serviceType = typeof(T);");
-        sb.AppendLine("            var connection = client.Registry.GetConnection(connectionId);");
+        sb.AppendLine("            var connection = client.Connections.GetConnection(connectionId);");
         sb.AppendLine("            if (connection == null)");
         sb.AppendLine("            {");
         sb.AppendLine("                throw new ArgumentException($\"连接不存在: {connectionId}\", nameof(connectionId));");
@@ -216,9 +215,8 @@ public static class PulseClientExtensionsGenerator
             sb.AppendLine($"            // 检查是否实现了 {interfaceName}");
             sb.AppendLine($"            if (listener is {fullTypeName} {interfaceName.ToLower()}Listener)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                // 通过连接路由器获取最佳连接");
-            sb.AppendLine($"                var connection = await client.Router.RouteAsync(\"{interfaceName}\", null, cancellationToken);");
-            sb.AppendLine($"                var connectionContext = client.Registry.GetConnection(connection.Id);");
+            sb.AppendLine($"                // 通过连接管理器路由到最佳连接");
+            sb.AppendLine($"                var connectionContext = await client.Connections.RouteAsync(\"{interfaceName}\", cancellationToken);");
             sb.AppendLine("                if (connectionContext == null)");
             sb.AppendLine("                {");
             sb.AppendLine($"                    throw new InvalidOperationException($\"无法找到 {interfaceName} 事件监听的可用连接\");");
@@ -270,7 +268,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
         sb.AppendLine();
         sb.AppendLine("            var listenerType = typeof(T);");
-        sb.AppendLine("            var connectionContext = client.Registry.GetConnection(connectionId);");
+        sb.AppendLine("            var connectionContext = client.Connections.GetConnection(connectionId);");
         sb.AppendLine("            if (connectionContext == null)");
         sb.AppendLine("            {");
         sb.AppendLine("                throw new ArgumentException($\"连接不存在: {connectionId}\", nameof(connectionId));");
@@ -473,8 +471,7 @@ public static class PulseClientExtensionsGenerator
                 sb.AppendLine("                    {");
                 sb.AppendLine($"                        try");
                 sb.AppendLine($"                        {{");
-                sb.AppendLine($"                            var connection = await client.Router.RouteAsync(\"{interfaceName}\", null, cancellationToken);");
-                sb.AppendLine($"                            var connectionContext = client.Registry.GetConnection(connection.Id);");
+                sb.AppendLine($"                            var connectionContext = await client.Connections.RouteAsync(\"{interfaceName}\", cancellationToken);");
                 sb.AppendLine("                            if (connectionContext != null)");
                 sb.AppendLine("                            {");
 

@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
 using PulseRPC.Client;
-using PulseRPC.Client.ConnectionPool;
+using PulseRPC.Client.Health;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Transport;
@@ -11,7 +11,7 @@ namespace PulseRPC.Client;
 /// <summary>
 /// PulseRPC 客户端核心接口 - 统一客户端入口
 /// 实现思路：
-/// - 聚合所有子组件（连接管理、路由、负载均衡等）
+/// - 聚合连接管理和负载均衡组件
 /// - 提供高级 API 隐藏底层复杂性
 /// - 管理客户端生命周期（初始化、运行、停止）
 /// - 提供统一的错误处理和重试机制
@@ -19,24 +19,9 @@ namespace PulseRPC.Client;
 public interface IPulseClient : IDisposable
 {
     /// <summary>
-    /// 连接管理器
+    /// 连接管理器（统一入口，包含路由、查询和生命周期管理功能）
     /// </summary>
     IConnectionManager Connections { get; }
-
-    /// <summary>
-    /// 连接路由器
-    /// </summary>
-    IConnectionRouter Router { get; }
-
-    /// <summary>
-    /// 连接注册表
-    /// </summary>
-    IConnectionRegistry Registry { get; }
-
-    /// <summary>
-    /// 连接生命周期管理器
-    /// </summary>
-    IConnectionLifecycleManager Lifecycle { get; }
 
     /// <summary>
     /// 负载均衡器
@@ -76,24 +61,6 @@ public interface IPulseClient : IDisposable
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 获取服务代理（使用当前连接或路由选择）
-    /// 注意：此方法通过 PulseClientServiceExtensions 扩展方法提供，以支持源代码生成器
-    /// </summary>
-    // Task<TService> GetServiceAsync<TService>(CancellationToken cancellationToken = default) where TService : class;
-
-    /// <summary>
-    /// 从指定连接获取服务代理
-    /// 注意：此方法通过 PulseClientServiceExtensions 扩展方法提供，以支持源代码生成器
-    /// </summary>
-    // Task<TService> GetServiceAsync<TService>(string connectionId, CancellationToken cancellationToken = default) where TService : class;
-
-    /// <summary>
-    /// 注册事件监听器
-    /// 注意：此方法通过 PulseClientServiceExtensions 扩展方法提供，以支持源代码生成器
-    /// </summary>
-    // Task<ISubscriptionToken> RegisterEventListenerAsync<TListener>(TListener listener, string? connectionId = null, CancellationToken cancellationToken = default) where TListener : class;
-
-    /// <summary>
     /// 断开连接
     /// </summary>
     Task DisconnectAsync(string connectionId, bool graceful = true, CancellationToken cancellationToken = default);
@@ -120,16 +87,18 @@ public interface IPulseClient : IDisposable
 }
 
 /// <summary>
-/// 连接管理器接口 - 管理所有连接的创建、销毁和生命周期
+/// 连接管理器接口 - 统一管理连接的创建、销毁、路由和生命周期
 /// 实现思路：
 /// - 连接工厂职责：根据配置创建不同类型的连接
-/// - 连接注册表：维护所有活跃连接的索引
-/// - 生命周期管理：自动管理连接的创建和销毁
-/// - 健康监控：定期检查连接健康状态
+/// - 连接注册表：维护所有活跃连接的索引（合并原 IConnectionRegistry）
+/// - 路由功能：根据服务名选择最佳连接（合并原 IConnectionRouter，简化规则引擎）
+/// - 生命周期管理：健康检查和空闲清理（合并原 IConnectionLifecycleManager）
 /// - 资源管理：防止连接泄漏，自动清理无用连接
 /// </summary>
 public interface IConnectionManager : IDisposable
 {
+    #region 连接创建/销毁
+
     /// <summary>
     /// 连接到服务
     /// </summary>
@@ -149,6 +118,10 @@ public interface IConnectionManager : IDisposable
     /// 批量断开连接
     /// </summary>
     Task DisconnectAsync(Func<IClientChannel, bool> predicate, CancellationToken cancellationToken = default);
+
+    #endregion
+
+    #region 连接查询（原 IConnectionRegistry 功能）
 
     /// <summary>
     /// 获取连接
@@ -170,113 +143,29 @@ public interface IConnectionManager : IDisposable
     /// </summary>
     int Count { get; }
 
-    /// <summary>
-    /// 获取或创建连接
-    /// </summary>
-    // Task<IClientChannel> GetOrCreateConnectionAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
+    #endregion
+
+    #region 路由功能（原 IConnectionRouter 功能，简化版）
 
     /// <summary>
-    /// 清理空闲连接
+    /// 根据服务名称路由到最佳连接
     /// </summary>
-    Task<int> CleanupIdleConnectionsAsync(TimeSpan? maxAge = null, CancellationToken cancellationToken = default);
+    /// <param name="serviceName">服务名称（通常是接口名，如 "IGameHub"）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>最佳连接，如果没有可用连接则返回 null</returns>
+    Task<IClientChannel?> RouteAsync(string serviceName, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 连接状态变化事件
+    /// 获取指定服务的所有可用连接
     /// </summary>
-    // event EventHandler<ConnectionStateChangedEventArgs> ConnectionStateChanged;
-}
+    /// <param name="serviceName">服务名称</param>
+    /// <returns>匹配的连接列表</returns>
+    IReadOnlyList<IClientChannel> GetServiceConnections(string serviceName);
 
-/// <summary>
-/// 连接路由器接口 - 智能路由决策引擎
-/// 实现思路：
-/// - 规则引擎：支持灵活的路由规则配置
-/// - 多维度路由：支持基于标签、区域、用户等多维度路由
-/// - 缓存优化：缓存路由决策结果，提高性能
-/// - 故障转移：自动检测连接故障并切换到备用连接
-/// - 负载感知：结合负载均衡器进行智能选择
-/// </summary>
-public interface IConnectionRouter
-{
-    /// <summary>
-    /// 注册路由规则
-    /// </summary>
-    void RegisterRule(RoutingRule rule);
+    #endregion
 
-    /// <summary>
-    /// 移除路由规则
-    /// </summary>
-    bool RemoveRule(string ruleId);
+    #region 生命周期管理（原 IConnectionLifecycleManager 功能）
 
-    /// <summary>
-    /// 路由到最佳连接
-    /// </summary>
-    Task<IClientChannel> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 获取所有匹配的连接
-    /// </summary>
-    IReadOnlyList<IClientChannel> GetMatchingConnections(string routingKey, RoutingContext? context = null);
-}
-
-
-/// <summary>
-/// 连接注册表接口 - 连接实例的注册和查询
-/// 实现思路：
-/// - 索引优化：使用多种索引支持快速查询
-/// - 并发安全：使用读写锁保证并发安全
-/// - 事件通知：连接注册/注销时发送事件
-/// - 标签查询：支持基于标签的复杂查询
-/// - 内存优化：使用弱引用避免内存泄漏
-/// </summary>
-public interface IConnectionRegistry
-{
-    /// <summary>
-    /// 注册连接
-    /// </summary>
-    void RegisterConnection(IClientChannel connection);
-
-    /// <summary>
-    /// 注销连接
-    /// </summary>
-    void UnregisterConnection(string connectionId, string reason = "手动注销");
-
-    /// <summary>
-    /// 根据标签获取连接
-    /// </summary>
-    IReadOnlyList<IClientChannel> GetConnectionsByTags(Dictionary<string, string> tags);
-
-    /// <summary>
-    /// 获取连接
-    /// </summary>
-    IClientChannel? GetConnection(string connectionId);
-
-    /// <summary>
-    /// 获取所有连接
-    /// </summary>
-    IReadOnlyList<IClientChannel> GetAllConnections();
-
-    /// <summary>
-    /// 连接注册事件
-    /// </summary>
-    event EventHandler<ConnectionRegisteredEventArgs> ConnectionRegistered;
-
-    /// <summary>
-    /// 连接注销事件
-    /// </summary>
-    event EventHandler<ConnectionUnregisteredEventArgs> ConnectionUnregistered;
-}
-
-/// <summary>
-/// 连接生命周期管理器接口 - 管理连接的整个生命周期
-/// 实现思路：
-/// - 策略模式：支持不同的生命周期管理策略
-/// - 定时维护：定期执行健康检查和清理任务
-/// - 事件驱动：响应连接状态变化事件
-/// - 资源优化：自动清理无用连接，优化资源使用
-/// - 故障恢复：自动重连和故障转移
-/// </summary>
-public interface IConnectionLifecycleManager
-{
     /// <summary>
     /// 执行健康检查
     /// </summary>
@@ -285,7 +174,9 @@ public interface IConnectionLifecycleManager
     /// <summary>
     /// 清理空闲连接
     /// </summary>
-    Task<int> CleanupIdleConnectionsAsync(TimeSpan idleTimeout, CancellationToken cancellationToken = default);
+    Task<int> CleanupIdleConnectionsAsync(TimeSpan? maxAge = null, CancellationToken cancellationToken = default);
+
+    #endregion
 }
 
 /// <summary>
@@ -308,73 +199,6 @@ public interface ILoadBalancer
     /// 负载均衡策略
     /// </summary>
     LoadBalancingStrategy Strategy { get; }
-}
-
-/// <summary>
-/// 路由规则
-/// </summary>
-public sealed class RoutingRule
-{
-    /// <summary>
-    /// 规则ID
-    /// </summary>
-    public string Id { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 规则名称
-    /// </summary>
-    public string Name { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 匹配条件
-    /// </summary>
-    public Func<string, RoutingContext?, bool> Matcher { get; set; } = (_, _) => false;
-
-    /// <summary>
-    /// 连接选择器
-    /// </summary>
-    public Func<IReadOnlyList<IClientChannel>, RoutingContext?, IClientChannel?> Selector { get; set; } = (connections, _) => connections.FirstOrDefault();
-
-    /// <summary>
-    /// 规则优先级（数值越大优先级越高）
-    /// </summary>
-    public int Priority { get; set; } = 0;
-
-    /// <summary>
-    /// 是否启用
-    /// </summary>
-    public bool Enabled { get; set; } = true;
-}
-
-/// <summary>
-/// 路由上下文
-/// </summary>
-public sealed class RoutingContext
-{
-    /// <summary>
-    /// 用户ID
-    /// </summary>
-    public string? UserId { get; set; }
-
-    /// <summary>
-    /// 上下文标签
-    /// </summary>
-    public Dictionary<string, string> Tags { get; set; } = new();
-
-    /// <summary>
-    /// 偏好区域
-    /// </summary>
-    public string? PreferredRegion { get; set; }
-
-    /// <summary>
-    /// 负载均衡提示
-    /// </summary>
-    public LoadBalancingHint LoadBalancingHint { get; set; } = LoadBalancingHint.None;
-
-    /// <summary>
-    /// 额外属性
-    /// </summary>
-    public Dictionary<string, object> Properties { get; set; } = new();
 }
 
 /// <summary>
@@ -446,23 +270,6 @@ public enum ServiceChangeType
 }
 
 /// <summary>
-/// 连接注册事件参数
-/// </summary>
-public sealed class ConnectionRegisteredEventArgs : EventArgs
-{
-    public IClientChannel Connection { get; set; } = null!;
-}
-
-/// <summary>
-/// 连接注销事件参数
-/// </summary>
-public sealed class ConnectionUnregisteredEventArgs : EventArgs
-{
-    public string ConnectionId { get; set; } = string.Empty;
-    public string Reason { get; set; } = string.Empty;
-}
-
-/// <summary>
 /// 健康检查结果
 /// </summary>
 public sealed class HealthCheckResult
@@ -475,7 +282,7 @@ public sealed class HealthCheckResult
     /// <summary>
     /// 健康状态
     /// </summary>
-    public ConnectionHealth Health { get; set; } = ConnectionHealth.Unknown;
+    public HealthStatus Health { get; set; } = HealthStatus.Unknown;
 
     /// <summary>
     /// 检查时间

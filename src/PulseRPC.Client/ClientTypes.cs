@@ -1,4 +1,4 @@
-using PulseRPC.Client.ConnectionPool;
+using PulseRPC.Client.Health;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Client;
@@ -124,7 +124,7 @@ public sealed class ClientHealthCheckResult
     /// <summary>
     /// 整体健康状态
     /// </summary>
-    public ConnectionHealth OverallHealth { get; set; }
+    public HealthStatus OverallHealth { get; set; }
 
     /// <summary>
     /// 连接健康检查结果
@@ -134,7 +134,7 @@ public sealed class ClientHealthCheckResult
     /// <summary>
     /// 服务发现健康状态
     /// </summary>
-    public ConnectionHealth ServiceDiscoveryHealth { get; set; }
+    public HealthStatus ServiceDiscoveryHealth { get; set; }
 
     /// <summary>
     /// 检查时间
