@@ -625,7 +625,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 sb.AppendLine($"        /// </summary>");
                 sb.AppendLine($"        public static Task<{fullTypeName}Proxy> Get{serviceName}ProxyAsync(this IPulseClient self, string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)");
                 sb.AppendLine("        {");
-                sb.AppendLine("            var connection = self.Registry.GetConnection(connectionId);");
+                sb.AppendLine("            var connection = self.Connections.GetConnection(connectionId);");
                 sb.AppendLine("            if (connection == null)");
                 sb.AppendLine("            {");
                 sb.AppendLine("                throw new ArgumentException($\"连接不存在: {connectionId}\", nameof(connectionId));");
