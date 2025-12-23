@@ -100,6 +100,7 @@ jobs:
           unityVersion: ${{ matrix.unity }}
           targetPlatform: StandaloneLinux64
           buildMethod: PackageExporter.Export
+          versioning: None
 
       - uses: ./.github/actions/check-metas # check meta files
         with:
