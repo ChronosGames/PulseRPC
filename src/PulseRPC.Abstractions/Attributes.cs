@@ -294,6 +294,36 @@ public enum DispatchStrategy
 }
 
 /// <summary>
+/// 标记接口需要生成 SmartHandler（高级事件处理器）
+/// </summary>
+/// <remarks>
+/// 默认情况下，SourceGenerator 仅生成轻量级的 Dispatcher。
+/// 添加此特性后，将额外生成 SmartHandler，提供以下高级功能：
+/// - 批量事件处理
+/// - 性能监控指标
+/// - 断路器模式
+/// - 智能订阅管理
+/// </remarks>
+[AttributeUsage(AttributeTargets.Interface, AllowMultiple = false)]
+public sealed class GenerateSmartHandlerAttribute : Attribute
+{
+    /// <summary>
+    /// 是否启用批量处理，默认为 false
+    /// </summary>
+    public bool EnableBatchProcessing { get; set; } = false;
+
+    /// <summary>
+    /// 是否启用性能监控，默认为 true
+    /// </summary>
+    public bool EnablePerformanceMonitoring { get; set; } = true;
+
+    /// <summary>
+    /// 是否启用断路器，默认为 false
+    /// </summary>
+    public bool EnableCircuitBreaker { get; set; } = false;
+}
+
+/// <summary>
 /// 标记 PulseHub 方法的调度和权限配置
 /// </summary>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]

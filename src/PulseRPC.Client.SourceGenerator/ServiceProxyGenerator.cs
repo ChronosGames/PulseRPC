@@ -97,11 +97,11 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             {
                 if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
                 {
-                    var proxyCode = GenerateServiceProxy(namedType, spc);
+                    var stubCode = GenerateServiceStub(namedType, spc);
                     // 使用完整类型名称（包含命名空间）确保文件名唯一
-                    // 格式: {Namespace}_{TypeNameWithoutI}.Proxy.g.cs
-                    var fileName = $"{GetSafeFileName(namedType)}.Proxy.g.cs";
-                    spc.AddSource(fileName, SourceText.From(proxyCode, Encoding.UTF8));
+                    // 格式: {Namespace}_{TypeNameWithoutI}.Stub.g.cs
+                    var fileName = $"{GetSafeFileName(namedType)}.Stub.g.cs";
+                    spc.AddSource(fileName, SourceText.From(stubCode, Encoding.UTF8));
                 }
                 else
                 {
@@ -166,21 +166,22 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 .Select(g => g.First())
                 .ToList();
 
-            // 生成支持类型（只需要生成一次，且仅在生成 SmartHandler 时需要）
-            if (uniqueEventTypes.Count > 0 && generateSmartHandlers)
-            {
-                var supportTypesCode = EventHandlerSupportTypes.GenerateSupportTypes();
-                spc.AddSource("PulseRPC.Client.Generated.SupportTypes.g.cs", SourceText.From(supportTypesCode, Encoding.UTF8));
-            }
+            // 注意：支持类型已移至 PulseRPC.Abstractions 库中（PulseRPC.Client.Events 命名空间）
+            // 不再需要在此处生成 EventHandlerSupportTypes
 
             // 生成事件处理器
             foreach (var eventTypeInfo in uniqueEventTypes)
             {
                 if (eventTypeInfo.Type is INamedTypeSymbol namedType)
                 {
-                    // 根据配置决定是否生成智能事件处理器
+                    // 检查接口是否有 [GenerateSmartHandler] 特性
+                    var hasSmartHandlerAttribute = HasGenerateSmartHandlerAttribute(namedType);
+
+                    // 根据接口特性或全局配置决定是否生成智能事件处理器
+                    // 优先级：接口特性 > 全局配置
+                    // 默认不生成 SmartHandler（改变原有行为）
                     // 格式: {Namespace}_{TypeNameWithoutI}.SmartHandler.g.cs
-                    if (generateSmartHandlers)
+                    if (hasSmartHandlerAttribute || generateSmartHandlers)
                     {
                         var smartHandlerCode = SmartEventHandlerGenerator.GenerateSmartEventHandler(namedType, spc);
                         var smartHandlerFileName = $"{GetSafeFileName(namedType)}.SmartHandler.g.cs";
@@ -296,7 +297,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string GenerateServiceProxy(INamedTypeSymbol interfaceSymbol, SourceProductionContext context)
+    private static string GenerateServiceStub(INamedTypeSymbol interfaceSymbol, SourceProductionContext context)
     {
         var interfaceName = interfaceSymbol.Name;
         var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;
@@ -360,7 +361,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"{indent}/// 自动生成的 {interfaceName} 客户端代理");
         sb.AppendLine($"{indent}/// 使用协议号进行高性能方法路由");
         sb.AppendLine($"{indent}/// </summary>");
-        sb.AppendLine($"{indent}public sealed class {interfaceName}Proxy : {interfaceName}");
+        sb.AppendLine($"{indent}public sealed class {interfaceName}Stub : {interfaceName}");
         sb.AppendLine($"{indent}{{");
         sb.AppendLine($"{memberIndent}private readonly IClientChannel _connection;");
         sb.AppendLine();
@@ -369,10 +370,10 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         GenerateProtocolIdConstants(sb, interfaceSymbol, protocolIds, memberIndent);
 
         sb.AppendLine($"{memberIndent}/// <summary>");
-        sb.AppendLine($"{memberIndent}/// 初始化 {interfaceName} 连接代理");
+        sb.AppendLine($"{memberIndent}/// 初始化 {interfaceName} 客户端 Stub");
         sb.AppendLine($"{memberIndent}/// </summary>");
         sb.AppendLine($"{memberIndent}/// <param name=\"connection\">连接</param>");
-        sb.AppendLine($"{memberIndent}public {interfaceName}Proxy(IClientChannel connection)");
+        sb.AppendLine($"{memberIndent}public {interfaceName}Stub(IClientChannel connection)");
         sb.AppendLine($"{memberIndent}{{");
         sb.AppendLine($"{bodyIndent}_connection = connection ?? throw new ArgumentNullException(nameof(connection));");
         sb.AppendLine($"{memberIndent}}}");
@@ -621,9 +622,9 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
 
                 sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// 获取指定连接的 {interfaceName} 服务代理");
+                sb.AppendLine($"        /// 获取指定连接的 {interfaceName} 服务 Stub");
                 sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        public static Task<{fullTypeName}Proxy> Get{serviceName}ProxyAsync(this IPulseClient self, string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)");
+                sb.AppendLine($"        public static Task<{fullTypeName}Stub> Get{serviceName}StubAsync(this IPulseClient self, string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)");
                 sb.AppendLine("        {");
                 sb.AppendLine("            var connection = self.Connections.GetConnection(connectionId);");
                 sb.AppendLine("            if (connection == null)");
@@ -631,13 +632,19 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 sb.AppendLine("                throw new ArgumentException($\"连接不存在: {connectionId}\", nameof(connectionId));");
                 sb.AppendLine("            }");
                 sb.AppendLine();
-                sb.AppendLine($"            return Task.FromResult(new {fullTypeName}Proxy(connection));");
+                sb.AppendLine($"            return Task.FromResult(new {fullTypeName}Stub(connection));");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
         }
 
-        // 生成事件处理器工厂方法
+        // 注意：SmartHandler 工厂方法已移除（SmartHandler 现在是可选生成的）
+        // 用户可以通过以下方式使用：
+        // 1. 直接 new SmartHandler（如果接口标记了 [GenerateSmartHandler]）
+        // 2. 使用轻量级的 Dispatcher（始终生成）
+        // 3. 使用 IClientChannel.RegisterReceiver<T>() 扩展方法
+
+        // 生成事件监听器扩展方法（使用 Dispatcher，不依赖 SmartHandler）
         if (eventTypes.Length > 0)
         {
             foreach (var interfaceSymbol in eventTypes)
@@ -646,38 +653,24 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
                 var interfaceName = interfaceSymbol.Name;
                 var fullTypeName = GetFullTypeName(interfaceSymbol);
-                var serviceName = interfaceName.StartsWith("I") ? interfaceName.Substring(1) : interfaceName;
-                var smartHandlerClassName = interfaceName.StartsWith("I")
-                    ? interfaceName.Substring(1) + "SmartHandler"
-                    : interfaceName + "SmartHandler";
+                var dispatcherClassName = interfaceName.StartsWith("I")
+                    ? interfaceName.Substring(1) + "Dispatcher"
+                    : interfaceName + "Dispatcher";
 
-                sb.AppendLine($"        /// <summary>");
-                sb.AppendLine($"        /// 创建 {interfaceName} 智能事件处理器");
-                sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        public static {fullTypeName.Replace(interfaceName, smartHandlerClassName)} CreateSmart{serviceName}Handler(this IPulseClient client)");
-                sb.AppendLine("        {");
-                sb.AppendLine("            if (client == null)");
-                sb.AppendLine("                throw new ArgumentNullException(nameof(client));");
-                sb.AppendLine();
-                sb.AppendLine($"            return new {fullTypeName.Replace(interfaceName, smartHandlerClassName)}();");
-                sb.AppendLine("        }");
-                sb.AppendLine();
-
-                // 生成 IClientChannel 的事件监听器扩展方法
+                // 生成 IClientChannel 的事件监听器扩展方法（使用轻量级 Dispatcher）
                 sb.AppendLine($"        /// <summary>");
                 sb.AppendLine($"        /// 在指定连接上注册 {interfaceName} 事件监听器");
+                sb.AppendLine($"        /// 使用轻量级 Dispatcher 进行事件分发");
                 sb.AppendLine($"        /// </summary>");
-                sb.AppendLine($"        public static Task<ISubscriptionToken> RegisterEventListener(this IClientChannel channel, {fullTypeName} listener)");
+                sb.AppendLine($"        public static ISubscriptionToken RegisterEventListener(this IClientChannel channel, {fullTypeName} listener)");
                 sb.AppendLine("        {");
                 sb.AppendLine("            if (channel == null)");
                 sb.AppendLine("                throw new ArgumentNullException(nameof(channel));");
                 sb.AppendLine("            if (listener == null)");
                 sb.AppendLine("                throw new ArgumentNullException(nameof(listener));");
                 sb.AppendLine();
-                sb.AppendLine($"            // TODO: 完整的智能事件处理器集成");
-                sb.AppendLine($"            // 目前返回一个基本的订阅令牌，允许代码编译通过");
-                sb.AppendLine($"            return Task.FromResult<ISubscriptionToken>(");
-                sb.AppendLine($"                new SubscriptionToken(Guid.NewGuid(), \"{interfaceName}\", typeof({fullTypeName}), () => {{ }}));");
+                sb.AppendLine($"            var dispatcher = new {fullTypeName.Replace(interfaceName, dispatcherClassName)}(listener);");
+                sb.AppendLine($"            return dispatcher.RegisterTo(channel);");
                 sb.AppendLine("        }");
                 sb.AppendLine();
             }
@@ -1163,7 +1156,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     /// 从 MSBuild 配置中读取是否生成 SmartHandler
     /// </summary>
     /// <param name="configOptions">配置选项提供器</param>
-    /// <returns>是否生成 SmartHandler，默认为 true（保持向后兼容）</returns>
+    /// <returns>是否生成 SmartHandler，默认为 false（减少生成代码量）</returns>
     private static bool ShouldGenerateSmartHandlers(AnalyzerConfigOptionsProvider configOptions)
     {
         // 尝试读取全局配置: PulseRPC_GenerateSmartHandlers
@@ -1175,7 +1168,18 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             }
         }
 
-        // 默认生成（保持向后兼容）
-        return true;
+        // 默认不生成（减少代码量，用户可通过 [GenerateSmartHandler] 特性或项目配置启用）
+        return false;
+    }
+
+    /// <summary>
+    /// 检查接口是否标记了 [GenerateSmartHandler] 特性
+    /// </summary>
+    /// <param name="interfaceSymbol">接口符号</param>
+    /// <returns>是否有 GenerateSmartHandler 特性</returns>
+    private static bool HasGenerateSmartHandlerAttribute(INamedTypeSymbol interfaceSymbol)
+    {
+        return interfaceSymbol.GetAttributes()
+            .Any(attr => attr.AttributeClass?.Name is "GenerateSmartHandlerAttribute" or "GenerateSmartHandler");
     }
 }
