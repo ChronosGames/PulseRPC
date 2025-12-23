@@ -134,11 +134,11 @@ public static class ClientChannelGenericExtensionsGenerator
             if (hubType == null) continue;
 
             var fullTypeName = GetFullTypeName(hubType);
-            var proxyTypeName = $"{fullTypeName}Proxy";
+            var stubTypeName = $"{fullTypeName}Stub";
 
             sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(hubType))");
             sb.AppendLine("            {");
-            sb.AppendLine($"                return (T)(object)new {proxyTypeName}(channel);");
+            sb.AppendLine($"                return (T)(object)new {stubTypeName}(channel);");
             sb.AppendLine("            }");
             sb.AppendLine();
         }

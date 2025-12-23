@@ -100,7 +100,7 @@ public static class PulseClientExtensionsGenerator
             var fullTypeName = GetFullTypeName(serviceType);
             if (string.IsNullOrEmpty(fullTypeName)) continue;
 
-            var proxyTypeName = $"{fullTypeName}Proxy";
+            var stubTypeName = $"{fullTypeName}Stub";
 
             sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务（使用 IsAssignableFrom 支持接口实现类）");
             sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(serviceType))");
@@ -111,7 +111,7 @@ public static class PulseClientExtensionsGenerator
             sb.AppendLine("                {");
             sb.AppendLine($"                    throw new InvalidOperationException($\"无法找到 {interfaceName} 服务的可用连接\");");
             sb.AppendLine("                }");
-            sb.AppendLine($"                return (T)(object)new {proxyTypeName}(channel);");
+            sb.AppendLine($"                return (T)(object)new {stubTypeName}(channel);");
             sb.AppendLine("            }");
             sb.AppendLine();
         }
@@ -123,7 +123,7 @@ public static class PulseClientExtensionsGenerator
 
         // 生成指定连接的 GetServiceAsync<T> 实现
         sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 获取指定连接的服务代理的工厂方法");
+        sb.AppendLine("        /// 获取指定连接的服务 Stub 的工厂方法");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static async Task<T> GetServiceAsync<T>(");
         sb.AppendLine("            this IPulseClient client,");
@@ -143,7 +143,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("            }");
         sb.AppendLine();
 
-        // 为每个服务类型生成类型检查和代理创建逻辑
+        // 为每个服务类型生成类型检查和 Stub 创建逻辑
         foreach (var serviceType in serviceTypes)
         {
             if (serviceType == null) continue;
@@ -154,12 +154,12 @@ public static class PulseClientExtensionsGenerator
             var fullTypeName = GetFullTypeName(serviceType);
             if (string.IsNullOrEmpty(fullTypeName)) continue;
 
-            var proxyTypeName = $"{fullTypeName}Proxy";
+            var stubTypeName = $"{fullTypeName}Stub";
 
             sb.AppendLine($"            // 检查是否请求 {interfaceName} 服务（使用 IsAssignableFrom 支持接口实现类）");
             sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(serviceType))");
             sb.AppendLine("            {");
-            sb.AppendLine($"                return (T)(object)new {proxyTypeName}(connection);");
+            sb.AppendLine($"                return (T)(object)new {stubTypeName}(connection);");
             sb.AppendLine("            }");
             sb.AppendLine();
         }
@@ -221,22 +221,21 @@ public static class PulseClientExtensionsGenerator
             sb.AppendLine("                {");
             sb.AppendLine($"                    throw new InvalidOperationException($\"无法找到 {interfaceName} 事件监听的可用连接\");");
             sb.AppendLine("                }");
-            sb.AppendLine($"                // 创建智能事件处理器并连接到通道");
+            sb.AppendLine($"                // 使用轻量级 Dispatcher 进行事件分发");
 
             // 安全地提取命名空间
             var namespaceName = fullTypeName!.Contains(".")
                 ? fullTypeName.Substring(0, fullTypeName.LastIndexOf('.'))
                 : string.Empty;
 
-            var handlerClassName = GetReceiverClassName(interfaceName);
-            var fullHandlerClassName = string.IsNullOrEmpty(namespaceName)
-                ? handlerClassName
-                : $"{namespaceName}.{handlerClassName}";
+            var dispatcherClassName = GetDispatcherClassName(interfaceName);
+            var fullDispatcherClassName = string.IsNullOrEmpty(namespaceName)
+                ? dispatcherClassName
+                : $"{namespaceName}.{dispatcherClassName}";
 
-            sb.AppendLine($"                var smartHandler = new {fullHandlerClassName}();");
-            sb.AppendLine($"                smartHandler.Subscribe({interfaceName.ToLower()}Listener);");
-            sb.AppendLine($"                var channelToken = await smartHandler.ConnectToChannelAsync(connectionContext);");
-            sb.AppendLine($"                var token = new SubscriptionToken(Guid.NewGuid(), \"{interfaceName}\", typeof({fullTypeName}), () => {{ channelToken?.Dispose(); smartHandler?.Dispose(); }});");
+            sb.AppendLine($"                var dispatcher = new {fullDispatcherClassName}({interfaceName.ToLower()}Listener);");
+            sb.AppendLine($"                var channelToken = dispatcher.RegisterTo(connectionContext);");
+            sb.AppendLine($"                var token = new SubscriptionToken(Guid.NewGuid(), \"{interfaceName}\", typeof({fullTypeName}), () => {{ channelToken?.Dispose(); dispatcher?.Dispose(); }});");
             sb.AppendLine($"                tokens.Add(token);");
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -478,15 +477,14 @@ public static class PulseClientExtensionsGenerator
                 var namespaceName = fullTypeName!.Contains(".")
                     ? fullTypeName.Substring(0, fullTypeName.LastIndexOf('.'))
                     : string.Empty;
-                var handlerClassName = GetReceiverClassName(interfaceName);
-                var fullHandlerClassName = string.IsNullOrEmpty(namespaceName)
-                    ? handlerClassName
-                    : $"{namespaceName}.{handlerClassName}";
+                var dispatcherClassName = GetDispatcherClassName(interfaceName);
+                var fullDispatcherClassName = string.IsNullOrEmpty(namespaceName)
+                    ? dispatcherClassName
+                    : $"{namespaceName}.{dispatcherClassName}";
 
-                sb.AppendLine($"                                var smartHandler = new {fullHandlerClassName}();");
-                sb.AppendLine($"                                smartHandler.Subscribe({interfaceName.ToLower()}Listener);");
-                sb.AppendLine($"                                var channelToken = await smartHandler.ConnectToChannelAsync(connectionContext);");
-                sb.AppendLine($"                                var token = new SubscriptionToken(Guid.NewGuid(), \"{interfaceName}\", typeof({fullTypeName}), () => {{ channelToken?.Dispose(); smartHandler?.Dispose(); }});");
+                sb.AppendLine($"                                var dispatcher = new {fullDispatcherClassName}({interfaceName.ToLower()}Listener);");
+                sb.AppendLine($"                                var channelToken = dispatcher.RegisterTo(connectionContext);");
+                sb.AppendLine($"                                var token = new SubscriptionToken(Guid.NewGuid(), \"{interfaceName}\", typeof({fullTypeName}), () => {{ channelToken?.Dispose(); dispatcher?.Dispose(); }});");
                 sb.AppendLine($"                                tokens.Add(token);");
                 sb.AppendLine("                            }");
                 sb.AppendLine($"                        }}");
@@ -557,13 +555,13 @@ public static class PulseClientExtensionsGenerator
         return "default";
     }
 
-    private static string GetReceiverClassName(string interfaceName)
+    private static string GetDispatcherClassName(string interfaceName)
     {
-        // 对于 IPlayerLoginEvents，应该生成 PlayerLoginEventsSmartHandler
+        // 对于 IPlayerLoginEvents，应该生成 PlayerLoginEventsDispatcher（轻量级）
         var baseName = interfaceName.StartsWith("I")
             ? interfaceName.Substring(1)
             : interfaceName;
-        return $"{baseName}SmartHandler";
+        return $"{baseName}Dispatcher";
     }
 
     private static string? GetFullTypeName(INamedTypeSymbol? typeSymbol)
