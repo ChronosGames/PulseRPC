@@ -3,7 +3,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Events;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
-using PulseRPC.Transport;
 
 namespace PulseRPC.Client.Events;
 
@@ -23,29 +22,6 @@ public class EventBusFactory
     {
         _serializerProvider = serializerProvider ?? throw new ArgumentNullException(nameof(serializerProvider));
         _loggerFactory = loggerFactory;
-    }
-
-    /// <summary>
-    /// 为通道创建事件总线
-    /// </summary>
-    public IEventBus CreateForChannel(IClientChannel channel)
-    {
-        if (channel == null)
-            throw new ArgumentNullException(nameof(channel));
-
-        // 检查是否已为此通道创建事件总线
-        string channelKey = $"channel:{channel.GetType().Name}";
-
-        if (_eventBuses.TryGetValue(channelKey, out var existingBus))
-            return existingBus;
-
-        // 创建网络通道事件总线
-        var logger = _loggerFactory?.CreateLogger<NetworkChannelEventBus>() ??
-                     NullLogger<NetworkChannelEventBus>.Instance;
-        var eventBus = new NetworkChannelEventBus(channel, _serializerProvider, logger);
-
-        _eventBuses[channelKey] = eventBus;
-        return eventBus;
     }
 
     /// <summary>
