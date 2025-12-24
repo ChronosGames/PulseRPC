@@ -117,7 +117,7 @@ jobs:
   actions-timeline:
     needs: [build-dotnet, run-tests, build-unity]
     if: always()
-    uses: ChronosGames/Actions/.github/workflows/actions-timeline.yaml@main
-    secrets: inherit
     permissions:
       actions: read
+    uses: ChronosGames/Actions/.github/workflows/actions-timeline.yaml@main
+    secrets: inherit
