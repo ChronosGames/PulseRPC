@@ -1,10 +1,6 @@
 using System;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace PulseRPC;
-
-// IPulseReceiver 已移动到独立文件 IPulseReceiver.cs
 
 /// <summary>
 /// 订阅令牌接口
@@ -30,25 +26,4 @@ public interface ISubscriptionToken : IDisposable
     /// 取消订阅
     /// </summary>
     void Unsubscribe();
-}
-
-/// <summary>
-/// 事件总线接口
-/// </summary>
-public interface IEventBus
-{
-    /// <summary>
-    /// 发布事件
-    /// </summary>
-    Task PublishAsync<T>(string eventName, T eventData, CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// 订阅事件
-    /// </summary>
-    ISubscriptionToken Subscribe<T>(string eventName, EventHandler<T> handler);
-
-    /// <summary>
-    /// 取消订阅
-    /// </summary>
-    void Unsubscribe(ISubscriptionToken token);
 }
