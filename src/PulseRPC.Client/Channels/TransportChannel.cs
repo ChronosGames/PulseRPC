@@ -23,8 +23,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     private readonly IClientTransport _transport;
     private readonly ISerializerProvider _serializerProvider;
     private readonly TransportChannelOptions _options;
-    private readonly Dictionary<Guid, TaskCompletionSource<NetworkMessage>> _pendingRequests = new(); // 保留向后兼容
-    private readonly Dictionary<string, List<EventSubscription>> _eventSubscriptions = new();
     private readonly object _syncRoot = new object();
     private readonly ILogger<TransportChannel> _logger;
     private readonly Channel<NetworkMessage> _messageQueue;
@@ -45,8 +43,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     // 三层发送缓冲（批量零拷贝发送）
     private readonly ThreeTierSendBuffer _sendBuffer;
 
-    // 零拷贝事件处理器字典（eventName -> 反序列化委托列表）
-    private readonly Dictionary<string, List<Action<ReadOnlyMemory<byte>>>> _zeroCopyEventHandlers = new();
 
     // 优化: 预分配的缓冲区和线程本地存储
     private static readonly ThreadLocal<ArrayBufferWriter<byte>> ThreadLocalBufferWriter =
@@ -58,9 +54,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     // 优化: 预分配的消息头池
     private readonly UnityCompatibleObjectPool<MessageHeader> _messageHeaderPool;
     private readonly UnityCompatibleObjectPool<ArrayBufferWriter<byte>> _bufferWriterPool;
-
-    // 事件回调
-    private Action<string, byte[]>? _eventCallback;
 
     // === TransportChannelBase 抽象成员实现 ===
 
@@ -156,11 +149,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         }
     }
 
-    public void RegisterEventCallback(Action<string, byte[]> callback)
-    {
-        _eventCallback = callback;
-    }
-
     public Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
     {
         return _transport.ConnectAsync(host, port, cancellationToken);
@@ -172,149 +160,137 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     }
 
     /// <summary>
-    /// 优化的发送请求方法 - 使用 ValueTask 减少分配
+    /// 优化的发送请求方法 - 使用统一的 ResponseContextManager
     /// </summary>
     public async ValueTask<TResponse> InvokeAsync<TRequest, TResponse>(
         string serviceName, string methodName, TRequest request, CancellationToken cancellationToken = default)
     {
-        // 优化: 使用预分配的MessageHeader，减少对象分配
+        var messageId = Guid.NewGuid();
+
+        // 创建响应上下文并注册
+        var tcs = new TaskCompletionSource<ReadOnlyMemory<byte>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var context = new ResponseContext
+        {
+            MessageId = messageId,
+            Tcs = tcs,
+            EnqueueTimestamp = Stopwatch.GetTimestamp()
+        };
+
+        // 注册取消处理
+        context.CancellationRegistration = cancellationToken.Register(() =>
+            _responseManager.TryCancel(messageId, new OperationCanceledException(cancellationToken)));
+
+        _responseManager.Register(context);
+
+        // 使用预分配的MessageHeader
         var header = _messageHeaderPool.Get();
         try
         {
             header.Type = MessageType.Request;
-            header.MessageId = Guid.NewGuid();
+            header.MessageId = messageId;
             header.ServiceName = serviceName;
             header.MethodName = methodName;
 
             // 计算并设置 ProtocolId (使用与服务端相同的 FNV-1a 算法)
-            // 传递请求参数类型以生成正确的签名
             header.ProtocolId = ComputeProtocolId(serviceName, methodName, typeof(TRequest));
 
-            // 创建待处理请求
-            var tcs = new TaskCompletionSource<NetworkMessage>();
-            lock (_syncRoot)
+            // 发送请求
+            var success = await SendRequestOptimizedInternal(header, request, cancellationToken);
+            if (!success)
             {
-                _pendingRequests[header.MessageId] = tcs;
+                _responseManager.TrySetException(messageId, new IOException("发送请求失败"));
+                throw new IOException("发送请求失败");
             }
 
-            try
+            // 等待响应（超时由 ResponseContextManager 管理）
+            var responseBytes = await tcs.Task;
+
+            // 反序列化响应
+            if (typeof(TResponse) == typeof(EmptyResponse))
             {
-                // 优化: 使用零拷贝序列化
-                var success = await SendRequestOptimizedInternal(header, request, cancellationToken);
-                if (!success)
-                {
-                    throw new IOException("发送请求失败");
-                }
-
-                // 等待响应
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(_options.DefaultTimeout);
-
-                NetworkMessage response;
-                try
-                {
-                    response = await tcs.Task.WaitAsync(timeoutCts.Token);
-                }
-                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
-                {
-                    throw new TimeoutException($"请求 {methodName} 超时");
-                }
-
-                // 优化: 直接反序列化，避免中间对象
-                if (typeof(TResponse) == typeof(EmptyResponse))
-                {
-                    return (TResponse)(object)EmptyResponse.Instance;
-                }
-                else
-                {
-                    return DeserializeResponseOptimized<TResponse>(response.Body);
-                }
+                return (TResponse)(object)EmptyResponse.Instance;
             }
-            finally
+            else
             {
-                lock (_syncRoot)
-                {
-                    _pendingRequests.Remove(header.MessageId);
-                }
+                return DeserializeResponseOptimized<TResponse>(responseBytes.ToArray());
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not TimeoutException)
+        {
+            _responseManager.TrySetException(messageId, ex);
+            throw;
         }
         finally
         {
-            // 归还MessageHeader到池中
+            context.CancellationRegistration.Dispose();
             _messageHeaderPool.Return(header);
         }
     }
 
     /// <summary>
-    /// 发送请求（支持多参数类型的协议号计算）
+    /// 发送请求（支持多参数类型的协议号计算）- 使用统一的 ResponseContextManager
     /// </summary>
     public async ValueTask<TResponse> InvokeAsync<TRequest, TResponse>(
         string serviceName, string methodName, TRequest request, Type[]? allParameterTypes, CancellationToken cancellationToken = default)
     {
-        // 优化: 使用预分配的MessageHeader，减少对象分配
+        var messageId = Guid.NewGuid();
+
+        // 创建响应上下文并注册
+        var tcs = new TaskCompletionSource<ReadOnlyMemory<byte>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var context = new ResponseContext
+        {
+            MessageId = messageId,
+            Tcs = tcs,
+            EnqueueTimestamp = Stopwatch.GetTimestamp()
+        };
+
+        // 注册取消处理
+        context.CancellationRegistration = cancellationToken.Register(() =>
+            _responseManager.TryCancel(messageId, new OperationCanceledException(cancellationToken)));
+
+        _responseManager.Register(context);
+
+        // 使用预分配的MessageHeader
         var header = _messageHeaderPool.Get();
         try
         {
             header.Type = MessageType.Request;
-            header.MessageId = Guid.NewGuid();
+            header.MessageId = messageId;
             header.ServiceName = serviceName;
             header.MethodName = methodName;
 
             // 计算并设置 ProtocolId (使用与服务端相同的 FNV-1a 算法)
-            // 使用所有参数类型生成正确的签名
             header.ProtocolId = ProtocolIdHelper.ComputeProtocolId(serviceName, methodName, allParameterTypes);
 
-            // 创建待处理请求
-            var tcs = new TaskCompletionSource<NetworkMessage>();
-            lock (_syncRoot)
+            // 发送请求
+            var success = await SendRequestOptimizedInternal(header, request, cancellationToken);
+            if (!success)
             {
-                _pendingRequests[header.MessageId] = tcs;
+                _responseManager.TrySetException(messageId, new IOException("发送请求失败"));
+                throw new IOException("发送请求失败");
             }
 
-            try
+            // 等待响应（超时由 ResponseContextManager 管理）
+            var responseBytes = await tcs.Task;
+
+            // 反序列化响应
+            if (typeof(TResponse) == typeof(EmptyResponse))
             {
-                // 优化: 使用零拷贝序列化
-                var success = await SendRequestOptimizedInternal(header, request, cancellationToken);
-                if (!success)
-                {
-                    throw new IOException("发送请求失败");
-                }
-
-                // 等待响应
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(_options.DefaultTimeout);
-
-                NetworkMessage response;
-                try
-                {
-                    response = await tcs.Task.WaitAsync(timeoutCts.Token);
-                }
-                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
-                {
-                    throw new TimeoutException($"请求 {methodName} 超时");
-                }
-
-                // 优化: 直接反序列化，避免中间对象
-                if (typeof(TResponse) == typeof(EmptyResponse))
-                {
-                    return (TResponse)(object)EmptyResponse.Instance;
-                }
-                else
-                {
-                    return DeserializeResponseOptimized<TResponse>(response.Body);
-                }
+                return (TResponse)(object)EmptyResponse.Instance;
             }
-            finally
+            else
             {
-                lock (_syncRoot)
-                {
-                    _pendingRequests.Remove(header.MessageId);
-                }
+                return DeserializeResponseOptimized<TResponse>(responseBytes.ToArray());
             }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && ex is not TimeoutException)
+        {
+            _responseManager.TrySetException(messageId, ex);
+            throw;
         }
         finally
         {
-            // 归还MessageHeader到池中
+            context.CancellationRegistration.Dispose();
             _messageHeaderPool.Return(header);
         }
     }
@@ -477,25 +453,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             _messageHeaderPool.Return(header);
         }
     }
-
-    public ISubscriptionToken SubscribeToEvent<T>(string eventName, EventHandler<T> handler)
-    {
-        lock (_syncRoot)
-        {
-            if (!_eventSubscriptions.TryGetValue(eventName, out var subscriptions))
-            {
-                subscriptions = new List<EventSubscription>();
-                _eventSubscriptions[eventName] = subscriptions;
-            }
-
-            var subscription = new EventSubscription<T>(eventName, handler);
-            subscriptions.Add(subscription);
-
-            return new SubscriptionToken(subscription.Id, eventName, typeof(T), () => UnsubscribeEvent(eventName, subscription.Id));
-        }
-    }
-
-    // ... 其余方法保持不变，但可以进行类似的优化
 
     private async Task ProcessMessageQueueAsync()
     {
@@ -683,20 +640,8 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             };
             LegacyConnectionStateChanged?.Invoke(this, legacyEventArgs);
 
-            if (e.CurrentState == ConnectionState.Disconnected)
-            {
-                Dictionary<Guid, TaskCompletionSource<NetworkMessage>> pendingRequests;
-                lock (_syncRoot)
-                {
-                    pendingRequests = new Dictionary<Guid, TaskCompletionSource<NetworkMessage>>(_pendingRequests);
-                    _pendingRequests.Clear();
-                }
-
-                foreach (var request in pendingRequests.Values)
-                {
-                    request.TrySetException(new IOException("连接断开"));
-                }
-            }
+            // 注意：断开连接时，ResponseContextManager 会通过超时机制处理待处理请求
+            // 如需立即处理，可调用 _responseManager.Dispose() 并重新创建
         }
         catch (Exception ex)
         {
@@ -737,118 +682,51 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
 
     private void ProcessResponse(NetworkMessage message)
     {
-        // 优先尝试零拷贝路径（ResponseContextManager）
-        if (_responseManager.TryComplete(message.Header.MessageId, message.Body))
+        // 统一使用 ResponseContextManager 处理响应
+        if (!_responseManager.TryComplete(message.Header.MessageId, message.Body))
         {
-            // 零拷贝路径成功完成
-            return;
-        }
-
-        // 回退到旧路径（向后兼容）
-        TaskCompletionSource<NetworkMessage>? tcs;
-        lock (_syncRoot)
-        {
-            if (!_pendingRequests.Remove(message.Header.MessageId, out tcs))
+            if (_logger.IsEnabled(LogLevel.Warning))
             {
-                if (_logger.IsEnabled(LogLevel.Warning))
-                {
-                    _logger.LogWarning("收到未匹配的响应消息: MessageId={MessageId}", message.Header.MessageId);
-                }
-                return;
+                _logger.LogWarning("收到未匹配的响应: MessageId={MessageId}", message.Header.MessageId);
             }
         }
-        tcs.TrySetResult(message);
     }
 
     private void ProcessEvent(NetworkMessage message)
     {
-        // 优先使用协议号路径（高性能）
-        if (message.Header.ProtocolId != 0)
+        // 仅协议号路径
+        if (message.Header.ProtocolId == 0)
         {
-            List<Action<ReadOnlyMemory<byte>>>? protocolIdHandlers;
-            lock (_syncRoot)
+            if (_logger.IsEnabled(LogLevel.Warning))
             {
-                if (_protocolIdEventHandlers.TryGetValue(message.Header.ProtocolId, out protocolIdHandlers))
-                {
-                    protocolIdHandlers = new List<Action<ReadOnlyMemory<byte>>>(protocolIdHandlers);
-                }
+                _logger.LogWarning("收到无协议号的事件: MessageId={MessageId}", message.Header.MessageId);
             }
-
-            if (protocolIdHandlers != null && protocolIdHandlers.Count > 0)
-            {
-                // 基于协议号的零拷贝路径：直接传递原始字节流
-                foreach (var handler in protocolIdHandlers)
-                {
-                    try
-                    {
-                        handler(message.Body);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "协议号事件处理异常: ProtocolId=0x{ProtocolId:X4}, MessageId={MessageId}",
-                            message.Header.ProtocolId, message.Header.MessageId);
-                    }
-                }
-                return; // 协议号路径处理完成，直接返回
-            }
+            return;
         }
 
-        // 回退到方法名路径（向后兼容）
-        var eventName = message.Header.MethodName;
-
-        // 构造完整事件名（包含服务名）
-        var fullEventName = !string.IsNullOrEmpty(message.Header.ServiceName)
-            ? $"{message.Header.ServiceName}.{eventName}"
-            : eventName;
-
-        // 尝试基于方法名的零拷贝路径
-        List<Action<ReadOnlyMemory<byte>>>? zeroCopyHandlers;
+        List<Action<ReadOnlyMemory<byte>>>? handlers;
         lock (_syncRoot)
         {
-            if (_zeroCopyEventHandlers.TryGetValue(fullEventName, out zeroCopyHandlers))
+            if (!_protocolIdEventHandlers.TryGetValue(message.Header.ProtocolId, out handlers))
             {
-                zeroCopyHandlers = new List<Action<ReadOnlyMemory<byte>>>(zeroCopyHandlers);
-            }
-        }
-
-        if (zeroCopyHandlers != null && zeroCopyHandlers.Count > 0)
-        {
-            // 零拷贝路径：直接传递原始字节流
-            foreach (var handler in zeroCopyHandlers)
-            {
-                try
+                if (_logger.IsEnabled(LogLevel.Warning))
                 {
-                    handler(message.Body);
+                    _logger.LogWarning("收到未注册的事件: ProtocolId=0x{Id:X4}", message.Header.ProtocolId);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "零拷贝事件处理异常: EventName={EventName}, MessageId={MessageId}",
-                        fullEventName, message.Header.MessageId);
-                }
-            }
-        }
-
-        // 回退到旧路径（向后兼容）
-        _eventCallback?.Invoke(eventName, message.Body);
-
-        List<EventSubscription>? subscriptions;
-        lock (_syncRoot)
-        {
-            if (!_eventSubscriptions.TryGetValue(eventName, out subscriptions))
                 return;
-            subscriptions = new List<EventSubscription>(subscriptions);
+            }
+            handlers = new List<Action<ReadOnlyMemory<byte>>>(handlers);
         }
 
-        foreach (var subscription in subscriptions)
+        foreach (var handler in handlers)
         {
             try
             {
-                subscription.Invoke(message.Body, _serializerProvider);
+                handler(message.Body);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "事件处理异常: EventName={EventName}, MessageId={MessageId}",
-                    eventName, message.Header.MessageId);
+                _logger.LogError(ex, "事件处理异常: ProtocolId=0x{Id:X4}", message.Header.ProtocolId);
             }
         }
     }
@@ -888,26 +766,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         catch (Exception ex)
         {
             _logger.LogError(ex, "发送Pong响应失败");
-        }
-    }
-
-    private void UnsubscribeEvent(string eventName, Guid subscriptionId)
-    {
-        lock (_syncRoot)
-        {
-            if (!_eventSubscriptions.TryGetValue(eventName, out var subscriptions))
-                return;
-
-            var subscription = subscriptions.FirstOrDefault(s => s.Id == subscriptionId);
-            if (subscription == null)
-                return;
-
-            subscriptions.Remove(subscription);
-
-            if (subscriptions.Count == 0)
-            {
-                _eventSubscriptions.Remove(eventName);
-            }
         }
     }
 
@@ -1019,32 +877,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         finally
         {
             _bufferWriterPool.Return(messageBuffer);
-        }
-    }
-
-    /// <summary>
-    /// [Server Sent Event] 注册事件接收处理器 - 零拷贝路径
-    /// </summary>
-    public ISubscriptionToken RegisterEventHandler(
-        string eventName,
-        Action<ReadOnlyMemory<byte>> deserializeAndInvoke)
-    {
-        lock (_syncRoot)
-        {
-            if (!_zeroCopyEventHandlers.TryGetValue(eventName, out var handlers))
-            {
-                handlers = new List<Action<ReadOnlyMemory<byte>>>();
-                _zeroCopyEventHandlers[eventName] = handlers;
-            }
-
-            handlers.Add(deserializeAndInvoke);
-
-            var subscriptionId = Guid.NewGuid();
-            return new SubscriptionToken(
-                subscriptionId,
-                eventName,
-                typeof(ReadOnlyMemory<byte>),
-                () => UnsubscribeZeroCopyEvent(eventName, deserializeAndInvoke));
         }
     }
 
@@ -1244,24 +1076,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         }
     }
 
-    /// <summary>
-    /// 取消零拷贝事件订阅
-    /// </summary>
-    private void UnsubscribeZeroCopyEvent(string eventName, Action<ReadOnlyMemory<byte>> handler)
-    {
-        lock (_syncRoot)
-        {
-            if (_zeroCopyEventHandlers.TryGetValue(eventName, out var handlers))
-            {
-                handlers.Remove(handler);
-                if (handlers.Count == 0)
-                {
-                    _zeroCopyEventHandlers.Remove(eventName);
-                }
-            }
-        }
-    }
-
     public void Dispose()
     {
         if (_disposed)
@@ -1316,37 +1130,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         return ProtocolIdHelper.ComputeProtocolId(serviceName, methodName, paramTypes);
     }
 
-    // 内部类：事件订阅基类和泛型实现保持不变
-    private abstract class EventSubscription
-    {
-        public Guid Id { get; } = Guid.NewGuid();
-        public string EventName { get; }
-
-        protected EventSubscription(string eventName)
-        {
-            EventName = eventName;
-        }
-
-        public abstract void Invoke(byte[] data, ISerializerProvider serializerProvider);
-    }
-
-    private class EventSubscription<T> : EventSubscription
-    {
-        private readonly EventHandler<T> _handler;
-
-        public EventSubscription(string eventName, EventHandler<T> handler)
-            : base(eventName)
-        {
-            _handler = handler;
-        }
-
-        public override void Invoke(byte[] data, ISerializerProvider serializerProvider)
-        {
-            var eventData = serializerProvider.Create(MethodType.Unary, null)
-                .Deserialize<T>(new ReadOnlySequence<byte>(data));
-            _handler.Invoke(this, eventData);
-        }
-    }
 }
 
 /// <summary>
