@@ -885,10 +885,8 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             else
             {
                 // Request/Response 方法（有返回值）- 使用零拷贝路径
-                var taskType = returnType
-                    .Replace("System.Threading.Tasks.Task<", string.Empty)
-                    .Replace("System.Threading.Tasks.ValueTask<", string.Empty)
-                    .TrimEnd('>');
+                // 使用 ExtractGenericType 正确处理嵌套泛型类型（如 List<T>、Dictionary<K,V> 等）
+                var taskType = ExtractGenericType(returnType);
 
                 GenerateRequestMethodBody(sb, methodSymbol, interfaceName, methodName, dataParameters, taskType, tokenName, protocolId, bodyIndent);
             }
