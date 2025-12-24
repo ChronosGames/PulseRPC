@@ -457,6 +457,91 @@ public sealed class RetryPolicy : IRetryPolicy
             _logger.LogError(ex, "触发重试成功事件时发生错误");
         }
     }
+    // ========================================================================
+    // 静态工厂方法 - 便捷创建预设策略
+    // ========================================================================
+
+    /// <summary>
+    /// 创建默认重试策略 - 3次重试，指数退避
+    /// </summary>
+    public static RetryPolicy Default() => Exponential(
+        maxRetries: 3,
+        initialDelay: TimeSpan.FromMilliseconds(500),
+        maxDelay: TimeSpan.FromSeconds(30));
+
+    /// <summary>
+    /// 创建无重试策略
+    /// </summary>
+    public static RetryPolicy NoRetry() => new(new RetryPolicyConfiguration
+    {
+        Name = "NoRetry",
+        MaxRetryCount = 0,
+        BaseDelay = TimeSpan.Zero,
+        MaxDelay = TimeSpan.Zero
+    });
+
+    /// <summary>
+    /// 创建固定延迟重试策略
+    /// </summary>
+    /// <param name="maxRetries">最大重试次数</param>
+    /// <param name="delay">固定延迟</param>
+    public static RetryPolicy Fixed(int maxRetries, TimeSpan delay) => new(new RetryPolicyConfiguration
+    {
+        Name = $"Fixed({maxRetries}, {delay.TotalMilliseconds}ms)",
+        MaxRetryCount = maxRetries,
+        StrategyType = RetryStrategyType.FixedDelay,
+        BaseDelay = delay,
+        MaxDelay = delay,
+        EnableJitter = false
+    });
+
+    /// <summary>
+    /// 创建指数退避重试策略
+    /// </summary>
+    /// <param name="maxRetries">最大重试次数</param>
+    /// <param name="initialDelay">初始延迟</param>
+    /// <param name="maxDelay">最大延迟</param>
+    /// <param name="multiplier">退避倍数，默认2.0</param>
+    /// <param name="enableJitter">是否启用抖动，默认true</param>
+    public static RetryPolicy Exponential(
+        int maxRetries = 3,
+        TimeSpan? initialDelay = null,
+        TimeSpan? maxDelay = null,
+        double multiplier = 2.0,
+        bool enableJitter = true) => new(new RetryPolicyConfiguration
+    {
+        Name = $"Exponential({maxRetries}, x{multiplier})",
+        MaxRetryCount = maxRetries,
+        StrategyType = RetryStrategyType.ExponentialBackoff,
+        BaseDelay = initialDelay ?? TimeSpan.FromMilliseconds(500),
+        MaxDelay = maxDelay ?? TimeSpan.FromSeconds(30),
+        BackoffMultiplier = multiplier,
+        EnableJitter = enableJitter,
+        JitterFactor = 0.2
+    });
+
+    /// <summary>
+    /// 创建线性退避重试策略
+    /// </summary>
+    /// <param name="maxRetries">最大重试次数</param>
+    /// <param name="initialDelay">初始延迟</param>
+    /// <param name="step">每次增加的延迟</param>
+    /// <param name="maxDelay">最大延迟</param>
+    public static RetryPolicy Linear(
+        int maxRetries = 3,
+        TimeSpan? initialDelay = null,
+        TimeSpan? step = null,
+        TimeSpan? maxDelay = null) => new(new RetryPolicyConfiguration
+    {
+        Name = $"Linear({maxRetries})",
+        MaxRetryCount = maxRetries,
+        StrategyType = RetryStrategyType.LinearBackoff,
+        BaseDelay = initialDelay ?? TimeSpan.FromMilliseconds(500),
+        LinearStep = step ?? TimeSpan.FromMilliseconds(500),
+        MaxDelay = maxDelay ?? TimeSpan.FromSeconds(30),
+        EnableJitter = true,
+        JitterFactor = 0.1
+    });
 }
 
 /// <summary>
