@@ -1,10 +1,21 @@
-﻿using PulseRPC.Client;
-
 namespace PulseRPC.Client;
 
 /// <summary>
 /// 客户端选项
 /// </summary>
+/// <remarks>
+/// <para>推荐使用 <see cref="ClientPresets"/> 预设配置，减少手动配置。</para>
+/// <code>
+/// // 使用预设配置
+/// var client = new PulseClientBuilder()
+///     .UseGameClientPreset()  // 或 UseDefaults(), UseDevelopmentPreset()
+///     .WithLogging(loggerFactory)
+///     .Build();
+///
+/// // 或使用静态工厂方法
+/// var client = PulseClientBuilder.CreateGameClient(loggerFactory);
+/// </code>
+/// </remarks>
 public sealed class ClientOptions
 {
     /// <summary>
@@ -33,13 +44,17 @@ public sealed class ClientOptions
     public bool EnableStatistics { get; set; } = true;
 
     /// <summary>
-    /// 自动清理间隔
+    /// 自动清理间隔（高级选项，一般无需修改）
     /// </summary>
     public TimeSpan AutoCleanupInterval { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// 自定义设置字典
+    /// 自定义设置字典（高级选项）
     /// </summary>
+    /// <remarks>
+    /// 用于存储自定义键值对配置，一般无需使用。
+    /// 推荐使用强类型配置属性替代。
+    /// </remarks>
     public Dictionary<string, string> Settings { get; set; } = new();
 }
 

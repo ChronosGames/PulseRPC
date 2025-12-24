@@ -24,14 +24,11 @@ public class ServerConnectionManager : IDisposable
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<ServerConnectionManager>();
 
-        // 创建单一的 PulseClient 实例
+        // 使用预设配置创建 PulseClient 实例
         _client = new PulseClientBuilder()
+            .UseGameClientPreset()              // 使用游戏客户端预设（低延迟优化）
             .WithLogging(loggerFactory)
-            .Configure(options =>
-            {
-                options.Name = "DistributedGameClient";
-                options.DefaultTimeout = TimeSpan.FromSeconds(30);
-            })
+            .Configure(options => options.Name = "DistributedGameClient")
             .Build();
 
         // 初始化客户端
