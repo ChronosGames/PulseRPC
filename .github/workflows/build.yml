@@ -79,6 +79,23 @@ jobs:
           name: build-output
           path: ./build-output/
 
+      # 构建 PulseRPC.Client 以生成 Unity 本地包结构
+      - name: Build PulseRPC.Client for Unity local package
+        uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - name: Create Unity local package structure
+        run: |
+          # 构建 PulseRPC.Client 的 Debug 配置以生成 .artifacts 目录结构
+          dotnet build -c Debug ./src/PulseRPC.Client/PulseRPC.Client.csproj -f netstandard2.1
+
+          # 验证 package.json 已生成
+          if [ ! -f "./src/PulseRPC.Client/.artifacts/bin/debug_netstandard2.1/package.json" ]; then
+            echo "Error: package.json not found at expected location"
+            ls -la ./src/PulseRPC.Client/.artifacts/bin/ || echo "No .artifacts/bin directory"
+            exit 1
+          fi
+          echo "Unity local package structure created successfully"
+          ls -la ./src/PulseRPC.Client/.artifacts/bin/debug_netstandard2.1/
+
       # 复制必要的 DLL 到 Unity 项目
       - name: Copy DLLs to Unity project
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
