@@ -78,7 +78,7 @@ jobs:
         with:
           name: build-output
           path: ./build-output/
-      
+
       # 复制必要的 DLL 到 Unity 项目
       - name: Copy DLLs to Unity project
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -90,19 +90,19 @@ jobs:
 
       # execute scripts/Export Package
       - name: Build Unity (.unitypackage)
-        uses: game-ci/unity-builder@v4
+        uses: ChronosGames/Actions/.github/actions/unity-builder@main
         env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_SERIAL }}
         with:
           projectPath: src/PulseRPC.Client.Unity
           unityVersion: ${{ matrix.unity }}
           targetPlatform: StandaloneLinux64
           buildMethod: PackageExporter.Export
-          versioning: None
 
-      - uses: ./.github/actions/check-metas # check meta files
+      # check meta files
+      - uses: ChronosGames/Actions/.github/actions/check-metas@main
         with:
           directory: src/PulseRPC.Client.Unity
 
@@ -110,8 +110,8 @@ jobs:
       - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
         if: failure()
         with:
-          name: PulseRPC.Client.Unity.${{ matrix.unity }}.unitypackage
-          path: ./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity*.unitypackage
+          name: PulseRPC.Client.Unity.unitypackage
+          path: ./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity.unitypackage
           retention-days: 1
 
   actions-timeline:
