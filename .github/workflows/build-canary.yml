@@ -67,5 +67,7 @@ jobs:
 
   actions-timeline:
     needs: [canary-build, canary-push]
+    permissions:
+      actions: read
     uses: ChronosGames/Actions/.github/workflows/actions-timeline.yaml@main
     secrets: inherit
