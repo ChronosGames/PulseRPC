@@ -3,7 +3,7 @@ name: Release
 # ADD PERMISSIONS HERE (WORKFLOW-LEVEL):
 permissions:
   actions: read
-  contents: read
+  contents: write
 
 on:
   workflow_dispatch:
