@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Server.Abstractions;
+using PulseRPC.Server.Contexts;
 
 namespace PulseRPC.Server.Services;
 

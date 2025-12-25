@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Server.Contexts;
 
 namespace PulseRPC.Server;
 

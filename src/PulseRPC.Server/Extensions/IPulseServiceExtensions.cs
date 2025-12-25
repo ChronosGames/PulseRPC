@@ -190,14 +190,14 @@ public static class IPulseServiceExtensions
 /// }
 ///
 /// // 服务使用示例:
-/// public class ChatRoomService : IPulseHub, IPulseService
+/// public class ChatRoomService : IPulseHub, IUnifiedPulseService
 /// {
-///     public string ServiceName => "ChatRoom";
+///     public string ServiceType => "ChatRoom";
 ///     public string ServiceId { get; }
 ///
 ///     public ChatRoomService(string roomId)
 ///     {
-///         ServiceId = $"ChatRoom:{roomId}";
+///         ServiceId = roomId;
 ///     }
 ///
 ///     public async Task&lt;string&gt; SendMessageAsync(string message)

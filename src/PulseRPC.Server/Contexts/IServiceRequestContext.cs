@@ -1,8 +1,6 @@
-using System;
-using System.Collections.Generic;
 using PulseRPC.Authentication;
 
-namespace PulseRPC.Server;
+namespace PulseRPC.Server.Contexts;
 
 /// <summary>
 /// 请求调用来源类型
@@ -36,9 +34,6 @@ public interface IServiceRequestContext
 
     /// <summary>用户ID（外部用户）</summary>
     string? UserId { get; }
-
-    /// <summary>服务PID（内部服务）</summary>
-    PID? ServicePID { get; }
 
     /// <summary>认证Token</summary>
     string? Token { get; }

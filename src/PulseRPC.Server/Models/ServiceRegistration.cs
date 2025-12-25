@@ -1,4 +1,3 @@
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Scheduling;
 
 namespace PulseRPC.Server.Models;
@@ -27,11 +26,6 @@ public sealed class ServiceRegistration
     /// </summary>
     public IReadOnlyDictionary<string, MethodInvokerMetadata> Methods { get; init; }
         = new Dictionary<string, MethodInvokerMetadata>();
-
-    /// <summary>
-    /// Service handler for method invocations.
-    /// </summary>
-    public IServiceHandler? Handler { get; init; }
 
     /// <summary>
     /// Service-specific options.

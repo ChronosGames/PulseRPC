@@ -37,11 +37,6 @@ public interface IMessageDispatcher : IDisposable
     ValueTask<object?> DispatchAsync(MessageEnvelope message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// 注册服务处理器
-    /// </summary>
-    void RegisterServiceHandler(string serviceName, IServiceHandler handler);
-
-    /// <summary>
     /// 消息处理完成事件
     /// </summary>
     event EventHandler<MessageProcessedEventArgs> MessageProcessed;
@@ -55,9 +50,6 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
 {
     private readonly ILogger<HighPerformanceMessageDispatcher> _logger;
     private readonly DispatcherOptions _options;
-
-    // 服务处理器注册表
-    private readonly ConcurrentDictionary<string, IServiceHandler> _serviceHandlers = new();
     private readonly IServiceRoutingTable _serviceRoutingTable;
 
     // 多优先级调度通道
@@ -179,18 +171,6 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
             _logger.LogError(ex, "协议号路由失败: ProtocolId=0x{ProtocolId:X4}", header.ProtocolId);
             throw;
         }
-    }
-
-    /// <summary>
-    /// 注册服务处理器
-    /// </summary>
-    public void RegisterServiceHandler(string serviceName, IServiceHandler handler)
-    {
-        if (string.IsNullOrEmpty(serviceName))
-            throw new ArgumentException("服务名称不能为空", nameof(serviceName));
-
-        _serviceHandlers[serviceName] = handler;
-        _logger.LogInformation("注册服务处理器: {ServiceName}", serviceName);
     }
 
     /// <summary>

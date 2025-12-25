@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using PulseRPC.Authentication;
+using PulseRPC.Server.Contexts;
 
 namespace PulseRPC.Server.Contexts;
 
@@ -166,11 +167,6 @@ public sealed class UnifiedContextData : IServiceRequestContext
     public CallSourceType SourceType { get; init; } = CallSourceType.ExternalUser;
 
     /// <summary>
-    /// 服务 PID（内部服务调用时有值）
-    /// </summary>
-    public PID? ServicePID { get; init; }
-
-    /// <summary>
     /// 认证 Token
     /// </summary>
     public string? Token { get; init; }
@@ -282,7 +278,6 @@ public sealed class UnifiedContextData : IServiceRequestContext
             SourceType = context.SourceType,
             CallerId = context.CallerId,
             UserId = context.UserId,
-            ServicePID = context.ServicePID,
             Token = context.Token,
             Permissions = context.Permissions,
             Roles = context.Roles,
@@ -302,7 +297,9 @@ public sealed class UnifiedContextData : IServiceRequestContext
         string userId,
         string? connectionId = null,
         IReadOnlySet<string>? permissions = null,
-        IReadOnlySet<string>? roles = null)
+        IReadOnlySet<string>? roles = null,
+        string? token = null,
+        DateTime? expiresAt = null)
     {
         return new UnifiedContextData
         {
@@ -311,21 +308,24 @@ public sealed class UnifiedContextData : IServiceRequestContext
             CallerId = userId,
             ConnectionId = connectionId,
             Permissions = permissions ?? new HashSet<string>(),
-            Roles = roles ?? new HashSet<string>()
+            Roles = roles ?? new HashSet<string>(),
+            Token = token,
+            ExpiresAt = expiresAt
         };
     }
 
     /// <summary>
     /// 创建服务上下文（用于服务间调用）
     /// </summary>
-    public static UnifiedContextData CreateServiceContext(PID servicePID, string? token = null)
+    public static UnifiedContextData CreateServiceContext(string serviceType, string serviceId, string? token = null)
     {
         return new UnifiedContextData
         {
             SourceType = CallSourceType.InternalService,
-            ServicePID = servicePID,
-            CallerId = servicePID.ToString(),
-            Token = token
+            CallerId = $"{serviceType}:{serviceId}",
+            Token = token,
+            Permissions = new HashSet<string> { "*" },
+            Roles = new HashSet<string> { "Service" }
         };
     }
 
@@ -338,6 +338,48 @@ public sealed class UnifiedContextData : IServiceRequestContext
         {
             SourceType = CallSourceType.SystemTimer,
             CallerId = $"System:{taskName}"
+        };
+    }
+
+    /// <summary>
+    /// 从认证上下文创建请求上下文
+    /// </summary>
+    public static UnifiedContextData FromAuthenticationContext(IAuthenticationContext authContext)
+    {
+        var permissions = new HashSet<string>();
+        var roles = new HashSet<string>();
+
+        // 从 Scopes 中提取权限
+        if (authContext.Scopes != null)
+        {
+            foreach (var scope in authContext.Scopes)
+            {
+                permissions.Add(scope);
+            }
+        }
+
+        // 从 Principal 中提取角色
+        if (authContext.Principal != null)
+        {
+            foreach (var claim in authContext.Principal.Claims)
+            {
+                if (claim.Type == System.Security.Claims.ClaimTypes.Role)
+                {
+                    roles.Add(claim.Value);
+                }
+            }
+        }
+
+        return new UnifiedContextData
+        {
+            SourceType = CallSourceType.ExternalUser,
+            CallerId = authContext.Identity ?? "Unknown",
+            UserId = authContext.Identity,
+            Token = authContext.Token,
+            AuthenticatedAt = authContext.AuthenticationTime ?? DateTime.UtcNow,
+            AuthenticationContext = authContext,
+            Permissions = permissions,
+            Roles = roles
         };
     }
 }

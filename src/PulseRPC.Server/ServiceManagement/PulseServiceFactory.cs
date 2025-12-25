@@ -9,7 +9,7 @@ namespace PulseRPC.Server.ServiceManagement;
 /// <summary>
 /// 服务实例工厂默认实现
 /// </summary>
-/// <typeparam name="TService">服务类型，必须实现 <see cref="IPulseService"/></typeparam>
+/// <typeparam name="TService">服务类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
 /// <remarks>
 /// <para>
 /// 提供完整的服务实例生命周期管理，包括：
@@ -23,7 +23,7 @@ namespace PulseRPC.Server.ServiceManagement;
 /// </list>
 /// </remarks>
 public sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TService>, IPulseServiceFactoryMetrics, IDisposable
-    where TService : IPulseService
+    where TService : IUnifiedPulseService
 {
     private readonly ConcurrentDictionary<string, ServiceInstanceEntry> _instances;
     private readonly Func<string, TService> _serviceFactory;
@@ -144,11 +144,11 @@ public sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServic
                 serviceId, typeof(TService).Name);
 
             // 调用生命周期钩子
-            if (service is IServiceLifecycle lifecycle)
+            if (service is IUnifiedServiceLifecycle lifecycle)
             {
                 try
                 {
-                    await lifecycle.OnActivateAsync(cancellationToken);
+                    await lifecycle.OnStartingAsync(cancellationToken);
 
                     _logger.LogDebug(
                         "Service instance activated: ServiceId={ServiceId}",
@@ -214,11 +214,11 @@ public sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServic
             serviceId, entry.AccessCount, DateTimeOffset.UtcNow - entry.CreatedTime);
 
         // 调用停用钩子
-        if (entry.Service is IServiceLifecycle lifecycle)
+        if (entry.Service is IUnifiedServiceLifecycle lifecycle)
         {
             try
             {
-                await lifecycle.OnDeactivateAsync(cancellationToken);
+                await lifecycle.OnStoppingAsync(cancellationToken);
             }
             catch (Exception ex)
             {
@@ -367,12 +367,12 @@ public sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServic
 
             foreach (var (serviceId, entry) in _instances)
             {
-                if (entry.Service is IServiceLifecycle lifecycle)
+                if (entry.Service is IUnifiedServiceHealthCheck healthCheck)
                 {
                     try
                     {
-                        var isHealthy = await lifecycle.OnHealthCheckAsync(_disposeCts.Token);
-                        if (!isHealthy)
+                        var result = await healthCheck.CheckHealthAsync(_disposeCts.Token);
+                        if (!result.IsHealthy)
                         {
                             _logger.LogWarning(
                                 "Service health check failed: ServiceId={ServiceId}", serviceId);

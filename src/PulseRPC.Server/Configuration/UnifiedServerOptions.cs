@@ -35,11 +35,6 @@ public sealed class UnifiedServerOptions
     public ResponseTransmitterOptions ResponseTransmitter { get; set; } = new();
 
     /// <summary>
-    /// Configuration for service registry component.
-    /// </summary>
-    public ServiceRegistryOptions ServiceRegistry { get; set; } = new();
-
-    /// <summary>
     /// Configuration for backpressure policy component.
     /// </summary>
     public BackpressurePolicyOptions BackpressurePolicy { get; set; } = new();

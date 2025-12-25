@@ -15,16 +15,16 @@ namespace PulseRPC.Server;
 public interface IAuthenticationService
 {
     /// <summary>验证内部服务认证</summary>
-    Task<ServiceRequestContext?> AuthenticateServiceAsync(PID servicePID, string serviceSecret);
+    Task<IServiceRequestContext?> AuthenticateServiceAsync(string serviceType, string serviceId, string serviceSecret);
 
     /// <summary>验证外部用户Token</summary>
-    Task<ServiceRequestContext?> AuthenticateUserAsync(string token);
+    Task<IServiceRequestContext?> AuthenticateUserAsync(string token);
 
     /// <summary>生成服务密钥</summary>
-    string GenerateServiceSecret(PID servicePID);
+    string GenerateServiceSecret(string serviceType, string serviceId);
 
     /// <summary>验证服务密钥</summary>
-    bool ValidateServiceSecret(PID servicePID, string secret);
+    bool ValidateServiceSecret(string serviceType, string serviceId, string secret);
 }
 
 /// <summary>
@@ -34,7 +34,6 @@ public class AuthenticationService : IAuthenticationService
 {
     private readonly ILogger<AuthenticationService> _logger;
     private readonly string _clusterSecret; // 集群共享密钥
-    private readonly ConcurrentDictionary<PID, string> _serviceSecrets = new();
     private readonly IJwtTokenService _jwtTokenService;
 
     public AuthenticationService(
@@ -50,24 +49,24 @@ public class AuthenticationService : IAuthenticationService
     /// <summary>
     /// 验证内部服务 - 使用共享密钥或证书
     /// </summary>
-    public async Task<ServiceRequestContext?> AuthenticateServiceAsync(PID servicePID, string serviceSecret)
+    public async Task<IServiceRequestContext?> AuthenticateServiceAsync(string serviceType, string serviceId, string serviceSecret)
     {
         try
         {
-            // 方案1: 验证服务密钥（基于PID生成）
-            if (ValidateServiceSecret(servicePID, serviceSecret))
+            // 验证服务密钥
+            if (ValidateServiceSecret(serviceType, serviceId, serviceSecret))
             {
-                _logger.LogDebug("Service authenticated - PID: {PID}", servicePID);
+                _logger.LogDebug("Service authenticated - {ServiceType}:{ServiceId}", serviceType, serviceId);
 
-                return ServiceRequestContext.CreateServiceContext(servicePID, serviceSecret);
+                return UnifiedContextData.CreateServiceContext(serviceType, serviceId, serviceSecret);
             }
 
-            _logger.LogWarning("Service authentication failed - PID: {PID}", servicePID);
+            _logger.LogWarning("Service authentication failed - {ServiceType}:{ServiceId}", serviceType, serviceId);
             return null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error authenticating service - PID: {PID}", servicePID);
+            _logger.LogError(ex, "Error authenticating service - {ServiceType}:{ServiceId}", serviceType, serviceId);
             return null;
         }
     }
@@ -75,7 +74,7 @@ public class AuthenticationService : IAuthenticationService
     /// <summary>
     /// 验证外部用户 - JWT Token
     /// </summary>
-    public async Task<ServiceRequestContext?> AuthenticateUserAsync(string token)
+    public async Task<IServiceRequestContext?> AuthenticateUserAsync(string token)
     {
         try
         {
@@ -115,12 +114,13 @@ public class AuthenticationService : IAuthenticationService
 
             _logger.LogDebug("User authenticated - UserId: {UserId}, Roles: {Roles}", userId, string.Join(",", roles));
 
-            return ServiceRequestContext.CreateUserContext(
+            return UnifiedContextData.CreateUserContext(
                 userId,
-                token,
+                connectionId: null,
                 permissions,
                 roles,
-                expiresIn: expirationTime.HasValue ? expirationTime.Value - DateTime.UtcNow : null);
+                token,
+                expirationTime);
         }
         catch (Exception ex)
         {
@@ -130,14 +130,14 @@ public class AuthenticationService : IAuthenticationService
     }
 
     /// <summary>
-    /// 生成服务密钥 - 基于PID和集群密钥的HMAC
+    /// 生成服务密钥 - 基于服务地址和集群密钥的HMAC
     /// </summary>
-    public string GenerateServiceSecret(PID servicePID)
+    public string GenerateServiceSecret(string serviceType, string serviceId)
     {
         using var hmac = new System.Security.Cryptography.HMACSHA256(
             System.Text.Encoding.UTF8.GetBytes(_clusterSecret));
 
-        var data = System.Text.Encoding.UTF8.GetBytes(servicePID.ToString());
+        var data = System.Text.Encoding.UTF8.GetBytes($"{serviceType}:{serviceId}");
         var hash = hmac.ComputeHash(data);
 
         return Convert.ToBase64String(hash);
@@ -146,9 +146,9 @@ public class AuthenticationService : IAuthenticationService
     /// <summary>
     /// 验证服务密钥
     /// </summary>
-    public bool ValidateServiceSecret(PID servicePID, string secret)
+    public bool ValidateServiceSecret(string serviceType, string serviceId, string secret)
     {
-        var expectedSecret = GenerateServiceSecret(servicePID);
+        var expectedSecret = GenerateServiceSecret(serviceType, serviceId);
         return expectedSecret == secret;
     }
 }
