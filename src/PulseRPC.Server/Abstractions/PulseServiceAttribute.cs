@@ -1,7 +1,7 @@
 namespace PulseRPC.Server.Abstractions;
 
 /// <summary>
-/// 标记 IPulseService 实现类的服务特性
+/// 标记 IUnifiedPulseService 实现类的服务特性
 /// </summary>
 /// <remarks>
 /// <para>
@@ -16,10 +16,10 @@ namespace PulseRPC.Server.Abstractions;
 ///     StartupType = ServiceStartupType.AutoStart,
 ///     InstanceScope = ServiceInstanceScope.ClusterSingleton,
 ///     SchedulingMode = ServiceSchedulingMode.DedicatedQueue)]
-/// public class MatchmakingService : IPulseService, IMatchmakingHub
+/// public class MatchmakingService : IUnifiedPulseService, IMatchmakingHub
 /// {
-///     public string ServiceName => "Matchmaking";
-///     public string ServiceId => "Matchmaking:global";
+///     public string ServiceType => "Matchmaking";
+///     public string ServiceId => "global";
 ///     // ...
 /// }
 ///
@@ -28,14 +28,14 @@ namespace PulseRPC.Server.Abstractions;
 ///     StartupType = ServiceStartupType.OnDemand,
 ///     InstanceScope = ServiceInstanceScope.MultiInstance,
 ///     SchedulingMode = ServiceSchedulingMode.ThreadAffinity)]
-/// public class ChatRoomService : IPulseService, IChatRoomHub
+/// public class ChatRoomService : IUnifiedPulseService, IChatRoomHub
 /// {
-///     public string ServiceName => "ChatRoom";
+///     public string ServiceType => "ChatRoom";
 ///     public string ServiceId { get; }
 ///
 ///     public ChatRoomService(string roomId)
 ///     {
-///         ServiceId = $"ChatRoom:{roomId}";
+///         ServiceId = roomId;
 ///     }
 ///     // ...
 /// }
@@ -142,7 +142,7 @@ public sealed class PulseServiceAttribute : Attribute
     /// </summary>
     /// <remarks>
     /// <para>默认值：true</para>
-    /// <para>启用后，需要实现 <see cref="IServiceLifecycle.OnHealthCheckAsync"/>。</para>
+    /// <para>启用后，需要实现 <see cref="IUnifiedServiceHealthCheck.CheckHealthAsync"/>。</para>
     /// </remarks>
     public bool EnableHealthCheck { get; set; } = true;
 

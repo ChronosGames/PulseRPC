@@ -5,10 +5,10 @@ namespace PulseRPC.Server.Abstractions;
 /// <summary>
 /// 服务实例工厂接口
 /// </summary>
-/// <typeparam name="TService">服务类型，必须实现 <see cref="IPulseService"/></typeparam>
+/// <typeparam name="TService">服务类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
 /// <remarks>
 /// <para>
-/// 管理有状态的 <see cref="IPulseService"/> 实例的生命周期，解决"多个无状态 IPulseHub 共享同一个有状态 IPulseService 实例"的架构需求。
+/// 管理有状态的 <see cref="IUnifiedPulseService"/> 实例的生命周期，解决"多个无状态 IPulseHub 共享同一个有状态 IUnifiedPulseService 实例"的架构需求。
 /// </para>
 /// <para>
 /// <strong>核心功能</strong>：
@@ -18,7 +18,7 @@ namespace PulseRPC.Server.Abstractions;
 /// <item><description><strong>实例缓存</strong>：缓存已创建的实例，避免重复创建</description></item>
 /// <item><description><strong>空闲清理</strong>：自动清理长时间未使用的实例</description></item>
 /// <item><description><strong>LRU 驱逐</strong>：当缓存满时，驱逐最少使用的实例</description></item>
-/// <item><description><strong>生命周期管理</strong>：自动调用 <see cref="IServiceLifecycle"/> 钩子</description></item>
+/// <item><description><strong>生命周期管理</strong>：自动调用 <see cref="IUnifiedServiceLifecycle"/> 钩子</description></item>
 /// <item><description><strong>健康检查</strong>：定期检查实例健康状态，自动移除不健康的实例</description></item>
 /// </list>
 /// <para>
@@ -28,17 +28,12 @@ namespace PulseRPC.Server.Abstractions;
 /// <example>
 /// <code>
 /// // 1. 定义服务
-/// public class ChatRoomService : IPulseService, IServiceLifecycle
+/// [PulseService(StartupType = ServiceStartupType.OnDemand)]
+/// public class ChatRoomService : UnifiedPulseServiceBase, IUnifiedServiceLifecycle
 /// {
-///     public string ServiceName => "ChatRoom";
-///     public string ServiceId { get; }
-///
 ///     private readonly List&lt;Message&gt; _messages = new();
 ///
-///     public ChatRoomService(string roomId)
-///     {
-///         ServiceId = $"ChatRoom:{roomId}";
-///     }
+///     public ChatRoomService(string roomId) : base("ChatRoom", roomId) { }
 ///
 ///     public void AddMessage(Message msg) => _messages.Add(msg);
 /// }
@@ -69,7 +64,7 @@ namespace PulseRPC.Server.Abstractions;
 ///     });
 /// </code>
 /// </example>
-public interface IPulseServiceFactory<TService> where TService : IPulseService
+public interface IPulseServiceFactory<TService> where TService : IUnifiedPulseService
 {
     /// <summary>
     /// 获取或创建服务实例
@@ -79,7 +74,7 @@ public interface IPulseServiceFactory<TService> where TService : IPulseService
     /// <returns>服务实例</returns>
     /// <remarks>
     /// <para>
-    /// 如果实例已存在于缓存中，直接返回；否则创建新实例并调用 <see cref="IServiceLifecycle.OnActivateAsync"/>。
+    /// 如果实例已存在于缓存中，直接返回；否则创建新实例并调用 <see cref="IUnifiedServiceLifecycle.OnStartingAsync"/>。
     /// </para>
     /// <para>
     /// <strong>并发安全</strong>：多个线程同时请求同一 ServiceId 时，只会创建一个实例。
@@ -123,7 +118,7 @@ public interface IPulseServiceFactory<TService> where TService : IPulseService
     /// <returns>如果移除成功返回 <c>true</c>，否则返回 <c>false</c></returns>
     /// <remarks>
     /// <para>
-    /// 移除实例前会调用 <see cref="IServiceLifecycle.OnDeactivateAsync"/>，然后调用 <see cref="IDisposable.Dispose"/>（如果实现）。
+    /// 移除实例前会调用 <see cref="IUnifiedServiceLifecycle.OnStoppingAsync"/>，然后调用 <see cref="IAsyncDisposable.DisposeAsync"/>（如果实现）。
     /// </para>
     /// <para>
     /// <strong>使用场景</strong>：
@@ -210,7 +205,7 @@ public class ServiceCreationException : Exception
 /// 服务激活异常
 /// </summary>
 /// <remarks>
-/// 当服务实例激活失败（<see cref="IServiceLifecycle.OnActivateAsync"/> 抛出异常）时抛出此异常。
+/// 当服务实例激活失败（<see cref="IUnifiedServiceLifecycle.OnStartingAsync"/> 抛出异常）时抛出此异常。
 /// </remarks>
 public class ServiceActivationException : Exception
 {

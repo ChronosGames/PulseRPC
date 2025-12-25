@@ -6,7 +6,7 @@ namespace PulseRPC.Server.Abstractions;
 /// Hub 实例工厂接口
 /// </summary>
 /// <typeparam name="THub">Hub 类型，必须实现 <see cref="IPulseHub"/></typeparam>
-/// <typeparam name="TService">Service 类型，必须实现 <see cref="IPulseService"/></typeparam>
+/// <typeparam name="TService">Service 类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
 /// <remarks>
 /// <para>
 /// 管理 Hub 实例的生命周期，Hub 和 Service 实例一对一绑定。
@@ -64,7 +64,7 @@ namespace PulseRPC.Server.Abstractions;
 /// </example>
 public interface IPulseHubFactory<THub, TService>
     where THub : class
-    where TService : IPulseService
+    where TService : IUnifiedPulseService
 {
     /// <summary>
     /// 获取或创建 Hub 实例

@@ -434,18 +434,18 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 {
                     TransportContextScope.SetCurrent(serverChannel.Transport);
 
-                    // ✅ 设置 ServiceRequestContext（用于 GetCurrentCaller()）
+                    // ✅ 设置请求上下文（用于 GetCurrentCaller()）
                     var authContext = serverChannel.AuthenticationContext;
                     if (authContext != null && authContext.IsAuthenticated)
                     {
                         // 从认证上下文创建请求上下文
-                        var requestContext = ServiceRequestContext.FromAuthenticationContext(authContext);
+                        var requestContext = UnifiedContextData.FromAuthenticationContext(authContext);
                         serviceContextScope = UnifiedRequestContext.SetContext(requestContext);
                     }
                     else
                     {
                         // 未认证的连接，创建内部服务上下文（用于服务间调用）
-                        var requestContext = new ServiceRequestContext
+                        var requestContext = new UnifiedContextData
                         {
                             SourceType = CallSourceType.InternalService,
                             CallerId = envelope.ConnectionId ?? "Unknown"
@@ -484,7 +484,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 }
                 finally
                 {
-                    // ✅ 清理 RequestContext 和 ServiceRequestContext
+                    // ✅ 清理请求上下文
                     TransportContextScope.Clear();
                     serviceContextScope?.Dispose();
                 }

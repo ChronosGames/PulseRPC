@@ -14,7 +14,7 @@ public static class PulseServiceFactoryExtensions
     /// <summary>
     /// 注册服务工厂（使用自定义工厂函数）
     /// </summary>
-    /// <typeparam name="TService">服务类型，必须实现 <see cref="IPulseService"/></typeparam>
+    /// <typeparam name="TService">服务类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
     /// <param name="services">服务集合</param>
     /// <param name="serviceFactory">服务实例工厂函数，接收 ServiceProvider 和 ServiceId，返回服务实例</param>
     /// <param name="configureOptions">配置选项委托（可选）</param>
@@ -66,7 +66,7 @@ public static class PulseServiceFactoryExtensions
         this IServiceCollection services,
         Func<IServiceProvider, string, TService> serviceFactory,
         Action<PulseServiceFactoryOptions>? configureOptions = null)
-        where TService : IPulseService
+        where TService : IUnifiedPulseService
     {
         if (services == null)
             throw new ArgumentNullException(nameof(services));
@@ -103,7 +103,7 @@ public static class PulseServiceFactoryExtensions
     /// <summary>
     /// 注册服务工厂（使用 ActivatorUtilities 自动创建）
     /// </summary>
-    /// <typeparam name="TService">服务类型，必须实现 <see cref="IPulseService"/></typeparam>
+    /// <typeparam name="TService">服务类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
     /// <param name="services">服务集合</param>
     /// <param name="configureOptions">配置选项委托（可选）</param>
     /// <returns>服务集合，支持链式调用</returns>
@@ -154,7 +154,7 @@ public static class PulseServiceFactoryExtensions
     public static IServiceCollection AddPulseServiceFactory<TService>(
         this IServiceCollection services,
         Action<PulseServiceFactoryOptions>? configureOptions = null)
-        where TService : IPulseService
+        where TService : IUnifiedPulseService
     {
         return services.AddPulseServiceFactory<TService>(
             (sp, serviceId) =>

@@ -15,7 +15,7 @@ public static class PulseHubFactoryExtensions
     /// 注册 Hub 工厂（使用自定义工厂函数）
     /// </summary>
     /// <typeparam name="THub">Hub 类型</typeparam>
-    /// <typeparam name="TService">Service 类型，必须实现 <see cref="IPulseService"/></typeparam>
+    /// <typeparam name="TService">Service 类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
     /// <param name="services">服务集合</param>
     /// <param name="hubFactory">Hub 实例工厂函数，接收 Service 实例，返回 Hub 实例</param>
     /// <returns>服务集合，支持链式调用</returns>
@@ -61,7 +61,7 @@ public static class PulseHubFactoryExtensions
         this IServiceCollection services,
         Func<TService, THub> hubFactory)
         where THub : class
-        where TService : IPulseService
+        where TService : IUnifiedPulseService
     {
         if (services == null)
             throw new ArgumentNullException(nameof(services));
@@ -87,7 +87,7 @@ public static class PulseHubFactoryExtensions
     /// 注册 Hub 工厂（可注入其他依赖）
     /// </summary>
     /// <typeparam name="THub">Hub 类型</typeparam>
-    /// <typeparam name="TService">Service 类型，必须实现 <see cref="IPulseService"/></typeparam>
+    /// <typeparam name="TService">Service 类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
     /// <param name="services">服务集合</param>
     /// <param name="hubFactory">Hub 实例工厂函数，接收 IServiceProvider 和 Service 实例，返回 Hub 实例</param>
     /// <returns>服务集合，支持链式调用</returns>
@@ -109,7 +109,7 @@ public static class PulseHubFactoryExtensions
         this IServiceCollection services,
         Func<IServiceProvider, TService, THub> hubFactory)
         where THub : class
-        where TService : IPulseService
+        where TService : IUnifiedPulseService
     {
         if (services == null)
             throw new ArgumentNullException(nameof(services));
@@ -135,7 +135,7 @@ public static class PulseHubFactoryExtensions
     /// 注册 Hub 工厂（使用 ActivatorUtilities 自动创建）
     /// </summary>
     /// <typeparam name="THub">Hub 类型</typeparam>
-    /// <typeparam name="TService">Service 类型，必须实现 <see cref="IPulseService"/></typeparam>
+    /// <typeparam name="TService">Service 类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
     /// <param name="services">服务集合</param>
     /// <returns>服务集合，支持链式调用</returns>
     /// <remarks>
@@ -180,7 +180,7 @@ public static class PulseHubFactoryExtensions
     public static IServiceCollection AddPulseHubFactory<THub, TService>(
         this IServiceCollection services)
         where THub : class
-        where TService : IPulseService
+        where TService : IUnifiedPulseService
     {
         return services.AddPulseHubFactory<THub, TService>(
             (sp, service) => ActivatorUtilities.CreateInstance<THub>(sp, service));
