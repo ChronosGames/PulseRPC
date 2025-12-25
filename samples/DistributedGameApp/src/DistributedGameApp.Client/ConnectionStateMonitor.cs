@@ -159,12 +159,12 @@ public class ConnectionStateMonitor : IDisposable
         try
         {
             // 检查通道是否仍然连接
-            if (!_monitoredChannel.IsConnected)
-            {
-                _logger.LogWarning("健康检查失败：通道未连接");
-                HandleDisconnection("Channel is not connected");
-                return;
-            }
+            // if (!_monitoredChannel.IsConnected)
+            // {
+            //     _logger.LogWarning("健康检查失败：通道未连接");
+            //     HandleDisconnection("Channel is not connected");
+            //     return;
+            // }
 
             // 检查是否超时
             var timeSinceLastActivity = DateTime.UtcNow - _lastSuccessfulActivity;

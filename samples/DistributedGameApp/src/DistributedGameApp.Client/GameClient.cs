@@ -29,6 +29,7 @@ namespace DistributedGameApp.Client;
 [PulseClientGeneration(typeof(IBattleReceiver))]
 [PulseClientGeneration(typeof(IGameReceiver))]
 [PulseClientGeneration(typeof(IBackendReceiver))]
+[PulseClientGeneration(typeof(IBackendHub))]
 public class GameClient : IDisposable
 {
     private readonly ILoggerFactory _loggerFactory;

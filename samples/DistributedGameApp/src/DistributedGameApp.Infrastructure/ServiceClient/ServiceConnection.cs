@@ -35,11 +35,6 @@ public class ServiceConnection : IAsyncDisposable
     public ConnectionState State { get; private set; } = ConnectionState.Disconnected;
 
     /// <summary>
-    /// 最后活动时间（从 PulseRPC.Client 获取）
-    /// </summary>
-    public DateTime LastHealthCheck => _channel?.Statistics.LastActiveAt ?? DateTime.MinValue;
-
-    /// <summary>
     /// 连接建立时间
     /// </summary>
     public DateTime ConnectedAt { get; private set; } = DateTime.MinValue;
@@ -126,9 +121,6 @@ public class ServiceConnection : IAsyncDisposable
                     throw new InvalidOperationException($"无法获取连接: {_serviceInfo.ServiceId}");
                 }
 
-                // 订阅 PulseRPC.Client 的连接状态变更事件（内置心跳检测）
-                _channel.ConnectionStateChanged += OnChannelStateChanged;
-
                 ConnectedAt = DateTime.UtcNow;
                 ChangeState(ConnectionState.Connected);
 
@@ -152,30 +144,6 @@ public class ServiceConnection : IAsyncDisposable
     }
 
     /// <summary>
-    /// 处理 PulseRPC.Client 的连接状态变更
-    /// </summary>
-    private void OnChannelStateChanged(object? sender, TransportStateEventArgs e)
-    {
-        _logger.LogDebug("通道状态变更: {ServiceId} {OldState} -> {NewState}",
-            _serviceInfo.ServiceId, e.PreviousState, e.CurrentState);
-
-        // 根据传输层状态映射到本地连接状态
-        // PulseRPC.Transport.ConnectionState -> DistributedGameApp.Infrastructure.ServiceClient.ConnectionState
-        var newState = e.CurrentState switch
-        {
-            PulseRPC.Transport.ConnectionState.Connected => ConnectionState.Connected,
-            PulseRPC.Transport.ConnectionState.Connecting => ConnectionState.Connecting,
-            PulseRPC.Transport.ConnectionState.Reconnecting => ConnectionState.Connecting,
-            _ => ConnectionState.Disconnected
-        };
-
-        if (State != newState)
-        {
-            ChangeState(newState);
-        }
-    }
-
-    /// <summary>
     /// 判断是否为连接错误
     /// </summary>
     private static bool IsConnectionError(Exception ex)
@@ -195,7 +163,6 @@ public class ServiceConnection : IAsyncDisposable
         // 取消事件订阅
         if (_channel != null)
         {
-            _channel.ConnectionStateChanged -= OnChannelStateChanged;
             _channel = null;
         }
 
@@ -222,52 +189,6 @@ public class ServiceConnection : IAsyncDisposable
                 _serviceInfo.ServiceId, oldState, newState);
 
             StateChanged?.Invoke(this, newState);
-        }
-    }
-
-    /// <summary>
-    /// 调用远程方法（支持多参数类型的协议号计算）
-    /// </summary>
-    public async Task<TResponse> InvokeAsync<TRequest, TResponse>(
-        string hubName,
-        string methodName,
-        TRequest? request,
-        Type[]? allParameterTypes,
-        CancellationToken cancellationToken = default)
-    {
-        if (_isDisposed)
-            throw new ObjectDisposedException(nameof(ServiceConnection));
-
-        if (State != ConnectionState.Connected || _channel == null)
-        {
-            throw new InvalidOperationException($"连接未建立: {_serviceInfo.ServiceId}");
-        }
-
-        try
-        {
-            Interlocked.Increment(ref _requestCount);
-
-            var response = await _channel.InvokeAsync<TRequest, TResponse>(
-                hubName,
-                methodName,
-                request!,
-                allParameterTypes,
-                cancellationToken);
-
-            return response;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "调用远程方法失败: {ServiceId}.{HubName}.{MethodName}",
-                _serviceInfo.ServiceId, hubName, methodName);
-
-            // 连接可能已断开，标记为需要重连
-            if (IsConnectionError(ex))
-            {
-                ChangeState(ConnectionState.Disconnected);
-            }
-
-            throw;
         }
     }
 
