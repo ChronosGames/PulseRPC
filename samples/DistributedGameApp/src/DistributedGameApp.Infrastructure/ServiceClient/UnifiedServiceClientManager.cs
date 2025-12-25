@@ -361,47 +361,6 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     }
 
     /// <summary>
-    /// 广播消息到指定服务类型的所有实例
-    /// </summary>
-    public async Task<Dictionary<string, bool>> BroadcastAsync<TRequest>(
-        ServerType serverType,
-        string hubName,
-        string methodName,
-        TRequest? request)
-    {
-        var connections = GetAllServers(serverType);
-        var results = new Dictionary<string, bool>();
-
-        _logger.LogInformation("广播消息到 {ServerType} ({Count} 个实例): {Method}",
-            serverType, connections.Count, methodName);
-
-        var tasks = connections.Select(async connection =>
-        {
-            try
-            {
-                // 使用请求类型作为参数类型（单参数方法）
-                await connection.InvokeAsync<TRequest, object>(hubName, methodName, request, new[] { typeof(TRequest) });
-                return (connection.ServiceInfo.ServiceId, Success: true);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "广播失败: ServiceId={ServiceId}, Method={Method}",
-                    connection.ServiceInfo.ServiceId, methodName);
-                return (connection.ServiceInfo.ServiceId, Success: false);
-            }
-        });
-
-        var taskResults = await Task.WhenAll(tasks);
-
-        foreach (var (serviceId, success) in taskResults)
-        {
-            results[serviceId] = success;
-        }
-
-        return results;
-    }
-
-    /// <summary>
     /// 获取 Hub 代理（通过服务ID/分片键路由）
     /// </summary>
     /// <typeparam name="THub">Hub 接口类型</typeparam>
@@ -695,16 +654,6 @@ internal class ServiceConnectionAdapter : IServiceConnection
     /// 获取底层的 IClientChannel（用于源生成器生成的代理）
     /// </summary>
     public PulseRPC.Client.IClientChannel? GetChannel() => _connection.Channel;
-
-    public Task<TResponse> InvokeAsync<TRequest, TResponse>(
-        string hubName,
-        string methodName,
-        TRequest? request,
-        Type[]? allParameterTypes,
-        CancellationToken cancellationToken = default)
-    {
-        return _connection.InvokeAsync<TRequest, TResponse>(hubName, methodName, request, allParameterTypes, cancellationToken);
-    }
 }
 
 /// <summary>
