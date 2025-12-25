@@ -5,7 +5,7 @@
     "name": "ChronosGames Team",
     "url": "https://github.com/ChronosGames/PulseRPC"
   },
-  "version": "1.0.20",
+  "version": "1.0.21",
   "unity": "2022.3",
   "description": "Internal Package of PulseRPC for development time.",
   "license": "MIT",
