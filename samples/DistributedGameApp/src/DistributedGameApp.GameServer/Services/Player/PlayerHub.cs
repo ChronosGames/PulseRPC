@@ -2,6 +2,7 @@ using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Abstractions;
+using PulseRPC.Server.Hubs;
 using PulseRPC.Server.ServiceManagement;
 
 namespace DistributedGameApp.GameServer.Services.Player;
@@ -25,7 +26,7 @@ namespace DistributedGameApp.GameServer.Services.Player;
 /// UnifiedServiceManager.Get(userId) → 返回 PlayerService 实例
 /// </code>
 /// </remarks>
-public class PlayerHub : IPlayerHub
+public class PlayerHub : PulseHubBase, IPlayerHub
 {
     private readonly IServiceAccessor<PlayerService> _playerService;
     private readonly ILogger<PlayerHub> _logger;
@@ -38,22 +39,9 @@ public class PlayerHub : IPlayerHub
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// 获取当前用户 ID
-    /// </summary>
-    private static string GetCurrentUserId()
-    {
-        var userId = PulseContext.Current?.UserId;
-        if (string.IsNullOrEmpty(userId))
-        {
-            throw new InvalidOperationException("User not authenticated");
-        }
-        return userId;
-    }
-
     // ════════════════════════════════════════════════════════════════════════
     // IPlayerHub 实现
-    // 所有方法从 PulseContext.Current.UserId 获取用户 ID 定位 PlayerService
+    // 所有方法使用 ExecuteForCurrentUser 从 PulseContext 获取用户 ID
     // ════════════════════════════════════════════════════════════════════════
 
     /// <summary>
@@ -63,9 +51,7 @@ public class PlayerHub : IPlayerHub
     {
         try
         {
-            var userId = GetCurrentUserId();
-            return await _playerService.ExecuteAsync(
-                userId,
+            return await _playerService.ExecuteForCurrentUser(
                 service => service.GetPlayerInfoAsync());
         }
         catch (InvalidOperationException ex)
@@ -87,9 +73,7 @@ public class PlayerHub : IPlayerHub
 
         try
         {
-            var userId = GetCurrentUserId();
-            return await _playerService.ExecuteAsync(
-                userId,
+            return await _playerService.ExecuteForCurrentUser(
                 service => service.MoveAsync(request));
         }
         catch (InvalidOperationException ex)
@@ -106,9 +90,7 @@ public class PlayerHub : IPlayerHub
     {
         try
         {
-            var userId = GetCurrentUserId();
-            return await _playerService.ExecuteAsync(
-                userId,
+            return await _playerService.ExecuteForCurrentUser(
                 service => service.LevelUpAsync());
         }
         catch (InvalidOperationException ex)
@@ -127,9 +109,7 @@ public class PlayerHub : IPlayerHub
 
         try
         {
-            var userId = GetCurrentUserId();
-            return await _playerService.ExecuteAsync(
-                userId,
+            return await _playerService.ExecuteForCurrentUser(
                 service => service.AddExpAsync(exp));
         }
         catch (InvalidOperationException ex)

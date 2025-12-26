@@ -1189,18 +1189,11 @@ public interface IServiceAccessor<TService> where TService : class, IUnifiedPuls
 }
 ```
 
-#### IContextualServiceAccessor<TService> - 上下文感知访问器
-
-```csharp
-public interface IContextualServiceAccessor<TService> : IServiceAccessor<TService>
-{
-    // 自动从 RequestContext 获取 ServiceId
-    ValueTask<TService> GetCurrentAsync(CancellationToken ct = default);
-    TService? TryGetCurrent();
-}
-```
-
 #### 扩展方法 - ExecuteAsync
+
+提供多种便捷的服务执行方式，减少样板代码：
+
+##### 1. 基础方法（需要 ServiceId）
 
 ```csharp
 // 在 Service 队列中执行操作
@@ -1208,10 +1201,167 @@ var result = await _playerService.ExecuteAsync(
     playerId,
     service => service.GetPlayerInfoAsync());
 
-// 从当前上下文执行
-var result = await _playerService.ExecuteCurrentAsync(
-    service => service.GetPlayerInfoAsync());
+// 无返回值版本
+await _playerService.ExecuteAsync(
+    playerId,
+    service => service.SaveAsync());
 ```
+
+##### 2. Singleton 服务简化 API（ProcessSingleton / ClusterSingleton）
+
+对于 `ProcessSingleton` 或 `ClusterSingleton` 服务，无需手动指定 ServiceId：
+
+```csharp
+// ❌ 之前（冗余）
+private const string SingletonServiceId = "local";
+await _guildService.ExecuteAsync(SingletonServiceId, s => s.CreateGuildAsync(userId, request));
+
+// ✅ 之后（简洁）- 自动使用默认 ServiceId
+await _guildService.Execute(s => s.CreateGuildAsync(userId, request));
+
+// 无返回值版本
+await _guildService.Execute(s => s.DoSomethingAsync());
+```
+
+**注意**：对于 `MultiInstance` 服务调用此方法会抛出 `InvalidOperationException`。
+
+##### 3. 使用当前用户 ID 作为 ServiceId（MultiInstance）
+
+适用于每个用户对应一个服务实例的场景：
+
+```csharp
+// ❌ 之前（冗余）
+var userId = GetCurrentUserId();
+await _playerService.ExecuteAsync(userId, s => s.GetInfoAsync());
+
+// ✅ 之后（简洁）- 自动从 PulseContext.CurrentUserId 获取
+await _playerService.ExecuteForCurrentUser(s => s.GetInfoAsync());
+
+// 无返回值版本
+await _playerService.ExecuteForCurrentUser(s => s.SaveAsync());
+```
+
+##### 4. 自动传递 UserId 给操作
+
+适用于服务方法需要 UserId 作为参数的场景：
+
+```csharp
+// ❌ 之前（冗余）
+var userId = GetCurrentUserId();
+await _socialService.ExecuteAsync("local", s => s.AddFriendAsync(userId, friendId));
+
+// ✅ 之后（简洁）- 自动获取 UserId 并传递
+await _socialService.ExecuteWithUserId((s, userId) => s.AddFriendAsync(userId, friendId));
+
+// 对于 MultiInstance 服务，也会自动使用 userId 作为 ServiceId
+await _playerService.ExecuteWithUserId((s, userId) => s.UpdateProfile(userId, newName));
+```
+
+#### 扩展方法 API 总结
+
+| 方法 | 适用场景 | ServiceId 来源 |
+|------|---------|----------------|
+| `ExecuteAsync(serviceId, op)` | 所有服务类型 | 手动指定 |
+| `Execute(op)` | ProcessSingleton / ClusterSingleton | 自动 ("local" / "global") |
+| `ExecuteForCurrentUser(op)` | MultiInstance（每用户一个实例） | PulseContext.CurrentUserId |
+| `ExecuteWithUserId((s, userId) => ...)` | 需要 UserId 参数的场景 | 自动获取并传递 |
+
+### Hub 基类（PulseHubBase）
+
+提供简化的上下文访问，减少 Hub 实现中的样板代码：
+
+```csharp
+public class GameHub : PulseHubBase, IGameHub
+{
+    private readonly IServiceAccessor<PlayerService> _playerService;
+    private readonly IServiceAccessor<GuildService> _guildService;
+
+    public GameHub(
+        IServiceAccessor<PlayerService> playerService,
+        IServiceAccessor<GuildService> guildService)
+    {
+        _playerService = playerService;
+        _guildService = guildService;
+    }
+
+    public async Task<PlayerInfo> GetPlayerInfoAsync()
+    {
+        // ✅ 使用基类的 UserId 属性（自动验证认证状态）
+        return await _playerService.ExecuteAsync(UserId,
+            s => s.GetInfoAsync());
+    }
+
+    public async Task<bool> CreateGuildAsync(CreateGuildRequest request)
+    {
+        // ✅ 使用 Execute() 简化 Singleton 服务调用
+        // ✅ 使用 UserId 属性获取当前用户
+        return await _guildService.Execute(
+            s => s.CreateGuildAsync(UserId, request));
+    }
+
+    public async Task<bool> AddFriendAsync(string friendId)
+    {
+        // ✅ 使用 ExecuteWithUserId 自动传递 userId
+        return await _socialService.ExecuteWithUserId(
+            (s, userId) => s.AddFriendAsync(userId, friendId));
+    }
+}
+```
+
+#### PulseHubBase 属性和方法
+
+| 成员 | 类型 | 说明 |
+|------|------|------|
+| `ConnectionId` | `string?` | 当前连接 ID（可空） |
+| `CurrentUserId` | `string?` | 当前用户 ID（可空，未认证时为 null） |
+| `UserId` | `string` | 当前用户 ID（非空，未认证时抛异常） |
+| `Context` | `IPulseContext?` | 完整请求上下文 |
+| `Transport` | `IServerTransport?` | 底层传输连接 |
+| `IsAuthenticated` | `bool` | 是否已认证 |
+| `EnsureAuthenticated()` | `void` | 确保已认证，否则抛异常 |
+| `TryGetUserId(out userId)` | `bool` | 尝试获取用户 ID |
+| `RequireConnectionId` | `string` | 连接 ID（非空，不存在时抛异常） |
+
+#### 使用对比
+
+```csharp
+// ═══════════════════════════════════════════════════════════════
+// ❌ 之前的写法（冗余）
+// ═══════════════════════════════════════════════════════════════
+public class BackendHub : IBackendHub
+{
+    private const string SingletonServiceId = "local";
+
+    private string GetCurrentUserId() =>
+        PulseContext.CurrentUserId
+            ?? throw new InvalidOperationException("无法获取请求上下文");
+
+    public async Task<bool> AddFriendAsync(string friendUserId)
+    {
+        var userId = GetCurrentUserId();
+        return await _socialService.ExecuteAsync(SingletonServiceId,
+            service => service.AddFriendAsync(userId, friendUserId));
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ✅ 之后的写法（简洁）
+// ═══════════════════════════════════════════════════════════════
+public class BackendHub : PulseHubBase, IBackendHub
+{
+    public async Task<bool> AddFriendAsync(string friendUserId)
+    {
+        return await _socialService.ExecuteWithUserId(
+            (s, userId) => s.AddFriendAsync(userId, friendUserId));
+    }
+}
+```
+
+**代码量对比**：
+- 删除 `private const string SingletonServiceId = "local";`
+- 删除 `private string GetCurrentUserId() { ... }` 方法
+- 每个方法减少 2-3 行代码
+- 预估总体代码减少 ~50%
 
 ### 多 Hub 映射单 Service
 
