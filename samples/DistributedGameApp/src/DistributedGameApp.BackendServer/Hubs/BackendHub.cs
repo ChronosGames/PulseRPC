@@ -5,8 +5,6 @@ using DistributedGameApp.Shared.Domain.Social;
 using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.BackendServer.Services;
 using Microsoft.Extensions.Logging;
-using PulseRPC;
-using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.ServiceManagement;
@@ -64,25 +62,12 @@ public class BackendHub : IBackendHub
     /// 获取当前用户ID的辅助方法
     /// </summary>
     /// <remarks>
-    /// Hub 使用 PulseRPC.Server.RequestContext（返回 IServerTransport），它是在 Hub 调用时被框架自动设置的。
-    /// UnifiedRequestContext 只在 Service 层中被设置。
+    /// 使用统一的 PulseContext 获取用户ID。
     /// </remarks>
     private string GetCurrentUserId()
     {
-        var context = UnifiedRequestContext.Current;
-        if (context != null && !string.IsNullOrEmpty(context.UserId))
-        {
-            return context.UserId;
-        }
-
-        // 回退到 RequestContext
-        var connection = PulseRPC.Server.RequestContext.Current;
-        if (connection == null)
-        {
-            throw new InvalidOperationException("无法获取请求上下文");
-        }
-
-        return connection.Id;
+        return PulseContext.CurrentUserId
+            ?? throw new InvalidOperationException("无法获取请求上下文");
     }
 
     #region 社交系统

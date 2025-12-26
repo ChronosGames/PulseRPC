@@ -423,9 +423,8 @@ public sealed class UnifiedServiceAccessor<TService> : IUnifiedServiceAccessor<T
             return resolved;
         }
 
-        // 2. 尝试从统一上下文获取
-        var context = UnifiedRequestContext.Current;
-        return context?.UserId;
+        // 2. 尝试从 PulseContext 获取
+        return PulseContext.CurrentUserId;
     }
 }
 

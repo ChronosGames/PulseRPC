@@ -14,11 +14,11 @@ namespace DistributedGameApp.GameServer.Services.Player;
 /// <list type="bullet">
 /// <item><description>✅ 无状态，注册为 Singleton</description></item>
 /// <item><description>✅ 所有状态存放在 PlayerService 中</description></item>
-/// <item><description>✅ 通过 RequestContext.Current.UserId 自动定位 Service</description></item>
+/// <item><description>✅ 通过 PulseContext.CurrentUserId 自动定位 Service</description></item>
 /// </list>
 /// <para><strong>工作原理</strong>：</para>
 /// <code>
-/// 请求到达 → 框架设置 RequestContext.Current (包含 UserId)
+/// 请求到达 → 框架设置 PulseContext.Current (包含 UserId)
 ///     ↓
 /// PlayerHub.Method() → _playerService.ExecuteCurrentAsync(...)
 ///     ↓
@@ -42,7 +42,7 @@ public class PlayerHub : IPlayerHub
 
     // ════════════════════════════════════════════════════════════════════════
     // IPlayerHub 实现
-    // 所有方法自动从 RequestContext.Current.UserId 定位 PlayerService
+    // 所有方法自动从 PulseContext.CurrentUserId 定位 PlayerService
     // ════════════════════════════════════════════════════════════════════════
 
     /// <summary>
@@ -52,7 +52,7 @@ public class PlayerHub : IPlayerHub
     {
         try
         {
-            // ✅ 自动从 RequestContext.Current.UserId 获取 PlayerService
+            // ✅ 自动从 PulseContext.CurrentUserId 获取 PlayerService
             return await _playerService.ExecuteCurrentAsync(
                 service => service.GetPlayerInfoAsync());
         }

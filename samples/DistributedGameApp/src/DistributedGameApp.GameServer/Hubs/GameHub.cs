@@ -7,8 +7,6 @@ using DistributedGameApp.Shared.Messages;
 using DistributedGameApp.Shared.Domain.Characters;
 using DistributedGameApp.GameServer.Services;
 using Microsoft.Extensions.Logging;
-using PulseRPC;
-using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.ServiceManagement;
@@ -75,33 +73,12 @@ public class GameHub : IGameHub
     /// <summary>
     /// 获取当前玩家ID (可空)
     /// </summary>
+    /// <remarks>
+    /// 使用统一的 PulseContext 获取用户ID。
+    /// </remarks>
     private string? GetCurrentPlayerId()
     {
-        // 优先使用 UnifiedRequestContext
-        var context = UnifiedRequestContext.Current;
-        if (context != null && !string.IsNullOrEmpty(context.UserId))
-        {
-            return context.UserId;
-        }
-
-        // 回退到 RequestContext + ConnectionMapping
-        var connection = RequestContext.Current;
-        if (connection == null)
-        {
-            _logger.LogWarning("GetCurrentPlayerId: No connection context");
-            return null;
-        }
-
-        var connectionId = connection.Id;
-        var userId = _userConnectionMapping.GetUserId(connectionId);
-
-        if (string.IsNullOrEmpty(userId))
-        {
-            _logger.LogWarning("GetCurrentPlayerId: ConnectionId {ConnectionId} not mapped to any user", connectionId);
-            return null;
-        }
-
-        return userId;
+        return PulseContext.CurrentUserId;
     }
 
     /// <summary>
@@ -117,9 +94,9 @@ public class GameHub : IGameHub
     {
         try
         {
-            // 获取当前连接（使用旧的 RequestContext，因为它是在 Hub 调用时被正确设置的）
-            var connection = RequestContext.Current;
-            if (connection == null)
+            // 获取当前连接
+            var connectionId = PulseContext.CurrentConnectionId;
+            if (string.IsNullOrEmpty(connectionId))
             {
                 _logger.LogWarning("Login attempt without connection context");
                 return new LoginResponse
@@ -129,8 +106,6 @@ public class GameHub : IGameHub
                     ErrorMessage = "无效的连接上下文"
                 };
             }
-
-            var connectionId = connection.Id;
 
             // ✅ JWT Token 认证（要求必须提供 Ticket）
             if (string.IsNullOrEmpty(request.Ticket))

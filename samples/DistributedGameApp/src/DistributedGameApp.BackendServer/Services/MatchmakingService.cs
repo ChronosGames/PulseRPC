@@ -136,8 +136,7 @@ public class MatchmakingService : UnifiedPulseServiceBase
             }
 
             // 获取来源节点信息（如果有的话）
-            var connection = PulseRPC.Server.RequestContext.Current;
-            var sourceNodeId = connection?.Id ?? "unknown";
+            var sourceNodeId = PulseContext.CurrentConnectionId ?? "unknown";
 
             // 创建匹配票据
             var ticket = new MatchmakingTicket

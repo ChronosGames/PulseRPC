@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Contexts;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Services;
 
@@ -56,33 +57,33 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     private CancellationTokenSource? _processingCts;
 
     // ════════════════════════════════════════════════════════════════════════
-    // 认证上下文（从 BaseService 迁移）
+    // 请求上下文访问（通过 PulseContext 统一管理）
     // ════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// 当前请求的认证上下文（AsyncLocal）
-    /// </summary>
-    private static readonly AsyncLocal<IServiceRequestContext?> _currentContext = new();
-
-    /// <summary>
-    /// 获取当前请求的调用者信息
+    /// 获取当前请求的上下文
     /// </summary>
     /// <returns>请求上下文，如果没有则返回 null</returns>
     /// <remarks>
-    /// 此方法在消息队列的处理循环中自动设置上下文。
+    /// 上下文由 PulseContext 统一管理，在消息处理引擎中自动设置。
     /// 在服务方法中可以使用此方法获取调用者信息。
     /// </remarks>
-    protected IServiceRequestContext? GetCurrentContext() => _currentContext.Value;
+    protected static IPulseContext? GetCurrentContext() => PulseContext.Current;
 
     /// <summary>
     /// 获取当前调用者的 UserId
     /// </summary>
-    protected string? CurrentUserId => _currentContext.Value?.UserId;
+    protected static string? CurrentUserId => PulseContext.CurrentUserId;
 
     /// <summary>
     /// 获取当前调用者的 CallerId
     /// </summary>
-    protected string? CurrentCallerId => _currentContext.Value?.CallerId;
+    protected static string? CurrentCallerId => PulseContext.Current?.CallerId;
+
+    /// <summary>
+    /// 获取当前传输连接
+    /// </summary>
+    protected static IServerTransport? CurrentTransport => PulseContext.CurrentTransport;
 
     // ════════════════════════════════════════════════════════════════════════
     // 基础属性
@@ -299,9 +300,15 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>表示异步操作的任务</returns>
     /// <remarks>
+    /// <para>
     /// 如果服务配置为 <see cref="ServiceSchedulingMode.DedicatedQueue"/>，
     /// 则工作项会被排队到专属队列中顺序执行；
     /// 否则，工作项会立即在当前线程执行。
+    /// </para>
+    /// <para>
+    /// 此方法会自动捕获当前的 <see cref="PulseContext"/>，
+    /// 并在工作项执行时恢复，确保上下文在队列处理中正确传播。
+    /// </para>
     /// </remarks>
     public async Task EnqueueAsync(Func<Task> work, CancellationToken cancellationToken = default)
     {
@@ -315,64 +322,26 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
         if (_messageQueue != null)
         {
-            await _messageQueue.Writer.WriteAsync(work, cancellationToken);
-        }
-        else
-        {
-            // 无队列模式，直接执行
-            await work();
-        }
-    }
+            // 捕获当前上下文，以便在队列处理线程中恢复
+            var capturedContext = PulseContext.Current;
 
-    /// <summary>
-    /// 将工作项提交到服务队列执行（带上下文传播）
-    /// </summary>
-    /// <param name="work">要执行的工作</param>
-    /// <param name="context">请求上下文</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>表示异步操作的任务</returns>
-    /// <remarks>
-    /// 此方法会将请求上下文传播到工作项执行时，
-    /// 使得在服务方法中可以通过 <see cref="GetCurrentContext"/> 获取调用者信息。
-    /// </remarks>
-    public async Task EnqueueWithContextAsync(
-        Func<Task> work,
-        IServiceRequestContext? context,
-        CancellationToken cancellationToken = default)
-    {
-        if (State != ServiceLifecycleState.Running)
-        {
-            throw new InvalidOperationException($"Service is not running: {((IUnifiedPulseService)this).ServiceAddress}");
-        }
-
-        if (_messageQueue != null)
-        {
             await _messageQueue.Writer.WriteAsync(async () =>
             {
-                var previousContext = _currentContext.Value;
-                try
+                if (capturedContext != null)
                 {
-                    _currentContext.Value = context;
+                    using var _ = PulseContext.SetContext(capturedContext);
                     await work();
                 }
-                finally
+                else
                 {
-                    _currentContext.Value = previousContext;
+                    await work();
                 }
             }, cancellationToken);
         }
         else
         {
-            var previousContext = _currentContext.Value;
-            try
-            {
-                _currentContext.Value = context;
-                await work();
-            }
-            finally
-            {
-                _currentContext.Value = previousContext;
-            }
+            // 无队列模式，直接执行（上下文已经可用）
+            await work();
         }
     }
 
@@ -384,6 +353,10 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// <strong>性能优化</strong>：此方法使用池化的 <see cref="PooledValueTaskSource{TResult}"/>
     /// 来减少内存分配，相比传统的 <see cref="TaskCompletionSource{TResult}"/>，
     /// 在高频调用场景下可以显著降低 GC 压力。
+    /// </para>
+    /// <para>
+    /// 此方法会自动捕获当前的 <see cref="PulseContext"/>，
+    /// 并在工作项执行时恢复，确保上下文在队列处理中正确传播。
     /// </para>
     /// </remarks>
     public async Task<TResult> EnqueueAsync<TResult>(Func<Task<TResult>> work, CancellationToken cancellationToken = default)
@@ -398,6 +371,9 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
         if (_messageQueue != null)
         {
+            // 捕获当前上下文，以便在队列处理线程中恢复
+            var capturedContext = PulseContext.Current;
+
             // 使用池化的 ValueTaskSource 减少内存分配
             var valueTaskSource = PooledValueTaskSource<TResult>.Create();
 
@@ -405,7 +381,16 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             {
                 try
                 {
-                    var result = await work();
+                    TResult result;
+                    if (capturedContext != null)
+                    {
+                        using var _ = PulseContext.SetContext(capturedContext);
+                        result = await work();
+                    }
+                    else
+                    {
+                        result = await work();
+                    }
                     valueTaskSource.TrySetResult(result);
                 }
                 catch (Exception ex)
@@ -418,70 +403,8 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
         }
         else
         {
+            // 无队列模式，直接执行（上下文已经可用）
             return await work();
-        }
-    }
-
-    /// <summary>
-    /// 将工作项提交到服务队列执行并返回结果（带上下文传播）
-    /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <strong>性能优化</strong>：此方法使用池化的 <see cref="PooledValueTaskSource{TResult}"/>
-    /// 来减少内存分配。
-    /// </para>
-    /// </remarks>
-    public async Task<TResult> EnqueueWithContextAsync<TResult>(
-        Func<Task<TResult>> work,
-        IServiceRequestContext? context,
-        CancellationToken cancellationToken = default)
-    {
-        if (State != ServiceLifecycleState.Running)
-        {
-            throw new InvalidOperationException($"Service is not running: {((IUnifiedPulseService)this).ServiceAddress}");
-        }
-
-        // 更新访问时间
-        UpdateAccessTime();
-
-        if (_messageQueue != null)
-        {
-            // 使用池化的 ValueTaskSource 减少内存分配
-            var valueTaskSource = PooledValueTaskSource<TResult>.Create();
-
-            await _messageQueue.Writer.WriteAsync(async () =>
-            {
-                var previousContext = _currentContext.Value;
-                try
-                {
-                    _currentContext.Value = context;
-                    var result = await work();
-                    valueTaskSource.TrySetResult(result);
-                }
-                catch (Exception ex)
-                {
-                    valueTaskSource.TrySetException(ex);
-                }
-                finally
-                {
-                    _currentContext.Value = previousContext;
-                }
-            }, cancellationToken);
-
-            return await valueTaskSource.GetValueTask();
-        }
-        else
-        {
-            var previousContext = _currentContext.Value;
-            try
-            {
-                _currentContext.Value = context;
-                return await work();
-            }
-            finally
-            {
-                _currentContext.Value = previousContext;
-            }
         }
     }
 

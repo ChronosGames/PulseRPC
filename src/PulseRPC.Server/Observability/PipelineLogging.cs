@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Core;
 using PulseRPC.Server.Models;
 
@@ -277,15 +278,15 @@ public static class PipelineLogging
     /// </summary>
     public static IDisposable? BeginRequestScope(
         this ILogger logger,
-        RpcRequestContext context)
+        IPulseContext context)
     {
         return logger.BeginScope(new Dictionary<string, object>
         {
             ["RequestId"] = context.RequestId,
             ["ServiceName"] = context.ServiceName,
             ["MethodName"] = context.MethodName,
-            ["ConnectionId"] = context.ConnectionId,
-            ["ClientId"] = context.ClientId
+            ["ConnectionId"] = context.ConnectionId ?? "unknown",
+            ["UserId"] = context.UserId ?? "anonymous"
         });
     }
 }
