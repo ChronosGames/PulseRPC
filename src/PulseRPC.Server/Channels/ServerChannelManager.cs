@@ -219,7 +219,7 @@ internal class ServerChannelManager : IServerChannelManager
             ActiveChannels = _channels.Count,
             TotalChannelsCreated = Interlocked.Read(ref _totalChannelsCreated),
             TotalChannelsRemoved = Interlocked.Read(ref _totalChannelsRemoved),
-            TotalHighThroughputProcessorsCreated = engineStats.Count,
+            TotalMessageEnginesCreated = engineStats.Count,
             TotalMessagesProcessed = totalProcessed,
             TotalMessagesDropped = totalDropped
         };
@@ -324,8 +324,8 @@ internal class ServerChannelManager : IServerChannelManager
         }
 
         var stats = GetChannelManagerStats();
-        _logger.LogInformation("增强服务器通道管理器已释放，最终统计: 通道创建={ChannelsCreated}, 通道移除={ChannelsRemoved}, 处理器创建={ProcessorsCreated}",
-            stats.TotalChannelsCreated, stats.TotalChannelsRemoved, stats.TotalHighThroughputProcessorsCreated);
+        _logger.LogInformation("服务器通道管理器已释放，最终统计: 通道创建={ChannelsCreated}, 通道移除={ChannelsRemoved}, 消息引擎创建={EnginesCreated}",
+            stats.TotalChannelsCreated, stats.TotalChannelsRemoved, stats.TotalMessageEnginesCreated);
     }
 }
 

@@ -28,10 +28,10 @@ public class ChannelManagerStats
     public int ActiveChannels { get; set; }
     public long TotalChannelsCreated { get; set; }
     public long TotalChannelsRemoved { get; set; }
-    public long TotalHighThroughputProcessorsCreated { get; set; }
+    public long TotalMessageEnginesCreated { get; set; }
     public long TotalMessagesProcessed { get; set; }
     public long TotalMessagesDropped { get; set; }
-    public bool HighThroughputProcessorEnabled { get; set; }
+    public bool MessageEngineEnabled { get; set; }
 }
 
 
