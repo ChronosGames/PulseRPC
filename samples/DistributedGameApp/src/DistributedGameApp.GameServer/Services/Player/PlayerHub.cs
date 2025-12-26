@@ -14,35 +14,46 @@ namespace DistributedGameApp.GameServer.Services.Player;
 /// <list type="bullet">
 /// <item><description>✅ 无状态，注册为 Singleton</description></item>
 /// <item><description>✅ 所有状态存放在 PlayerService 中</description></item>
-/// <item><description>✅ 通过 PulseContext.CurrentUserId 自动定位 Service</description></item>
+/// <item><description>✅ 通过 PulseContext.Current.UserId 获取用户 ID</description></item>
 /// </list>
 /// <para><strong>工作原理</strong>：</para>
 /// <code>
 /// 请求到达 → 框架设置 PulseContext.Current (包含 UserId)
 ///     ↓
-/// PlayerHub.Method() → _playerService.ExecuteCurrentAsync(...)
-///     ↓
-/// IServiceIdResolver.ResolveServiceId() → 返回 UserId
+/// PlayerHub.Method() → _playerService.ExecuteAsync(userId, ...)
 ///     ↓
 /// UnifiedServiceManager.Get(userId) → 返回 PlayerService 实例
 /// </code>
 /// </remarks>
 public class PlayerHub : IPlayerHub
 {
-    private readonly IContextualServiceAccessor<PlayerService> _playerService;
+    private readonly IServiceAccessor<PlayerService> _playerService;
     private readonly ILogger<PlayerHub> _logger;
 
     public PlayerHub(
-        IContextualServiceAccessor<PlayerService> playerService,
+        IServiceAccessor<PlayerService> playerService,
         ILogger<PlayerHub> logger)
     {
         _playerService = playerService ?? throw new ArgumentNullException(nameof(playerService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
+    /// <summary>
+    /// 获取当前用户 ID
+    /// </summary>
+    private static string GetCurrentUserId()
+    {
+        var userId = PulseContext.Current?.UserId;
+        if (string.IsNullOrEmpty(userId))
+        {
+            throw new InvalidOperationException("User not authenticated");
+        }
+        return userId;
+    }
+
     // ════════════════════════════════════════════════════════════════════════
     // IPlayerHub 实现
-    // 所有方法自动从 PulseContext.CurrentUserId 定位 PlayerService
+    // 所有方法从 PulseContext.Current.UserId 获取用户 ID 定位 PlayerService
     // ════════════════════════════════════════════════════════════════════════
 
     /// <summary>
@@ -52,8 +63,9 @@ public class PlayerHub : IPlayerHub
     {
         try
         {
-            // ✅ 自动从 PulseContext.CurrentUserId 获取 PlayerService
-            return await _playerService.ExecuteCurrentAsync(
+            var userId = GetCurrentUserId();
+            return await _playerService.ExecuteAsync(
+                userId,
                 service => service.GetPlayerInfoAsync());
         }
         catch (InvalidOperationException ex)
@@ -75,7 +87,9 @@ public class PlayerHub : IPlayerHub
 
         try
         {
-            return await _playerService.ExecuteCurrentAsync(
+            var userId = GetCurrentUserId();
+            return await _playerService.ExecuteAsync(
+                userId,
                 service => service.MoveAsync(request));
         }
         catch (InvalidOperationException ex)
@@ -92,7 +106,9 @@ public class PlayerHub : IPlayerHub
     {
         try
         {
-            return await _playerService.ExecuteCurrentAsync(
+            var userId = GetCurrentUserId();
+            return await _playerService.ExecuteAsync(
+                userId,
                 service => service.LevelUpAsync());
         }
         catch (InvalidOperationException ex)
@@ -111,7 +127,9 @@ public class PlayerHub : IPlayerHub
 
         try
         {
-            return await _playerService.ExecuteCurrentAsync(
+            var userId = GetCurrentUserId();
+            return await _playerService.ExecuteAsync(
+                userId,
                 service => service.AddExpAsync(exp));
         }
         catch (InvalidOperationException ex)

@@ -8,21 +8,18 @@ namespace PulseRPC.Server.ServiceManagement;
 /// 服务访问器实现
 /// </summary>
 /// <typeparam name="TService">服务类型</typeparam>
-public sealed class ServiceAccessor<TService> : IContextualServiceAccessor<TService>
+public sealed class ServiceAccessor<TService> : IServiceAccessor<TService>
     where TService : class, IUnifiedPulseService
 {
     private readonly UnifiedServiceManager _serviceManager;
-    private readonly IServiceIdResolver _serviceIdResolver;
     private readonly ILogger<ServiceAccessor<TService>> _logger;
     private readonly string _serviceTypeName;
 
     public ServiceAccessor(
         UnifiedServiceManager serviceManager,
-        IServiceIdResolver serviceIdResolver,
         ILogger<ServiceAccessor<TService>> logger)
     {
         _serviceManager = serviceManager ?? throw new ArgumentNullException(nameof(serviceManager));
-        _serviceIdResolver = serviceIdResolver ?? throw new ArgumentNullException(nameof(serviceIdResolver));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         // 从 PulseServiceAttribute 获取服务类型名称
@@ -63,32 +60,6 @@ public sealed class ServiceAccessor<TService> : IContextualServiceAccessor<TServ
     public IEnumerable<TService> GetAll()
     {
         return _serviceManager.GetServicesByType(_serviceTypeName).OfType<TService>();
-    }
-
-    /// <inheritdoc/>
-    public async ValueTask<TService> GetCurrentAsync(CancellationToken cancellationToken = default)
-    {
-        var serviceId = _serviceIdResolver.ResolveServiceId();
-
-        if (string.IsNullOrWhiteSpace(serviceId))
-        {
-            throw new InvalidOperationException(
-                $"Cannot resolve ServiceId from current context for service type {_serviceTypeName}. " +
-                "Ensure the request context contains the required information (e.g., UserId, headers).");
-        }
-
-        return await GetAsync(serviceId, cancellationToken);
-    }
-
-    /// <inheritdoc/>
-    public TService? TryGetCurrent()
-    {
-        var serviceId = _serviceIdResolver.ResolveServiceId();
-
-        if (string.IsNullOrWhiteSpace(serviceId))
-            return null;
-
-        return TryGet(serviceId);
     }
 }
 
@@ -144,34 +115,4 @@ public static class ServiceAccessorExtensions
             await operation(service);
         }, cancellationToken);
     }
-
-    /// <summary>
-    /// 从当前上下文在服务队列中执行操作
-    /// </summary>
-    public static async Task<TResult> ExecuteCurrentAsync<TService, TResult>(
-        this IContextualServiceAccessor<TService> accessor,
-        Func<TService, Task<TResult>> operation,
-        CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
-    {
-        var service = await accessor.GetCurrentAsync(cancellationToken);
-        return await service.EnqueueAsync(() => operation(service), cancellationToken);
-    }
-
-    /// <summary>
-    /// 从当前上下文在服务队列中执行操作（无返回值）
-    /// </summary>
-    public static async Task ExecuteCurrentAsync<TService>(
-        this IContextualServiceAccessor<TService> accessor,
-        Func<TService, Task> operation,
-        CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
-    {
-        var service = await accessor.GetCurrentAsync(cancellationToken);
-        await service.EnqueueAsync(async () =>
-        {
-            await operation(service);
-        }, cancellationToken);
-    }
 }
-
