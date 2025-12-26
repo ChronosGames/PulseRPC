@@ -7,7 +7,6 @@ using PulseRPC.Server.Configuration;
 using PulseRPC.Server.MessageEngine;
 using PulseRPC.Server.Integration;
 using PulseRPC.Server.Models;
-using PulseRPC.Server.Pipeline;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 using BackpressurePolicyCore = PulseRPC.Server.Core.BackpressurePolicy;
@@ -28,7 +27,6 @@ public sealed class UnifiedPulseServer : IPulseServer
 
     // Pipeline components
     private readonly ITieredMessageEngine _messageEngine;
-    private readonly MessageDispatcher _messageDispatcher;
     private readonly BackpressurePolicyCore? _backpressurePolicy;
 
     private readonly ConcurrentDictionary<string, IServerListener> _listeners = new();
@@ -71,7 +69,6 @@ public sealed class UnifiedPulseServer : IPulseServer
         _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));
 
         // Initialize pipeline components (if options configured)
-        _messageDispatcher = new MessageDispatcher(_options.MessageDispatcher);
         _backpressurePolicy = new BackpressurePolicyCore(_options.BackpressurePolicy);
 
         // Add configured transports
@@ -111,8 +108,6 @@ public sealed class UnifiedPulseServer : IPulseServer
 
             // Start pipeline components
             await _messageEngine.StartAsync(combinedCts.Token);
-
-            await _messageDispatcher.StartAsync(combinedCts.Token);
 
             // Start all transports in parallel
             var startTasks = _transports.Values.Select(config =>
@@ -193,7 +188,6 @@ public sealed class UnifiedPulseServer : IPulseServer
 
             // Stop pipeline components
             await _messageEngine.StopAsync();
-            await _messageDispatcher.StopAsync(cancellationToken);
 
             ChangeState(ServerState.Stopped);
             _logger.LogInformation("Server stopped successfully");
@@ -369,7 +363,7 @@ public sealed class UnifiedPulseServer : IPulseServer
         {
             ActiveConnections = ActiveConnectionCount,
             TotalConnectionsAccepted = Interlocked.Read(ref _totalConnectionsAccepted),
-            TotalMessagesProcessed = _messageDispatcher?.TotalMessagesDispatched ?? 0,
+            TotalMessagesProcessed = _messageEngine.GetStatistics().TotalMessagesProcessed,
             TotalMessagesDropped = 0, // TODO: Track dropped messages
             AverageLatencyMs = 0, // TODO: Implement latency tracking
             ThroughputMsgsPerSec = 0, // TODO: Implement throughput calculation
@@ -459,7 +453,6 @@ public sealed class UnifiedPulseServer : IPulseServer
         }
 
         _shutdownCts.Dispose();
-        _messageDispatcher?.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -471,7 +464,6 @@ public sealed class UnifiedPulseServer : IPulseServer
         }
 
         _shutdownCts.Dispose();
-        _messageDispatcher?.Dispose();
         GC.SuppressFinalize(this);
     }
 }

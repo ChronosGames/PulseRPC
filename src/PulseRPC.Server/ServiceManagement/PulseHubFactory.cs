@@ -24,7 +24,7 @@ namespace PulseRPC.Server.ServiceManagement;
 /// <item><description>当 Service 被移除时，对应的 Hub 也会被移除</description></item>
 /// </list>
 /// </remarks>
-public sealed class PulseHubFactory<THub, TService> : IPulseHubFactory<THub, TService>, IDisposable
+internal sealed class PulseHubFactory<THub, TService> : IPulseHubFactory<THub, TService>, IDisposable
     where THub : class
     where TService : IUnifiedPulseService
 {

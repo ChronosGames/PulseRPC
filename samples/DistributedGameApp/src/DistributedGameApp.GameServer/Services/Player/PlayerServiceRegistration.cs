@@ -21,7 +21,7 @@ public static class PlayerServiceRegistration
     /// <list type="bullet">
     /// <item><description>PlayerService - 有状态服务（继承 UnifiedPulseServiceBase）</description></item>
     /// <item><description>PlayerHub - 无状态 Hub（实现 IPlayerHub，RPC 入口）</description></item>
-    /// <item><description>Hub 与 Service 分离，Hub 通过 IServiceAccessor 访问 Service</description></item>
+    /// <item><description>Hub 与 Service 分离，Hub 通过 IServiceAccessor&lt;T&gt; 访问 Service</description></item>
     /// </list>
     /// </remarks>
     public static IServiceCollection AddPlayerServices(this IServiceCollection services)
@@ -35,8 +35,7 @@ public static class PlayerServiceRegistration
         });
 
         // 2. 注册无状态 Hub（Singleton，全局复用）
-        //    Hub 通过 IContextualServiceAccessor<PlayerService> 访问 Service
-        //    Service 实例根据 PulseContext.CurrentUserId 自动定位
+        //    Hub 通过 IServiceAccessor<PlayerService> 访问 Service
         services.AddSingleton<IPlayerHub, PlayerHub>();
 
         return services;

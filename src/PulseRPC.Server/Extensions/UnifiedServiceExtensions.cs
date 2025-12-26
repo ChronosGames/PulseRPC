@@ -53,9 +53,6 @@ public static class UnifiedServiceExtensions
         services.TryAddSingleton(options);
         services.TryAddSingleton<UnifiedServiceManager>();
 
-        // 默认使用 UserId 作为 ServiceId 解析器
-        services.TryAddSingleton<IServiceIdResolver, UserIdServiceIdResolver>();
-
         // 添加后台服务以自动启动 AutoStart 服务
         services.AddHostedService<UnifiedServiceHostedService>();
 
@@ -65,30 +62,6 @@ public static class UnifiedServiceExtensions
             services.AddHostedService<ServiceInstanceEvictor>();
         }
 
-        return services;
-    }
-
-    /// <summary>
-    /// 配置 ServiceId 解析策略
-    /// </summary>
-    /// <typeparam name="TResolver">解析器类型</typeparam>
-    /// <param name="services">服务集合</param>
-    /// <returns>服务集合，支持链式调用</returns>
-    public static IServiceCollection UseServiceIdResolver<TResolver>(this IServiceCollection services)
-        where TResolver : class, IServiceIdResolver
-    {
-        services.AddSingleton<IServiceIdResolver, TResolver>();
-        return services;
-    }
-
-    /// <summary>
-    /// 配置 ServiceId 解析策略（使用工厂）
-    /// </summary>
-    public static IServiceCollection UseServiceIdResolver(
-        this IServiceCollection services,
-        Func<IServiceProvider, IServiceIdResolver> factory)
-    {
-        services.AddSingleton(factory);
         return services;
     }
 
@@ -136,17 +109,10 @@ public static class UnifiedServiceExtensions
         // 2. 注册服务类型本身（用于 DI 创建）
         services.TryAddTransient<TService>();
 
-        // 3. 注册统一服务访问器（新 API，推荐使用）
-        services.TryAddScoped<IUnifiedServiceAccessor<TService>, UnifiedServiceAccessor<TService>>();
-
-        // 4. 注册旧版 ServiceAccessor（向后兼容）
+        // 3. 注册服务访问器
         services.TryAddSingleton<IServiceAccessor<TService>, ServiceAccessor<TService>>();
-        services.TryAddSingleton<IContextualServiceAccessor<TService>, ServiceAccessor<TService>>();
 
-        // 5. 注册 ScopedServiceAccessor（向后兼容）
-        services.TryAddScoped<IScopedServiceAccessor<TService>, ScopedServiceAccessor<TService>>();
-
-        // 6. 注册到服务管理器的配置
+        // 4. 注册到服务管理器的配置
         services.Configure<ServiceRegistrationCollection>(collection =>
         {
             collection.Add(new ServiceRegistrationEntry

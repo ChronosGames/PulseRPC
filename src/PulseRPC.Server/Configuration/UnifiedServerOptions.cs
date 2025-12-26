@@ -25,11 +25,6 @@ public sealed class UnifiedServerOptions
     public MessageReceiverOptions MessageReceiver { get; set; } = new();
 
     /// <summary>
-    /// Configuration for message dispatcher component.
-    /// </summary>
-    public MessageDispatcherOptions MessageDispatcher { get; set; } = new();
-
-    /// <summary>
     /// Configuration for response transmitter component.
     /// </summary>
     public ResponseTransmitterOptions ResponseTransmitter { get; set; } = new();

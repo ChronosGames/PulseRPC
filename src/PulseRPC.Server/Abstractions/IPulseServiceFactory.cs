@@ -64,7 +64,7 @@ namespace PulseRPC.Server.Abstractions;
 ///     });
 /// </code>
 /// </example>
-public interface IPulseServiceFactory<TService> where TService : IUnifiedPulseService
+internal interface IPulseServiceFactory<TService> where TService : IUnifiedPulseService
 {
     /// <summary>
     /// 获取或创建服务实例

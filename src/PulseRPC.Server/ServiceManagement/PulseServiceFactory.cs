@@ -22,7 +22,7 @@ namespace PulseRPC.Server.ServiceManagement;
 /// <item><description>指标收集</description></item>
 /// </list>
 /// </remarks>
-public sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TService>, IPulseServiceFactoryMetrics, IDisposable
+internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TService>, IPulseServiceFactoryMetrics, IDisposable
     where TService : IUnifiedPulseService
 {
     private readonly ConcurrentDictionary<string, ServiceInstanceEntry> _instances;
