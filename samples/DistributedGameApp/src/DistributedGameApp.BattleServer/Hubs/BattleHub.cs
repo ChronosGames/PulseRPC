@@ -3,7 +3,8 @@ using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Contexts;
+using PulseRPC.Server;
+using PulseRPC.Server.Hubs;
 
 namespace DistributedGameApp.BattleServer.Hubs;
 
@@ -19,7 +20,7 @@ namespace DistributedGameApp.BattleServer.Hubs;
 /// <item><description>✅ 使用 PulseContext 获取请求上下文</description></item>
 /// </list>
 /// </remarks>
-public class BattleHub : IBattleHub
+public class BattleHub : PulseHubBase, IBattleHub
 {
     private readonly BattleRoomManager _battleRoomManager;
     private readonly BattleConnectionContext _connectionContext;
@@ -45,18 +46,12 @@ public class BattleHub : IBattleHub
     /// 获取当前连接的战斗状态
     /// </summary>
     /// <remarks>
-    /// 每个 RPC 请求都是独立的，使用 PulseContext 和 BattleConnectionContext 获取状态
+    /// 每个 RPC 请求都是独立的，使用 PulseHubBase.ConnectionId 和 BattleConnectionContext 获取状态
     /// </remarks>
     private BattleConnectionState GetCurrentBattleState()
     {
-        var connectionId = PulseContext.CurrentConnectionId;
-        if (string.IsNullOrEmpty(connectionId))
-        {
-            throw new InvalidOperationException("无法获取请求上下文");
-        }
-
         // 从 BattleConnectionContext 获取该连接对应的战斗状态
-        var state = _connectionContext.GetState(connectionId);
+        var state = _connectionContext.GetState(RequireConnectionId);
         if (state == null)
         {
             throw new InvalidOperationException("未加入任何战斗，请先调用 JoinBattleAsync");
@@ -106,18 +101,11 @@ public class BattleHub : IBattleHub
                 throw new InvalidOperationException("加入战斗失败，房间已满或角色已在战斗中");
             }
 
-            // ✅ 获取当前连接ID
-            var connectionId = PulseContext.CurrentConnectionId;
-            if (string.IsNullOrEmpty(connectionId))
-            {
-                throw new InvalidOperationException("无法获取请求上下文");
-            }
-
             // ✅ 使用 BattleConnectionContext 存储连接状态
-            _connectionContext.JoinBattle(connectionId, request.BattleId, request.CharacterId);
+            _connectionContext.JoinBattle(RequireConnectionId, request.BattleId, request.CharacterId);
 
             _logger.LogInformation("角色 {CharacterId} 加入战斗房间 {BattleId}, ConnectionId: {ConnectionId}",
-                request.CharacterId, request.BattleId, connectionId);
+                request.CharacterId, request.BattleId, ConnectionId);
 
             return battleRoom.GetBattleInfo();
         }
@@ -151,10 +139,9 @@ public class BattleHub : IBattleHub
             if (success)
             {
                 // ✅ 清除连接状态
-                var connectionId = PulseContext.CurrentConnectionId;
-                if (!string.IsNullOrEmpty(connectionId))
+                if (!string.IsNullOrEmpty(ConnectionId))
                 {
-                    _connectionContext.LeaveBattle(connectionId);
+                    _connectionContext.LeaveBattle(ConnectionId);
                 }
 
                 _logger.LogInformation("角色 {CharacterId} 离开战斗房间 {BattleId}",

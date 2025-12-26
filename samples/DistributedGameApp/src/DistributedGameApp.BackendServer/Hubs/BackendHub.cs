@@ -6,7 +6,7 @@ using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.BackendServer.Services;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Abstractions;
-using PulseRPC.Server.Contexts;
+using PulseRPC.Server.Hubs;
 using PulseRPC.Server.ServiceManagement;
 
 namespace DistributedGameApp.BackendServer.Hubs;
@@ -34,10 +34,8 @@ namespace DistributedGameApp.BackendServer.Hubs;
 /// await _socialService.ExecuteAsync("local", s => s.AddFriendAsync(userId, friendId));
 /// </code>
 /// </remarks>
-public class BackendHub : IBackendHub
+public class BackendHub : PulseHubBase, IBackendHub
 {
-    private const string SingletonServiceId = "local";
-
     private readonly IServiceAccessor<SocialService> _socialService;
     private readonly IServiceAccessor<GuildService> _guildService;
     private readonly IServiceAccessor<LeaderboardService> _leaderboardService;
@@ -58,67 +56,48 @@ public class BackendHub : IBackendHub
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
-    /// <summary>
-    /// 获取当前用户ID的辅助方法
-    /// </summary>
-    /// <remarks>
-    /// 使用统一的 PulseContext 获取用户ID。
-    /// </remarks>
-    private string GetCurrentUserId()
-    {
-        return PulseContext.CurrentUserId
-            ?? throw new InvalidOperationException("无法获取请求上下文");
-    }
-
     #region 社交系统
 
     public async Task<bool> AddFriendAsync(string friendUserId)
     {
-        var userId = GetCurrentUserId();
-        return await _socialService.ExecuteAsync(SingletonServiceId,
-            service => service.AddFriendAsync(userId, friendUserId));
+        return await _socialService.ExecuteWithUserId(
+            (service, userId) => service.AddFriendAsync(userId, friendUserId));
     }
 
     public async Task<bool> AcceptFriendAsync(string friendUserId)
     {
-        var userId = GetCurrentUserId();
-        return await _socialService.ExecuteAsync(SingletonServiceId,
-            service => service.AcceptFriendAsync(userId, friendUserId));
+        return await _socialService.ExecuteWithUserId(
+            (service, userId) => service.AcceptFriendAsync(userId, friendUserId));
     }
 
     public async Task<bool> RejectFriendAsync(string friendUserId)
     {
-        var userId = GetCurrentUserId();
-        return await _socialService.ExecuteAsync(SingletonServiceId,
-            service => service.RejectFriendAsync(userId, friendUserId));
+        return await _socialService.ExecuteWithUserId(
+            (service, userId) => service.RejectFriendAsync(userId, friendUserId));
     }
 
     public async Task<bool> RemoveFriendAsync(string friendUserId)
     {
-        var userId = GetCurrentUserId();
-        return await _socialService.ExecuteAsync(SingletonServiceId,
-            service => service.RemoveFriendAsync(userId, friendUserId));
+        return await _socialService.ExecuteWithUserId(
+            (service, userId) => service.RemoveFriendAsync(userId, friendUserId));
     }
 
     public async Task<Friend[]> GetFriendsAsync()
     {
-        var userId = GetCurrentUserId();
-        return await _socialService.ExecuteAsync(SingletonServiceId,
-            service => service.GetFriendsAsync(userId));
+        return await _socialService.ExecuteWithUserId(
+            (service, userId) => service.GetFriendsAsync(userId));
     }
 
     public async Task<bool> SendPrivateMessageAsync(string receiverId, string content)
     {
-        var userId = GetCurrentUserId();
-        return await _socialService.ExecuteAsync(SingletonServiceId,
-            service => service.SendPrivateMessageAsync(userId, receiverId, content));
+        return await _socialService.ExecuteWithUserId(
+            (service, userId) => service.SendPrivateMessageAsync(userId, receiverId, content));
     }
 
     public async Task<bool> SendWorldMessageAsync(string content)
     {
-        var userId = GetCurrentUserId();
-        return await _socialService.ExecuteAsync(SingletonServiceId,
-            service => service.SendWorldMessageAsync(userId, content));
+        return await _socialService.ExecuteWithUserId(
+            (service, userId) => service.SendWorldMessageAsync(userId, content));
     }
 
     #endregion
@@ -129,156 +108,140 @@ public class BackendHub : IBackendHub
 
     public async Task<CreateGuildResponse> CreateGuildAsync(CreateGuildRequest request)
     {
-        var userId = GetCurrentUserId();
-        var username = userId; // 默认使用 userId
+        var username = UserId; // 默认使用 userId
 
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.CreateGuildAsync(userId, username, request));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.CreateGuildAsync(userId, username, request));
     }
 
     public async Task<bool> DisbandGuildAsync(string guildId)
     {
-        var userId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.DisbandGuildAsync(userId, guildId));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.DisbandGuildAsync(userId, guildId));
     }
 
     public async Task<Guild?> GetGuildAsync(string guildId)
     {
-        return await _guildService.ExecuteAsync(SingletonServiceId,
+        return await _guildService.Execute(
             service => service.GetGuildAsync(guildId));
     }
 
     public async Task<GuildListResponse> GetGuildsAsync(GetGuildListRequest request)
     {
-        return await _guildService.ExecuteAsync(SingletonServiceId,
+        return await _guildService.Execute(
             service => service.GetGuildsAsync(request));
     }
 
     public async Task<Guild[]> SearchGuildsAsync(string keyword)
     {
-        return await _guildService.ExecuteAsync(SingletonServiceId,
+        return await _guildService.Execute(
             service => service.SearchGuildsAsync(keyword));
     }
 
     public async Task<bool> UpdateGuildInfoAsync(UpdateGuildInfoRequest request)
     {
-        var userId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.UpdateGuildInfoAsync(userId, request));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.UpdateGuildInfoAsync(userId, request));
     }
 
     // ========== 成员管理 ==========
 
     public async Task<bool> ApplyToJoinAsync(string guildId)
     {
-        var userId = GetCurrentUserId();
-        var username = userId; // 默认使用 userId
+        var username = UserId; // 默认使用 userId
         int level = 1; // TODO: 从用户服务获取
 
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.ApplyToJoinAsync(userId, username, level, guildId));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.ApplyToJoinAsync(userId, username, level, guildId));
     }
 
     public async Task<bool> ApproveJoinRequestAsync(string guildId, string userId)
     {
-        var operatorId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.ApproveJoinRequestAsync(operatorId, guildId, userId));
+        return await _guildService.ExecuteWithUserId(
+            (service, operatorId) => service.ApproveJoinRequestAsync(operatorId, guildId, userId));
     }
 
     public async Task<bool> RejectJoinRequestAsync(string guildId, string userId)
     {
-        var operatorId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.RejectJoinRequestAsync(operatorId, guildId, userId));
+        return await _guildService.ExecuteWithUserId(
+            (service, operatorId) => service.RejectJoinRequestAsync(operatorId, guildId, userId));
     }
 
     public async Task<bool> LeaveGuildAsync()
     {
-        var userId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.LeaveGuildAsync(userId));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.LeaveGuildAsync(userId));
     }
 
     public async Task<bool> KickMemberAsync(string guildId, string userId)
     {
-        var operatorId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.KickMemberAsync(operatorId, guildId, userId));
+        return await _guildService.ExecuteWithUserId(
+            (service, operatorId) => service.KickMemberAsync(operatorId, guildId, userId));
     }
 
     public async Task<bool> PromoteMemberAsync(string guildId, string userId, string newRole)
     {
-        var operatorId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.PromoteMemberAsync(operatorId, guildId, userId, newRole));
+        return await _guildService.ExecuteWithUserId(
+            (service, operatorId) => service.PromoteMemberAsync(operatorId, guildId, userId, newRole));
     }
 
     public async Task<bool> DemoteMemberAsync(string guildId, string userId)
     {
-        var operatorId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.DemoteMemberAsync(operatorId, guildId, userId));
+        return await _guildService.ExecuteWithUserId(
+            (service, operatorId) => service.DemoteMemberAsync(operatorId, guildId, userId));
     }
 
     public async Task<bool> TransferLeadershipAsync(string guildId, string newLeaderId)
     {
-        var currentLeaderId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.TransferLeadershipAsync(currentLeaderId, guildId, newLeaderId));
+        return await _guildService.ExecuteWithUserId(
+            (service, currentLeaderId) => service.TransferLeadershipAsync(currentLeaderId, guildId, newLeaderId));
     }
 
     public async Task<GuildMember[]> GetMembersAsync(string guildId)
     {
-        return await _guildService.ExecuteAsync(SingletonServiceId,
+        return await _guildService.Execute(
             service => service.GetMembersAsync(guildId));
     }
 
     public async Task<MyGuildInfo?> GetMyGuildAsync()
     {
-        var userId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.GetMyGuildAsync(userId));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.GetMyGuildAsync(userId));
     }
 
     public async Task<JoinRequest[]> GetJoinRequestsAsync(string guildId)
     {
-        var operatorId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.GetJoinRequestsAsync(operatorId, guildId));
+        return await _guildService.ExecuteWithUserId(
+            (service, operatorId) => service.GetJoinRequestsAsync(operatorId, guildId));
     }
 
     // ========== 公会聊天 ==========
 
     public async Task<bool> SendMessageAsync(string content)
     {
-        var userId = GetCurrentUserId();
-        var username = userId; // 默认使用 userId
+        var username = UserId; // 默认使用 userId
 
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.SendMessageAsync(userId, username, content));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.SendMessageAsync(userId, username, content));
     }
 
     public async Task<GuildMessage[]> GetChatHistoryAsync(int limit = 50)
     {
-        var userId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.GetChatHistoryAsync(userId, limit));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.GetChatHistoryAsync(userId, limit));
     }
 
     // ========== 公会贡献 ==========
 
     public async Task<bool> DonateAsync(DonateRequest request)
     {
-        var userId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.DonateAsync(userId, request));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.DonateAsync(userId, request));
     }
 
     public async Task<GuildMember[]> GetContributionRankingAsync(string guildId)
     {
-        return await _guildService.ExecuteAsync(SingletonServiceId,
+        return await _guildService.Execute(
             service => service.GetContributionRankingAsync(guildId));
     }
 
@@ -286,16 +249,15 @@ public class BackendHub : IBackendHub
 
     public async Task<bool> CheckInAsync()
     {
-        var userId = GetCurrentUserId();
-        var username = userId; // 默认使用 userId
+        var username = UserId; // 默认使用 userId
 
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.CheckInAsync(userId, username));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.CheckInAsync(userId, username));
     }
 
     public async Task<GuildActivity[]> GetActivitiesAsync(string guildId)
     {
-        return await _guildService.ExecuteAsync(SingletonServiceId,
+        return await _guildService.Execute(
             service => service.GetActivitiesAsync(guildId));
     }
 
@@ -303,16 +265,14 @@ public class BackendHub : IBackendHub
 
     public async Task<bool> PostAnnouncementAsync(string guildId, string content)
     {
-        var operatorId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.PostAnnouncementAsync(operatorId, guildId, content));
+        return await _guildService.ExecuteWithUserId(
+            (service, operatorId) => service.PostAnnouncementAsync(operatorId, guildId, content));
     }
 
     public async Task<GuildAnnouncement[]> GetAnnouncementsAsync(string guildId)
     {
-        var userId = GetCurrentUserId();
-        return await _guildService.ExecuteAsync(SingletonServiceId,
-            service => service.GetAnnouncementsAsync(userId, guildId));
+        return await _guildService.ExecuteWithUserId(
+            (service, userId) => service.GetAnnouncementsAsync(userId, guildId));
     }
 
     #endregion
@@ -321,15 +281,14 @@ public class BackendHub : IBackendHub
 
     public async Task<LeaderboardEntry[]> GetLeaderboardAsync(GetLeaderboardRequest request)
     {
-        return await _leaderboardService.ExecuteAsync(SingletonServiceId,
+        return await _leaderboardService.Execute(
             service => service.GetLeaderboardAsync(request));
     }
 
     public async Task<LeaderboardEntry?> GetMyRankAsync(string leaderboardType, string seasonId = "")
     {
-        var userId = GetCurrentUserId();
-        return await _leaderboardService.ExecuteAsync(SingletonServiceId,
-            service => service.GetMyRankAsync(userId, leaderboardType, seasonId));
+        return await _leaderboardService.ExecuteWithUserId(
+            (service, userId) => service.GetMyRankAsync(userId, leaderboardType, seasonId));
     }
 
     #endregion
@@ -338,13 +297,13 @@ public class BackendHub : IBackendHub
 
     public async Task<MatchmakingResponse> StartMatchmakingAsync(MatchmakingRequest request)
     {
-        return await _matchmakingService.ExecuteAsync(SingletonServiceId,
+        return await _matchmakingService.Execute(
             service => service.StartMatchmakingAsync(request));
     }
 
     public async Task<bool> CancelMatchmakingAsync(string userId)
     {
-        return await _matchmakingService.ExecuteAsync(SingletonServiceId,
+        return await _matchmakingService.Execute(
             service => service.CancelMatchmakingAsync(userId));
     }
 
