@@ -1,5 +1,6 @@
 using PulseRPC.Server.Core;
 using PulseRPC.Server.Pipeline;
+using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Configuration;
 
@@ -83,5 +84,78 @@ public sealed class UnifiedServerOptions
 
         if (MaxConcurrentOperations <= 0)
             throw new InvalidOperationException("MaxConcurrentOperations must be greater than zero");
+    }
+
+    /// <summary>
+    /// 应用预设配置
+    /// </summary>
+    /// <param name="preset">预设模式</param>
+    /// <returns>当前选项实例，支持链式调用</returns>
+    public UnifiedServerOptions UsePreset(ServerPreset preset)
+    {
+        ServerPresets.ApplyPreset(this, preset);
+        return this;
+    }
+
+    /// <summary>
+    /// 添加 TCP 传输
+    /// </summary>
+    /// <param name="port">监听端口</param>
+    /// <param name="isDefault">是否为默认传输</param>
+    /// <param name="configure">传输选项配置</param>
+    /// <returns>当前选项实例，支持链式调用</returns>
+    public UnifiedServerOptions AddTcp(int port, bool isDefault = true, Action<TcpTransportOptions>? configure = null)
+    {
+        var options = new TcpTransportOptions();
+        configure?.Invoke(options);
+        Transports.Add(TransportChannelConfiguration.Tcp($"tcp-{port}", port, options, isDefault));
+        return this;
+    }
+
+    /// <summary>
+    /// 添加 TCP 传输（带名称）
+    /// </summary>
+    /// <param name="name">传输名称</param>
+    /// <param name="port">监听端口</param>
+    /// <param name="isDefault">是否为默认传输</param>
+    /// <param name="configure">传输选项配置</param>
+    /// <returns>当前选项实例，支持链式调用</returns>
+    public UnifiedServerOptions AddTcp(string name, int port, bool isDefault = true, Action<TcpTransportOptions>? configure = null)
+    {
+        var options = new TcpTransportOptions();
+        configure?.Invoke(options);
+        Transports.Add(TransportChannelConfiguration.Tcp(name, port, options, isDefault));
+        return this;
+    }
+
+    /// <summary>
+    /// 添加 KCP 传输
+    /// </summary>
+    /// <param name="port">监听端口</param>
+    /// <param name="isDefault">是否为默认传输</param>
+    /// <param name="configure">传输选项配置</param>
+    /// <returns>当前选项实例，支持链式调用</returns>
+    public UnifiedServerOptions AddKcp(int port, bool isDefault = false, Action<KcpTransportOptions>? configure = null)
+    {
+        var options = new KcpTransportOptions();
+        configure?.Invoke(options);
+        Transports.Add(TransportChannelConfiguration.Kcp($"kcp-{port}", port, options, isDefault));
+        return this;
+    }
+
+    /// <summary>
+    /// 添加 KCP 传输（带名称）
+    /// </summary>
+    /// <param name="name">传输名称</param>
+    /// <param name="port">监听端口</param>
+    /// <param name="isDefault">是否为默认传输</param>
+    /// <param name="configure">传输选项配置</param>
+    /// <returns>当前选项实例，支持链式调用</returns>
+    public UnifiedServerOptions AddKcp(string name, int port, bool isDefault = false, Action<KcpTransportOptions>? configure = null)
+    {
+        var options = new KcpTransportOptions();
+        configure?.Invoke(options);
+        Transports.Add(TransportChannelConfiguration.Kcp(name, port, options, isDefault));
+        return this;
     }
 }

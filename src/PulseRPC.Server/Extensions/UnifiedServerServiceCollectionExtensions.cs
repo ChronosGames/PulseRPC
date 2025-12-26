@@ -24,6 +24,69 @@ namespace PulseRPC.Server.Extensions;
 public static class UnifiedServerServiceCollectionExtensions
 {
     /// <summary>
+    /// 使用默认配置添加 PulseRPC 服务器（最简配置）
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="port">TCP 监听端口</param>
+    /// <returns>服务集合</returns>
+    /// <example>
+    /// <code>
+    /// services.AddPulseServer(5000);
+    /// </code>
+    /// </example>
+    public static IServiceCollection AddPulseServer(
+        this IServiceCollection services,
+        int port)
+    {
+        return services.AddUnifiedPulseServer(options => options
+            .UsePreset(ServerPreset.Default)
+            .AddTcp(port));
+    }
+
+    /// <summary>
+    /// 使用指定预设添加 PulseRPC 服务器
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="preset">服务器预设</param>
+    /// <param name="port">TCP 监听端口</param>
+    /// <returns>服务集合</returns>
+    /// <example>
+    /// <code>
+    /// services.AddPulseServer(ServerPreset.HighThroughput, 5000);
+    /// </code>
+    /// </example>
+    public static IServiceCollection AddPulseServer(
+        this IServiceCollection services,
+        ServerPreset preset,
+        int port)
+    {
+        return services.AddUnifiedPulseServer(options => options
+            .UsePreset(preset)
+            .AddTcp(port));
+    }
+
+    /// <summary>
+    /// 使用自定义配置添加 PulseRPC 服务器
+    /// </summary>
+    /// <param name="services">服务集合</param>
+    /// <param name="configure">配置委托</param>
+    /// <returns>服务集合</returns>
+    /// <example>
+    /// <code>
+    /// services.AddPulseServer(options => options
+    ///     .UsePreset(ServerPreset.LowLatency)
+    ///     .AddTcp(5000)
+    ///     .AddKcp(5001));
+    /// </code>
+    /// </example>
+    public static IServiceCollection AddPulseServer(
+        this IServiceCollection services,
+        Action<UnifiedServerOptions> configure)
+    {
+        return services.AddUnifiedPulseServer(configure);
+    }
+
+    /// <summary>
     /// 添加 UnifiedPulseServer 到 DI 容器
     /// </summary>
     /// <param name="services">服务集合</param>
