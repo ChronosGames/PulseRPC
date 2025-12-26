@@ -58,7 +58,7 @@ public class AuthenticationService : IAuthenticationService
             {
                 _logger.LogDebug("Service authenticated - {ServiceType}:{ServiceId}", serviceType, serviceId);
 
-                return UnifiedContextData.CreateServiceContext(serviceType, serviceId, serviceSecret);
+                return PulseContextData.CreateServiceContext(serviceType, serviceId, serviceSecret);
             }
 
             _logger.LogWarning("Service authentication failed - {ServiceType}:{ServiceId}", serviceType, serviceId);
@@ -114,7 +114,7 @@ public class AuthenticationService : IAuthenticationService
 
             _logger.LogDebug("User authenticated - UserId: {UserId}, Roles: {Roles}", userId, string.Join(",", roles));
 
-            return UnifiedContextData.CreateUserContext(
+            return PulseContextData.CreateUserContext(
                 userId,
                 connectionId: null,
                 permissions,

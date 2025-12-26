@@ -45,23 +45,23 @@ public class ChatRoomHub : IChatRoomHub
     // ════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// 获取当前用户 ID（从 RequestContext）
+    /// 获取当前用户 ID（从 PulseContext）
     /// </summary>
-    private string? CurrentUserId => UnifiedRequestContext.Current?.UserId;
+    private string? CurrentUserId => PulseContext.CurrentUserId;
 
     /// <summary>
     /// 获取当前用户所在的房间 ID（从 Connection 属性）
     /// </summary>
-    private string? CurrentRoomId => UnifiedRequestContext.Current != null ? UnifiedRequestContext.Current.Properties.TryGetValue("RoomId", out var roomId)
+    private string? CurrentRoomId => PulseContext.Current != null && PulseContext.Current.Properties.TryGetValue("RoomId", out var roomId)
         ? roomId as string
-        : null : null;
+        : null;
 
     /// <summary>
     /// 获取当前用户名（从 Connection 属性）
     /// </summary>
-    private string? CurrentUserName => UnifiedRequestContext.Current != null ? UnifiedRequestContext.Current.Properties.TryGetValue("UserName", out var name)
+    private string? CurrentUserName => PulseContext.Current != null && PulseContext.Current.Properties.TryGetValue("UserName", out var name)
         ? name as string
-        : null : null;
+        : null;
 
     // ════════════════════════════════════════════════════════════════════════
     // 构造函数
@@ -105,8 +105,8 @@ public class ChatRoomHub : IChatRoomHub
         }
 
         // 2. 将认证信息存入连接上下文
-        //    框架会在后续请求中自动设置 RequestContext.Current.UserId
-        var context = UnifiedRequestContext.Current;
+        //    框架会在后续请求中自动设置 PulseContext.CurrentUserId
+        var context = PulseContext.Current;
         if (context != null)
         {
             context.Properties["UserId"] = userId;
@@ -134,7 +134,7 @@ public class ChatRoomHub : IChatRoomHub
         }
 
         // 清除认证信息
-        var context = UnifiedRequestContext.Current;
+        var context = PulseContext.Current;
         if (context != null)
         {
             context.Properties.Remove("UserId");
@@ -192,7 +192,7 @@ public class ChatRoomHub : IChatRoomHub
             // 7. 如果成功，记录当前房间
             if (result.Success)
             {
-                UnifiedRequestContext.Current?.Properties.TryAdd("RoomId", roomId);
+                PulseContext.Current?.Properties.TryAdd("RoomId", roomId);
             }
 
             return result;
@@ -303,7 +303,7 @@ public class ChatRoomHub : IChatRoomHub
 
             if (result)
             {
-                UnifiedRequestContext.Current?.Properties.Remove("RoomId");
+                PulseContext.Current?.Properties.Remove("RoomId");
             }
 
             return result;

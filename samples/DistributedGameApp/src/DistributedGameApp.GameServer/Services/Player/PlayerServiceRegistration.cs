@@ -36,7 +36,7 @@ public static class PlayerServiceRegistration
 
         // 2. 注册无状态 Hub（Singleton，全局复用）
         //    Hub 通过 IContextualServiceAccessor<PlayerService> 访问 Service
-        //    Service 实例根据 RequestContext.Current.UserId 自动定位
+        //    Service 实例根据 PulseContext.CurrentUserId 自动定位
         services.AddSingleton<IPlayerHub, PlayerHub>();
 
         return services;

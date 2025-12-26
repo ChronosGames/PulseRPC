@@ -3,7 +3,7 @@ using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server;
+using PulseRPC.Server.Contexts;
 
 namespace DistributedGameApp.BattleServer.Hubs;
 
@@ -16,7 +16,7 @@ namespace DistributedGameApp.BattleServer.Hubs;
 /// <item><description>✅ IPulseHub 保持无状态 - 只作为请求的入口点</description></item>
 /// <item><description>✅ 连接管理委托给 BattleConnectionContext</description></item>
 /// <item><description>✅ 战斗逻辑委托给 BattleRoomManager</description></item>
-/// <item><description>✅ 使用 RequestContext.Current 获取请求上下文</description></item>
+/// <item><description>✅ 使用 PulseContext 获取请求上下文</description></item>
 /// </list>
 /// </remarks>
 public class BattleHub : IBattleHub
@@ -45,17 +45,15 @@ public class BattleHub : IBattleHub
     /// 获取当前连接的战斗状态
     /// </summary>
     /// <remarks>
-    /// 每个 RPC 请求都是独立的，使用 RequestContext 和 BattleConnectionContext 获取状态
+    /// 每个 RPC 请求都是独立的，使用 PulseContext 和 BattleConnectionContext 获取状态
     /// </remarks>
     private BattleConnectionState GetCurrentBattleState()
     {
-        var connection = RequestContext.Current;
-        if (connection == null)
+        var connectionId = PulseContext.CurrentConnectionId;
+        if (string.IsNullOrEmpty(connectionId))
         {
             throw new InvalidOperationException("无法获取请求上下文");
         }
-
-        var connectionId = connection.Id;
 
         // 从 BattleConnectionContext 获取该连接对应的战斗状态
         var state = _connectionContext.GetState(connectionId);
@@ -109,12 +107,11 @@ public class BattleHub : IBattleHub
             }
 
             // ✅ 获取当前连接ID
-            var connection = RequestContext.Current;
-            if (connection == null)
+            var connectionId = PulseContext.CurrentConnectionId;
+            if (string.IsNullOrEmpty(connectionId))
             {
                 throw new InvalidOperationException("无法获取请求上下文");
             }
-            var connectionId = connection.Id;
 
             // ✅ 使用 BattleConnectionContext 存储连接状态
             _connectionContext.JoinBattle(connectionId, request.BattleId, request.CharacterId);
@@ -154,10 +151,10 @@ public class BattleHub : IBattleHub
             if (success)
             {
                 // ✅ 清除连接状态
-                var connection = RequestContext.Current;
-                if (connection != null)
+                var connectionId = PulseContext.CurrentConnectionId;
+                if (!string.IsNullOrEmpty(connectionId))
                 {
-                    _connectionContext.LeaveBattle(connection.Id);
+                    _connectionContext.LeaveBattle(connectionId);
                 }
 
                 _logger.LogInformation("角色 {CharacterId} 离开战斗房间 {BattleId}",

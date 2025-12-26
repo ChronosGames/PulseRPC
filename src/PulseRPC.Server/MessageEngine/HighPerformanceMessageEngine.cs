@@ -426,32 +426,43 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
                 object? dispatchResult = null;
 
-                // ✅ 设置 RequestContext（用于服务方法内访问连接信息）
+                // ✅ 设置 PulseContext（统一请求上下文）
                 var channel = _channelManager.GetChannel(envelope.ConnectionId);
-                IDisposable? serviceContextScope = null;
+                PulseContext.ContextScope contextScope = default;
+                var hasContext = false;
 
                 if (channel is ServerTransportChannel serverChannel)
                 {
-                    TransportContextScope.SetCurrent(serverChannel.Transport);
-
-                    // ✅ 设置请求上下文（用于 GetCurrentCaller()）
                     var authContext = serverChannel.AuthenticationContext;
+
+                    // 创建统一上下文，包含 RPC、认证和传输信息
+                    PulseContextData context;
                     if (authContext != null && authContext.IsAuthenticated)
                     {
-                        // 从认证上下文创建请求上下文
-                        var requestContext = UnifiedContextData.FromAuthenticationContext(authContext);
-                        serviceContextScope = UnifiedRequestContext.SetContext(requestContext);
+                        context = PulseContextData.FromAuthenticationContext(authContext, serverChannel.Transport);
+                        context = context with
+                        {
+                            ConnectionId = envelope.ConnectionId,
+                            ServiceName = serviceName,
+                            MethodName = methodName
+                        };
                     }
                     else
                     {
-                        // 未认证的连接，创建内部服务上下文（用于服务间调用）
-                        var requestContext = new UnifiedContextData
+                        context = PulseContextData.CreateServiceContext(
+                            serviceType: "Internal",
+                            serviceId: envelope.ConnectionId ?? "Unknown",
+                            transport: serverChannel.Transport);
+                        context = context with
                         {
-                            SourceType = CallSourceType.InternalService,
-                            CallerId = envelope.ConnectionId ?? "Unknown"
+                            ConnectionId = envelope.ConnectionId,
+                            ServiceName = serviceName,
+                            MethodName = methodName
                         };
-                        serviceContextScope = UnifiedRequestContext.SetContext(requestContext);
                     }
+
+                    contextScope = PulseContext.SetContext(context);
+                    hasContext = true;
                 }
 
                 // 🔐 权限检查现在由源代码生成器生成的代理类处理
@@ -485,8 +496,10 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 finally
                 {
                     // ✅ 清理请求上下文
-                    TransportContextScope.Clear();
-                    serviceContextScope?.Dispose();
+                    if (hasContext)
+                    {
+                        contextScope.Dispose();
+                    }
                 }
 
                 result = dispatchResult;

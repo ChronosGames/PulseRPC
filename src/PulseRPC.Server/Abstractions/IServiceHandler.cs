@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using PulseRPC.Server.Contexts;
 
 namespace PulseRPC.Server.Abstractions;
 
@@ -25,7 +26,7 @@ public interface IServiceHandler
     Task<InvocationResult> InvokeAsync(
         string methodName,
         ReadOnlyMemory<byte> parameters,
-        IRequestContext context);
+        IPulseContext context);
 
     /// <summary>
     /// Gets the list of available method names for this service.

@@ -31,7 +31,7 @@ namespace PulseRPC.Server.Abstractions;
 ///     public async Task&lt;PlayerInfo&gt; GetInfoAsync()
 ///     {
 ///         // 从请求上下文获取 ServiceId（如 playerId）
-///         var playerId = RequestContext.Current.UserId;
+///         var playerId = PulseContext.CurrentUserId;
 ///
 ///         // 获取或创建对应的 Service 实例
 ///         var service = await _playerService.GetAsync(playerId);
@@ -129,7 +129,7 @@ public sealed class UserIdServiceIdResolver : IServiceIdResolver
     public string? ResolveServiceId()
     {
         // 从请求上下文获取用户 ID
-        return UnifiedRequestContext.Current?.UserId;
+        return PulseContext.CurrentUserId;
     }
 }
 
@@ -147,6 +147,6 @@ public sealed class HeaderServiceIdResolver : IServiceIdResolver
 
     public string? ResolveServiceId()
     {
-        return UnifiedRequestContext.Current?.GetHeader(_headerName);
+        return PulseContext.Current?.GetHeader(_headerName);
     }
 }
