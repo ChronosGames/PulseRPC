@@ -1052,6 +1052,168 @@ public enum ServiceSchedulingMode
 }
 ```
 
+### 调度模式详细说明
+
+#### DefaultPool - 默认调度池
+
+**特点**：
+- 无队列，直接在当前线程执行
+- 无顺序保证，最高并发度
+- 服务实现**必须线程安全**
+
+**适用场景**：
+- 无状态查询服务
+- CPU 密集型计算
+- 只读操作
+
+**示例**：
+```csharp
+[PulseService(SchedulingMode = ServiceSchedulingMode.DefaultPool)]
+public class QueryService : UnifiedPulseServiceBase
+{
+    // ⚠️ 必须线程安全！
+    private readonly ConcurrentDictionary<string, CachedData> _cache = new();
+
+    public QueryService(string serviceId, ILogger<QueryService> logger)
+        : base("Query", serviceId, logger) { }
+
+    public Task<CachedData?> GetCachedDataAsync(string key)
+    {
+        _cache.TryGetValue(key, out var data);
+        return Task.FromResult(data);
+    }
+}
+```
+
+#### DedicatedQueue - 专属队列（默认）
+
+**特点**：
+- 每个服务实例有独立的 `Channel<Func<Task>>` 队列
+- 同一 ServiceId 的请求 **FIFO 顺序执行**
+- **天然线程安全**，无需加锁
+- 不同 ServiceId 的请求可并发
+
+**适用场景**：
+- 有状态服务（聊天室、游戏房间）
+- 需要保证消息顺序的场景
+- Actor 模型实现
+
+**示例**：
+```csharp
+[PulseService(
+    InstanceScope = ServiceInstanceScope.MultiInstance,
+    SchedulingMode = ServiceSchedulingMode.DedicatedQueue)]  // 默认值
+public class ChatRoomService : UnifiedPulseServiceBase
+{
+    // ✅ 无需加锁 - 队列保证单线程执行
+    private readonly HashSet<string> _members = new();
+    private readonly List<ChatMessage> _messages = new();
+
+    public ChatRoomService(string roomId, ILogger<ChatRoomService> logger)
+        : base("ChatRoom", roomId, logger) { }
+
+    public Task JoinAsync(string userId)
+    {
+        _members.Add(userId);  // 线程安全
+        return Task.CompletedTask;
+    }
+
+    public Task SendMessageAsync(string userId, string content)
+    {
+        _messages.Add(new ChatMessage(userId, content));  // 线程安全
+        return Task.CompletedTask;
+    }
+}
+```
+
+#### ThreadAffinity - 线程亲和性
+
+**特点**：
+- 基于 ServiceId 一致性哈希分配到**固定工作线程**
+- 多个服务实例共享工作线程池（默认 CPU 核心数）
+- 利用 **CPU 缓存局部性**提高性能
+- 同一 ServiceId 始终在同一线程执行
+
+**适用场景**：
+- 高频更新的有状态服务
+- 需要 CPU 缓存优化的场景
+- 大量服务实例但每个实例访问频率适中
+
+**与 DedicatedQueue 的对比**：
+
+| 特性 | DedicatedQueue | ThreadAffinity |
+|------|----------------|----------------|
+| 队列数量 | 每个 ServiceId 独立队列 | 共享工作线程队列 |
+| 线程数量 | 每队列 1 个后台线程 | 固定 N 个工作线程（CPU 核心数）|
+| 内存开销 | 高（每实例一个 Channel） | 低（共享线程池）|
+| 适用实例数 | 少量长期活跃实例 | 大量实例 |
+| 顺序保证 | 严格 FIFO | 同 ServiceId 内 FIFO |
+
+**示例**：
+```csharp
+[PulseService(
+    StartupType = ServiceStartupType.OnDemand,
+    InstanceScope = ServiceInstanceScope.MultiInstance,
+    SchedulingMode = ServiceSchedulingMode.ThreadAffinity)]
+public class HighFrequencyService : UnifiedPulseServiceBase
+{
+    private int _counter;
+
+    public HighFrequencyService(
+        string serviceId,
+        ILogger<HighFrequencyService> logger,
+        IThreadAffinityScheduler scheduler)  // 注入调度器
+        : base("HighFreq", serviceId, logger,
+               ServiceConfiguration.FromAttribute(GetServiceAttribute()), scheduler)
+    {
+    }
+
+    public Task<int> IncrementAsync()
+    {
+        return Task.FromResult(++_counter);  // 同 ServiceId 在固定线程执行
+    }
+
+    private static PulseServiceAttribute GetServiceAttribute() =>
+        typeof(HighFrequencyService).GetCustomAttribute<PulseServiceAttribute>()!;
+}
+```
+
+**ThreadAffinity 架构图**：
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    UnifiedPulseServiceBase                       │
+│ ┌─────────────────┬─────────────────┬─────────────────────────┐ │
+│ │   DefaultPool   │  DedicatedQueue │     ThreadAffinity      │ │
+│ │   (直接执行)    │   (私有 Channel) │ (IThreadAffinityScheduler)│ │
+│ └────────┬────────┴────────┬────────┴───────────┬─────────────┘ │
+└──────────│─────────────────│────────────────────│───────────────┘
+           │                 │                    │
+           ▼                 ▼                    ▼
+      当前线程          私有后台线程      ┌──────────────────┐
+                                        │ ThreadAffinity   │
+                                        │ Scheduler        │
+                                        │ (一致性哈希路由)  │
+                                        └────────┬─────────┘
+                                                 │
+                          ┌──────────────────────┼──────────────────────┐
+                          ▼                      ▼                      ▼
+                   ┌────────────┐         ┌────────────┐         ┌────────────┐
+                   │ Worker[0]  │         │ Worker[1]  │   ...   │ Worker[N]  │
+                   │  Channel   │         │  Channel   │         │  Channel   │
+                   └────────────┘         └────────────┘         └────────────┘
+```
+
+### 调度模式选择指南
+
+| 场景 | 推荐模式 | 原因 |
+|------|---------|------|
+| 无状态 API 服务 | `DefaultPool` | 最高并发，无状态无需顺序 |
+| 聊天室/游戏房间 | `DedicatedQueue` | 保证消息顺序，天然线程安全 |
+| 玩家数据服务 | `DedicatedQueue` | 状态一致性重要 |
+| 高频计数器 | `ThreadAffinity` | CPU 缓存友好 |
+| 大量短生命周期实例 | `ThreadAffinity` | 减少内存开销 |
+| 全局排行榜 | `DedicatedQueue` | 单例服务，顺序重要 |
+
 ### 核心接口
 
 #### IUnifiedPulseService - 统一服务接口

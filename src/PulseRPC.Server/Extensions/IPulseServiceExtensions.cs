@@ -66,6 +66,11 @@ public static class IPulseServiceExtensions
         services.AddSingleton<ServiceInstanceHealthMonitor>();
         services.AddSingleton<CircuitBreakerPolicy>();
 
+        // 注册线程亲和性调度器
+        services.AddSingleton<ThreadAffinityScheduler>();
+        services.AddSingleton<IThreadAffinityScheduler>(sp => sp.GetRequiredService<ThreadAffinityScheduler>());
+        services.AddHostedService(sp => sp.GetRequiredService<ThreadAffinityScheduler>());
+
         return services;
     }
 
