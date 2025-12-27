@@ -1,8 +1,10 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Scheduling;
 using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Contexts;
+using PulseRPC.Server.Scheduling;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Services;
@@ -53,6 +55,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 {
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private readonly Channel<Func<Task>>? _messageQueue;
+    private readonly IThreadAffinityScheduler? _affinityScheduler;
     private Task? _messageProcessingTask;
     private CancellationTokenSource? _processingCts;
 
@@ -151,11 +154,13 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// <param name="serviceId">服务实例 ID</param>
     /// <param name="logger">日志记录器</param>
     /// <param name="configuration">服务配置（可选）</param>
+    /// <param name="affinityScheduler">线程亲和性调度器（可选，仅 ThreadAffinity 模式需要）</param>
     protected UnifiedPulseServiceBase(
         string serviceType,
         string serviceId,
         ILogger? logger = null,
-        ServiceConfiguration? configuration = null)
+        ServiceConfiguration? configuration = null,
+        IThreadAffinityScheduler? affinityScheduler = null)
     {
         if (string.IsNullOrWhiteSpace(serviceType))
             throw new ArgumentException("ServiceType cannot be null or whitespace", nameof(serviceType));
@@ -166,6 +171,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
         ServiceId = serviceId;
         Logger = logger ?? NullLogger.Instance;
         Configuration = configuration ?? ServiceConfiguration.Default;
+        _affinityScheduler = affinityScheduler;
 
         // 根据调度模式创建消息队列
         if (Configuration.SchedulingMode == ServiceSchedulingMode.DedicatedQueue)
@@ -184,6 +190,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                     SingleWriter = false
                 });
         }
+        // ThreadAffinity 模式使用共享调度器，不创建私有队列
 
         // 初始化访问时间
         _lastAccessTimeTicks = DateTime.UtcNow.Ticks;
@@ -301,10 +308,13 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// <returns>表示异步操作的任务</returns>
     /// <remarks>
     /// <para>
-    /// 如果服务配置为 <see cref="ServiceSchedulingMode.DedicatedQueue"/>，
-    /// 则工作项会被排队到专属队列中顺序执行；
-    /// 否则，工作项会立即在当前线程执行。
+    /// 根据服务配置的 <see cref="ServiceSchedulingMode"/> 选择执行方式：
     /// </para>
+    /// <list type="bullet">
+    /// <item><description><see cref="ServiceSchedulingMode.DedicatedQueue"/>：排队到专属队列中顺序执行</description></item>
+    /// <item><description><see cref="ServiceSchedulingMode.ThreadAffinity"/>：通过调度器路由到固定工作线程</description></item>
+    /// <item><description><see cref="ServiceSchedulingMode.DefaultPool"/>：立即在当前线程执行</description></item>
+    /// </list>
     /// <para>
     /// 此方法会自动捕获当前的 <see cref="PulseContext"/>，
     /// 并在工作项执行时恢复，确保上下文在队列处理中正确传播。
@@ -322,7 +332,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
         if (_messageQueue != null)
         {
-            // 捕获当前上下文，以便在队列处理线程中恢复
+            // DedicatedQueue 模式：使用专属队列
             var capturedContext = PulseContext.Current;
 
             await _messageQueue.Writer.WriteAsync(async () =>
@@ -338,9 +348,28 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                 }
             }, cancellationToken);
         }
+        else if (_affinityScheduler != null && Configuration.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
+        {
+            // ThreadAffinity 模式：使用共享调度器路由到固定工作线程
+            var key = new ServiceSchedulingKey(ServiceType, ServiceId);
+            var capturedContext = PulseContext.Current;
+
+            await _affinityScheduler.ScheduleAsync(key, async () =>
+            {
+                if (capturedContext != null)
+                {
+                    using var _ = PulseContext.SetContext(capturedContext);
+                    await work();
+                }
+                else
+                {
+                    await work();
+                }
+            }, cancellationToken);
+        }
         else
         {
-            // 无队列模式，直接执行（上下文已经可用）
+            // DefaultPool 模式或 ThreadAffinity fallback：直接执行
             await work();
         }
     }
@@ -355,9 +384,13 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// 在高频调用场景下可以显著降低 GC 压力。
     /// </para>
     /// <para>
-    /// 此方法会自动捕获当前的 <see cref="PulseContext"/>，
-    /// 并在工作项执行时恢复，确保上下文在队列处理中正确传播。
+    /// 根据服务配置的 <see cref="ServiceSchedulingMode"/> 选择执行方式：
     /// </para>
+    /// <list type="bullet">
+    /// <item><description><see cref="ServiceSchedulingMode.DedicatedQueue"/>：排队到专属队列中顺序执行</description></item>
+    /// <item><description><see cref="ServiceSchedulingMode.ThreadAffinity"/>：通过调度器路由到固定工作线程</description></item>
+    /// <item><description><see cref="ServiceSchedulingMode.DefaultPool"/>：立即在当前线程执行</description></item>
+    /// </list>
     /// </remarks>
     public async Task<TResult> EnqueueAsync<TResult>(Func<Task<TResult>> work, CancellationToken cancellationToken = default)
     {
@@ -371,10 +404,8 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
         if (_messageQueue != null)
         {
-            // 捕获当前上下文，以便在队列处理线程中恢复
+            // DedicatedQueue 模式：使用专属队列
             var capturedContext = PulseContext.Current;
-
-            // 使用池化的 ValueTaskSource 减少内存分配
             var valueTaskSource = PooledValueTaskSource<TResult>.Create();
 
             await _messageQueue.Writer.WriteAsync(async () =>
@@ -401,9 +432,28 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
             return await valueTaskSource.GetValueTask();
         }
+        else if (_affinityScheduler != null && Configuration.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
+        {
+            // ThreadAffinity 模式：使用共享调度器路由到固定工作线程
+            var key = new ServiceSchedulingKey(ServiceType, ServiceId);
+            var capturedContext = PulseContext.Current;
+
+            return await _affinityScheduler.ScheduleAsync(key, async () =>
+            {
+                if (capturedContext != null)
+                {
+                    using var _ = PulseContext.SetContext(capturedContext);
+                    return await work();
+                }
+                else
+                {
+                    return await work();
+                }
+            }, cancellationToken);
+        }
         else
         {
-            // 无队列模式，直接执行（上下文已经可用）
+            // DefaultPool 模式或 ThreadAffinity fallback：直接执行
             return await work();
         }
     }
