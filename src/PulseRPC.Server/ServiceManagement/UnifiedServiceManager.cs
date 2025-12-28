@@ -93,15 +93,13 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
         // 记录自动启动服务
         if (attribute.StartupType == ServiceStartupType.AutoStart)
         {
-            var serviceId = attribute.InstanceScope switch
+            if (attribute.InstanceScope != ServiceInstanceScope.Singleton)
             {
-                ServiceInstanceScope.ClusterSingleton => "global",
-                ServiceInstanceScope.ProcessSingleton => "local",
-                _ => throw new InvalidOperationException(
-                    $"AutoStart services must be ClusterSingleton or ProcessSingleton, but {serviceName} is {attribute.InstanceScope}")
-            };
+                throw new InvalidOperationException(
+                    $"AutoStart services must be Singleton, but {serviceName} is {attribute.InstanceScope}");
+            }
 
-            _autoStartServices.Add($"{serviceName}:{serviceId}");
+            _autoStartServices.Add($"{serviceName}:default");
         }
     }
 
@@ -357,24 +355,16 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     {
         switch (registration.Attribute.InstanceScope)
         {
-            case ServiceInstanceScope.ClusterSingleton:
-                if (serviceId != "global")
+            case ServiceInstanceScope.Singleton:
+                if (serviceId != "default")
                 {
                     throw new InvalidOperationException(
-                        $"ClusterSingleton service '{registration.ServiceName}' must have ServiceId 'global', got '{serviceId}'");
-                }
-                break;
-
-            case ServiceInstanceScope.ProcessSingleton:
-                if (serviceId != "local")
-                {
-                    throw new InvalidOperationException(
-                        $"ProcessSingleton service '{registration.ServiceName}' must have ServiceId 'local', got '{serviceId}'");
+                        $"Singleton service '{registration.ServiceName}' must have ServiceId 'default', got '{serviceId}'");
                 }
                 break;
 
             case ServiceInstanceScope.MultiInstance:
-                if (string.IsNullOrWhiteSpace(serviceId) || serviceId == "global" || serviceId == "local")
+                if (string.IsNullOrWhiteSpace(serviceId) || serviceId == "default")
                 {
                     throw new InvalidOperationException(
                         $"MultiInstance service '{registration.ServiceName}' must have a unique ServiceId, got '{serviceId}'");

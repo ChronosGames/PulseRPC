@@ -20,7 +20,7 @@ namespace DistributedGameApp.BackendServer.Hubs;
 /// <list type="bullet">
 /// <item><description>✅ IPulseHub 保持无状态 - 只作为请求的入口点</description></item>
 /// <item><description>✅ 所有业务逻辑委托给有状态的 Service 层(SocialService、GuildService等)</description></item>
-/// <item><description>✅ 使用 IServiceAccessor 访问 ProcessSingleton 服务，确保线程安全</description></item>
+/// <item><description>✅ 使用 IServiceAccessor 访问 Singleton 服务，确保线程安全</description></item>
 /// <item><description>✅ 不维护任何成员状态,只依赖注入的服务访问器</description></item>
 /// </list>
 /// <para><strong>职责划分</strong>:</para>
@@ -30,8 +30,8 @@ namespace DistributedGameApp.BackendServer.Hubs;
 /// </list>
 /// <para><strong>服务访问模式</strong>:</para>
 /// <code>
-/// // ProcessSingleton 服务通过 IServiceAccessor 访问，serviceId 固定为 "local"
-/// await _socialService.ExecuteAsync("local", s => s.AddFriendAsync(userId, friendId));
+/// // Singleton 服务通过 IServiceAccessor 访问
+/// await _socialService.Execute(s => s.AddFriendAsync(userId, friendId));
 /// </code>
 /// </remarks>
 public class BackendHub : PulseHubBase, IBackendHub

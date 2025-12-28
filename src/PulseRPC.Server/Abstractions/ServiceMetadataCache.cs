@@ -54,8 +54,7 @@ public static class ServiceMetadataCache
     {
         return scope switch
         {
-            ServiceInstanceScope.ClusterSingleton => "global",
-            ServiceInstanceScope.ProcessSingleton => "local",
+            ServiceInstanceScope.Singleton => "default",
             ServiceInstanceScope.MultiInstance => null, // 需要动态提供
             _ => null
         };
@@ -87,8 +86,7 @@ public sealed class ServiceMetadata
     /// </summary>
     /// <remarks>
     /// <list type="bullet">
-    /// <item><description><see cref="ServiceInstanceScope.ClusterSingleton"/>: "global"</description></item>
-    /// <item><description><see cref="ServiceInstanceScope.ProcessSingleton"/>: "local"</description></item>
+    /// <item><description><see cref="ServiceInstanceScope.Singleton"/>: "default"</description></item>
     /// <item><description><see cref="ServiceInstanceScope.MultiInstance"/>: null</description></item>
     /// </list>
     /// </remarks>
@@ -97,6 +95,5 @@ public sealed class ServiceMetadata
     /// <summary>
     /// 是否为单例服务
     /// </summary>
-    public bool IsSingleton => InstanceScope is ServiceInstanceScope.ClusterSingleton
-                                               or ServiceInstanceScope.ProcessSingleton;
+    public bool IsSingleton => InstanceScope is ServiceInstanceScope.Singleton;
 }

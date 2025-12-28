@@ -1035,11 +1035,12 @@ public enum ServiceStartupType
 ```csharp
 public enum ServiceInstanceScope
 {
-    ClusterSingleton,  // 全集群唯一（ServiceId = "global"）
-    ProcessSingleton,  // 进程内唯一（ServiceId = "local"）
-    MultiInstance      // 多实例（ServiceId = 业务ID）
+    Singleton,     // 进程内唯一（ServiceId = "default"）
+    MultiInstance  // 多实例（ServiceId = 业务ID）
 }
 ```
+
+> **注意**：如需跨进程/集群单例语义，请在业务层通过服务发现+分布式锁实现。
 
 #### 维度3：调度模式
 
@@ -1369,13 +1370,13 @@ await _playerService.ExecuteAsync(
     service => service.SaveAsync());
 ```
 
-##### 2. Singleton 服务简化 API（ProcessSingleton / ClusterSingleton）
+##### 2. Singleton 服务简化 API
 
-对于 `ProcessSingleton` 或 `ClusterSingleton` 服务，无需手动指定 ServiceId：
+对于 `Singleton` 服务，无需手动指定 ServiceId：
 
 ```csharp
 // ❌ 之前（冗余）
-private const string SingletonServiceId = "local";
+private const string SingletonServiceId = "default";
 await _guildService.ExecuteAsync(SingletonServiceId, s => s.CreateGuildAsync(userId, request));
 
 // ✅ 之后（简洁）- 自动使用默认 ServiceId
@@ -1424,7 +1425,7 @@ await _playerService.ExecuteWithUserId((s, userId) => s.UpdateProfile(userId, ne
 | 方法 | 适用场景 | ServiceId 来源 |
 |------|---------|----------------|
 | `ExecuteAsync(serviceId, op)` | 所有服务类型 | 手动指定 |
-| `Execute(op)` | ProcessSingleton / ClusterSingleton | 自动 ("local" / "global") |
+| `Execute(op)` | Singleton | 自动 ("default") |
 | `ExecuteForCurrentUser(op)` | MultiInstance（每用户一个实例） | PulseContext.CurrentUserId |
 | `ExecuteWithUserId((s, userId) => ...)` | 需要 UserId 参数的场景 | 自动获取并传递 |
 

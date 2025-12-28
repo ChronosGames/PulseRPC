@@ -125,14 +125,13 @@ public static class ServiceAccessorExtensions
     /// 在 Singleton 服务队列中执行操作（自动使用默认 ServiceId）
     /// </summary>
     /// <remarks>
-    /// <para>仅适用于 <see cref="ServiceInstanceScope.ProcessSingleton"/> 或
-    /// <see cref="ServiceInstanceScope.ClusterSingleton"/> 服务。</para>
+    /// <para>仅适用于 <see cref="ServiceInstanceScope.Singleton"/> 服务。</para>
     /// <para>对于 MultiInstance 服务，此方法将抛出 <see cref="InvalidOperationException"/>。</para>
     /// </remarks>
     /// <example>
     /// <code>
     /// // 之前（冗余）
-    /// await _guildService.ExecuteAsync("local", s => s.CreateGuildAsync(userId, request));
+    /// await _guildService.ExecuteAsync("default", s => s.CreateGuildAsync(userId, request));
     ///
     /// // 之后（简洁）
     /// await _guildService.Execute(s => s.CreateGuildAsync(userId, request));
@@ -160,8 +159,7 @@ public static class ServiceAccessorExtensions
     /// 在 Singleton 服务队列中执行操作（无返回值，自动使用默认 ServiceId）
     /// </summary>
     /// <remarks>
-    /// <para>仅适用于 <see cref="ServiceInstanceScope.ProcessSingleton"/> 或
-    /// <see cref="ServiceInstanceScope.ClusterSingleton"/> 服务。</para>
+    /// <para>仅适用于 <see cref="ServiceInstanceScope.Singleton"/> 服务。</para>
     /// </remarks>
     public static async Task Execute<TService>(
         this IServiceAccessor<TService> accessor,

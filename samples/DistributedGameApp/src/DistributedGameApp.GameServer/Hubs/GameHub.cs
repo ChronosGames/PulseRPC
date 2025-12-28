@@ -25,12 +25,12 @@ namespace DistributedGameApp.GameServer.Hubs;
 /// <item><description>✅ IPulseHub 保持无状态 - 只作为请求的入口点</description></item>
 /// <item><description>✅ 连接管理委托给 GameServerInternalHub</description></item>
 /// <item><description>✅ 业务逻辑委托给 Service 层</description></item>
-/// <item><description>✅ 使用 IServiceAccessor 访问 ProcessSingleton 服务，确保线程安全</description></item>
+/// <item><description>✅ 使用 IServiceAccessor 访问 Singleton 服务，确保线程安全</description></item>
 /// </list>
 /// <para><strong>服务访问模式</strong>:</para>
 /// <code>
-/// // ProcessSingleton 服务通过 IServiceAccessor 访问，serviceId 固定为 "local"
-/// await _characterService.ExecuteAsync("local", s => s.CreateCharacterAsync(...));
+/// // Singleton 服务通过 IServiceAccessor 访问
+/// await _characterService.Execute(s => s.CreateCharacterAsync(...));
 /// </code>
 /// </remarks>
 public class GameHub : PulseHubBase, IGameHub
