@@ -38,31 +38,18 @@ public enum ServiceStartupType
 public enum ServiceInstanceScope
 {
     /// <summary>
-    /// 全集群唯一 - 整个分布式集群中只有一个实例
+    /// 单例 - 进程内只有一个实例
     /// </summary>
     /// <remarks>
     /// <para>特性：</para>
     /// <list type="bullet">
-    /// <item><description>需要集群协调机制（如分布式锁、领导选举）</description></item>
-    /// <item><description>ServiceId 固定，通常为 "{ServiceType}:global"</description></item>
-    /// <item><description>适合：全局排行榜、全服公告、全局配置服务</description></item>
+    /// <item><description>进程内唯一，无需外部协调</description></item>
+    /// <item><description>ServiceId 固定为 "default"</description></item>
+    /// <item><description>适合：排行榜、匹配系统、缓存管理、事件总线等全局服务</description></item>
     /// </list>
-    /// <para>注意：集群唯一服务的故障转移需要额外配置。</para>
+    /// <para>注意：如需跨进程/集群单例语义，请在业务层通过服务发现+分布式锁实现。</para>
     /// </remarks>
-    ClusterSingleton = 0,
-
-    /// <summary>
-    /// 进程内唯一 - 每个进程中只有一个实例
-    /// </summary>
-    /// <remarks>
-    /// <para>特性：</para>
-    /// <list type="bullet">
-    /// <item><description>本地单例，无需集群协调</description></item>
-    /// <item><description>ServiceId 固定，通常为 "{ServiceType}:local"</description></item>
-    /// <item><description>适合：本地缓存管理、连接池管理、本地事件总线</description></item>
-    /// </list>
-    /// </remarks>
-    ProcessSingleton = 1,
+    Singleton = 0,
 
     /// <summary>
     /// 多实例 - 可以创建多个实例，每个实例有唯一的 ServiceId
@@ -81,7 +68,7 @@ public enum ServiceInstanceScope
     /// "UserSession:user-789"
     /// </code>
     /// </remarks>
-    MultiInstance = 2
+    MultiInstance = 1
 }
 
 /// <summary>

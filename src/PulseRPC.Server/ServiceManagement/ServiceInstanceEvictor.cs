@@ -290,8 +290,7 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
             return false;
 
         // Singleton 服务不清理
-        if (attribute.InstanceScope == ServiceInstanceScope.ClusterSingleton ||
-            attribute.InstanceScope == ServiceInstanceScope.ProcessSingleton)
+        if (attribute.InstanceScope == ServiceInstanceScope.Singleton)
             return false;
 
         return true;

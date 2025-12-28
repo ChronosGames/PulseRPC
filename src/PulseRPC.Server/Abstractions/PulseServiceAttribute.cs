@@ -11,15 +11,15 @@ namespace PulseRPC.Server.Abstractions;
 /// <strong>使用示例</strong>：
 /// </para>
 /// <code>
-/// // 全集群唯一的匹配服务，自动启动，使用专属队列
+/// // 单例匹配服务，自动启动，使用专属队列
 /// [PulseService(
 ///     StartupType = ServiceStartupType.AutoStart,
-///     InstanceScope = ServiceInstanceScope.ClusterSingleton,
+///     InstanceScope = ServiceInstanceScope.Singleton,
 ///     SchedulingMode = ServiceSchedulingMode.DedicatedQueue)]
 /// public class MatchmakingService : IUnifiedPulseService, IMatchmakingHub
 /// {
 ///     public string ServiceType => "Matchmaking";
-///     public string ServiceId => "global";
+///     public string ServiceId => "default";
 ///     // ...
 /// }
 ///
@@ -50,8 +50,7 @@ public sealed class PulseServiceAttribute : Attribute
     /// <remarks>
     /// <para>默认值：<see cref="ServiceStartupType.OnDemand"/>（按需启动）</para>
     /// <para>
-    /// 对于 <see cref="ServiceInstanceScope.ClusterSingleton"/> 和
-    /// <see cref="ServiceInstanceScope.ProcessSingleton"/>，推荐设置为
+    /// 对于 <see cref="ServiceInstanceScope.Singleton"/> 服务，推荐设置为
     /// <see cref="ServiceStartupType.AutoStart"/>。
     /// </para>
     /// </remarks>
@@ -66,10 +65,12 @@ public sealed class PulseServiceAttribute : Attribute
     /// 此属性决定了 ServiceId 的生成策略：
     /// </para>
     /// <list type="bullet">
-    /// <item><description><see cref="ServiceInstanceScope.ClusterSingleton"/>：ServiceId = "{ServiceName}:global"</description></item>
-    /// <item><description><see cref="ServiceInstanceScope.ProcessSingleton"/>：ServiceId = "{ServiceName}:local"</description></item>
+    /// <item><description><see cref="ServiceInstanceScope.Singleton"/>：ServiceId = "{ServiceName}:default"</description></item>
     /// <item><description><see cref="ServiceInstanceScope.MultiInstance"/>：ServiceId = "{ServiceName}:{businessId}"</description></item>
     /// </list>
+    /// <para>
+    /// 注意：如需跨进程/集群单例语义，请在业务层通过服务发现+分布式锁实现。
+    /// </para>
     /// </remarks>
     public ServiceInstanceScope InstanceScope { get; set; } = ServiceInstanceScope.MultiInstance;
 

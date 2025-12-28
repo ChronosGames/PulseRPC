@@ -68,7 +68,7 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         // 注册统一服务客户端管理器（强类型 Hub 代理的核心）
         services.AddSingleton<UnifiedServiceClientManager>();
 
-        // ✅ 使用 AddPulseService 注册 ProcessSingleton 服务
+        // ✅ 使用 AddPulseService 注册 Singleton 服务
         // 这样 Hub 可以通过 IServiceAccessor<TService> 访问服务，确保队列调度和线程安全
         services.AddPulseService<CharacterService>((sp, _) =>
             new CharacterService(

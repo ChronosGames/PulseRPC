@@ -29,7 +29,7 @@ namespace DistributedGameApp.GameServer.Hubs;
 /// </remarks>
 [PulseService(
     StartupType = ServiceStartupType.AutoStart,
-    InstanceScope = ServiceInstanceScope.ProcessSingleton,
+    InstanceScope = ServiceInstanceScope.Singleton,
     SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
     DisplayName = "GameServerInternalHub",
     EnableHealthCheck = true)]

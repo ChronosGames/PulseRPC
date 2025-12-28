@@ -21,7 +21,7 @@ namespace DistributedGameApp.GameServer.Services;
 /// </remarks>
 [PulseService(
     StartupType = ServiceStartupType.AutoStart,
-    InstanceScope = ServiceInstanceScope.ProcessSingleton,
+    InstanceScope = ServiceInstanceScope.Singleton,
     SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
     DisplayName = "CharacterService",
     EnableHealthCheck = true)]
