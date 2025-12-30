@@ -58,18 +58,28 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// <summary>
     /// 初始化 Hub 类型注册表
     /// </summary>
+    /// <remarks>
+    /// 自动从 [Channel] 特性读取服务名称，无需手动维护映射。
+    /// Hub 接口定义示例：
+    /// <code>
+    /// [Channel("BackendServer")]
+    /// public interface IBackendHub : IPulseHub { ... }
+    /// </code>
+    /// </remarks>
     private void InitializeHubTypeRegistry()
     {
-        // 注册所有 Hub 类型到服务名称的映射
-        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IBackendHub>("BackendServer");
-        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IBattleHub>("BattleServer");
-        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGameHub>("GameServer");
-        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGuildHub>("BackendServer");
+        // 从 Shared 程序集自动扫描所有带 [Channel] 特性的 IPulseHub 接口
+        var registeredCount = _hubTypeRegistry.RegisterFromAssemblyContaining<DistributedGameApp.Shared.Hubs.IGameHub>();
 
-        // 内部回调 Hub：逻辑上属于 GameServer（与 GameHub 部署在同一服务）
-        // 默认推断规则会把 IGameServerInternalHub 映射为 "GameServerInternalServer"（错误）
-        // 这里显式指定为 "GameServer"，以便使用 GameServer 的连接池
-        _hubTypeRegistry.Register<DistributedGameApp.Shared.Hubs.IGameServerInternalHub>("GameServer");
+        _logger.LogInformation(
+            "HubTypeRegistry 初始化完成：从 [Channel] 特性自动注册了 {Count} 个 Hub 类型",
+            registeredCount);
+
+        // 输出所有注册的映射（调试用）
+        foreach (var (hubType, serviceName) in _hubTypeRegistry.GetAllRegistrations())
+        {
+            _logger.LogDebug("  {HubType} -> {ServiceName}", hubType.Name, serviceName);
+        }
     }
 
     /// <summary>
