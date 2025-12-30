@@ -7,6 +7,13 @@ namespace DistributedGameApp.Shared.Hubs;
 /// <summary>
 /// 公会服务器 Hub 接口
 /// </summary>
+/// <remarks>
+/// <para>
+/// [Channel("BackendServer")] 表示这个接口由 BackendServer 提供。
+/// IGuildHub 作为 IBackendHub 的基接口，共享同一个服务提供者。
+/// </para>
+/// </remarks>
+[Channel("BackendServer")]
 public interface IGuildHub : IPulseHub
 {
     // ========== 公会管理 ==========

@@ -19,7 +19,12 @@ namespace DistributedGameApp.Shared.Hubs;
 /// - 每个战斗房间是一个独立的 Service 实例（ServiceId: Battle:{battleId}）
 /// - 使用 Actor 模型保证战斗逻辑的严格有序性
 /// - 所有战斗动作在单线程中顺序执行，避免并发问题
+///
+/// <para>
+/// [Channel("BattleServer")] 表示这个接口由 BattleServer 提供。
+/// </para>
 /// </remarks>
+[Channel("BattleServer")]
 public interface IBattleHub : IPulseHub
 {
     /// <summary>
