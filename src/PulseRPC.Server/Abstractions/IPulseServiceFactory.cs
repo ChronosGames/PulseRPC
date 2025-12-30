@@ -3,23 +3,23 @@ using System.Diagnostics.CodeAnalysis;
 namespace PulseRPC.Server.Abstractions;
 
 /// <summary>
-/// 服务实例工厂接口
+/// 服务实例工厂接口（内部实现）
 /// </summary>
 /// <typeparam name="TService">服务类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
 /// <remarks>
 /// <para>
-/// 管理有状态的 <see cref="IUnifiedPulseService"/> 实例的生命周期，解决"多个无状态 IPulseHub 共享同一个有状态 IUnifiedPulseService 实例"的架构需求。
+/// <strong>注意</strong>：此接口为内部实现，对外请使用 <see cref="IServiceAccessor{TService}"/>。
 /// </para>
 /// <para>
-/// <strong>核心功能</strong>：
+/// <see cref="IServiceAccessor{TService}"/> 提供了完整的服务访问和生命周期管理功能，包括：
 /// </para>
 /// <list type="bullet">
-/// <item><description><strong>按需创建</strong>：根据 ServiceId 自动创建服务实例</description></item>
-/// <item><description><strong>实例缓存</strong>：缓存已创建的实例，避免重复创建</description></item>
-/// <item><description><strong>空闲清理</strong>：自动清理长时间未使用的实例</description></item>
-/// <item><description><strong>LRU 驱逐</strong>：当缓存满时，驱逐最少使用的实例</description></item>
-/// <item><description><strong>生命周期管理</strong>：自动调用 <see cref="IUnifiedServiceLifecycle"/> 钩子</description></item>
-/// <item><description><strong>健康检查</strong>：定期检查实例健康状态，自动移除不健康的实例</description></item>
+/// <item><description><see cref="IServiceAccessor{TService}.GetAsync"/> - 获取或创建服务实例</description></item>
+/// <item><description><see cref="IServiceAccessor{TService}.TryGet"/> - 尝试获取已存在的实例</description></item>
+/// <item><description><see cref="IServiceAccessor{TService}.GetAll"/> - 获取所有活跃实例</description></item>
+/// <item><description><see cref="IServiceAccessor{TService}.RemoveAsync"/> - 移除并释放实例</description></item>
+/// <item><description><see cref="IServiceAccessor{TService}.GetActiveServiceIds"/> - 获取所有活跃 ID</description></item>
+/// <item><description><see cref="IServiceAccessor{TService}.ActiveCount"/> - 获取活跃实例数量</description></item>
 /// </list>
 /// <para>
 /// <strong>线程安全</strong>：所有方法都是线程安全的，支持高并发访问。
@@ -27,41 +27,27 @@ namespace PulseRPC.Server.Abstractions;
 /// </remarks>
 /// <example>
 /// <code>
-/// // 1. 定义服务
-/// [PulseService(StartupType = ServiceStartupType.OnDemand)]
-/// public class ChatRoomService : UnifiedPulseServiceBase, IUnifiedServiceLifecycle
-/// {
-///     private readonly List&lt;Message&gt; _messages = new();
-///
-///     public ChatRoomService(string roomId) : base("ChatRoom", roomId) { }
-///
-///     public void AddMessage(Message msg) => _messages.Add(msg);
-/// }
-///
-/// // 2. 在 Hub 中使用
+/// // 推荐：使用 IServiceAccessor（公共接口）
 /// public class ChatRoomHub : IPulseHub
 /// {
-///     private readonly IPulseServiceFactory&lt;ChatRoomService&gt; _factory;
+///     private readonly IServiceAccessor&lt;ChatRoomService&gt; _chatRooms;
 ///
-///     public ChatRoomHub(IPulseServiceFactory&lt;ChatRoomService&gt; factory)
+///     public ChatRoomHub(IServiceAccessor&lt;ChatRoomService&gt; chatRooms)
 ///     {
-///         _factory = factory;
+///         _chatRooms = chatRooms;
 ///     }
 ///
 ///     public async Task SendMessageAsync(string roomId, string text)
 ///     {
-///         var service = await _factory.GetOrCreateAsync($"ChatRoom:{roomId}");
-///         service.AddMessage(new Message { Text = text });
+///         var service = await _chatRooms.GetAsync(roomId);
+///         await service.EnqueueAsync(() => service.AddMessage(new Message { Text = text }));
+///     }
+///
+///     public async Task CloseRoomAsync(string roomId)
+///     {
+///         await _chatRooms.RemoveAsync(roomId);
 ///     }
 /// }
-///
-/// // 3. DI 注册
-/// services.AddPulseServiceFactory&lt;ChatRoomService&gt;(
-///     (sp, serviceId) =>
-///     {
-///         var roomId = serviceId.Split(':')[1];
-///         return new ChatRoomService(roomId);
-///     });
 /// </code>
 /// </example>
 internal interface IPulseServiceFactory<TService> where TService : IUnifiedPulseService
