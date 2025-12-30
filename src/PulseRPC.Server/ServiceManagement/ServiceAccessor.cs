@@ -62,6 +62,26 @@ public sealed class ServiceAccessor<TService> : IServiceAccessor<TService>
     {
         return _serviceManager.GetServicesByType(_serviceTypeName).OfType<TService>();
     }
+
+    /// <inheritdoc/>
+    public async ValueTask<bool> RemoveAsync(string serviceId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(serviceId))
+            return false;
+
+        return await _serviceManager.RemoveServiceAsync(_serviceTypeName, serviceId, cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public IReadOnlyCollection<string> GetActiveServiceIds()
+    {
+        return _serviceManager.GetServicesByType(_serviceTypeName)
+            .Select(s => s.ServiceId)
+            .ToList();
+    }
+
+    /// <inheritdoc/>
+    public int ActiveCount => _serviceManager.GetServicesByType(_serviceTypeName).Count();
 }
 
 /// <summary>

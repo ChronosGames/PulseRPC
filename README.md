@@ -272,10 +272,8 @@ await client.DisconnectAsync(orderConnection.Id);
 
 ```csharp
 var gameClient = new PulseClientBuilder()
-    .AddGameServerSet("production")
-    .AddDevelopmentServers("localhost", 8000)
-    .WithBattleOptimizations()
-    .WithConnectionPooling(maxConnections: 50)
+    .UseGameClientPreset()  // 使用游戏客户端预设（低延迟优化）
+    .WithConnectionPooling(new ConnectionPoolOptions { MaxConnections = 50 })
     .Build();
 
 await gameClient.InitializeAsync();
