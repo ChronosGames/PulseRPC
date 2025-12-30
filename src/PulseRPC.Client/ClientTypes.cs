@@ -214,24 +214,9 @@ public sealed class ServiceProxyOptions
     public RetryPolicy? RetryPolicy { get; set; }
 
     /// <summary>
-    /// 缓存策略
+    /// 启用代理缓存
     /// </summary>
     public bool UseCache { get; set; } = true;
-
-    /// <summary>
-    /// 启用缓存
-    /// </summary>
-    public bool EnableCaching { get; set; } = true;
-
-    /// <summary>
-    /// 最大重试次数
-    /// </summary>
-    public int MaxRetries { get; set; } = 3;
-
-    /// <summary>
-    /// 重试延迟
-    /// </summary>
-    public TimeSpan RetryDelay { get; set; } = TimeSpan.FromMilliseconds(100);
 }
 
 /// <summary>

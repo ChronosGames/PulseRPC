@@ -208,18 +208,6 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 }
             }
 
-            // 生成统一接收器注册扩展方法（RegisterAllReceivers<T>）
-            var namedEventTypes = uniqueEventTypes.Select(t => t.Type).OfType<INamedTypeSymbol>().ToImmutableArray();
-            if (namedEventTypes.Length > 0)
-            {
-                var unifiedRegistrationCode = UnifiedReceiverRegistrationGenerator.Generate(namedEventTypes);
-                if (!string.IsNullOrEmpty(unifiedRegistrationCode))
-                {
-                    spc.AddSource("PulseRPC.Client.Generated.UnifiedReceiverRegistration.g.cs",
-                        SourceText.From(unifiedRegistrationCode, Encoding.UTF8));
-                }
-            }
-
         });
     }
 

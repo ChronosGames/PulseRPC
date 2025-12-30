@@ -100,9 +100,6 @@ public static class ClientChannelGenericExtensionsGenerator
         // 生成 GetHub<T> 方法
         GenerateGetHubMethod(sb, hubTypes);
 
-        // 生成 GetHubAsync<T> 方法
-        GenerateGetHubAsyncMethod(sb, hubTypes);
-
         // 生成 RegisterReceiver<T> 方法
         GenerateRegisterReceiverMethod(sb, receiverTypes);
 
@@ -149,27 +146,6 @@ public static class ClientChannelGenericExtensionsGenerator
     }
 
     /// <summary>
-    /// 生成异步的 GetHubAsync&lt;T&gt; 方法
-    /// </summary>
-    private static void GenerateGetHubAsyncMethod(StringBuilder sb, ImmutableArray<INamedTypeSymbol> hubTypes)
-    {
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 异步获取指定类型的 Hub 代理");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        /// <typeparam name=\"T\">Hub 接口类型（必须实现 IPulseHub）</typeparam>");
-        sb.AppendLine("        /// <param name=\"channel\">客户端通道</param>");
-        sb.AppendLine("        /// <param name=\"cancellationToken\">取消令牌</param>");
-        sb.AppendLine("        /// <returns>Hub 代理实例</returns>");
-        sb.AppendLine("        /// <exception cref=\"ArgumentException\">当类型 T 不是已注册的 Hub 接口时抛出</exception>");
-        sb.AppendLine("        public static Task<T> GetHubAsync<T>(this IClientChannel channel, CancellationToken cancellationToken = default) where T : class, IPulseHub");
-        sb.AppendLine("        {");
-        sb.AppendLine("            // 当前实现是同步的，但保留异步签名以便未来扩展（如连接验证、服务发现等）");
-        sb.AppendLine("            return Task.FromResult(channel.GetHub<T>());");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-    }
-
-    /// <summary>
     /// 生成 RegisterReceiver&lt;T&gt; 方法
     /// </summary>
     private static void GenerateRegisterReceiverMethod(StringBuilder sb, ImmutableArray<INamedTypeSymbol> receiverTypes)
@@ -208,25 +184,6 @@ public static class ClientChannelGenericExtensionsGenerator
         }
 
         sb.AppendLine("            throw new ArgumentException($\"不支持的 Receiver 类型: {receiverType.Name}。请确保该接口已使用 [PulseClientGeneration] 特性注册。\", nameof(T));");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        // 生成异步版本的 RegisterReceiverAsync<T>
-        sb.AppendLine("        /// <summary>");
-        sb.AppendLine("        /// 异步注册指定类型的 Receiver");
-        sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        /// <typeparam name=\"T\">Receiver 接口类型（必须实现 IPulseReceiver）</typeparam>");
-        sb.AppendLine("        /// <param name=\"channel\">客户端通道</param>");
-        sb.AppendLine("        /// <param name=\"receiver\">Receiver 实现实例</param>");
-        sb.AppendLine("        /// <param name=\"cancellationToken\">取消令牌</param>");
-        sb.AppendLine("        /// <returns>订阅令牌，用于取消注册</returns>");
-        sb.AppendLine("        public static Task<ISubscriptionToken> RegisterReceiverAsync<T>(");
-        sb.AppendLine("            this IClientChannel channel,");
-        sb.AppendLine("            T receiver,");
-        sb.AppendLine("            CancellationToken cancellationToken = default) where T : class, IPulseReceiver");
-        sb.AppendLine("        {");
-        sb.AppendLine("            // 当前实现是同步的，但保留异步签名以便未来扩展");
-        sb.AppendLine("            return Task.FromResult(channel.RegisterReceiver(receiver));");
         sb.AppendLine("        }");
     }
 
