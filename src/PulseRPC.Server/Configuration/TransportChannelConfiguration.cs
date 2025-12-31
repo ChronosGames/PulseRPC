@@ -112,6 +112,7 @@ public class ServerConfigurationBuilder
     /// <summary>
     /// 构建配置
     /// </summary>
-    internal (List<TransportChannelConfiguration> Transports, Action<ServerOptions>? ServerConfig) Build() =>
+    /// <returns>传输配置列表和服务器选项配置委托</returns>
+    public (List<TransportChannelConfiguration> Transports, Action<ServerOptions>? ServerConfig) Build() =>
         (_transports, _serverOptionsConfig);
 }

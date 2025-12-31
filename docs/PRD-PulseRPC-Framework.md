@@ -249,15 +249,15 @@ public interface IPulseReceiver
 
 ```csharp
 /// <summary>
-/// PulseRPC 服务器核心接口
+/// PulseRPC 服务器运行时接口
 /// </summary>
 public interface IPulseServer : IAsyncDisposable, IDisposable
 {
-    /// <summary>服务器唯一标识</summary>
-    string ServerId { get; }
-
     /// <summary>当前运行状态</summary>
     ServerState State { get; }
+
+    /// <summary>服务器是否正在运行</summary>
+    bool IsRunning => State == ServerState.Running;
 
     /// <summary>启动服务器</summary>
     Task StartAsync(CancellationToken cancellationToken = default);
@@ -265,8 +265,94 @@ public interface IPulseServer : IAsyncDisposable, IDisposable
     /// <summary>停止服务器</summary>
     Task StopAsync(CancellationToken cancellationToken = default);
 
-    /// <summary>获取活动会话数量</summary>
-    int ActiveSessionCount { get; }
+    /// <summary>获取当前连接数</summary>
+    int ActiveConnectionCount { get; }
+
+    /// <summary>获取所有活动连接信息</summary>
+    IReadOnlyList<ConnectionInfo> GetActiveConnections();
+
+    /// <summary>获取已配置的传输信息</summary>
+    IReadOnlyDictionary<string, TransportInfo> GetTransports();
+
+    /// <summary>广播消息到所有连接</summary>
+    Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default);
+
+    /// <summary>向指定连接发送数据</summary>
+    Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
+
+    /// <summary>获取指定连接的传输通道</summary>
+    ITransportChannel? GetChannel(string connectionId);
+
+    /// <summary>获取服务器性能统计</summary>
+    ServerPerformanceMetrics GetPerformanceMetrics();
+
+    /// <summary>服务器状态变更事件</summary>
+    event EventHandler<ServerStateChangedEventArgs>? StateChanged;
+
+    /// <summary>客户端连接事件</summary>
+    event EventHandler<ClientConnectedEventArgs>? ClientConnected;
+
+    /// <summary>客户端断开连接事件</summary>
+    event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
+}
+
+/// <summary>
+/// 命名 PulseRPC 服务器接口 - 支持在同一进程中运行多个服务器实例
+/// </summary>
+public interface INamedPulseServer : IPulseServer
+{
+    /// <summary>服务器名称（唯一标识）</summary>
+    string ServerName { get; }
+}
+
+/// <summary>服务器状态枚举</summary>
+public enum ServerState
+{
+    Stopped,    // 已停止
+    Starting,   // 启动中
+    Running,    // 运行中
+    Stopping    // 停止中
+}
+```
+
+#### 4.1.4 IUnifiedPulseService
+
+```csharp
+/// <summary>
+/// 有状态服务基础接口 - 用于需要维护状态的业务服务
+/// </summary>
+public interface IUnifiedPulseService : IAsyncDisposable
+{
+    /// <summary>服务类型标识（如 "ChatRoom"、"Player"）</summary>
+    string ServiceType { get; }
+
+    /// <summary>服务实例ID（如 "room-123"、"player-456"）</summary>
+    string ServiceId { get; }
+
+    /// <summary>服务完整地址（格式: "{ServiceType}:{ServiceId}"）</summary>
+    string ServiceAddress => $"{ServiceType}:{ServiceId}";
+
+    /// <summary>服务生命周期状态</summary>
+    ServiceLifecycleState State { get; }
+
+    /// <summary>启动服务</summary>
+    Task StartAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>停止服务</summary>
+    Task StopAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>服务生命周期钩子接口</summary>
+public interface IUnifiedServiceLifecycle : IUnifiedPulseService
+{
+    Task OnStartingAsync(CancellationToken cancellationToken = default);
+    Task OnStoppingAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>服务健康检查接口</summary>
+public interface IUnifiedServiceHealthCheck : IUnifiedPulseService
+{
+    Task<ServiceHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default);
 }
 ```
 
@@ -312,15 +398,50 @@ public class GameHub : PulseHubBase, IGameHub
 #### 4.2.2 服务访问模式
 
 ```csharp
-// Singleton 服务通过 IServiceAccessor 安全访问
-public interface IServiceAccessor<TService> where TService : class
+/// <summary>
+/// 有状态服务访问器 - 用于获取和管理服务实例
+/// </summary>
+public interface IServiceAccessor<TService> where TService : class, IUnifiedPulseService
 {
-    /// <summary>执行服务方法</summary>
-    Task<TResult> Execute<TResult>(Func<TService, Task<TResult>> action);
+    /// <summary>根据服务ID获取或创建服务实例</summary>
+    ValueTask<TService> GetAsync(string serviceId, CancellationToken cancellationToken = default);
 
-    /// <summary>带用户上下文执行服务方法</summary>
-    Task<TResult> ExecuteWithUserId<TResult>(
-        Func<TService, string, Task<TResult>> action);
+    /// <summary>尝试获取已存在的服务实例（不创建新实例）</summary>
+    TService? TryGet(string serviceId);
+
+    /// <summary>获取所有活跃的服务实例</summary>
+    IEnumerable<TService> GetAll();
+
+    /// <summary>移除指定服务实例</summary>
+    ValueTask<bool> RemoveAsync(string serviceId, CancellationToken cancellationToken = default);
+
+    /// <summary>获取所有活跃服务的ID列表</summary>
+    IReadOnlyCollection<string> GetActiveServiceIds();
+
+    /// <summary>当前活跃的服务实例数量</summary>
+    int ActiveCount { get; }
+}
+```
+
+**使用模式:**
+
+```csharp
+public class GameHub : PulseHubBase, IGameHub
+{
+    private readonly IServiceAccessor<PlayerService> _playerServices;
+
+    public GameHub(IServiceAccessor<PlayerService> playerServices)
+    {
+        _playerServices = playerServices;
+    }
+
+    public async Task<PlayerInfo> GetPlayerInfoAsync(string playerId)
+    {
+        // 获取玩家服务实例
+        var playerService = await _playerServices.GetAsync(playerId);
+        // 通过服务队列执行业务逻辑（保证线程安全）
+        return await playerService.EnqueueAsync(() => playerService.GetInfoAsync());
+    }
 }
 ```
 
@@ -431,6 +552,176 @@ public sealed class AuthorizationModel
     public string? Policy { get; set; }
     public string[]? Scopes { get; set; }
 }
+```
+
+### 4.5 有状态服务 (PulseService)
+
+PulseRPC 区分两类服务：
+- **IPulseHub**: 无状态 RPC 服务端点，处理客户端请求
+- **IUnifiedPulseService**: 有状态业务服务，维护业务状态并通过队列保证线程安全
+
+#### 4.5.1 PulseServiceAttribute
+
+```csharp
+/// <summary>
+/// 标记有状态服务的执行配置
+/// </summary>
+[AttributeUsage(AttributeTargets.Class, Inherited = false, AllowMultiple = false)]
+public sealed class PulseServiceAttribute : Attribute
+{
+    // 执行场景（推荐使用预定义场景）
+    public ServiceScenario Scenario { get; set; } = ServiceScenario.Actor;
+
+    // 身份元数据
+    public string? DisplayName { get; set; }
+    public string? Description { get; set; }
+
+    // 生命周期管理
+    public ServiceStartupType StartupType { get; set; } = ServiceStartupType.OnDemand;
+    public ServiceInstanceScope InstanceScope { get; set; } = ServiceInstanceScope.MultiInstance;
+    public int IdleTimeoutSeconds { get; set; } = 300;
+
+    // 健康检查
+    public bool EnableHealthCheck { get; set; } = true;
+    public int HealthCheckIntervalSeconds { get; set; } = 60;
+
+    // 执行配置（仅当 Scenario = Custom 时有效）
+    public ServiceSchedulingMode SchedulingMode { get; set; } = ServiceSchedulingMode.DedicatedQueue;
+    public int MaxConcurrency { get; set; } = 1;
+    public int QueueCapacity { get; set; } = 10000;
+    public ServiceBackpressureMode BackpressureMode { get; set; } = ServiceBackpressureMode.Block;
+    public bool EnableYielding { get; set; } = false;
+}
+```
+
+#### 4.5.2 ServiceScenario 预定义场景
+
+| 场景 | 调度模式 | 最大并发 | Yielding | 适用场景 |
+|------|---------|---------|----------|---------|
+| `Actor` | DedicatedQueue | 1 | false | 聊天室、游戏房间 |
+| `StatelessIO` | DefaultPool | 16 | false | 数据库查询、HTTP 网关 |
+| `StatelessCPU` | DefaultPool | ProcessorCount | false | 寻路计算、加密处理 |
+| `StatefulIO` | DedicatedQueue | 1 | **true** | 玩家服务、订单处理 |
+| `HighFrequency` | ThreadAffinity | 1 | false | 高频状态更新 |
+| `Custom` | 手动配置 | 手动配置 | 手动配置 | 自定义配置 |
+
+#### 4.5.3 UnifiedPulseServiceBase 基类
+
+```csharp
+/// <summary>
+/// 有状态服务基类 - 提供队列化执行和生命周期管理
+/// </summary>
+public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedServiceLifecycle
+{
+    public string ServiceType { get; }
+    public string ServiceId { get; }
+    public ServiceLifecycleState State { get; }
+
+    protected UnifiedPulseServiceBase(
+        string serviceType,
+        string serviceId,
+        ILogger? logger = null,
+        ServiceExecutionOptions? executionOptions = null);
+
+    /// <summary>在服务队列中执行工作（保证线程安全）</summary>
+    protected Task EnqueueAsync(Func<Task> work);
+
+    /// <summary>在服务队列中执行工作并返回结果</summary>
+    protected Task<TResult> EnqueueAsync<TResult>(Func<Task<TResult>> work);
+
+    /// <summary>服务启动时的钩子</summary>
+    protected virtual Task OnStartingAsync(CancellationToken ct) => Task.CompletedTask;
+
+    /// <summary>服务停止时的钩子</summary>
+    protected virtual Task OnStoppingAsync(CancellationToken ct) => Task.CompletedTask;
+}
+```
+
+#### 4.5.4 服务实现示例
+
+```csharp
+/// <summary>
+/// 聊天室服务 - Actor 模式实现
+/// </summary>
+[PulseService(
+    Scenario = ServiceScenario.Actor,
+    StartupType = ServiceStartupType.OnDemand,
+    InstanceScope = ServiceInstanceScope.MultiInstance,
+    DisplayName = "聊天室服务")]
+public class ChatRoomService : UnifiedPulseServiceBase
+{
+    private readonly HashSet<string> _members = new();
+    private readonly List<ChatMessage> _messages = new();
+    private readonly IHubContext<IChatReceiver> _hubContext;
+
+    public ChatRoomService(
+        string roomId,
+        IHubContext<IChatReceiver> hubContext,
+        ILogger<ChatRoomService> logger)
+        : base("ChatRoom", roomId, logger)
+    {
+        _hubContext = hubContext;
+    }
+
+    public string RoomId => ServiceId;
+
+    public Task<JoinRoomResult> JoinAsync(string userId, string userName)
+    {
+        // 此方法在服务队列中执行，无需额外同步
+        _members.Add(userId);
+        return Task.FromResult(JoinRoomResult.Ok(RoomId, _members.Count));
+    }
+
+    public async Task<SendMessageResult> SendMessageAsync(string userId, string content)
+    {
+        var message = new ChatMessage
+        {
+            MessageId = Guid.NewGuid().ToString(),
+            UserId = userId,
+            Content = content,
+            Timestamp = DateTime.UtcNow
+        };
+        _messages.Add(message);
+
+        // 广播给房间内所有成员
+        await _hubContext.Clients.Group(RoomId).OnMessageReceivedAsync(message);
+
+        return SendMessageResult.Ok(message.MessageId);
+    }
+
+    protected override Task OnStartingAsync(CancellationToken ct)
+    {
+        Logger?.LogInformation("聊天室 {RoomId} 已启动", RoomId);
+        return Task.CompletedTask;
+    }
+
+    protected override Task OnStoppingAsync(CancellationToken ct)
+    {
+        Logger?.LogInformation("聊天室 {RoomId} 正在关闭，当前 {Count} 名成员", RoomId, _members.Count);
+        return Task.CompletedTask;
+    }
+}
+```
+
+#### 4.5.5 服务注册与 DI 配置
+
+```csharp
+// 在 Startup 或 Program.cs 中配置
+services.AddUnifiedServiceManagement();
+
+// 注册有状态服务（带自定义工厂）
+services.AddPulseService<ChatRoomService>((sp, roomId) =>
+    new ChatRoomService(
+        roomId,
+        sp.GetRequiredService<IHubContext<IChatReceiver>>(),
+        sp.GetRequiredService<ILogger<ChatRoomService>>()));
+
+// 注册有状态服务（使用 ActivatorUtilities 自动创建）
+services.AddPulseServiceFactory<PlayerService>(options =>
+{
+    options.IdleTimeout = TimeSpan.FromMinutes(10);
+    options.MaxCachedInstances = 5000;
+});
 ```
 
 ---
@@ -632,7 +923,7 @@ if (loginResult.Success)
 }
 ```
 
-### 8.3 服务端使用示例
+### 8.3 服务端使用示例（推荐 DI 用法）
 
 ```csharp
 // 1. 定义服务接口
@@ -642,24 +933,71 @@ public interface IGameHub : IPulseHub
     Task<CharacterInfo[]> GetCharacterListAsync();
 }
 
-// 2. 实现服务
+// 2. 实现 Hub 服务
 public class GameHub : PulseHubBase, IGameHub
 {
+    private readonly IServiceAccessor<PlayerService> _playerServices;
+    private readonly ILogger<GameHub> _logger;
+
+    public GameHub(
+        IServiceAccessor<PlayerService> playerServices,
+        ILogger<GameHub> logger)
+    {
+        _playerServices = playerServices;
+        _logger = logger;
+    }
+
     public async Task<LoginResponse> LoginAsync(LoginRequest request)
     {
         // 业务逻辑
+        return new LoginResponse { Success = true };
+    }
+
+    public async Task<CharacterInfo[]> GetCharacterListAsync()
+    {
+        var service = await _playerServices.GetAsync(UserId);
+        return await service.EnqueueAsync(() => service.GetCharactersAsync());
     }
 }
 
-// 3. 配置服务器
-var server = new PulseServerBuilder()
-    .WithServerId("game-server-001")
-    .WithEndPoint(IPAddress.Any, 5000)
-    .WithTransport<TcpTransport>()
-    .AddHub<IGameHub, GameHub>()
-    .Build();
+// 3. 配置服务器（推荐 DI 用法）
+var builder = WebApplication.CreateBuilder(args);
 
-await server.StartAsync();
+// 基础配置
+builder.Services.AddPulseServer(port: 5000);
+
+// 或使用预设配置
+builder.Services.AddPulseServer(ServerPreset.HighThroughput, port: 5000);
+
+// 或自定义配置
+builder.Services.AddPulseServer(options => options
+    .UsePreset(ServerPreset.LowLatency)
+    .AddTcp(5000)
+    .AddKcp(5001));
+
+// 注册有状态服务
+builder.Services.AddUnifiedServiceManagement();
+builder.Services.AddPulseService<PlayerService>((sp, playerId) =>
+    new PlayerService(playerId, sp.GetRequiredService<ILogger<PlayerService>>()));
+
+// 注册 Hub
+builder.Services.AddSingleton<IGameHub, GameHub>();
+
+var app = builder.Build();
+await app.RunAsync();
+```
+
+### 8.4 多服务器配置
+
+```csharp
+// 配置多个命名服务器实例
+builder.Services.AddNamedPulseServer("External", options => options
+    .UsePreset(ServerPreset.HighThroughput)
+    .AddTcp(5000));
+
+builder.Services.AddNamedPulseServer("Internal", options => options
+    .UsePreset(ServerPreset.LowLatency)
+    .AddTcp(5001));
 ```
 
 ---
