@@ -1,15 +1,27 @@
+using PulseRPC.Server.Abstractions;
+
 namespace PulseRPC.Server;
 
 /// <summary>
-/// Service 消息队列配置选项
+/// Service 消息队列配置选项（已废弃）
 /// </summary>
 /// <remarks>
-/// 提供统一的配置接口，支持所有 Service 模型的配置需求：
-/// - 单线程 Actor 模型（MaxConcurrency=1）
-/// - 并发模型（MaxConcurrency>1）
-/// - 优先级队列（通过 [Priority] 特性）
-/// - 背压流控（BackpressureStrategy）
+/// <para>
+/// <strong>此类已废弃</strong>，请使用 <see cref="ServiceExecutionOptions"/> 替代。
+/// </para>
+/// <para>
+/// 迁移指南：
+/// </para>
+/// <list type="bullet">
+/// <item><description><see cref="ForActor"/> → <see cref="ServiceExecutionOptions.Actor"/></description></item>
+/// <item><description><see cref="ForConcurrentIO"/> → <see cref="ServiceExecutionOptions.StatelessIO"/></description></item>
+/// <item><description><see cref="ForConcurrentCPU"/> → <see cref="ServiceExecutionOptions.StatelessCPU"/></description></item>
+/// <item><description><see cref="ForPriorityQueue"/> → <see cref="ServiceExecutionOptions.Actor"/></description></item>
+/// <item><description><see cref="ForBackpressureDropOldest"/> → <see cref="ServiceExecutionOptions.LogCollector"/></description></item>
+/// <item><description><see cref="ForBackpressureReject"/> → <see cref="ServiceExecutionOptions.Critical"/></description></item>
+/// </list>
 /// </remarks>
+[Obsolete("使用 ServiceExecutionOptions 替代。此类将在未来版本中移除。")]
 public class ServiceQueueOptions
 {
     /// <summary>
@@ -180,8 +192,17 @@ public class ServiceQueueOptions
 }
 
 /// <summary>
-/// Service 配置构建器（Fluent API）
+/// Service 配置构建器（Fluent API）（已废弃）
 /// </summary>
+/// <remarks>
+/// <para>
+/// <strong>此类已废弃</strong>，请使用 <see cref="ServiceExecutionOptions"/> 替代。
+/// </para>
+/// <para>
+/// 新的配置方式更简洁，推荐使用预定义配置或 <see cref="ServiceExecutionOptions.With"/> 方法。
+/// </para>
+/// </remarks>
+[Obsolete("使用 ServiceExecutionOptions 替代。此类将在未来版本中移除。")]
 public class ServiceQueueOptionsBuilder
 {
     private readonly ServiceQueueOptions _options = new();

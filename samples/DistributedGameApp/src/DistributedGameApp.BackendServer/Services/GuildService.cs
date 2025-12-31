@@ -22,9 +22,9 @@ namespace DistributedGameApp.BackendServer.Services;
 /// </list>
 /// </remarks>
 [PulseService(
+    Scenario = ServiceScenario.Actor,  // 单线程顺序执行，保证线程安全
     StartupType = ServiceStartupType.AutoStart,
     InstanceScope = ServiceInstanceScope.Singleton,
-    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
     DisplayName = "GuildService",
     EnableHealthCheck = true)]
 public class GuildService : UnifiedPulseServiceBase

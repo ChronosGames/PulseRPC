@@ -107,9 +107,19 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     public ServiceLifecycleState State { get; private set; } = ServiceLifecycleState.Created;
 
     /// <summary>
-    /// 服务配置（从 Attribute 读取或默认值）
+    /// 服务执行配置
     /// </summary>
-    protected ServiceConfiguration Configuration { get; }
+    /// <remarks>
+    /// 通过 <see cref="ServiceExecutionOptions.FromAttribute"/> 从 Attribute 读取，
+    /// 或通过构造函数传入自定义配置。
+    /// </remarks>
+    protected ServiceExecutionOptions ExecutionOptions { get; }
+
+    /// <summary>
+    /// 服务配置（已废弃，使用 ExecutionOptions）
+    /// </summary>
+    [Obsolete("使用 ExecutionOptions 替代。此属性将在未来版本中移除。")]
+    protected ServiceExecutionOptions Configuration => ExecutionOptions;
 
     // ════════════════════════════════════════════════════════════════════════
     // 访问时间跟踪（用于实例清理）
@@ -153,13 +163,34 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// <param name="serviceType">服务类型</param>
     /// <param name="serviceId">服务实例 ID</param>
     /// <param name="logger">日志记录器</param>
-    /// <param name="configuration">服务配置（可选）</param>
+    /// <param name="executionOptions">执行配置（可选，推荐使用 <see cref="ServiceExecutionOptions"/> 的预定义配置）</param>
     /// <param name="affinityScheduler">线程亲和性调度器（可选，仅 ThreadAffinity 模式需要）</param>
+    /// <example>
+    /// <code>
+    /// // 使用预定义配置
+    /// public class PlayerService : UnifiedPulseServiceBase
+    /// {
+    ///     public PlayerService(string playerId, ILogger&lt;PlayerService&gt; logger)
+    ///         : base("Player", playerId, logger, ServiceExecutionOptions.StatefulIO)
+    ///     {
+    ///     }
+    /// }
+    ///
+    /// // 使用场景枚举
+    /// public class ChatRoomService : UnifiedPulseServiceBase
+    /// {
+    ///     public ChatRoomService(string roomId, ILogger&lt;ChatRoomService&gt; logger)
+    ///         : base("ChatRoom", roomId, logger, ServiceExecutionOptions.FromScenario(ServiceScenario.Actor))
+    ///     {
+    ///     }
+    /// }
+    /// </code>
+    /// </example>
     protected UnifiedPulseServiceBase(
         string serviceType,
         string serviceId,
         ILogger? logger = null,
-        ServiceConfiguration? configuration = null,
+        ServiceExecutionOptions? executionOptions = null,
         IThreadAffinityScheduler? affinityScheduler = null)
     {
         if (string.IsNullOrWhiteSpace(serviceType))
@@ -170,16 +201,16 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
         ServiceType = serviceType;
         ServiceId = serviceId;
         Logger = logger ?? NullLogger.Instance;
-        Configuration = configuration ?? ServiceConfiguration.Default;
+        ExecutionOptions = executionOptions ?? ServiceExecutionOptions.Default;
         _affinityScheduler = affinityScheduler;
 
         // 根据调度模式创建消息队列
-        if (Configuration.SchedulingMode == ServiceSchedulingMode.DedicatedQueue)
+        if (ExecutionOptions.SchedulingMode == ServiceSchedulingMode.DedicatedQueue)
         {
             _messageQueue = Channel.CreateBounded<Func<Task>>(
-                new BoundedChannelOptions(Configuration.QueueCapacity)
+                new BoundedChannelOptions(ExecutionOptions.QueueCapacity)
                 {
-                    FullMode = Configuration.BackpressureMode switch
+                    FullMode = ExecutionOptions.BackpressureMode switch
                     {
                         ServiceBackpressureMode.Block => BoundedChannelFullMode.Wait,
                         ServiceBackpressureMode.DropNewest => BoundedChannelFullMode.DropNewest,
@@ -348,7 +379,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                 }
             }, cancellationToken);
         }
-        else if (_affinityScheduler != null && Configuration.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
+        else if (_affinityScheduler != null && ExecutionOptions.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
         {
             // ThreadAffinity 模式：使用共享调度器路由到固定工作线程
             var key = new ServiceSchedulingKey(ServiceType, ServiceId);
@@ -432,7 +463,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
             return await valueTaskSource.GetValueTask();
         }
-        else if (_affinityScheduler != null && Configuration.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
+        else if (_affinityScheduler != null && ExecutionOptions.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
         {
             // ThreadAffinity 模式：使用共享调度器路由到固定工作线程
             var key = new ServiceSchedulingKey(ServiceType, ServiceId);
@@ -523,8 +554,22 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 }
 
 /// <summary>
-/// 服务配置
+/// 服务配置（已废弃）
 /// </summary>
+/// <remarks>
+/// <para>
+/// <strong>此类已废弃</strong>，请使用 <see cref="ServiceExecutionOptions"/> 替代。
+/// </para>
+/// <para>
+/// 迁移指南：
+/// </para>
+/// <list type="bullet">
+/// <item><description>使用 <see cref="ServiceExecutionOptions.FromScenario"/> 从场景创建配置</description></item>
+/// <item><description>使用 <see cref="ServiceExecutionOptions.FromAttribute"/> 从 Attribute 创建配置</description></item>
+/// <item><description>使用预定义配置如 <see cref="ServiceExecutionOptions.Actor"/>、<see cref="ServiceExecutionOptions.StatefulIO"/> 等</description></item>
+/// </list>
+/// </remarks>
+[Obsolete("使用 ServiceExecutionOptions 替代。此类将在未来版本中移除。")]
 public sealed class ServiceConfiguration
 {
     /// <summary>
@@ -550,6 +595,7 @@ public sealed class ServiceConfiguration
     /// <summary>
     /// 从 Attribute 创建配置
     /// </summary>
+    [Obsolete("使用 ServiceExecutionOptions.FromAttribute 替代")]
     public static ServiceConfiguration FromAttribute(PulseServiceAttribute? attribute)
     {
         if (attribute == null) return Default;
@@ -559,6 +605,21 @@ public sealed class ServiceConfiguration
             SchedulingMode = attribute.SchedulingMode,
             QueueCapacity = attribute.QueueCapacity,
             BackpressureMode = attribute.BackpressureMode
+        };
+    }
+
+    /// <summary>
+    /// 转换为 ServiceExecutionOptions
+    /// </summary>
+    public ServiceExecutionOptions ToExecutionOptions()
+    {
+        return new ServiceExecutionOptions
+        {
+            SchedulingMode = SchedulingMode,
+            QueueCapacity = QueueCapacity,
+            BackpressureMode = BackpressureMode,
+            MaxConcurrency = 1,
+            EnableYielding = false
         };
     }
 }
