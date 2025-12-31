@@ -19,8 +19,8 @@ public static class ServiceAnalyzer
         var interfaceSymbol = semanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
         if (interfaceSymbol == null) return null;
 
-        // 检查是否标记为PulseHub或继承IPulseHub
-        if (!HasPulseServiceAttribute(interfaceSymbol) && !InheritsFromIPulseHub(interfaceSymbol))
+        // 只识别继承 IPulseHub 的接口
+        if (!InheritsFromIPulseHub(interfaceSymbol))
             return null;
 
         var interfaceName = interfaceSymbol.Name;
@@ -58,16 +58,7 @@ public static class ServiceAnalyzer
     }
 
     /// <summary>
-    /// 检查接口是否有PulseService特性
-    /// </summary>
-    private static bool HasPulseServiceAttribute(INamedTypeSymbol interfaceSymbol)
-    {
-        return interfaceSymbol.GetAttributes()
-            .Any(attr => attr.AttributeClass?.Name is "PulseServiceAttribute" or "PulseService");
-    }
-
-    /// <summary>
-    /// 检查接口是否继承IPulseHub
+    /// 检查接口是否继承 IPulseHub
     /// </summary>
     private static bool InheritsFromIPulseHub(INamedTypeSymbol interfaceSymbol)
     {
