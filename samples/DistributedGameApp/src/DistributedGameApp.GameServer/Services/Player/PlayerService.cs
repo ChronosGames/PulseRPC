@@ -17,7 +17,7 @@ namespace DistributedGameApp.GameServer.Services.Player;
 /// <list type="bullet">
 /// <item><description>每个玩家一个 Service 实例（MultiInstance）</description></item>
 /// <item><description>按需创建（OnDemand），玩家上线时创建</description></item>
-/// <item><description>使用专属队列（DedicatedQueue），保证消息顺序</description></item>
+/// <item><description>使用 StatefulIO 场景，启用 Yielding 机制</description></item>
 /// <item><description>所有状态操作都在队列中执行，天然线程安全</description></item>
 /// </list>
 /// <para><strong>文件组织</strong>:</para>
@@ -30,9 +30,9 @@ namespace DistributedGameApp.GameServer.Services.Player;
 /// </code>
 /// </remarks>
 [PulseService(
+    Scenario = ServiceScenario.StatefulIO,  // 有状态 + IO 密集，自动启用 Yielding
     StartupType = ServiceStartupType.OnDemand,
     InstanceScope = ServiceInstanceScope.MultiInstance,
-    SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
     DisplayName = "Player",
     IdleTimeoutSeconds = 600,  // 10分钟空闲后回收
     EnableHealthCheck = true)]

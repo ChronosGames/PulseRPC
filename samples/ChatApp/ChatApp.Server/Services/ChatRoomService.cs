@@ -29,9 +29,9 @@ namespace ChatApp.NewArchitecture.Services;
 /// </code>
 /// </remarks>
 [PulseService(
+    Scenario = ServiceScenario.Actor,  // 单线程顺序执行，保证消息顺序和线程安全
     StartupType = ServiceStartupType.OnDemand,           // 按需创建
-    InstanceScope = ServiceInstanceScope.MultiInstance,  // 每个房间一个实例
-    SchedulingMode = ServiceSchedulingMode.DedicatedQueue)] // 专属队列，保证消息顺序
+    InstanceScope = ServiceInstanceScope.MultiInstance)]  // 每个房间一个实例
 public class ChatRoomService : UnifiedPulseServiceBase
 {
     // ════════════════════════════════════════════════════════════════════════
