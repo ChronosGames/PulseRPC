@@ -1,3 +1,4 @@
+using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Transport;
 
@@ -157,4 +158,71 @@ public abstract class PulseHubBase
     /// <exception cref="InvalidOperationException">连接 ID 不存在时抛出</exception>
     protected static string RequireConnectionId => PulseContext.CurrentConnectionId
         ?? throw new InvalidOperationException("No connection context available.");
+}
+
+/// <summary>
+/// 带推送能力的 PulseHub 基类 - 支持向客户端推送消息
+/// </summary>
+/// <typeparam name="TReceiver">客户端接收器接口（需实现 <see cref="IPulseReceiver"/>）</typeparam>
+/// <remarks>
+/// <para>继承自 <see cref="PulseHubBase"/>，添加了服务端推送能力。</para>
+/// <para>
+/// <strong>使用示例</strong>：
+/// </para>
+/// <code>
+/// public class GameHub : PulseHubBase&lt;IGameReceiver&gt;, IGameHub
+/// {
+///     public async Task SendMessageAsync(string message)
+///     {
+///         // 向当前客户端发送消息
+///         Client.OnMessage(message);
+///
+///         // 向所有客户端广播
+///         Clients.All.OnBroadcast("Hello everyone!");
+///     }
+/// }
+/// </code>
+/// </remarks>
+public abstract class PulseHubBase<TReceiver> : PulseHubBase
+    where TReceiver : class, IPulseReceiver
+{
+    /// <summary>
+    /// Hub 上下文（由框架注入）
+    /// </summary>
+    /// <remarks>
+    /// 在 Hub 构造函数中注入 <see cref="IHubContext{TReceiver}"/> 并赋值给此属性。
+    /// </remarks>
+    protected IHubContext<TReceiver> HubContext { get; set; } = null!;
+
+    /// <summary>
+    /// 获取当前连接客户端的代理
+    /// </summary>
+    /// <remarks>
+    /// 用于向当前连接的客户端发送消息：
+    /// <code>
+    /// Client.OnMessage("Hello!");
+    /// </code>
+    /// </remarks>
+    protected TReceiver Client => Clients.Single(RequireConnectionId);
+
+    /// <summary>
+    /// 获取客户端选择器
+    /// </summary>
+    /// <remarks>
+    /// 提供多种客户端选择方式：
+    /// <code>
+    /// // 向所有客户端发送
+    /// Clients.All.OnMessage("Broadcast!");
+    ///
+    /// // 向单个客户端发送
+    /// Clients.Single(connectionId).OnMessage("Hello!");
+    ///
+    /// // 向多个客户端发送
+    /// Clients.Only(connectionIds).OnMessage("Hello team!");
+    ///
+    /// // 向除自己外的所有客户端发送
+    /// Clients.Except(ConnectionId).OnMessage("Hello others!");
+    /// </code>
+    /// </remarks>
+    protected IHubClients<TReceiver> Clients => HubContext.Clients;
 }
