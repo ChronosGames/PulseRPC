@@ -48,25 +48,8 @@ internal static class AuthorizationHelper
         {
             switch (namedArg.Key)
             {
-                case "AuthType":
-                    // AuthType 是枚举，需要转换为字符串
-                    if (namedArg.Value.Value is int authTypeValue)
-                    {
-                        authModel.AuthType = authTypeValue switch
-                        {
-                            0 => "Client",
-                            1 => "Service",
-                            2 => "Internal",
-                            3 => "Any",
-                            _ => null
-                        };
-                    }
-                    break;
                 case "Role":
                     authModel.Role = namedArg.Value.Value?.ToString();
-                    break;
-                case "Roles":
-                    authModel.Roles = namedArg.Value.Value?.ToString();
                     break;
                 case "Policy":
                     authModel.Policy = namedArg.Value.Value?.ToString();
@@ -84,36 +67,14 @@ internal static class AuthorizationHelper
             }
         }
 
-        // 提取构造函数参数
+        // 提取构造函数参数 (Role 字符串)
         if (authorizeAttr.ConstructorArguments.Length > 0)
         {
             var firstArg = authorizeAttr.ConstructorArguments[0];
 
-            // 可能是 AuthType 枚举
-            if (firstArg.Type?.Name == "AuthType" && firstArg.Value is int authTypeValue)
+            if (firstArg.Type?.SpecialType == SpecialType.System_String && firstArg.Value is string role)
             {
-                authModel.AuthType = authTypeValue switch
-                {
-                    0 => "Client",
-                    1 => "Service",
-                    2 => "Internal",
-                    3 => "Any",
-                    _ => null
-                };
-            }
-            // 可能是 Role 字符串
-            else if (firstArg.Type?.SpecialType == SpecialType.System_String && firstArg.Value is string roleOrRoles)
-            {
-                // 优先赋值给 Role（新的单一角色类型）
-                // 如果包含逗号，则是 Roles（传统的角色列表）
-                if (roleOrRoles.Contains(','))
-                {
-                    authModel.Roles = roleOrRoles;
-                }
-                else
-                {
-                    authModel.Role = roleOrRoles;
-                }
+                authModel.Role = role;
             }
         }
 
@@ -141,7 +102,8 @@ internal static class AuthorizationHelper
                     .Cast<string>()
                     .ToArray();
 
-                authModel.Roles = string.Join(",", roles);
+                // 使用逗号分隔的角色列表存储到 Role
+                authModel.Role = string.Join(",", roles);
             }
         }
 

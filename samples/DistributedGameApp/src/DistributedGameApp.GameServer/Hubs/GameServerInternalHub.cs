@@ -6,7 +6,6 @@ using PulseRPC;
 using PulseRPC.Server;
 using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Services;
-using System.Collections.Concurrent;
 
 namespace DistributedGameApp.GameServer.Hubs;
 
@@ -17,14 +16,13 @@ namespace DistributedGameApp.GameServer.Hubs;
 /// <para><strong>职责</strong>:</para>
 /// <list type="bullet">
 /// <item><description>接收 BackendServer 的匹配成功回调</description></item>
-/// <item><description>维护玩家的连接状态（有状态）</description></item>
 /// <item><description>使用 IHubContext&lt;IGameReceiver&gt; 转发通知给客户端</description></item>
 /// </list>
 /// <para><strong>设计原则</strong>:</para>
 /// <list type="bullet">
-/// <item><description>✅ 继承 UnifiedPulseServiceBase - 因为需要管理连接映射状态</description></item>
+/// <item><description>✅ 继承 UnifiedPulseServiceBase - 因为需要单例模式</description></item>
 /// <item><description>✅ 全局单例 (ServiceId = "Global")</description></item>
-/// <item><description>✅ 线程安全的状态管理 (使用消息队列)</description></item>
+/// <item><description>✅ 使用框架提供的 IUserConnectionMapping 管理连接状态</description></item>
 /// </list>
 /// </remarks>
 [PulseService(
@@ -36,32 +34,16 @@ namespace DistributedGameApp.GameServer.Hubs;
 public class GameServerInternalHub : UnifiedPulseServiceBase, IGameServerInternalHub, IUnifiedServiceLifecycle
 {
     private readonly IHubContext<IGameReceiver> _gameReceiverContext;
-    private readonly ConcurrentDictionary<string, string> _playerToConnectionMap = new();
+    private readonly IUserConnectionMapping _userConnectionMapping;
 
     public GameServerInternalHub(
         IHubContext<IGameReceiver> gameReceiverContext,
+        IUserConnectionMapping userConnectionMapping,
         ILogger<GameServerInternalHub> logger)
         : base("GameServerInternalHub", "Global", logger)
     {
         _gameReceiverContext = gameReceiverContext;
-    }
-
-    /// <summary>
-    /// 注册玩家连接（由 GameHub 登录时调用）
-    /// </summary>
-    public void RegisterPlayerConnection(string playerId, string connectionId)
-    {
-        _playerToConnectionMap[playerId] = connectionId;
-        Logger.LogDebug("Player connection registered: {PlayerId} → {ConnectionId}", playerId, connectionId);
-    }
-
-    /// <summary>
-    /// 注销玩家连接（由 GameHub 断开时调用）
-    /// </summary>
-    public void UnregisterPlayerConnection(string playerId)
-    {
-        _playerToConnectionMap.TryRemove(playerId, out _);
-        Logger.LogDebug("Player connection unregistered: {PlayerId}", playerId);
+        _userConnectionMapping = userConnectionMapping;
     }
 
     /// <summary>
@@ -71,8 +53,8 @@ public class GameServerInternalHub : UnifiedPulseServiceBase, IGameServerInterna
     {
         try
         {
-            // 检查玩家是否在线
-            if (!_playerToConnectionMap.ContainsKey(playerId))
+            // 使用框架提供的 IUserConnectionMapping 检查玩家是否在线
+            if (!_userConnectionMapping.IsUserOnline(playerId))
             {
                 Logger.LogWarning("Player not connected: {PlayerId}", playerId);
                 return false;
@@ -111,7 +93,7 @@ public class GameServerInternalHub : UnifiedPulseServiceBase, IGameServerInterna
     {
         try
         {
-            if (!_playerToConnectionMap.ContainsKey(playerId))
+            if (!_userConnectionMapping.IsUserOnline(playerId))
             {
                 Logger.LogWarning("Player not connected: {PlayerId}", playerId);
                 return false;
@@ -142,13 +124,12 @@ public class GameServerInternalHub : UnifiedPulseServiceBase, IGameServerInterna
     public override Task OnStoppingAsync(CancellationToken cancellationToken = default)
     {
         Logger.LogInformation("GameServerInternalHub stopping...");
-        _playerToConnectionMap.Clear();
         return Task.CompletedTask;
     }
 
     public override Task<ServiceHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
     {
-        var playerCount = _playerToConnectionMap.Count;
+        var playerCount = _userConnectionMapping.OnlineUserCount;
         Logger.LogDebug("GameServerInternalHub health check: {PlayerCount} players connected", playerCount);
 
         return Task.FromResult(ServiceHealthCheckResult.Healthy($"{playerCount} players connected"));

@@ -106,19 +106,9 @@ public sealed class AuthorizationModel
     public bool AllowAnonymous { get; set; }
 
     /// <summary>
-    /// 认证类型（Client, Service, Internal, Any）
-    /// </summary>
-    public string? AuthType { get; set; }
-
-    /// <summary>
     /// 角色类型（External, Internal, GM, System, 或自定义）
     /// </summary>
     public string? Role { get; set; }
-
-    /// <summary>
-    /// 所需角色列表（逗号分隔）
-    /// </summary>
-    public string? Roles { get; set; }
 
     /// <summary>
     /// 授权策略
@@ -126,7 +116,7 @@ public sealed class AuthorizationModel
     public string? Policy { get; set; }
 
     /// <summary>
-    /// 权限范围（用于服务间认证）
+    /// 权限范围
     /// </summary>
     public string[]? Scopes { get; set; }
 }

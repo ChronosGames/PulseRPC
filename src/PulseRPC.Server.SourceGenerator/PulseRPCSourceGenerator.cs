@@ -310,41 +310,17 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         HashSet<ushort> manualIds)
     {
         // 构造方法签名字符串 - 排除 CancellationToken 参数（与客户端保持一致）
-        var parameters = method.Parameters
-            .Where(p => p.TypeFullName != "System.Threading.CancellationToken" &&
-                       p.TypeFullName != "CancellationToken")
-            .Select(p => p.TypeFullName);
+        var parameterTypes = ProtocolIdHelper.FilterCancellationToken(
+            method.Parameters.Select(p => p.TypeFullName));
 
-        var signature = $"{service.InterfaceFullName}.{method.MethodName}({string.Join(",", parameters)})";
+        var signature = ProtocolIdHelper.BuildMethodSignature(
+            service.InterfaceFullName,
+            method.MethodName,
+            parameterTypes);
 
-        // 使用 FNV-1a 哈希生成初始协议号
-        const uint FnvPrime = 0x01000193;
-        const uint FnvOffsetBasis = 0x811C9DC5;
-        var hash = FnvOffsetBasis;
-
-        foreach (var c in signature)
-        {
-            hash ^= c;
-            hash *= FnvPrime;
-        }
-
-        var protocolId = (ushort)(hash & 0xFFFF);
-
-        // 如果冲突，使用线性探测找到下一个可用的协议号
-        var attempts = 0;
-        while (usedIds.ContainsKey(protocolId) || manualIds.Contains(protocolId))
-        {
-            protocolId = (ushort)((protocolId + 1) & 0xFFFF);
-            attempts++;
-
-            if (attempts > 65536)
-            {
-                throw new InvalidOperationException(
-                    $"Failed to generate unique protocol ID for {service.InterfaceName}.{method.MethodName}");
-            }
-        }
-
-        return protocolId;
+        // 使用辅助类生成唯一协议号
+        var usedIdSet = new HashSet<ushort>(usedIds.Keys);
+        return ProtocolIdHelper.GenerateUniqueProtocolId(signature, usedIdSet, manualIds);
     }
 
     /// <summary>
@@ -669,31 +645,16 @@ public static partial class ProtocolIdMapping
             foreach (var method in receiver.Methods)
             {
                 // 构造方法签名 - 排除 CancellationToken 参数（与客户端保持一致）
-                var parameters = method.Parameters
-                    .Where(p => p.TypeFullName != "System.Threading.CancellationToken" &&
-                               p.TypeFullName != "CancellationToken")
-                    .Select(p => p.TypeFullName);
+                var parameterTypes = ProtocolIdHelper.FilterCancellationToken(
+                    method.Parameters.Select(p => p.TypeFullName));
 
-                var signature = $"{receiver.InterfaceFullName}.{method.MethodName}({string.Join(",", parameters)})";
+                var signature = ProtocolIdHelper.BuildMethodSignature(
+                    receiver.InterfaceFullName,
+                    method.MethodName,
+                    parameterTypes);
 
-                // 使用 FNV-1a 哈希生成协议号
-                const uint FnvPrime = 0x01000193;
-                const uint FnvOffsetBasis = 0x811C9DC5;
-                var hash = FnvOffsetBasis;
-
-                foreach (var c in signature)
-                {
-                    hash ^= c;
-                    hash *= FnvPrime;
-                }
-
-                var protocolId = (ushort)(hash & 0xFFFF);
-
-                // 处理冲突
-                while (usedIds.Contains(protocolId))
-                {
-                    protocolId = (ushort)((protocolId + 1) & 0xFFFF);
-                }
+                // 生成唯一协议号
+                var protocolId = ProtocolIdHelper.GenerateUniqueProtocolId(signature, usedIds);
 
                 usedIds.Add(protocolId);
                 method.ProtocolId = protocolId;

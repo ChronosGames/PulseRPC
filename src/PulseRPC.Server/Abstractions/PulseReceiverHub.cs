@@ -20,22 +20,22 @@ namespace PulseRPC.Server;
 /// public class GameHub : PulseReceiverHub&lt;IGameReceiver&gt;
 /// {
 ///     private IGroup&lt;IGameReceiver&gt;? _room;
-///     
+///
 ///     public async Task JoinRoomAsync(string roomName)
 ///     {
 ///         // 加入房间（如果不存在则创建）
 ///         _room = await Group.AddAsync(roomName);
-///         
+///
 ///         // 通知房间内其他人
 ///         _room.Except(ConnectionId).OnPlayerJoined(playerInfo);
 ///     }
-///     
+///
 ///     public async Task SendMessageAsync(string message)
 ///     {
 ///         // 向房间内所有人发送消息
 ///         _room?.All.OnChatMessage(UserId, message);
 ///     }
-///     
+///
 ///     public async Task WhisperAsync(string targetConnectionId, string message)
 ///     {
 ///         // 向单个客户端发送私聊消息
@@ -46,6 +46,7 @@ namespace PulseRPC.Server;
 /// </code>
 /// </remarks>
 /// <typeparam name="TReceiver">客户端接收器接口</typeparam>
+[Obsolete("Use PulseHubBase<TReceiver> from PulseRPC.Server.Hubs namespace instead. This class will be removed in a future version.")]
 public abstract class PulseReceiverHub<TReceiver> : IDisposable 
     where TReceiver : class, IPulseReceiver
 {

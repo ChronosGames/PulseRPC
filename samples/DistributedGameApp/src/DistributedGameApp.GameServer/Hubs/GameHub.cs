@@ -23,7 +23,7 @@ namespace DistributedGameApp.GameServer.Hubs;
 /// <para><strong>设计原则</strong>:</para>
 /// <list type="bullet">
 /// <item><description>✅ IPulseHub 保持无状态 - 只作为请求的入口点</description></item>
-/// <item><description>✅ 连接管理委托给 GameServerInternalHub</description></item>
+/// <item><description>✅ 连接管理使用框架提供的 IUserConnectionMapping</description></item>
 /// <item><description>✅ 业务逻辑委托给 Service 层</description></item>
 /// <item><description>✅ 使用 IServiceAccessor 访问 Singleton 服务，确保线程安全</description></item>
 /// </list>
@@ -41,7 +41,6 @@ public class GameHub : PulseHubBase, IGameHub
     private readonly IServiceAccessor<MailService> _mailService;
     private readonly UnifiedServiceClientManager _serviceClientManager;
     private readonly IAuthenticationService _authenticationService;
-    private readonly GameServerInternalHub _internalHub;
     private readonly IUserConnectionMapping _userConnectionMapping;
     private readonly ILogger<GameHub> _logger;
 
@@ -51,7 +50,6 @@ public class GameHub : PulseHubBase, IGameHub
         IServiceAccessor<CharacterService> characterService,
         IServiceAccessor<MailService> mailService,
         UnifiedServiceClientManager serviceClientManager,
-        GameServerInternalHub internalHub,
         IUserConnectionMapping userConnectionMapping,
         ILogger<GameHub> logger,
         IAuthenticationService authenticationService)
@@ -62,7 +60,6 @@ public class GameHub : PulseHubBase, IGameHub
         _mailService = mailService ?? throw new ArgumentNullException(nameof(mailService));
         _serviceClientManager = serviceClientManager ?? throw new ArgumentNullException(nameof(serviceClientManager));
         _authenticationService = authenticationService ?? throw new ArgumentNullException(nameof(authenticationService));
-        _internalHub = internalHub ?? throw new ArgumentNullException(nameof(internalHub));
         _userConnectionMapping = userConnectionMapping ?? throw new ArgumentNullException(nameof(userConnectionMapping));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
@@ -124,10 +121,8 @@ public class GameHub : PulseHubBase, IGameHub
                 userId, ConnectionId);
 
             // ✅ 注册到 IUserConnectionMapping（用于 IHubContext<IGameReceiver>.Clients.User() 查找连接）
+            // InternalHub 也使用此映射来检查玩家在线状态
             _userConnectionMapping.Add(userId, ConnectionId!);
-
-            // ✅ 注册到 InternalHub（用于接收 BackendServer 的回调通知）
-            _internalHub.RegisterPlayerConnection(userId, ConnectionId!);
 
             _logger.LogInformation("Session established: UserId={UserId}, ConnectionId={ConnectionId}",
                 userId, ConnectionId);
