@@ -190,13 +190,22 @@ public static class ReceiverProxyGenerator
         GenerateSerializationCode(sb, method);
         sb.AppendLine();
 
-        // 构造消息包
-        sb.AppendLine($"        // 构造消息包（使用协议号）");
-        sb.AppendLine($"        var packet = BuildEventPacket({constName}, payload);");
-        sb.AppendLine();
+        // 构造消息包（使用租借缓冲区，发送后归还）
+        sb.AppendLine($"        // 构造消息包（使用协议号 + 零分配缓冲区）");
+        sb.AppendLine($"        var rentedPacket = BuildEventPacket({constName}, payload);");
+        sb.AppendLine("        try");
+        sb.AppendLine("        {");
+        sb.AppendLine("            var packet = rentedPacket.Memory;");
 
-        // 使用优化的发送逻辑
-        GenerateAsyncSend(sb);
+        // 使用优化的发送逻辑（缩进增加一级）
+        GenerateAsyncSendIndented(sb);
+
+        sb.AppendLine("        }");
+        sb.AppendLine("        finally");
+        sb.AppendLine("        {");
+        sb.AppendLine("            // 归还租借的缓冲区到池");
+        sb.AppendLine("            rentedPacket.Dispose();");
+        sb.AppendLine("        }");
 
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -228,43 +237,72 @@ public static class ReceiverProxyGenerator
     }
 
     /// <summary>
-    /// 生成优化的异步发送逻辑 - 减少内存分配
+    /// 生成优化的异步发送逻辑（带额外缩进，用于 try 块内）
     /// </summary>
-    private static void GenerateAsyncSend(StringBuilder sb)
+    private static void GenerateAsyncSendIndented(StringBuilder sb)
     {
-        sb.AppendLine("        // 优化路径：根据目标数量选择发送策略");
-        sb.AppendLine("        if (count == 1)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            // 单目标：直接发送，无需 Task 数组分配");
-        sb.AppendLine("            try");
+        sb.AppendLine("            // 优化路径：根据目标数量选择发送策略");
+        sb.AppendLine("            if (count == 1)");
         sb.AppendLine("            {");
-        sb.AppendLine("                await _targets[0].SendAsync(packet, CancellationToken.None);");
+        sb.AppendLine("                // 单目标：直接发送，无需 Task 数组分配");
+        sb.AppendLine("                try");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    await _targets[0].SendAsync(packet, CancellationToken.None);");
+        sb.AppendLine("                }");
+        sb.AppendLine("                catch");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    // 忽略发送失败（连接可能已断开）");
+        sb.AppendLine("                }");
         sb.AppendLine("            }");
-        sb.AppendLine("            catch");
+        sb.AppendLine("            else");
         sb.AppendLine("            {");
-        sb.AppendLine("                // 忽略发送失败（连接可能已断开）");
+        sb.AppendLine("                // 多目标：使用索引遍历避免迭代器分配");
+        sb.AppendLine("                var tasks = new Task[count];");
+        sb.AppendLine("                for (var i = 0; i < count; i++)");
+        sb.AppendLine("                {");
+        sb.AppendLine("                    tasks[i] = SendToTargetAsync(_targets[i], packet);");
+        sb.AppendLine("                }");
+        sb.AppendLine("                await Task.WhenAll(tasks);");
         sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine("        else");
-        sb.AppendLine("        {");
-        sb.AppendLine("            // 多目标：使用索引遍历避免迭代器分配");
-        sb.AppendLine("            var tasks = new Task[count];");
-        sb.AppendLine("            for (var i = 0; i < count; i++)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                tasks[i] = SendToTargetAsync(_targets[i], packet);");
-        sb.AppendLine("            }");
-        sb.AppendLine("            await Task.WhenAll(tasks);");
-        sb.AppendLine("        }");
     }
 
     private static void GenerateHelperMethods(StringBuilder sb)
     {
-        // 生成 SendToTargetAsync 方法（供多目标并行发送使用）
+        // 生成 RentedBuffer 结构体（零分配缓冲区管理）
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// 租借的缓冲区包装器，支持零分配发送");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    private readonly struct RentedBuffer : IDisposable");
+        sb.AppendLine("    {");
+        sb.AppendLine("        private readonly byte[] _buffer;");
+        sb.AppendLine("        public readonly int Length;");
+        sb.AppendLine();
+        sb.AppendLine("        public RentedBuffer(byte[] buffer, int length)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            _buffer = buffer;");
+        sb.AppendLine("            Length = length;");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        /// <summary>获取有效数据的内存切片</summary>");
+        sb.AppendLine("        public ReadOnlyMemory<byte> Memory => _buffer.AsMemory(0, Length);");
+        sb.AppendLine();
+        sb.AppendLine("        /// <summary>归还缓冲区到池</summary>");
+        sb.AppendLine("        public void Dispose()");
+        sb.AppendLine("        {");
+        sb.AppendLine("            if (_buffer != null)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                ArrayPool<byte>.Shared.Return(_buffer);");
+        sb.AppendLine("            }");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // 生成 SendToTargetAsync 方法（使用 ReadOnlyMemory）
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// 发送到单个目标（异常安全）");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    private static async Task SendToTargetAsync(IServerChannel target, byte[] packet)");
+        sb.AppendLine("    private static async Task SendToTargetAsync(IServerChannel target, ReadOnlyMemory<byte> packet)");
         sb.AppendLine("    {");
         sb.AppendLine("        try");
         sb.AppendLine("        {");
@@ -277,11 +315,12 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // 生成 BuildEventPacket 方法
+        // 生成 BuildEventPacket 方法（返回 RentedBuffer）
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 构建事件消息包");
+        sb.AppendLine("    /// 构建事件消息包（零分配版本）");
+        sb.AppendLine("    /// 调用方必须在使用完成后调用 Dispose 归还缓冲区");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    private static byte[] BuildEventPacket(ushort protocolId, byte[] payload)");
+        sb.AppendLine("    private static RentedBuffer BuildEventPacket(ushort protocolId, byte[] payload)");
         sb.AppendLine("    {");
         sb.AppendLine("        var header = new MessageHeader(MessageType.Event, string.Empty, string.Empty)");
         sb.AppendLine("        {");
@@ -294,18 +333,8 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("        var packet = new MessagePacket(header, payload);");
         sb.AppendLine("        var estimatedSize = packet.EstimateSize();");
         sb.AppendLine("        var buffer = ArrayPool<byte>.Shared.Rent(estimatedSize);");
-        sb.AppendLine();
-        sb.AppendLine("        try");
-        sb.AppendLine("        {");
-        sb.AppendLine("            var bytesWritten = packet.WriteTo(buffer);");
-        sb.AppendLine("            var result = new byte[bytesWritten];");
-        sb.AppendLine("            Array.Copy(buffer, result, bytesWritten);");
-        sb.AppendLine("            return result;");
-        sb.AppendLine("        }");
-        sb.AppendLine("        finally");
-        sb.AppendLine("        {");
-        sb.AppendLine("            ArrayPool<byte>.Shared.Return(buffer);");
-        sb.AppendLine("        }");
+        sb.AppendLine("        var bytesWritten = packet.WriteTo(buffer);");
+        sb.AppendLine("        return new RentedBuffer(buffer, bytesWritten);");
         sb.AppendLine("    }");
     }
 
