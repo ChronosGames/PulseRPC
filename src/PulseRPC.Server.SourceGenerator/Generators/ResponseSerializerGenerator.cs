@@ -75,12 +75,13 @@ public static class ResponseSerializerGenerator
 
     private static void GenerateRegistry(StringBuilder sb, List<ServiceModel> services)
     {
+        var serializerInfos = CollectSerializerInfos(services);
+
         sb.AppendLine("    private sealed class RegistryImpl : IResponseSerializerRegistry");
         sb.AppendLine("    {");
         sb.AppendLine("        private static readonly IResponseSerializer[] s_serializers = new IResponseSerializer[]");
         sb.AppendLine("        {");
 
-        var serializerInfos = CollectSerializerInfos(services);
         for (var i = 0; i < serializerInfos.Count; i++)
         {
             var info = serializerInfos[i];
@@ -92,8 +93,83 @@ public static class ResponseSerializerGenerator
         sb.AppendLine();
 
         sb.AppendLine("        private static readonly Dictionary<string, Dictionary<string, IResponseSerializer>> s_map = BuildMap();");
-        sb.AppendLine("        private static readonly Dictionary<ushort, IResponseSerializer> s_protocolMap = BuildProtocolMap();");
         sb.AppendLine();
+
+        // P3 优化：使用数组索引替代字典查找
+        // 计算协议号范围以优化数组大小
+        if (serializerInfos.Count > 0)
+        {
+            var minProtocolId = serializerInfos.Min(s => s.ProtocolId);
+            var maxProtocolId = serializerInfos.Max(s => s.ProtocolId);
+            var arraySize = maxProtocolId - minProtocolId + 1;
+
+            // 如果范围较小（< 4096），使用偏移数组；否则使用全范围数组
+            var useOffset = arraySize <= 4096 && minProtocolId > 0;
+
+            if (useOffset)
+            {
+                sb.AppendLine($"        // P3 优化：使用偏移数组索引 (范围: 0x{minProtocolId:X4} - 0x{maxProtocolId:X4}, 大小: {arraySize})");
+                sb.AppendLine($"        private const ushort ProtocolIdOffset = 0x{minProtocolId:X4};");
+                sb.AppendLine($"        private static readonly IResponseSerializer?[] s_protocolArray = new IResponseSerializer?[{arraySize}];");
+            }
+            else
+            {
+                sb.AppendLine($"        // P3 优化：使用直接数组索引 (协议号数量: {serializerInfos.Count})");
+                sb.AppendLine("        private static readonly IResponseSerializer?[] s_protocolArray = new IResponseSerializer?[65536];");
+            }
+            sb.AppendLine();
+
+            // 生成静态构造函数初始化数组
+            sb.AppendLine("        static RegistryImpl()");
+            sb.AppendLine("        {");
+            foreach (var info in serializerInfos)
+            {
+                if (useOffset)
+                {
+                    sb.AppendLine($"            s_protocolArray[0x{info.ProtocolId:X4} - ProtocolIdOffset] = Serializers.{info.ClassName}.Instance;");
+                }
+                else
+                {
+                    sb.AppendLine($"            s_protocolArray[0x{info.ProtocolId:X4}] = Serializers.{info.ClassName}.Instance;");
+                }
+            }
+            sb.AppendLine("        }");
+            sb.AppendLine();
+
+            // 生成优化的 TryGetSerializer 方法
+            sb.AppendLine("        [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+            sb.AppendLine("        public bool TryGetSerializer(ushort protocolId, [NotNullWhen(true)] out IResponseSerializer? serializer)");
+            sb.AppendLine("        {");
+            if (useOffset)
+            {
+                sb.AppendLine($"            var index = protocolId - ProtocolIdOffset;");
+                sb.AppendLine($"            if ((uint)index < (uint)s_protocolArray.Length)");
+                sb.AppendLine("            {");
+                sb.AppendLine("                serializer = s_protocolArray[index];");
+                sb.AppendLine("                return serializer != null;");
+                sb.AppendLine("            }");
+                sb.AppendLine("            serializer = null;");
+                sb.AppendLine("            return false;");
+            }
+            else
+            {
+                sb.AppendLine("            serializer = s_protocolArray[protocolId];");
+                sb.AppendLine("            return serializer != null;");
+            }
+            sb.AppendLine("        }");
+        }
+        else
+        {
+            // 没有序列化器的情况
+            sb.AppendLine("        public bool TryGetSerializer(ushort protocolId, [NotNullWhen(true)] out IResponseSerializer? serializer)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            serializer = null;");
+            sb.AppendLine("            return false;");
+            sb.AppendLine("        }");
+        }
+        sb.AppendLine();
+
+        // 生成 BuildMap 方法（向后兼容）
         sb.AppendLine("        private static Dictionary<string, Dictionary<string, IResponseSerializer>> BuildMap()");
         sb.AppendLine("        {");
         sb.AppendLine("            var services = new Dictionary<string, Dictionary<string, IResponseSerializer>>(StringComparer.Ordinal);");
@@ -120,27 +196,6 @@ public static class ResponseSerializerGenerator
         }
 
         sb.AppendLine("            return services;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        sb.AppendLine("        private static Dictionary<ushort, IResponseSerializer> BuildProtocolMap()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            var protocols = new Dictionary<ushort, IResponseSerializer>();");
-        sb.AppendLine();
-
-        foreach (var info in serializerInfos)
-        {
-            sb.AppendLine($"            protocols[0x{info.ProtocolId:X4}] = Serializers.{info.ClassName}.Instance;");
-        }
-
-        sb.AppendLine();
-        sb.AppendLine("            return protocols;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        sb.AppendLine("        public bool TryGetSerializer(ushort protocolId, [NotNullWhen(true)] out IResponseSerializer? serializer)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            return s_protocolMap.TryGetValue(protocolId, out serializer);");
         sb.AppendLine("        }");
         sb.AppendLine();
 
