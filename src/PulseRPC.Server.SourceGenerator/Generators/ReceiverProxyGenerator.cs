@@ -96,8 +96,8 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"public sealed class {receiver.ProxyClassName} : {receiver.InterfaceFullName}");
         sb.AppendLine("{");
 
-        // 字段
-        sb.AppendLine("    private readonly IEnumerable<IServerChannel> _targets;");
+        // 字段 - 使用 IReadOnlyList 避免每次调用 ToList
+        sb.AppendLine("    private readonly IReadOnlyList<IServerChannel> _targets;");
         sb.AppendLine();
 
         // 协议号常量
@@ -109,7 +109,9 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine($"    public {receiver.ProxyClassName}(IEnumerable<IServerChannel> targets)");
         sb.AppendLine("    {");
-        sb.AppendLine("        _targets = targets ?? throw new ArgumentNullException(nameof(targets));");
+        sb.AppendLine("        if (targets == null) throw new ArgumentNullException(nameof(targets));");
+        sb.AppendLine("        // 优化：如果已经是 IReadOnlyList 则直接使用，避免分配");
+        sb.AppendLine("        _targets = targets as IReadOnlyList<IServerChannel> ?? targets.ToArray();");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -178,9 +180,10 @@ public static class ReceiverProxyGenerator
         sb.AppendLine(")");
         sb.AppendLine("    {");
 
-        // 如果没有目标，直接返回
-        sb.AppendLine("        var targetList = _targets.ToList();");
-        sb.AppendLine("        if (targetList.Count == 0) return;");
+        // 快速路径：如果没有目标，直接返回（无分配）
+        sb.AppendLine("        // 快速路径检查：避免无意义的序列化和发送");
+        sb.AppendLine("        var count = _targets.Count;");
+        sb.AppendLine("        if (count == 0) return;");
         sb.AppendLine();
 
         // 序列化参数
@@ -192,7 +195,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"        var packet = BuildEventPacket({constName}, payload);");
         sb.AppendLine();
 
-        // 使用异步 SendAsync 发送
+        // 使用优化的发送逻辑
         GenerateAsyncSend(sb);
 
         sb.AppendLine("    }");
@@ -225,28 +228,56 @@ public static class ReceiverProxyGenerator
     }
 
     /// <summary>
-    /// 生成异步发送逻辑（用于 Task/ValueTask 返回类型）
+    /// 生成优化的异步发送逻辑 - 减少内存分配
     /// </summary>
     private static void GenerateAsyncSend(StringBuilder sb)
     {
-        sb.AppendLine("        // 并行异步发送到所有目标");
-        sb.AppendLine("        var tasks = targetList.Select(async target =>");
+        sb.AppendLine("        // 优化路径：根据目标数量选择发送策略");
+        sb.AppendLine("        if (count == 1)");
         sb.AppendLine("        {");
+        sb.AppendLine("            // 单目标：直接发送，无需 Task 数组分配");
         sb.AppendLine("            try");
         sb.AppendLine("            {");
-        sb.AppendLine("                await target.SendAsync(packet, CancellationToken.None);");
+        sb.AppendLine("                await _targets[0].SendAsync(packet, CancellationToken.None);");
         sb.AppendLine("            }");
         sb.AppendLine("            catch");
         sb.AppendLine("            {");
         sb.AppendLine("                // 忽略发送失败（连接可能已断开）");
         sb.AppendLine("            }");
-        sb.AppendLine("        });");
-        sb.AppendLine();
-        sb.AppendLine("        await Task.WhenAll(tasks);");
+        sb.AppendLine("        }");
+        sb.AppendLine("        else");
+        sb.AppendLine("        {");
+        sb.AppendLine("            // 多目标：使用索引遍历避免迭代器分配");
+        sb.AppendLine("            var tasks = new Task[count];");
+        sb.AppendLine("            for (var i = 0; i < count; i++)");
+        sb.AppendLine("            {");
+        sb.AppendLine("                tasks[i] = SendToTargetAsync(_targets[i], packet);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            await Task.WhenAll(tasks);");
+        sb.AppendLine("        }");
     }
 
     private static void GenerateHelperMethods(StringBuilder sb)
     {
+        // 生成 SendToTargetAsync 方法（供多目标并行发送使用）
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// 发送到单个目标（异常安全）");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("    private static async Task SendToTargetAsync(IServerChannel target, byte[] packet)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        try");
+        sb.AppendLine("        {");
+        sb.AppendLine("            await target.SendAsync(packet, CancellationToken.None);");
+        sb.AppendLine("        }");
+        sb.AppendLine("        catch");
+        sb.AppendLine("        {");
+        sb.AppendLine("            // 忽略发送失败（连接可能已断开）");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // 生成 BuildEventPacket 方法
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// 构建事件消息包");
         sb.AppendLine("    /// </summary>");
