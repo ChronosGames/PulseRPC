@@ -125,15 +125,17 @@ public static class ServiceProxyGenerator
 
     /// <summary>
     /// 生成单个方法的协议号调用器（用于路由表直接调用）
+    /// P7 优化：使用同步快速路径，避免 async 状态机开销
     /// </summary>
     private static void GenerateProtocolIdMethodInvoker(StringBuilder sb, MethodModel method, string serviceName, IReadOnlyList<string> parameterVariableNames)
     {
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// Protocol ID invoker for {method.MethodName} (0x{method.ProtocolId:X4})");
-        sb.AppendLine($"    /// Called directly by ServiceRoutingTable for maximum performance");
+        sb.AppendLine($"    /// P7 优化：同步快速路径，避免状态机开销");
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine($"    public async ValueTask<object?> Invoke_{method.MethodName}_Async(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
+        // P7: 移除 async 关键字，使用同步快速路径
+        sb.AppendLine($"    public ValueTask<object?> Invoke_{method.MethodName}_Async(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
         sb.AppendLine("    {");
 
         // 反序列化参数
@@ -192,7 +194,7 @@ public static class ServiceProxyGenerator
     }
 
     /// <summary>
-    /// 生成服务方法调用代码
+    /// 生成服务方法调用代码 - P7 优化：同步快速路径避免状态机
     /// </summary>
     private static void GenerateServiceMethodCall(StringBuilder sb, MethodModel method, IReadOnlyList<string> parameterVariableNames)
     {
@@ -204,15 +206,25 @@ public static class ServiceProxyGenerator
         {
             if (method.IsGenericTask)
             {
-                // ValueTask<T> 或 Task<T>
-                sb.AppendLine($"        var result = await _implementation.{method.MethodName}({paramList});");
-                sb.AppendLine("        return result;");
+                // P7 优化：ValueTask<T> 或 Task<T> - 同步快速路径
+                sb.AppendLine($"        // P7 优化：同步快速路径避免状态机开销");
+                sb.AppendLine($"        var task = _implementation.{method.MethodName}({paramList});");
+                sb.AppendLine($"        if (task.IsCompletedSuccessfully)");
+                sb.AppendLine($"        {{");
+                sb.AppendLine($"            return new ValueTask<object?>(task.Result);");
+                sb.AppendLine($"        }}");
+                sb.AppendLine($"        return AwaitResultAsync(task);");
             }
             else
             {
-                // ValueTask 或 Task (void)
-                sb.AppendLine($"        await _implementation.{method.MethodName}({paramList});");
-                sb.AppendLine("        return null;");
+                // P7 优化：ValueTask 或 Task (void) - 同步快速路径
+                sb.AppendLine($"        // P7 优化：同步快速路径避免状态机开销");
+                sb.AppendLine($"        var task = _implementation.{method.MethodName}({paramList});");
+                sb.AppendLine($"        if (task.IsCompletedSuccessfully)");
+                sb.AppendLine($"        {{");
+                sb.AppendLine($"            return new ValueTask<object?>(result: null);");
+                sb.AppendLine($"        }}");
+                sb.AppendLine($"        return AwaitVoidAsync(task);");
             }
         }
         else
@@ -221,12 +233,12 @@ public static class ServiceProxyGenerator
             if (method.ReturnTypeName == "void")
             {
                 sb.AppendLine($"        _implementation.{method.MethodName}({paramList});");
-                sb.AppendLine("        return null;");
+                sb.AppendLine("        return new ValueTask<object?>(result: null);");
             }
             else
             {
                 sb.AppendLine($"        var result = _implementation.{method.MethodName}({paramList});");
-                sb.AppendLine("        return result;");
+                sb.AppendLine("        return new ValueTask<object?>(result);");
             }
         }
     }
@@ -289,6 +301,9 @@ public static class ServiceProxyGenerator
         // 多参数反序列化辅助方法
         GenerateMultiParameterDeserializer(sb, serviceModel);
 
+        // P7 优化辅助方法
+        GenerateP7HelperMethods(sb, serviceModel);
+
         // 服务信息属性
         GenerateServiceInfo(sb, serviceModel);
     }
@@ -300,6 +315,74 @@ public static class ServiceProxyGenerator
     {
         // 不再需要此方法，多参数现在直接使用元组反序列化
         // 保留方法签名以保持向后兼容，但不生成任何代码
+    }
+
+    /// <summary>
+    /// 生成 P7 优化辅助方法 - 慢速路径的 async 包装
+    /// </summary>
+    private static void GenerateP7HelperMethods(StringBuilder sb, ServiceModel serviceModel)
+    {
+        // 检查是否需要生成辅助方法（有异步方法时才生成）
+        var hasAsyncMethods = serviceModel.Methods.Any(m => m.IsAsync);
+        if (!hasAsyncMethods) return;
+
+        sb.AppendLine("    #region P7 优化辅助方法");
+        sb.AppendLine();
+
+        // 检查是否有返回值的异步方法
+        var hasAsyncWithResult = serviceModel.Methods.Any(m => m.IsAsync && m.IsGenericTask);
+        if (hasAsyncWithResult)
+        {
+            sb.AppendLine("    /// <summary>");
+            sb.AppendLine("    /// P7 慢速路径：等待有返回值的异步任务");
+            sb.AppendLine("    /// </summary>");
+            sb.AppendLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
+            sb.AppendLine("    private static async ValueTask<object?> AwaitResultAsync<T>(ValueTask<T> task)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        var result = await task.ConfigureAwait(false);");
+            sb.AppendLine("        return result;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>");
+            sb.AppendLine("    /// P7 慢速路径：等待有返回值的 Task");
+            sb.AppendLine("    /// </summary>");
+            sb.AppendLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
+            sb.AppendLine("    private static async ValueTask<object?> AwaitResultAsync<T>(Task<T> task)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        var result = await task.ConfigureAwait(false);");
+            sb.AppendLine("        return result;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+        }
+
+        // 检查是否有无返回值的异步方法
+        var hasAsyncVoid = serviceModel.Methods.Any(m => m.IsAsync && !m.IsGenericTask);
+        if (hasAsyncVoid)
+        {
+            sb.AppendLine("    /// <summary>");
+            sb.AppendLine("    /// P7 慢速路径：等待无返回值的 ValueTask");
+            sb.AppendLine("    /// </summary>");
+            sb.AppendLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
+            sb.AppendLine("    private static async ValueTask<object?> AwaitVoidAsync(ValueTask task)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        await task.ConfigureAwait(false);");
+            sb.AppendLine("        return null;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+            sb.AppendLine("    /// <summary>");
+            sb.AppendLine("    /// P7 慢速路径：等待无返回值的 Task");
+            sb.AppendLine("    /// </summary>");
+            sb.AppendLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
+            sb.AppendLine("    private static async ValueTask<object?> AwaitVoidAsync(Task task)");
+            sb.AppendLine("    {");
+            sb.AppendLine("        await task.ConfigureAwait(false);");
+            sb.AppendLine("        return null;");
+            sb.AppendLine("    }");
+            sb.AppendLine();
+        }
+
+        sb.AppendLine("    #endregion");
+        sb.AppendLine();
     }
 
     /// <summary>

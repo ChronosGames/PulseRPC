@@ -268,6 +268,38 @@ public static class ReceiverProxyGenerator
 
     private static void GenerateHelperMethods(StringBuilder sb)
     {
+        // 优化：原子自增消息ID生成器（替代 Guid.NewGuid）
+        sb.AppendLine("    private static long s_messageIdCounter = 0;");
+        sb.AppendLine();
+        sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("    private static Guid NextMessageId()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        // 使用原子自增生成唯一ID，转换为 Guid 格式保持兼容");
+        sb.AppendLine("        var id = System.Threading.Interlocked.Increment(ref s_messageIdCounter);");
+        sb.AppendLine("        // 高效转换：将 long 放入 Guid 的前 8 字节");
+        sb.AppendLine("        Span<byte> bytes = stackalloc byte[16];");
+        sb.AppendLine("        System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(bytes, id);");
+        sb.AppendLine("        return new Guid(bytes);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        // 优化：线程本地 MessageHeader 复用
+        sb.AppendLine("    [ThreadStatic]");
+        sb.AppendLine("    private static MessageHeader? t_cachedHeader;");
+        sb.AppendLine();
+        sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("    private static MessageHeader GetOrCreateHeader()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var header = t_cachedHeader;");
+        sb.AppendLine("        if (header == null)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            header = new MessageHeader();");
+        sb.AppendLine("            t_cachedHeader = header;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        return header;");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
         // 生成 RentedBuffer 结构体（零分配缓冲区管理）
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// 租借的缓冲区包装器，支持零分配发送");
@@ -315,20 +347,24 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // 生成 BuildEventPacket 方法（返回 RentedBuffer）
+        // 生成 BuildEventPacket 方法
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 构建事件消息包（零分配版本）");
+        sb.AppendLine("    /// 构建事件消息包");
+        sb.AppendLine("    /// - 复用 MessageHeader 对象");
+        sb.AppendLine("    /// - 使用原子自增 ID 替代 Guid.NewGuid");
         sb.AppendLine("    /// 调用方必须在使用完成后调用 Dispose 归还缓冲区");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    private static RentedBuffer BuildEventPacket(ushort protocolId, byte[] payload)");
         sb.AppendLine("    {");
-        sb.AppendLine("        var header = new MessageHeader(MessageType.Event, string.Empty, string.Empty)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            MessageId = Guid.NewGuid(),");
-        sb.AppendLine("            ProtocolId = protocolId,");
-        sb.AppendLine("            Flags = MessageFlags.None,");
-        sb.AppendLine("            Timestamp = DateTimeOffset.UtcNow.Ticks");
-        sb.AppendLine("        };");
+        sb.AppendLine("        var header = GetOrCreateHeader();");
+        sb.AppendLine("        header.Type = MessageType.Event;");
+        sb.AppendLine("        header.MessageId = NextMessageId();");
+        sb.AppendLine("        header.ServiceName = string.Empty;");
+        sb.AppendLine("        header.MethodName = string.Empty;");
+        sb.AppendLine("        header.ProtocolId = protocolId;");
+        sb.AppendLine("        header.Flags = MessageFlags.None;");
+        sb.AppendLine("        header.Timestamp = 0;");
+        sb.AppendLine("        header.SequenceNumber = 0;");
         sb.AppendLine();
         sb.AppendLine("        var packet = new MessagePacket(header, payload);");
         sb.AppendLine("        var estimatedSize = packet.EstimateSize();");
