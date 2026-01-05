@@ -65,8 +65,8 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
 {
     private readonly Channel<QueueItem> _queue;
     private readonly ServiceSynchronizationContext _syncContext;
-    private readonly string _serviceName;
-    private readonly PID _servicePID;
+    private readonly string _serviceType;
+    private readonly string _serviceId;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
     private Task? _processingTask;
@@ -79,13 +79,13 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
     private long _continuationsProcessed;
 
     public YieldingServiceMessageQueue(
-        string serviceName,
-        PID servicePID,
+        string serviceType,
+        string serviceId,
         ILogger logger,
         int capacity = -1)
     {
-        _serviceName = serviceName ?? throw new ArgumentNullException(nameof(serviceName));
-        _servicePID = servicePID;
+        _serviceType = serviceType ?? throw new ArgumentNullException(nameof(serviceType));
+        _serviceId = serviceId;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _cts = new CancellationTokenSource();
 
@@ -111,13 +111,13 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
         // 创建自定义同步上下文
         _syncContext = new ServiceSynchronizationContext(
             CreateContinuationWriter(),
-            serviceName,
-            servicePID,
+            serviceType,
+            serviceId,
             logger);
 
         _logger.LogDebug(
-            "YieldingServiceMessageQueue created - Service: {ServiceName}, PID: {PID}, Capacity: {Capacity}",
-            serviceName, servicePID, capacity > 0 ? capacity : "Unbounded");
+            "YieldingServiceMessageQueue created - Service: {ServiceType}, ID: {serviceId}, Capacity: {Capacity}",
+            serviceType, serviceId, capacity > 0 ? capacity : "Unbounded");
     }
 
     /// <summary>
@@ -148,7 +148,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
                         // 如果失败，记录警告但不阻塞
                         _logger.LogWarning(
                             "Failed to write continuation to main queue - Service: {ServiceName}",
-                            _serviceName);
+                            _serviceType);
                     }
                 }
             }
@@ -178,13 +178,13 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
 
             _logger.LogInformation(
                 "YieldingServiceMessageQueue started - Service: {ServiceName}, PID: {PID}",
-                _serviceName, _servicePID);
+                _serviceType, _serviceId);
 
             await ProcessQueueAsync(messageHandler, _cts.Token);
 
             _logger.LogInformation(
                 "YieldingServiceMessageQueue stopped - Service: {ServiceName}, PID: {PID}",
-                _serviceName, _servicePID);
+                _serviceType, _serviceId);
         });
     }
 
@@ -207,14 +207,14 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
 
                         _logger.LogTrace(
                             "Processing message: {MessageType} - Service: {ServiceName}",
-                            messageItem.Message.GetType().Name, _serviceName);
+                            messageItem.Message.GetType().Name, _serviceType);
 
                         // ✅ 执行消息处理（await 会让出队列）
                         await item.ExecuteAsync(messageHandler);
 
                         _logger.LogTrace(
                             "Message processed: {MessageType} - Service: {ServiceName}",
-                            messageItem.Message.GetType().Name, _serviceName);
+                            messageItem.Message.GetType().Name, _serviceType);
                     }
                     else if (item is ContinuationQueueItem continuationItem)
                     {
@@ -222,33 +222,33 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
 
                         _logger.LogTrace(
                             "Processing continuation - Service: {ServiceName}",
-                            _serviceName);
+                            _serviceType);
 
                         // ✅ 执行延续（恢复 await 后的代码）
                         await item.ExecuteAsync(messageHandler);
 
                         _logger.LogTrace(
                             "Continuation processed - Service: {ServiceName}",
-                            _serviceName);
+                            _serviceType);
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex,
                         "Error processing queue item - Service: {ServiceName}, PID: {PID}, ItemType: {ItemType}",
-                        _serviceName, _servicePID, item.GetType().Name);
+                        _serviceType, _serviceId, item.GetType().Name);
                 }
             }
         }
         catch (OperationCanceledException)
         {
-            _logger.LogDebug("Queue processing cancelled - Service: {ServiceName}", _serviceName);
+            _logger.LogDebug("Queue processing cancelled - Service: {ServiceName}", _serviceType);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
                 "Fatal error in queue processing - Service: {ServiceName}, PID: {PID}",
-                _serviceName, _servicePID);
+                _serviceType, _serviceId);
         }
     }
 
@@ -272,14 +272,14 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
         {
             _logger.LogWarning(
                 "Cannot send message to closed queue - Service: {ServiceName}, PID: {PID}",
-                _serviceName, _servicePID);
+                _serviceType, _serviceId);
             return false;
         }
         catch (OperationCanceledException)
         {
             _logger.LogDebug(
                 "Message send cancelled - Service: {ServiceName}, PID: {PID}",
-                _serviceName, _servicePID);
+                _serviceType, _serviceId);
             return false;
         }
     }
@@ -322,7 +322,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
     {
         _logger.LogDebug(
             "Disposing YieldingServiceMessageQueue - Service: {ServiceName}, PID: {PID}",
-            _serviceName, _servicePID);
+            _serviceType, _serviceId);
 
         // 停止接收新延续
         _continuationWriter?.Complete();
@@ -352,7 +352,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
             "YieldingServiceMessageQueue disposed - Service: {ServiceName}, PID: {PID}, " +
             "TotalMessages: {TotalMessages}, TotalContinuations: {TotalContinuations}, " +
             "MessagesProcessed: {MessagesProcessed}, ContinuationsProcessed: {ContinuationsProcessed}",
-            _serviceName, _servicePID,
+            _serviceType, _serviceId,
             metrics.TotalMessages, metrics.TotalContinuations,
             metrics.MessagesProcessed, metrics.ContinuationsProcessed);
     }

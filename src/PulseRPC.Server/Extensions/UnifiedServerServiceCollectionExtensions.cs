@@ -190,9 +190,6 @@ public static class UnifiedServerServiceCollectionExtensions
         // 4. 注册 ServerChannelManager（依赖于上面的所有服务）
         services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
 
-        // 5. 注册 EventPublisher（依赖于 IServerChannelManager 和 ISerializerProvider）
-        services.TryAddSingleton<Events.IEventPublisher, Events.EventPublisher>();
-
         // 6. 注册 ResponseSerializerRegistry（由源代码生成器生成）
         if (ResponseSerializerRegistry.Instance != null)
         {

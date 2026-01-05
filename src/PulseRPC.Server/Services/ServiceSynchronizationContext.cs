@@ -34,19 +34,19 @@ public sealed class ServiceSynchronizationContext : SynchronizationContext
 {
     private readonly ChannelWriter<(SendOrPostCallback Callback, object? State)> _continuationWriter;
     private readonly string _serviceName;
-    private readonly PID _servicePID;
+    private readonly string _serviceId;
     private readonly ILogger _logger;
     private volatile int _continuationCount;
 
     public ServiceSynchronizationContext(
         ChannelWriter<(SendOrPostCallback, object?)> continuationWriter,
-        string serviceName,
-        PID servicePID,
+        string serviceType,
+        string serviceId,
         ILogger logger)
     {
         _continuationWriter = continuationWriter ?? throw new ArgumentNullException(nameof(continuationWriter));
-        _serviceName = serviceName ?? throw new ArgumentNullException(nameof(serviceName));
-        _servicePID = servicePID;
+        _serviceName = serviceType ?? throw new ArgumentNullException(nameof(serviceType));
+        _serviceId = serviceId;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -67,7 +67,7 @@ public sealed class ServiceSynchronizationContext : SynchronizationContext
 
         _logger.LogTrace(
             "Posting continuation #{ContinuationId} - Service: {ServiceName}, PID: {PID}",
-            continuationId, _serviceName, _servicePID);
+            continuationId, _serviceName, _serviceId);
 
         // ✅ 关键：将延续重新排队到消息队列
         if (!_continuationWriter.TryWrite((d, state)))
@@ -75,7 +75,7 @@ public sealed class ServiceSynchronizationContext : SynchronizationContext
             _logger.LogWarning(
                 "Failed to enqueue continuation #{ContinuationId} - Service: {ServiceName}, PID: {PID}. " +
                 "Falling back to ThreadPool.",
-                continuationId, _serviceName, _servicePID);
+                continuationId, _serviceName, _serviceId);
 
             // 回退：如果队列满了，使用线程池（这会失去线程安全保证）
             ThreadPool.QueueUserWorkItem(s => d(s), state);
@@ -94,7 +94,7 @@ public sealed class ServiceSynchronizationContext : SynchronizationContext
 
         _logger.LogTrace(
             "Sending (sync) callback - Service: {ServiceName}, PID: {PID}",
-            _serviceName, _servicePID);
+            _serviceName, _serviceId);
 
         d(state);
     }
@@ -107,7 +107,7 @@ public sealed class ServiceSynchronizationContext : SynchronizationContext
         return new ServiceSynchronizationContext(
             _continuationWriter,
             _serviceName,
-            _servicePID,
+            _serviceId,
             _logger);
     }
 
