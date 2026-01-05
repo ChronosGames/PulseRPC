@@ -40,34 +40,3 @@ public abstract class ServiceMessage
     /// <summary>消息优先级（默认为 Normal）</summary>
     public PulseRPC.MessagePriority Priority { get; set; } = PulseRPC.MessagePriority.Normal;
 }
-
-/// <summary>
-/// 方法调用消息（带认证）
-/// </summary>
-public class MethodInvocationMessage : ServiceMessage
-{
-    /// <summary>
-    /// 协议号 - 用于路由到具体方法
-    /// </summary>
-    public PulseRPC.Protocol.ProtocolId ProtocolId { get; set; }
-
-    /// <summary>
-    /// 方法参数
-    /// </summary>
-    public object?[] Arguments { get; set; } = Array.Empty<object?>();
-
-    /// <summary>
-    /// 返回值类型（可选）
-    /// </summary>
-    public Type? ReturnType { get; set; }
-
-    /// <summary>
-    /// 完成源 - 用于异步返回结果
-    /// </summary>
-    public TaskCompletionSource<object?> CompletionSource { get; } = new();
-
-    public MethodInvocationMessage()
-    {
-        Type = ActorMessageType.MethodInvocation;
-    }
-}
