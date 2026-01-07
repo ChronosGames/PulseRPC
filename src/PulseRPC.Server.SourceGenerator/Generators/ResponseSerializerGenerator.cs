@@ -108,13 +108,13 @@ public static class ResponseSerializerGenerator
 
             if (useOffset)
             {
-                sb.AppendLine($"        // P3 优化：使用偏移数组索引 (范围: 0x{minProtocolId:X4} - 0x{maxProtocolId:X4}, 大小: {arraySize})");
+                sb.AppendLine($"        // 使用偏移数组索引 (范围: 0x{minProtocolId:X4} - 0x{maxProtocolId:X4}, 大小: {arraySize})");
                 sb.AppendLine($"        private const ushort ProtocolIdOffset = 0x{minProtocolId:X4};");
                 sb.AppendLine($"        private static readonly IResponseSerializer?[] s_protocolArray = new IResponseSerializer?[{arraySize}];");
             }
             else
             {
-                sb.AppendLine($"        // P3 优化：使用直接数组索引 (协议号数量: {serializerInfos.Count})");
+                sb.AppendLine($"        // 使用直接数组索引 (协议号数量: {serializerInfos.Count})");
                 sb.AppendLine("        private static readonly IResponseSerializer?[] s_protocolArray = new IResponseSerializer?[65536];");
             }
             sb.AppendLine();
