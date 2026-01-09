@@ -64,6 +64,9 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
     private readonly TieredProcessorMetrics _metrics;
     private readonly CancellationTokenSource _cancellationTokenSource;
 
+    // 信号驱动机制 - 消息到达通知
+    private readonly SemaphoreSlim _messageSignal;
+
     // 消息处理委托
     private readonly Func<MessageSlot, CancellationToken, ValueTask<ProcessingResult>> _messageHandler;
 
@@ -112,6 +115,9 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
         _metrics = new TieredProcessorMetrics();
         _cancellationTokenSource = new CancellationTokenSource();
 
+        // 初始化信号量 - 初始计数为0，最大计数足够大
+        _messageSignal = new SemaphoreSlim(0, int.MaxValue);
+
         ConnectedAt = DateTime.UtcNow;
 
         // 启动处理管道
@@ -130,6 +136,17 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
         if (_l1Buffer.TryEnqueue(slot))
         {
             _metrics.L1MessagesEnqueued.Add(1);
+
+            // 信号通知：有新消息到达
+            // 使用 try-catch 保护，避免极端情况下 Release 抛出异常
+            try
+            {
+                _messageSignal.Release();
+            }
+            catch (SemaphoreFullException)
+            {
+                // 信号量已满，忽略（处理线程会自行检查队列）
+            }
 
             if (_options.EnableDetailedLogging)
             {
@@ -163,13 +180,13 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
     }
 
     /// <summary>
-    /// L1到L2批处理转移循环 - 优化为基于信号的等待机制，避免轮询
+    /// L1到L2批处理转移循环 - 使用信号驱动机制，消息到达时立即唤醒
     /// </summary>
     private async Task L1ToL2BatchTransferLoop()
     {
         var batchBuffer = new MessageSlot[_options.MaxBatchSize];
-        // .NET 9 优化：使用 PeriodicTimer 替代 Task.Delay 以获得更精确的时序和更低的开销
-        using var batchTimer = new PeriodicTimer(TimeSpan.FromMilliseconds(1));
+        // 信号等待超时 - 作为安全兜底，防止信号丢失
+        const int signalTimeoutMs = 10;
 
         while (!_cancellationTokenSource.Token.IsCancellationRequested)
         {
@@ -187,6 +204,13 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
 
                 if (batchSize > 0)
                 {
+                    // 消耗对应数量的信号量（避免累积）
+                    // 使用非阻塞方式消耗，因为信号可能比实际消息少
+                    for (int i = 0; i < batchSize; i++)
+                    {
+                        _messageSignal.Wait(0); // 非阻塞尝试消耗
+                    }
+
                     // 创建批处理（使用ArrayPool减少内存分配）
                     var batch = new TieredMessageBatch
                     {
@@ -210,8 +234,8 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
                 }
                 else
                 {
-                    // 没有消息时使用 PeriodicTimer 等待，更高效且精确
-                    await batchTimer.WaitForNextTickAsync(_cancellationTokenSource.Token);
+                    // 队列为空时等待信号，使用短超时作为安全兜底
+                    await _messageSignal.WaitAsync(signalTimeoutMs, _cancellationTokenSource.Token);
                 }
             }
             catch (OperationCanceledException)
@@ -221,7 +245,8 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
             catch (Exception ex)
             {
                 _logger.LogError(ex, "L1到L2批处理转移失败: ProcessorId={ProcessorId}", _processorId);
-                await batchTimer.WaitForNextTickAsync(_cancellationTokenSource.Token);
+                // 错误后短暂等待，避免紧密循环
+                await Task.Delay(1, _cancellationTokenSource.Token);
             }
         }
     }
@@ -388,6 +413,9 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
 
         // 释放L1缓冲区
         _l1Buffer.Dispose();
+
+        // 释放信号量
+        _messageSignal.Dispose();
 
         // 释放取消令牌
         _cancellationTokenSource.Dispose();

@@ -55,6 +55,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     private readonly UnityCompatibleObjectPool<MessageHeader> _messageHeaderPool;
     private readonly UnityCompatibleObjectPool<ArrayBufferWriter<byte>> _bufferWriterPool;
 
+
     // === TransportChannelBase 抽象成员实现 ===
 
     /// <inheritdoc />
@@ -127,7 +128,11 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
 
         // 初始化零拷贝组件
         _responseManager = new ResponseContextManager(shardCount: 16, defaultTimeout: _options.DefaultTimeout);
-        _sendBuffer = new ThreeTierSendBuffer(_transport, l1BatchSize: 16, l2BatchSize: 64, queueCapacity: 1024);
+        _sendBuffer = new ThreeTierSendBuffer(
+            _transport,
+            l1BatchSize: _options.SendBufferL1BatchSize,
+            l2BatchSize: _options.SendBufferL2BatchSize,
+            queueCapacity: 1024);
 
         _messageQueue = Channel.CreateBounded<NetworkMessage>(new BoundedChannelOptions(_options.MessageQueueCapacity)
         {
@@ -384,8 +389,10 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
 
             var bodyStartIndex = 4 + headerLength;
             var bodyLength = data.Length - bodyStartIndex;
-            var bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
 
+            // 注意: 必须拷贝数据，因为底层传输缓冲区会被复用
+            // TODO: 未来可考虑使用 ArrayPool 池化分配
+            var bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
             var message = new NetworkMessage(header, bodyBytes);
 
             if (!_messageQueue.Writer.TryWrite(message))
@@ -614,7 +621,14 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                 // Step 3: 投入三层发送缓冲（零拷贝批量发送）
                 // ThreeTierSendBuffer 会在内部管理数据的生命周期
                 await _sendBuffer.EnqueueAsync(messageBuffer.WrittenMemory, cancellationToken);
-                await _sendBuffer.FlushAsync(cancellationToken); // 立即刷新以减少延迟
+
+                // 根据配置决定是否立即刷新
+                // ImmediateFlush=true: 低延迟模式，每次请求立即发送
+                // ImmediateFlush=false: 高吞吐模式，等待批量发送
+                if (_options.ImmediateFlush)
+                {
+                    await _sendBuffer.FlushAsync(cancellationToken);
+                }
             }
             finally
             {
@@ -732,7 +746,12 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
 
                 // Step 3: 投入三层发送缓冲（零拷贝批量发送）
                 await _sendBuffer.EnqueueAsync(messageBuffer.WrittenMemory, cancellationToken);
-                await _sendBuffer.FlushAsync(cancellationToken); // 立即刷新以减少延迟
+
+                // 根据配置决定是否立即刷新
+                if (_options.ImmediateFlush)
+                {
+                    await _sendBuffer.FlushAsync(cancellationToken);
+                }
             }
             finally
             {

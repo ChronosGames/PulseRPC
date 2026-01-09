@@ -167,12 +167,20 @@ public class TestExecutionEngine
     /// </summary>
     private void InitializeScenarios()
     {
-        // 这里将注册所有可用的测试场景
-        // 暂时使用模拟实现
+        // 注册所有可用的测试场景
         var dummyScenario = new DummyBenchmarkScenario();
+
+        // 基础测试场景
         _scenarios.TryAdd("ping-pong", dummyScenario);
         _scenarios.TryAdd("echo-latency", dummyScenario);
         _scenarios.TryAdd("throughput", dummyScenario);
+
+        // 新增测试场景
+        _scenarios.TryAdd("notify", dummyScenario);       // Notify 吞吐量测试
+        _scenarios.TryAdd("upload", dummyScenario);       // 上行带宽测试
+        _scenarios.TryAdd("download", dummyScenario);     // 下行带宽测试
+
+        // 高级测试场景
         _scenarios.TryAdd("latency-analysis", dummyScenario);
 
         _logger.LogInformation("已初始化 {Count} 个测试场景", _scenarios.Count);
@@ -573,38 +581,54 @@ public class TestExecutionEngine
         TestResults results,
         CancellationToken cancellationToken)
     {
+        // 根据场景名称获取配置
+        var scenarioName = results.TestName?.Replace("_warmup", "") ?? "ping-pong";
+        var payloadSize = results.Configuration?.RequestRate > 0 ? 64 : 1024; // 根据配置调整
+
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            // 真实发送 Ping 请求并测量延迟
             var connection = _connectionManager.GetConnection(connectionId);
             if (connection == null)
             {
                 throw new InvalidOperationException($"连接不存在或未连接: {connectionId}");
             }
 
-            var ping = new PingRequest
+            // 根据场景类型执行不同的请求
+            switch (scenarioName)
             {
-                RequestId = requestId,
-                SequenceNumber = requestId,
-                PayloadSize = 0
-            };
+                case "notify":
+                    // Notify 请求（无返回值）
+                    var notifyRequest = NotifyRequest.Create(requestId, requestId, payloadSize);
+                    await connection.SendNotifyAsync(notifyRequest, cancellationToken);
+                    break;
 
-            await connection.SendRequestAsync<PingRequest, PingResponse>(ping, cancellationToken);
+                case "upload":
+                    // 上行请求
+                    var uploadRequest = UploadRequest.Create(requestId, requestId, payloadSize);
+                    await connection.SendRequestAsync<UploadRequest, UploadResponse>(uploadRequest, cancellationToken);
+                    break;
+
+                case "download":
+                    // 下行请求
+                    var downloadRequest = DownloadRequest.Create(requestId, requestId, payloadSize);
+                    await connection.SendRequestAsync<DownloadRequest, DownloadResponse>(downloadRequest, cancellationToken);
+                    break;
+
+                default:
+                    // 默认 Ping-Pong 请求
+                    var ping = new PingRequest
+                    {
+                        RequestId = requestId,
+                        SequenceNumber = requestId,
+                        PayloadSize = 0
+                    };
+                    await connection.SendRequestAsync<PingRequest, PingResponse>(ping, cancellationToken);
+                    break;
+            }
 
             stopwatch.Stop();
-
             results.IncrementSuccessfulRequests(stopwatch.Elapsed.TotalMilliseconds);
-
-            // 记录指标（模拟实现）
-            // await _metricsCollector.CollectAsync("request_completed", new
-            // {
-            //     RequestId = requestId,
-            //     ConnectionId = connectionId,
-            //     LatencyMs = stopwatch.Elapsed.TotalMilliseconds,
-            //     Success = true,
-            //     Timestamp = DateTime.UtcNow
-            // }, cancellationToken);
         }
         catch (OperationCanceledException)
         {
@@ -613,20 +637,8 @@ public class TestExecutionEngine
         catch (Exception ex)
         {
             stopwatch.Stop();
-
-            // 记录失败请求
             results.IncrementFailedRequests();
-
             _logger.LogDebug(ex, "请求执行失败: RequestId={RequestId}, ConnectionId={ConnectionId}", requestId, connectionId);
-
-            // 记录错误指标（模拟实现）
-            // await _metricsCollector.CollectAsync("request_failed", new
-            // {
-            //     RequestId = requestId,
-            //     ConnectionId = connectionId,
-            //     Error = ex.Message,
-            //     Timestamp = DateTime.UtcNow
-            // }, cancellationToken);
         }
     }
 

@@ -59,6 +59,36 @@ public class TransportChannelOptions
 
     #endregion
 
+    #region 性能优化配置
+
+    /// <summary>
+    /// 是否立即刷新发送缓冲区
+    /// </summary>
+    /// <remarks>
+    /// <para>设为 false 可启用批量发送，提高吞吐量但可能增加延迟。</para>
+    /// <para>设为 true 则每次请求立即发送，延迟更低但吞吐量下降。</para>
+    /// <para>默认为 true 保持向后兼容；高吞吐场景可设为 false。</para>
+    /// </remarks>
+    public bool ImmediateFlush { get; set; } = true;
+
+    /// <summary>
+    /// 发送缓冲区 L1 批量大小
+    /// </summary>
+    /// <remarks>
+    /// 达到此数量后自动刷新到 L2 队列。默认 16。
+    /// </remarks>
+    public int SendBufferL1BatchSize { get; set; } = 16;
+
+    /// <summary>
+    /// 发送缓冲区 L2 批量大小
+    /// </summary>
+    /// <remarks>
+    /// L2 批量发送的消息数量。默认 64。
+    /// </remarks>
+    public int SendBufferL2BatchSize { get; set; } = 64;
+
+    #endregion
+
     #region 高级配置（一般无需修改）
 
     /// <summary>

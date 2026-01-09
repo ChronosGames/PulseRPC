@@ -313,6 +313,123 @@ public class BenchmarkHubImpl : IBenchmarkHub
         }
     }
 
+    #region Quick Benchmark Methods
+
+    // Notify 统计计数器
+    private long _notifyCount;
+
+    public ValueTask NotifyAsync(NotifyRequest request)
+    {
+        // 极简实现 - 仅计数，无其他开销
+        Interlocked.Increment(ref _totalRequests);
+        Interlocked.Increment(ref _successfulRequests);
+        Interlocked.Increment(ref _notifyCount);
+
+        return ValueTask.CompletedTask;
+    }
+
+    public Task<UploadResponse> UploadAsync(UploadRequest request, CancellationToken cancellationToken = default)
+    {
+        // 极简实现 - 仅确认接收，不做复杂处理
+        try
+        {
+            Interlocked.Increment(ref _totalRequests);
+            Interlocked.Increment(ref _successfulRequests);
+
+            var response = new UploadResponse
+            {
+                RequestId = request.RequestId,
+                ReceivedBytes = request.Payload?.Length ?? 0,
+                ProcessingTimeNs = 0,
+                Success = true
+            };
+
+            return Task.FromResult(response);
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Increment(ref _failedRequests);
+
+            return Task.FromResult(new UploadResponse
+            {
+                RequestId = request.RequestId,
+                ReceivedBytes = 0,
+                ProcessingTimeNs = 0,
+                Success = false,
+                ErrorMessage = ex.Message
+            });
+        }
+    }
+
+    // 预分配的下行响应缓存（避免频繁内存分配）
+    private static readonly byte[] _downloadPayload64B = new byte[64];
+    private static readonly byte[] _downloadPayload1KB = new byte[1024];
+    private static readonly byte[] _downloadPayload64KB = new byte[65536];
+    private static readonly byte[] _downloadPayload256KB = new byte[262144];
+
+    static BenchmarkHubImpl()
+    {
+        // 初始化下行缓存数据
+        Random.Shared.NextBytes(_downloadPayload64B);
+        Random.Shared.NextBytes(_downloadPayload1KB);
+        Random.Shared.NextBytes(_downloadPayload64KB);
+        Random.Shared.NextBytes(_downloadPayload256KB);
+    }
+
+    public Task<DownloadResponse> DownloadAsync(DownloadRequest request, CancellationToken cancellationToken = default)
+    {
+        // 高性能实现 - 使用预分配缓存
+        try
+        {
+            Interlocked.Increment(ref _totalRequests);
+            Interlocked.Increment(ref _successfulRequests);
+
+            // 根据请求大小选择预分配缓存
+            byte[] payload = request.RequestedPayloadSize switch
+            {
+                <= 64 => _downloadPayload64B[..request.RequestedPayloadSize],
+                <= 1024 => _downloadPayload1KB[..request.RequestedPayloadSize],
+                <= 65536 => _downloadPayload64KB[..request.RequestedPayloadSize],
+                <= 262144 => _downloadPayload256KB[..request.RequestedPayloadSize],
+                _ => CreateLargePayload(request.RequestedPayloadSize)
+            };
+
+            var response = new DownloadResponse
+            {
+                RequestId = request.RequestId,
+                PayloadSize = payload.Length,
+                Payload = payload,
+                ProcessingTimeNs = 0,
+                Success = true
+            };
+
+            return Task.FromResult(response);
+        }
+        catch (Exception ex)
+        {
+            Interlocked.Increment(ref _failedRequests);
+
+            return Task.FromResult(new DownloadResponse
+            {
+                RequestId = request.RequestId,
+                PayloadSize = 0,
+                Payload = Array.Empty<byte>(),
+                ProcessingTimeNs = 0,
+                Success = false,
+                ErrorMessage = ex.Message
+            });
+        }
+    }
+
+    private static byte[] CreateLargePayload(int size)
+    {
+        var payload = new byte[size];
+        Random.Shared.NextBytes(payload);
+        return payload;
+    }
+
+    #endregion
+
     /// <summary>
     /// 模拟批量消息处理
     /// </summary>
