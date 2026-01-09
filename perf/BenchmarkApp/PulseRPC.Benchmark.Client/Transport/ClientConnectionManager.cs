@@ -324,6 +324,12 @@ public class ClientConnection : IDisposable
                 case StreamTestRequest streamReq:
                     responseObj = await _service.StreamTestAsync(streamReq, cancellationToken);
                     break;
+                case UploadRequest uploadReq:
+                    responseObj = await _service.UploadAsync(uploadReq, cancellationToken);
+                    break;
+                case DownloadRequest downloadReq:
+                    responseObj = await _service.DownloadAsync(downloadReq, cancellationToken);
+                    break;
                 default:
                     throw new NotSupportedException($"不支持的请求类型: {typeof(TRequest).Name}");
             }
@@ -333,6 +339,30 @@ public class ClientConnection : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "发送请求失败: {ConnectionId}", ConnectionId);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// 发送 Notify 请求（无返回值，Fire-and-Forget）
+    /// </summary>
+    public async ValueTask SendNotifyAsync(NotifyRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!IsConnected)
+            throw new InvalidOperationException($"连接未建立: {ConnectionId}");
+
+        try
+        {
+            LastActivityAt = DateTime.UtcNow;
+
+            if (_service == null)
+                throw new InvalidOperationException("服务代理未初始化");
+
+            await _service.NotifyAsync(request);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "发送 Notify 失败: {ConnectionId}", ConnectionId);
             throw;
         }
     }

@@ -63,5 +63,35 @@ namespace PulseRPC.Benchmark.Shared
         /// <param name="cancellationToken">取消令牌</param>
         /// <returns>健康状态</returns>
         Task<string> HealthCheckAsync(CancellationToken cancellationToken = default);
+
+        #region Quick Benchmark Methods
+
+        /// <summary>
+        /// Notify测试 - 无返回值的单向消息测试（Fire-and-Forget）
+        /// 用于测试服务端的消息处理吞吐量，不需要等待响应
+        /// </summary>
+        /// <param name="request">Notify请求</param>
+        /// <returns>无返回值</returns>
+        ValueTask NotifyAsync(NotifyRequest request);
+
+        /// <summary>
+        /// 上行测试 - 客户端发送大数据到服务端
+        /// 用于测试上行带宽和处理能力
+        /// </summary>
+        /// <param name="request">上行请求（包含大数据负载）</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>上行响应（确认接收字节数）</returns>
+        Task<UploadResponse> UploadAsync(UploadRequest request, CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// 下行测试 - 服务端返回大数据到客户端
+        /// 用于测试下行带宽
+        /// </summary>
+        /// <param name="request">下行请求（指定需要的数据大小）</param>
+        /// <param name="cancellationToken">取消令牌</param>
+        /// <returns>下行响应（包含大数据负载）</returns>
+        Task<DownloadResponse> DownloadAsync(DownloadRequest request, CancellationToken cancellationToken = default);
+
+        #endregion
     }
 }

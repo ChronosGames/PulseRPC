@@ -75,7 +75,7 @@ internal class Program
             getDefaultValue: () => 60);
 
         var connectionsOption = new Option<int>(
-            aliases: ["--connections", "--conn"],
+            aliases: ["--connections", "--conn", "-n"],
             description: "并发连接数",
             getDefaultValue: () => 10);
 
@@ -145,15 +145,23 @@ internal class Program
         listCommand.SetHandler(() =>
         {
             Console.WriteLine("📋 可用的测试场景:");
-            Console.WriteLine("  • ping-pong        - Ping-Pong延迟测试");
+            Console.WriteLine();
+            Console.WriteLine("  基础测试:");
+            Console.WriteLine("  • ping-pong        - Ping-Pong延迟测试（带返回值）");
             Console.WriteLine("  • echo-latency     - Echo回显延迟测试");
             Console.WriteLine("  • throughput       - 吞吐量测试");
+            Console.WriteLine("  • notify           - Notify吞吐量测试（无返回值）");
+            Console.WriteLine("  • upload           - 上行带宽测试");
+            Console.WriteLine("  • download         - 下行带宽测试");
+            Console.WriteLine();
+            Console.WriteLine("  高级测试:");
             Console.WriteLine("  • latency-analysis - 高级延迟分析测试");
             Console.WriteLine("  • stress-test      - 压力测试（高负载）");
             Console.WriteLine("  • burst-test       - 突发流量测试");
             Console.WriteLine("  • mixed-workload   - 混合负载测试");
             Console.WriteLine();
             Console.WriteLine("使用 'run --scenario <scenario-name>' 运行特定场景");
+            Console.WriteLine("示例: run --scenario notify -s localhost:8080 -d 10");
         });
 
         return listCommand;

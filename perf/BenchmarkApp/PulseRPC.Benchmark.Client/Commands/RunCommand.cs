@@ -39,7 +39,7 @@ public class RunCommand(
             getDefaultValue: () => 60);
 
         var connectionsOption = new Option<int>(
-            aliases: new[] { "--connections", "--conn" },
+            aliases: new[] { "--connections", "--conn", "-n" },
             description: "并发连接数",
             getDefaultValue: () => 10);
 

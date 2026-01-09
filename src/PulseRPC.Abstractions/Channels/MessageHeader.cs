@@ -201,11 +201,39 @@ public class NetworkMessage
     public MessageHeader Header;
     public byte[] Body;
 
+    /// <summary>
+    /// 零拷贝消息体（优先使用此属性）
+    /// </summary>
+    public ReadOnlyMemory<byte> BodyMemory { get; }
+
+    /// <summary>
+    /// 是否使用零拷贝模式
+    /// </summary>
+    public bool IsZeroCopy { get; }
+
     public NetworkMessage(MessageHeader header, byte[]? body)
     {
         Header = header ?? throw new ArgumentNullException(nameof(header));
         Body = body ?? Array.Empty<byte>();
+        BodyMemory = Body;
+        IsZeroCopy = false;
     }
+
+    /// <summary>
+    /// 零拷贝构造函数 - 避免数组分配
+    /// </summary>
+    public NetworkMessage(MessageHeader header, ReadOnlyMemory<byte> bodyMemory)
+    {
+        Header = header ?? throw new ArgumentNullException(nameof(header));
+        BodyMemory = bodyMemory;
+        Body = Array.Empty<byte>(); // 保持兼容性，但不使用
+        IsZeroCopy = true;
+    }
+
+    /// <summary>
+    /// 获取消息体（零拷贝优先）
+    /// </summary>
+    public ReadOnlyMemory<byte> GetBody() => IsZeroCopy ? BodyMemory : Body;
 }
 
 /// <summary>
