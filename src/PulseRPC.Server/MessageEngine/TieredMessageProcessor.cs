@@ -70,6 +70,9 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
     // 消息处理委托
     private readonly Func<MessageSlot, CancellationToken, ValueTask<ProcessingResult>> _messageHandler;
 
+    // 全局批次ID计数器（比 Guid.NewGuid() 更高效）
+    private static long s_batchIdCounter;
+
     public DateTime ConnectedAt
     {
         get;
@@ -214,7 +217,7 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
                     // 创建批处理（使用ArrayPool减少内存分配）
                     var batch = new TieredMessageBatch
                     {
-                        BatchId = Guid.NewGuid(),
+                        BatchId = Interlocked.Increment(ref s_batchIdCounter),
                         Messages = new ReadOnlyMemory<MessageSlot>(batchBuffer, 0, batchSize),
                         CreateTime = batchStartTime,
                         ProcessorId = _processorId
@@ -529,7 +532,7 @@ public struct MessageSlot
 /// </summary>
 public struct TieredMessageBatch
 {
-    public Guid BatchId { get; set; }
+    public long BatchId { get; set; }
     public ReadOnlyMemory<MessageSlot> Messages { get; set; }
     public long CreateTime { get; set; }
     public string ProcessorId { get; set; }
