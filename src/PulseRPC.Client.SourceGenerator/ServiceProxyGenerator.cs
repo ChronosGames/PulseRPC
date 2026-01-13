@@ -560,6 +560,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
+        sb.AppendLine("using PulseRPC.Client.Configuration;");
         sb.AppendLine("using PulseRPC.Transport;");
 
         // 动态添加需要的命名空间

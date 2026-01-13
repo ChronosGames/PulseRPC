@@ -54,7 +54,7 @@ public static class ServiceProxyGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using MemoryPack;");
-        sb.AppendLine("using PulseRPC.Server.Abstractions;");
+        sb.AppendLine("using PulseRPC.Server.Transport;");
         sb.AppendLine();
     }
 

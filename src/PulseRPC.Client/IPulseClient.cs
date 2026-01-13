@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
 using PulseRPC.Client;
+using PulseRPC.Client.Configuration;
 using PulseRPC.Client.Health;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;

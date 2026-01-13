@@ -4,7 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Configuration;
-using PulseRPC.Server.Scheduling;
+using PulseRPC.Server.Services.Scheduling;
 
 namespace PulseRPC.Server.Extensions;
 

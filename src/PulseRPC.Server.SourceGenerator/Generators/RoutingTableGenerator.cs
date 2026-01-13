@@ -53,7 +53,8 @@ public static class RoutingTableGenerator
         sb.AppendLine("using System.Runtime.CompilerServices;");
         sb.AppendLine("using System.Buffers;");
         sb.AppendLine("using PulseRPC.Server;");
-        sb.AppendLine("using PulseRPC.Server.Abstractions;");
+        sb.AppendLine("using PulseRPC.Server.Transport;");
+        sb.AppendLine("using PulseRPC.Server.Services;");
         sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
 
         // 添加服务命名空间

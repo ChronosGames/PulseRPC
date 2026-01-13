@@ -2,8 +2,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
-using PulseRPC.Server.ServiceManagement;
+using PulseRPC.Server.Hubs; using PulseRPC.Server.Services; using PulseRPC.Server.Transport;
+using PulseRPC.Server.Services.Management;
 
 namespace PulseRPC.Server.Extensions;
 

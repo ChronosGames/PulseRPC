@@ -1,5 +1,5 @@
-using PulseRPC.Server.Core;
-using PulseRPC.Server.Pipeline;
+using PulseRPC.Server.Services;
+using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Transport;
 
 namespace PulseRPC.Server.Configuration;

@@ -3,6 +3,7 @@ using ChatApp.NewArchitecture.Contracts;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
+using PulseRPC.Client.Configuration;
 using PulseRPC.Transport;
 using ISubscriptionToken = PulseRPC.ISubscriptionToken;
 

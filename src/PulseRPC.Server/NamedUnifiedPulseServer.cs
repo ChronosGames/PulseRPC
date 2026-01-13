@@ -2,8 +2,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Channels;
 using PulseRPC.Server.Configuration;
-using PulseRPC.Server.Integration;
-using PulseRPC.Server.MessageEngine;
+using PulseRPC.Server.Transport;
+using PulseRPC.Server.Processing.Engine;
 using PulseRPC.Server.Transport;
 using PulseRPC.Transport;
 

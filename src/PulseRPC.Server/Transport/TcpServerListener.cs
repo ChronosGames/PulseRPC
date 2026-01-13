@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Transport;
 using PulseRPC.Transport.Tcp;
+using ConnectionState = PulseRPC.Transport.ConnectionState;
 
 namespace PulseRPC.Server.Transport;
 

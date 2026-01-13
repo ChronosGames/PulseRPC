@@ -718,7 +718,7 @@ public static class ResponseSerializerGenerator
         sb.AppendLine("    internal static void Initialize()");
         sb.AppendLine("    {");
         sb.AppendLine("        // 自动注册ResponseSerializer实例到全局注册中心");
-        sb.AppendLine("        PulseRPC.Server.Pipeline.ResponseSerializerRegistry.Register(new RegistryImpl());");
+        sb.AppendLine("        PulseRPC.Server.Processing.Pipeline.ResponseSerializerRegistry.Register(new RegistryImpl());");
         sb.AppendLine("        System.Diagnostics.Debug.WriteLine(\"[PulseRPC] ResponseSerializer registered to global registry\");");
         sb.AppendLine("    }");
         sb.AppendLine();
