@@ -1,11 +1,10 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Transport;
 using PulseRPC.Transport.Kcp;
-
 namespace PulseRPC.Server.Transport;
 
 /// <summary>
@@ -23,15 +22,15 @@ public class KcpServerTransport : IServerTransport
     private readonly DateTime _connectedAt;
     private DateTime _lastActivityAt;
 
-    private ConnectionState _state = ConnectionState.Connected;
+    private PulseRPC.Transport.ConnectionState _state = PulseRPC.Transport.ConnectionState.Connected;
     private Task? _updateTask;
     private bool _disposed;
     private readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
     public string Id => _id;
     public TransportType Type => TransportType.KCP;
-    public bool IsConnected => _state == ConnectionState.Connected;
-    public ConnectionState State => _state;
+    public bool IsConnected => _state == PulseRPC.Transport.ConnectionState.Connected;
+    PulseRPC.Transport.ConnectionState ITransport.State => _state;
     public EndPoint LocalEndPoint => _sharedSocket.LocalEndPoint!;
     public EndPoint RemoteEndPoint => _remoteEndpoint;
     public DateTime ConnectedAt => _connectedAt;
@@ -127,7 +126,7 @@ public class KcpServerTransport : IServerTransport
     {
         try
         {
-            if (!_disposed && _state == ConnectionState.Connected)
+            if (!_disposed && _state == PulseRPC.Transport.ConnectionState.Connected)
             {
                 _sharedSocket.SendTo(buffer, 0, size, SocketFlags.None, _remoteEndpoint);
             }
@@ -149,7 +148,7 @@ public class KcpServerTransport : IServerTransport
 
             _logger.LogDebug("KCP更新循环已启动: {ConnectionId}", _id);
 
-            while (!cancellationToken.IsCancellationRequested && _state == ConnectionState.Connected && !_disposed)
+            while (!cancellationToken.IsCancellationRequested && _state == PulseRPC.Transport.ConnectionState.Connected && !_disposed)
             {
                 try
                 {
@@ -205,7 +204,7 @@ public class KcpServerTransport : IServerTransport
         catch (Exception ex)
         {
             _logger.LogError(ex, "KCP更新循环异常: {ConnectionId}", _id);
-            ChangeState(ConnectionState.Disconnected, $"KCP异常: {ex.Message}", ex);
+            ChangeState(PulseRPC.Transport.ConnectionState.Disconnected, $"KCP异常: {ex.Message}", ex);
         }
         finally
         {
@@ -263,7 +262,7 @@ public class KcpServerTransport : IServerTransport
     {
         try
         {
-            if (!_disposed && _state == ConnectionState.Connected)
+            if (!_disposed && _state == PulseRPC.Transport.ConnectionState.Connected)
             {
                 _kcp.Input(new Span<byte>(buffer, 0, size));
             }
@@ -276,7 +275,7 @@ public class KcpServerTransport : IServerTransport
         catch (Exception ex)
         {
             _logger.LogError(ex, "[KCP协议栈] {ConnectionId} 处理UDP数据异常", _id);
-            ChangeState(ConnectionState.Disconnected, $"处理数据异常: {ex.Message}", ex);
+            ChangeState(PulseRPC.Transport.ConnectionState.Disconnected, $"处理数据异常: {ex.Message}", ex);
         }
     }
 
@@ -291,7 +290,7 @@ public class KcpServerTransport : IServerTransport
     /// <summary>
     /// 更改连接状态
     /// </summary>
-    private void ChangeState(ConnectionState newState, string? reason = null, Exception? exception = null)
+    private void ChangeState(PulseRPC.Transport.ConnectionState newState, string? reason = null, Exception? exception = null)
     {
         var oldState = _state;
         if (oldState == newState)
@@ -310,10 +309,10 @@ public class KcpServerTransport : IServerTransport
     /// </summary>
     public async Task CloseAsync(CancellationToken cancellationToken = default)
     {
-        if (_state is ConnectionState.Disconnected or ConnectionState.Disconnecting || _disposed)
+        if (_state is PulseRPC.Transport.ConnectionState.Disconnected or PulseRPC.Transport.ConnectionState.Disconnecting || _disposed)
             return;
 
-        ChangeState(ConnectionState.Disconnecting);
+        ChangeState(PulseRPC.Transport.ConnectionState.Disconnecting);
 
         try
         {
@@ -349,14 +348,14 @@ public class KcpServerTransport : IServerTransport
             }
 
             // 更新状态
-            ChangeState(ConnectionState.Disconnected);
+            ChangeState(PulseRPC.Transport.ConnectionState.Disconnected);
 
             _logger.LogInformation("已关闭KCP客户端连接: {ConnectionId}", _id);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "关闭KCP客户端连接异常: {ConnectionId}", _id);
-            ChangeState(ConnectionState.Disconnected, $"关闭异常: {ex.Message}", ex);
+            ChangeState(PulseRPC.Transport.ConnectionState.Disconnected, $"关闭异常: {ex.Message}", ex);
             throw;
         }
     }
@@ -766,7 +765,7 @@ public class KcpServerListener : IServerListener
     /// </summary>
     private void OnConnectionStateChanged(object? sender, TransportStateEventArgs e)
     {
-        if (e.CurrentState == ConnectionState.Disconnected)
+        if (e.CurrentState == PulseRPC.Transport.ConnectionState.Disconnected)
         {
             var connection = (KcpServerTransport)sender!;
             HandleClientDisconnection(connection.Id);

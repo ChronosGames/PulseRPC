@@ -5,8 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using ChatApp.NewArchitecture.Contracts;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Services;
+using PulseRPC.Server.Services.Management;
 
 namespace ChatApp.NewArchitecture.Services;
 
@@ -19,7 +19,7 @@ namespace ChatApp.NewArchitecture.Services;
 /// <item><description>继承 <see cref="UnifiedPulseServiceBase"/>，获得消息队列支持</description></item>
 /// <item><description>每个房间（RoomId）对应一个独立实例</description></item>
 /// <item><description>所有状态修改都在队列中顺序执行，无需加锁</description></item>
-/// <item><description>由 <see cref="PulseRPC.Server.ServiceManagement.UnifiedServiceManager"/> 管理生命周期</description></item>
+/// <item><description>由 <see cref="UnifiedServiceManager"/> 管理生命周期</description></item>
 /// </list>
 /// <para><strong>状态管理</strong>：</para>
 /// <code>

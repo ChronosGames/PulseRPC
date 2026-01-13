@@ -1,10 +1,10 @@
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Transport;
 using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
+using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Tests;
 

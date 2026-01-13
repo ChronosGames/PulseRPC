@@ -5,8 +5,9 @@ using PulseRPC.Transport;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using PulseRPC.Messaging;
-using PulseRPC.Server.Authentication;
-using MessageProcessedEventArgs = PulseRPC.Server.MessageEngine.MessageProcessedEventArgs;
+using PulseRPC.Server.Security;
+using MessageProcessedEventArgs = PulseRPC.Server.Processing.Engine.MessageProcessedEventArgs;
+using ConnectionState = PulseRPC.Transport.ConnectionState;
 
 namespace PulseRPC.Server.Transport;
 

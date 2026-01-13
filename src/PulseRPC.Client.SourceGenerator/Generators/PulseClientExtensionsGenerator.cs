@@ -38,6 +38,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
+        sb.AppendLine("using PulseRPC.Client.Configuration;");
         sb.AppendLine();
     }
 

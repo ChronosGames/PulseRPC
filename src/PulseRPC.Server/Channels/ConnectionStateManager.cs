@@ -1,7 +1,11 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Models;
-using PulseRPC.Server.Observability;
+using PulseRPC.Server.Health;
+using PulseRPC.Server.Processing;
+using PulseRPC.Server.Channels;
+using PulseRPC.Server.Services;
+using PulseRPC.Server.Services.Scheduling;
+using PulseRPC.Server.Extensions;
 
 namespace PulseRPC.Server.Channels;
 
@@ -9,20 +13,20 @@ namespace PulseRPC.Server.Channels;
 /// Manages connection state tracking and lifecycle.
 /// Thread-safe connection registry with automatic cleanup.
 /// </summary>
-public sealed class ConnectionStateManager : IDisposable
+public sealed class ServerConnectionStateManager : IDisposable
 {
     private readonly ConcurrentDictionary<string, ServerConnection> _connections = new();
-    private readonly ILogger<ConnectionStateManager> _logger;
+    private readonly ILogger<ServerConnectionStateManager> _logger;
     private readonly Timer _cleanupTimer;
     private readonly TimeSpan _idleTimeout;
     private bool _disposed;
 
-    public ConnectionStateManager(
+    public ServerConnectionStateManager(
         TimeSpan? idleTimeout = null,
-        ILogger<ConnectionStateManager>? logger = null)
+        ILogger<ServerConnectionStateManager>? logger = null)
     {
         _idleTimeout = idleTimeout ?? TimeSpan.FromMinutes(5);
-        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ConnectionStateManager>.Instance;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ServerConnectionStateManager>.Instance;
 
         // Start cleanup timer (runs every 30 seconds)
         _cleanupTimer = new Timer(CleanupIdleConnections, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
@@ -53,7 +57,7 @@ public sealed class ConnectionStateManager : IDisposable
     /// <summary>
     /// Updates connection state.
     /// </summary>
-    public bool UpdateConnectionState(string connectionId, ConnectionState newState)
+    public bool UpdateServerConnectionState(string connectionId, ServerConnectionState newState)
     {
         if (_connections.TryGetValue(connectionId, out var connection))
         {
@@ -70,7 +74,7 @@ public sealed class ConnectionStateManager : IDisposable
     {
         if (_connections.TryRemove(connectionId, out var connection))
         {
-            connection.TryTransitionState(ConnectionState.Closed);
+            connection.TryTransitionState(ServerConnectionState.Closed);
             _logger.LogConnectionClosed(connection, reason);
             return true;
         }
@@ -99,8 +103,8 @@ public sealed class ConnectionStateManager : IDisposable
         {
             TotalConnections = connections.Count,
             ActiveConnections = connections.Count(c => c.IsActive),
-            ConnectingConnections = connections.Count(c => c.State == ConnectionState.Connecting),
-            ClosingConnections = connections.Count(c => c.State == ConnectionState.Closing),
+            ConnectingConnections = connections.Count(c => c.State == ServerConnectionState.Connecting),
+            ClosingConnections = connections.Count(c => c.State == ServerConnectionState.Closing),
             TotalMessagesSent = connections.Sum(c => c.MessagesSent),
             TotalMessagesReceived = connections.Sum(c => c.MessagesReceived),
             TotalErrors = connections.Sum(c => c.ErrorCount),
@@ -125,7 +129,7 @@ public sealed class ConnectionStateManager : IDisposable
             var connection = kvp.Value;
 
             // Check if connection is idle
-            if (connection.State == ConnectionState.Active &&
+            if (connection.State == ServerConnectionState.Active &&
                 (now - connection.LastActivityAt) > _idleTimeout)
             {
                 _logger.LogDebug(
@@ -137,7 +141,7 @@ public sealed class ConnectionStateManager : IDisposable
             }
 
             // Clean up closed connections
-            if (connection.State == ConnectionState.Closed &&
+            if (connection.State == ServerConnectionState.Closed &&
                 (now - connection.LastActivityAt) > TimeSpan.FromMinutes(1))
             {
                 toRemove.Add(kvp.Key);
@@ -168,9 +172,9 @@ public sealed class ConnectionStateManager : IDisposable
         {
             try
             {
-                c.TryTransitionState(ConnectionState.Closing);
+                c.TryTransitionState(ServerConnectionState.Closing);
                 await Task.Delay(100); // Give time for pending messages
-                c.TryTransitionState(ConnectionState.Closed);
+                c.TryTransitionState(ServerConnectionState.Closed);
             }
             catch (Exception ex)
             {
@@ -186,7 +190,7 @@ public sealed class ConnectionStateManager : IDisposable
         // Force close any remaining
         foreach (var connection in _connections.Values)
         {
-            connection.TryTransitionState(ConnectionState.Closed);
+            connection.TryTransitionState(ServerConnectionState.Closed);
         }
 
         _connections.Clear();

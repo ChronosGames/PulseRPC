@@ -3,9 +3,8 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using ChatApp.NewArchitecture.Contracts;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Contexts;
-using PulseRPC.Server.ServiceManagement;
+using PulseRPC.Server.Services;
 
 namespace ChatApp.NewArchitecture.Services;
 
@@ -17,7 +16,7 @@ namespace ChatApp.NewArchitecture.Services;
 /// <list type="bullet">
 /// <item><description>✅ 无状态，注册为 Singleton，全局复用</description></item>
 /// <item><description>✅ 只做路由和验证，不持有任何业务状态</description></item>
-/// <item><description>✅ 通过 <see cref="IServiceAccessor{T}"/> 获取 Service 实例</description></item>
+/// <item><description>✅ 通过 <see cref="IServiceAccessor{TService}"/> 获取 Service 实例</description></item>
 /// <item><description>✅ 所有操作通过 ExecuteAsync 在 Service 队列中执行</description></item>
 /// </list>
 /// <para><strong>请求流程</strong>：</para>

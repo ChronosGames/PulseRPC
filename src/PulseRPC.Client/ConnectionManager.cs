@@ -5,6 +5,7 @@ using PulseRPC.Client.Health;
 using PulseRPC.Transport;
 using System.Collections.Concurrent;
 using PulseRPC.Client.Channels;
+using PulseRPC.Client.Configuration;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 

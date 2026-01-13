@@ -6,6 +6,7 @@ using PulseRPC.Serialization;
 using PulseRPC.Transport;
 using PulseRPC.Benchmark.Core.Models;
 using PulseRPC.Benchmark.Shared;
+using PulseRPC.Client.Configuration;
 
 namespace PulseRPC.Benchmark.Scenarios;
 
