@@ -7,9 +7,9 @@ using DistributedGameApp.LoginServer.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Metrics;
-using PulseRPC.Server.Observability;
 using System.Text;
 using Microsoft.OpenApi;
+using PulseRPC.Server.Extensions;
 
 var builder = WebApplication.CreateBuilder(args);
 

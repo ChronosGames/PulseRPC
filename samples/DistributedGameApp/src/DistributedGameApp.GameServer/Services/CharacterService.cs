@@ -2,7 +2,6 @@ using DistributedGameApp.Infrastructure.MongoDB.Repositories;
 using DistributedGameApp.Shared.Domain.Characters;
 using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Services;
 using CreateCharacterRequest = DistributedGameApp.Shared.Messages.CreateCharacterRequest;
 

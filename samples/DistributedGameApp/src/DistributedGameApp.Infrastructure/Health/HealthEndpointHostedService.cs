@@ -6,7 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenTelemetry.Metrics;
-using PulseRPC.Server.Observability;
+using PulseRPC.Server.Extensions;
 
 namespace DistributedGameApp.Infrastructure.Health;
 

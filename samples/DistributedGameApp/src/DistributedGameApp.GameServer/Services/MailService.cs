@@ -1,9 +1,6 @@
 using DistributedGameApp.Infrastructure.MongoDB.Repositories;
 using DistributedGameApp.Shared.Domain.Mail;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server;
-using PulseRPC.Server.Abstractions;
-using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Services;
 
 namespace DistributedGameApp.GameServer.Services;

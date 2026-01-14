@@ -5,6 +5,7 @@ using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Transport;
 using PulseRPC.Channels;
+using PulseRPC.Client.Configuration;
 
 namespace DistributedGameApp.Client;
 

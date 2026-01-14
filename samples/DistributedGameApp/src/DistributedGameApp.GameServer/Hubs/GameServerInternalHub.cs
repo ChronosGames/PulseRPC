@@ -2,9 +2,7 @@ using DistributedGameApp.Shared.Domain.Matchmaking;
 using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Receivers;
 using Microsoft.Extensions.Logging;
-using PulseRPC;
 using PulseRPC.Server;
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Services;
 
 namespace DistributedGameApp.GameServer.Hubs;

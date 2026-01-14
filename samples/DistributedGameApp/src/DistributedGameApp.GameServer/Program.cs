@@ -52,9 +52,9 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         {
             var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
                 ?? throw new InvalidOperationException("JWT configuration is missing");
-            var logger = sp.GetRequiredService<ILogger<PulseRPC.Server.Authentication.JwtAuthenticationProvider>>();
+            var logger = sp.GetRequiredService<ILogger<PulseRPC.Server.Security.JwtAuthenticationProvider>>();
 
-            return new PulseRPC.Server.Authentication.JwtAuthenticationProvider(
+            return new PulseRPC.Server.Security.JwtAuthenticationProvider(
                 jwtOptions.SecretKey,
                 jwtOptions.Issuer,
                 jwtOptions.Audience,

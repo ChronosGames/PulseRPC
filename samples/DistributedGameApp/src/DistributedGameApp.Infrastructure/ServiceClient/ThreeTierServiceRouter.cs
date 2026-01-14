@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Scheduling;
 
 namespace DistributedGameApp.Infrastructure.ServiceClient;
 
