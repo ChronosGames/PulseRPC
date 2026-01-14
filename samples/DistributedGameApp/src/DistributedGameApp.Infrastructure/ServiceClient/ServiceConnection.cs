@@ -4,6 +4,7 @@ using PulseRPC.Authentication;
 using PulseRPC.Client;
 using PulseRPC.Transport;
 using System.Net.Sockets;
+using PulseRPC.Client.Configuration;
 
 namespace DistributedGameApp.Infrastructure.ServiceClient;
 

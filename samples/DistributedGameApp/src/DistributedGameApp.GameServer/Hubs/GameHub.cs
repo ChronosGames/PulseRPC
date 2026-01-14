@@ -8,10 +8,9 @@ using DistributedGameApp.Shared.Domain.Characters;
 using DistributedGameApp.GameServer.Services;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
-using PulseRPC.Server.Abstractions;
-using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Hubs;
-using PulseRPC.Server.ServiceManagement;
+using PulseRPC.Server.Services;
+using PulseRPC.Server.Services.Management;
 using CreateCharacterRequest = DistributedGameApp.Shared.Messages.CreateCharacterRequest;
 
 namespace DistributedGameApp.GameServer.Hubs;

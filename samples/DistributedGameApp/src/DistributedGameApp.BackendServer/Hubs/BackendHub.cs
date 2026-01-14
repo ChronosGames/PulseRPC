@@ -5,9 +5,9 @@ using DistributedGameApp.Shared.Domain.Social;
 using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.BackendServer.Services;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Hubs;
-using PulseRPC.Server.ServiceManagement;
+using PulseRPC.Server.Services;
+using PulseRPC.Server.Services.Management;
 
 namespace DistributedGameApp.BackendServer.Hubs;
 

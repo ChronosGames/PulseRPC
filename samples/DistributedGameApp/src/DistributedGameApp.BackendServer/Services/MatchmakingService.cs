@@ -3,7 +3,6 @@ using DistributedGameApp.Shared.Domain.Matchmaking;
 using DistributedGameApp.Shared.Messages;
 using DistributedGameApp.Shared.Hubs;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Services;
 using MatchmakingRequest = DistributedGameApp.Shared.Domain.Matchmaking.MatchmakingRequest;

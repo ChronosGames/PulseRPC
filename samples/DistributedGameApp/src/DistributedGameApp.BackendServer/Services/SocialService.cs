@@ -1,6 +1,5 @@
 using DistributedGameApp.Shared.Domain.Social;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Services;
 
 namespace DistributedGameApp.BackendServer.Services;

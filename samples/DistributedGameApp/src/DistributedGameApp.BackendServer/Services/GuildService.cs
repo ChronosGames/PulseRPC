@@ -1,9 +1,6 @@
 using DistributedGameApp.BackendServer.Repositories;
 using DistributedGameApp.Shared.Domain.Guilds;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server;
-using PulseRPC.Server.Abstractions;
-using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Services;
 
 namespace DistributedGameApp.BackendServer.Services;
