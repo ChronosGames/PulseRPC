@@ -769,6 +769,10 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
 
         try
         {
+            // 取消订阅事件处理程序，防止内存泄漏
+            _transport.DataReceived -= OnTransportDataReceived;
+            _transport.StateChanged -= OnTransportStateChanged;
+
             _cts.Cancel();
             Task.WaitAll(_messageProcessingTasks, TimeSpan.FromSeconds(5));
             _messageQueue.Writer.Complete();
