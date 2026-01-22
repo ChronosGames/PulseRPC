@@ -30,7 +30,7 @@ dotnet build
 ### 1. 启动服务端
 
 ```bash
-dotnet run --project PulseRPC.Benchmark -- server --tcp-port 12345
+dotnet run -c release --project PulseRPC.Benchmark -- server --tcp-port 12345
 ```
 
 ### 2. 运行客户端测试
@@ -42,27 +42,27 @@ dotnet run --project PulseRPC.Benchmark -- list
 
 **延迟测试（Latency）：**
 ```bash
-dotnet run --project PulseRPC.Benchmark -- client latency --port 12345 --iterations 10000 --warmup 100
+dotnet run -c release --project PulseRPC.Benchmark -- client latency --port 12345 --iterations 100000 --warmup 100
 ```
 
 **吞吐量测试（Throughput）：**
 ```bash
-dotnet run --project PulseRPC.Benchmark -- client throughput --port 12345 --connections 10 --duration 30
+dotnet run -c release --project PulseRPC.Benchmark -- client throughput --port 12345 --connections 10 --duration 30
 ```
 
 **上传带宽测试（Upload）：**
 ```bash
-dotnet run --project PulseRPC.Benchmark -- client upload --port 12345 --size 65536 --duration 30
+dotnet run -c release --project PulseRPC.Benchmark -- client upload --port 12345 --size 65536 --duration 30
 ```
 
 **下载带宽测试（Download）：**
 ```bash
-dotnet run --project PulseRPC.Benchmark -- client download --port 12345 --size 65536 --duration 30
+dotnet run -c release --project PulseRPC.Benchmark -- client download --port 12345 --size 65536 --duration 30
 ```
 
 **稳定性测试（Stability）：**
 ```bash
-dotnet run --project PulseRPC.Benchmark -- client stability --port 12345 --duration 300
+dotnet run -c release --project PulseRPC.Benchmark -- client stability --port 12345 --duration 300
 ```
 
 ### 3. 导出结果
@@ -70,7 +70,7 @@ dotnet run --project PulseRPC.Benchmark -- client stability --port 12345 --durat
 添加 `--output` 参数将结果保存为 JSON 文件：
 
 ```bash
-dotnet run --project PulseRPC.Benchmark -- client latency --port 12345 --output result.json
+dotnet run -c release --project PulseRPC.Benchmark -- client latency --port 12345 --output result.json
 ```
 
 ## 命令行参数

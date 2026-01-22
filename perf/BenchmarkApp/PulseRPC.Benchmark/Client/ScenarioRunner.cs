@@ -52,6 +52,7 @@ public partial class ScenarioRunner
 
         // 创建客户端
         var builder = new PulseClientBuilder();
+        builder.UseGameClientPreset();
         // 设置 service 标签以便路由器能够找到正确的连接
         var tags = new Dictionary<string, string> { ["service"] = "IBenchmarkHub" };
         builder.AddTcpConnection("TcpChannel", "default", config.Host, config.TcpPort, tags: tags);
@@ -64,7 +65,7 @@ public partial class ScenarioRunner
         var service = await client.GetServiceAsync<IBenchmarkHub>();
 
         // 健康检查
-        var healthStatus = await service.HealthCheckAsync(new HealthCheckRequest(), cancellationToken);
+        var healthStatus = await service.HealthCheckAsync(new HealthCheckRequest());
         _logger.LogInformation("服务端健康状态: {Status}", healthStatus);
 
         // 创建并运行场景
