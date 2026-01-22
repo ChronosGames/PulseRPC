@@ -4,7 +4,6 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -45,16 +44,12 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
 
 
     // 优化: 预分配的缓冲区和线程本地存储
-    private static readonly ThreadLocal<ArrayBufferWriter<byte>> ThreadLocalBufferWriter =
-        new(() => new ArrayBufferWriter<byte>(4096));
-
     private static readonly ThreadLocal<byte[]> ThreadLocalTempBuffer =
         new(() => new byte[8192]);
 
     // 优化: 预分配的消息头池
     private readonly UnityCompatibleObjectPool<MessageHeader> _messageHeaderPool;
     private readonly UnityCompatibleObjectPool<ArrayBufferWriter<byte>> _bufferWriterPool;
-
 
     // === TransportChannelBase 抽象成员实现 ===
 
@@ -565,124 +560,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     }
 
     // ============================================================================
-    // 零拷贝优化接口实现
-    // ============================================================================
-
-    /// <summary>
-    /// [Request/Response] 发送请求并等待响应 - 零拷贝路径
-    /// </summary>
-    public async ValueTask<ReadOnlyMemory<byte>> InvokeRawAsync(
-        string serviceName,
-        string methodName,
-        ReadOnlyMemory<byte> serializedRequest,
-        CancellationToken cancellationToken = default)
-    {
-        var messageId = Guid.NewGuid();
-
-        // Step 1: 创建响应上下文
-        var tcs = new TaskCompletionSource<ReadOnlyMemory<byte>>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var context = new ResponseContext
-        {
-            MessageId = messageId,
-            Tcs = tcs,
-            EnqueueTimestamp = Stopwatch.GetTimestamp()
-        };
-
-        // 注册取消处理
-        context.CancellationRegistration = cancellationToken.Register(() =>
-        {
-            _responseManager.TryCancel(messageId, new OperationCanceledException(cancellationToken));
-        });
-
-        _responseManager.Register(context);
-
-        try
-        {
-            // Step 2: 构建消息包（零拷贝）
-            var messageBuffer = _bufferWriterPool.Get();
-            try
-            {
-                // 写入消息头
-                var header = new MessageHeader(MessageType.Request, serviceName, methodName)
-                {
-                    MessageId = messageId,
-                    Flags = MessageFlags.RequireResponse,
-                    ProtocolId = ComputeProtocolId(serviceName, methodName)
-                };
-
-                var headerBytes = MemoryPack.MemoryPackSerializer.Serialize(header);
-                BinaryPrimitives.WriteInt32LittleEndian(messageBuffer.GetSpan(4), headerBytes.Length);
-                messageBuffer.Advance(4);
-                messageBuffer.Write(headerBytes);
-
-                // 写入载荷
-                messageBuffer.Write(serializedRequest.Span);
-
-                // Step 3: 投入三层发送缓冲（零拷贝批量发送）
-                // ThreeTierSendBuffer 会在内部管理数据的生命周期
-                await _sendBuffer.EnqueueAsync(messageBuffer.WrittenMemory, cancellationToken);
-
-                // 根据配置决定是否立即刷新
-                // ImmediateFlush=true: 低延迟模式，每次请求立即发送
-                // ImmediateFlush=false: 高吞吐模式，等待批量发送
-                if (_options.ImmediateFlush)
-                {
-                    await _sendBuffer.FlushAsync(cancellationToken);
-                }
-            }
-            finally
-            {
-                _bufferWriterPool.Return(messageBuffer);
-            }
-
-            // Step 4: 等待响应
-            return await tcs.Task;
-        }
-        catch
-        {
-            _responseManager.TrySetException(messageId, new InvalidOperationException("Request failed"));
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// [Command/OneWay] 发送命令不等待响应 - 零拷贝路径
-    /// </summary>
-    public async ValueTask SendCommandAsync(
-        string serviceName,
-        string methodName,
-        ReadOnlyMemory<byte> serializedCommand,
-        CancellationToken cancellationToken = default)
-    {
-        // Command/OneWay 消息无需等待响应
-        var messageBuffer = _bufferWriterPool.Get();
-        try
-        {
-            var header = new MessageHeader(MessageType.OneWay, serviceName, methodName)
-            {
-                MessageId = Guid.NewGuid(),
-                Flags = MessageFlags.None,
-                ProtocolId = ComputeProtocolId(serviceName, methodName)
-            };
-
-            var headerBytes = MemoryPack.MemoryPackSerializer.Serialize(header);
-            BinaryPrimitives.WriteInt32LittleEndian(messageBuffer.GetSpan(4), headerBytes.Length);
-            messageBuffer.Advance(4);
-            messageBuffer.Write(headerBytes);
-            messageBuffer.Write(serializedCommand.Span);
-
-            // 投入三层发送缓冲（零拷贝批量发送）
-            // ThreeTierSendBuffer 会在内部管理数据的生命周期
-            await _sendBuffer.EnqueueAsync(messageBuffer.WrittenMemory, cancellationToken);
-            // 注意：Command 不需要立即刷新，可以等待批量发送以提高吞吐量
-        }
-        finally
-        {
-            _bufferWriterPool.Return(messageBuffer);
-        }
-    }
-
-    // ============================================================================
     // 基于协议号的方法 (高性能路径 - 推荐使用)
     // ============================================================================
 
@@ -899,10 +776,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             _sendLock.Dispose();
             _cts.Dispose();
 
-            // BUGFIX: 不应该释放静态的 ThreadLocal 变量，它们被所有实例共享
-            // 移除: ThreadLocalBufferWriter.Dispose();
-            // 移除: ThreadLocalTempBuffer.Dispose();
-
             // 释放零拷贝组件
             _responseManager?.Dispose();
             _sendBuffer?.Dispose();
@@ -925,44 +798,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     private static void ResetBufferWriter(ArrayBufferWriter<byte> writer)
     {
         writer.Clear();
-    }
-
-    /// <summary>
-    /// 计算协议号 - 委托给 ProtocolIdHelper
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static ushort ComputeProtocolId(string serviceName, string methodName, Type? requestType = null)
-    {
-        var paramTypes = requestType != null ? new[] { requestType } : null;
-        return ProtocolIdHelper.ComputeProtocolId(serviceName, methodName, paramTypes);
-    }
-
-}
-
-/// <summary>
-/// Span基础的缓冲区写入器 - 避免额外分配
-/// </summary>
-public ref struct SpanBufferWriter
-{
-    private readonly Span<byte> _buffer;
-    private int _written;
-
-    public SpanBufferWriter(Span<byte> buffer)
-    {
-        _buffer = buffer;
-        _written = 0;
-    }
-
-    public int WrittenCount => _written;
-
-    public Span<byte> GetSpan(int sizeHint = 0)
-    {
-        return _buffer[_written..];
-    }
-
-    public void Advance(int count)
-    {
-        _written += count;
     }
 }
 
