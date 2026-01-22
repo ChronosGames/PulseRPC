@@ -49,7 +49,7 @@ public class StabilityScenario : ScenarioBase
                 {
                     var request = EchoRequest.Create(GenerateTestString(config.MessageSize));
                     latencyStopwatch.Restart();
-                    var response = await service.EchoAsync(request, cancellationToken);
+                    var response = await service.EchoAsync(request);
                     latencyStopwatch.Stop();
 
                     if (response.Success)

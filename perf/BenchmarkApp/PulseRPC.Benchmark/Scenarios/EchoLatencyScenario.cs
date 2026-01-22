@@ -36,7 +36,7 @@ public class EchoLatencyScenario : ScenarioBase
             for (int i = 0; i < config.WarmupIterations && !cancellationToken.IsCancellationRequested; i++)
             {
                 var warmupRequest = EchoRequest.Create(GenerateTestString(config.MessageSize));
-                await service.EchoAsync(warmupRequest, cancellationToken);
+                await service.EchoAsync(warmupRequest);
             }
 
             // 主测试
@@ -46,7 +46,7 @@ public class EchoLatencyScenario : ScenarioBase
                 var request = EchoRequest.Create(GenerateTestString(config.MessageSize));
 
                 stopwatch.Restart();
-                var response = await service.EchoAsync(request, cancellationToken);
+                var response = await service.EchoAsync(request);
                 stopwatch.Stop();
 
                 if (response.Success)

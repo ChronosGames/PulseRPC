@@ -49,12 +49,12 @@ public class BandwidthScenario : ScenarioBase
                 if (_isUpload)
                 {
                     var request = UploadRequest.Create(i, config.MessageSize);
-                    await service.UploadAsync(request, cancellationToken);
+                    await service.UploadAsync(request);
                 }
                 else
                 {
                     var request = DownloadRequest.Create(i, config.MessageSize);
-                    await service.DownloadAsync(request, cancellationToken);
+                    await service.DownloadAsync(request);
                 }
             }
 
@@ -79,7 +79,7 @@ public class BandwidthScenario : ScenarioBase
                             if (_isUpload)
                             {
                                 var request = UploadRequest.Create(i, config.MessageSize);
-                                var response = await service.UploadAsync(request, cancellationToken);
+                                var response = await service.UploadAsync(request);
                                 stopwatch.Stop();
 
                                 if (response.Success)
@@ -97,7 +97,7 @@ public class BandwidthScenario : ScenarioBase
                             else
                             {
                                 var request = DownloadRequest.Create(i, config.MessageSize);
-                                var response = await service.DownloadAsync(request, cancellationToken);
+                                var response = await service.DownloadAsync(request);
                                 stopwatch.Stop();
 
                                 if (response.Success)

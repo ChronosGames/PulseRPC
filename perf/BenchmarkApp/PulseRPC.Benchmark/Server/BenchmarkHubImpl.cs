@@ -33,7 +33,7 @@ public class BenchmarkHubImpl : IBenchmarkHub
         _logger.LogInformation("BenchmarkHubImpl 已初始化");
     }
 
-    public Task<EchoResponse> EchoAsync(EchoRequest request, CancellationToken cancellationToken = default)
+    public Task<EchoResponse> EchoAsync(EchoRequest request)
     {
         try
         {
@@ -65,7 +65,7 @@ public class BenchmarkHubImpl : IBenchmarkHub
         }
     }
 
-    public Task<UploadResponse> UploadAsync(UploadRequest request, CancellationToken cancellationToken = default)
+    public Task<UploadResponse> UploadAsync(UploadRequest request)
     {
         try
         {
@@ -97,7 +97,7 @@ public class BenchmarkHubImpl : IBenchmarkHub
         }
     }
 
-    public Task<DownloadResponse> DownloadAsync(DownloadRequest request, CancellationToken cancellationToken = default)
+    public Task<DownloadResponse> DownloadAsync(DownloadRequest request)
     {
         try
         {
@@ -141,7 +141,7 @@ public class BenchmarkHubImpl : IBenchmarkHub
         }
     }
 
-    public Task<string> HealthCheckAsync(HealthCheckRequest request, CancellationToken cancellationToken = default)
+    public Task<string> HealthCheckAsync(HealthCheckRequest request)
     {
         var errorRate = _totalRequests > 0 ? (double)_failedRequests / _totalRequests : 0;
         var status = errorRate > 0.1 ? "Degraded" : "Healthy";

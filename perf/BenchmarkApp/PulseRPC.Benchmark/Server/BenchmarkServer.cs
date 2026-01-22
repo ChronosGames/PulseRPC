@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Benchmark.Contracts;
 using PulseRPC.Server;
+using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Extensions;
 
 namespace PulseRPC.Benchmark.Server;
@@ -28,6 +29,7 @@ public static class BenchmarkServer
         // 配置 PulseRPC 服务器
         builder.Services.AddPulseServer(options =>
         {
+            options.UsePreset(ServerPreset.LowLatency);
             options.AddTcp(tcpPort);
         });
 
