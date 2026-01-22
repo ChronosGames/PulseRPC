@@ -67,7 +67,7 @@
     <PackageVersion Include="Microsoft.Extensions.ObjectPool" Version="9.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="9.0.0" Condition="'$(TargetFramework)' != 'netstandard2.1'" />
     <PackageVersion Include="Microsoft.Extensions.Options" Version="7.0.0" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
-    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="10.0.102" />
     <PackageVersion Include="System.IO.Pipelines" Version="9.0.0" />
     <PackageVersion Include="System.Runtime.CompilerServices.Unsafe" Version="6.0.0" />
     <PackageVersion Include="System.Threading.Channels" Version="9.0.0" />
@@ -96,7 +96,7 @@
     <PackageVersion Include="ConsoleAppFramework" Version="4.2.2" />
     <PackageVersion Include="JetBrains.Profiler.Api" Version="1.4.9" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="9.0.0" />
-    <PackageVersion Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+    <PackageVersion Include="System.CommandLine" Version="2.0.2" />
     <PackageVersion Include="Microsoft.Extensions.Diagnostics.HealthChecks" Version="9.0.0" />
     <PackageVersion Include="Spectre.Console" Version="0.50.0" />
   </ItemGroup>
