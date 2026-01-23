@@ -115,6 +115,12 @@ public class TcpTransportOptions : TransportOptions
     /// Linger超时时间
     /// </summary>
     public int LingerTime { get; set; } = 0;
+
+    /// <summary>
+    /// 发送队列容量（用于高并发发送优化）
+    /// 默认 1024，表示最多可以有 1024 个待发送的消息在队列中
+    /// </summary>
+    public int SendQueueCapacity { get; set; } = 1024;
 }
 
 /// <summary>

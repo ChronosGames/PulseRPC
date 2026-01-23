@@ -48,42 +48,62 @@ public partial class ScenarioRunner
             throw new ArgumentException($"未知的场景: {scenarioName}。可用场景: {string.Join(", ", _scenarios.Keys)}");
         }
 
-        _logger.LogInformation("正在连接到服务端 {Host}:{Port}...", config.Host, config.TcpPort);
+        var connectionCount = Math.Max(1, config.Connections);
+        _logger.LogInformation("正在创建 {Count} 个独立连接到服务端 {Host}:{Port}...", connectionCount, config.Host, config.TcpPort);
 
-        // 创建客户端
-        var builder = new PulseClientBuilder();
-        builder.UseGameClientPreset();
-        // 设置 service 标签以便路由器能够找到正确的连接
-        var tags = new Dictionary<string, string> { ["service"] = "IBenchmarkHub" };
-        builder.AddTcpConnection("TcpChannel", "default", config.Host, config.TcpPort, tags: tags);
-        using var client = builder.Build();
+        // 创建多个独立的客户端连接
+        var clients = new List<IPulseClient>();
+        var services = new List<IBenchmarkHub>();
 
-        // 初始化客户端（建立连接）
-        await client.InitializeAsync(cancellationToken);
-
-        // 获取服务代理
-        var service = await client.GetServiceAsync<IBenchmarkHub>();
-
-        // 健康检查
-        var healthStatus = await service.HealthCheckAsync(new HealthCheckRequest());
-        _logger.LogInformation("服务端健康状态: {Status}", healthStatus);
-
-        // 创建并运行场景
-        var scenario = scenarioFactory();
-        _logger.LogInformation("运行场景: {Name} - {Description}", scenario.Name, scenario.Description);
-
-        var result = await scenario.RunAsync(service, config, cancellationToken);
-
-        // 输出结果
-        ConsoleReporter.Print(result);
-
-        // 保存 JSON 输出
-        if (!string.IsNullOrEmpty(config.OutputFile))
+        try
         {
-            await JsonReporter.SaveAsync(result, config.OutputFile);
-            _logger.LogInformation("结果已保存到: {OutputFile}", config.OutputFile);
-        }
+            for (int i = 0; i < connectionCount; i++)
+            {
+                var builder = new PulseClientBuilder();
+                builder.UseGameClientPreset();
+                var tags = new Dictionary<string, string> { ["service"] = "IBenchmarkHub" };
+                builder.AddTcpConnection($"TcpChannel-{i}", "default", config.Host, config.TcpPort, tags: tags);
+                var client = builder.Build();
+                clients.Add(client);
 
-        return result;
+                await client.InitializeAsync(cancellationToken);
+                var service = await client.GetServiceAsync<IBenchmarkHub>();
+                services.Add(service);
+
+                _logger.LogDebug("连接 {Index}/{Total} 已建立", i + 1, connectionCount);
+            }
+
+            _logger.LogInformation("所有 {Count} 个连接已建立", connectionCount);
+
+            // 健康检查（使用第一个连接）
+            var healthStatus = await services[0].HealthCheckAsync(new HealthCheckRequest());
+            _logger.LogInformation("服务端健康状态: {Status}", healthStatus);
+
+            // 创建并运行场景
+            var scenario = scenarioFactory();
+            _logger.LogInformation("运行场景: {Name} - {Description}", scenario.Name, scenario.Description);
+
+            var result = await scenario.RunAsync(services, config, cancellationToken);
+
+            // 输出结果
+            ConsoleReporter.Print(result);
+
+            // 保存 JSON 输出
+            if (!string.IsNullOrEmpty(config.OutputFile))
+            {
+                await JsonReporter.SaveAsync(result, config.OutputFile);
+                _logger.LogInformation("结果已保存到: {OutputFile}", config.OutputFile);
+            }
+
+            return result;
+        }
+        finally
+        {
+            // 释放所有客户端连接
+            foreach (var client in clients)
+            {
+                client.Dispose();
+            }
+        }
     }
 }
