@@ -19,7 +19,7 @@ public abstract class ScenarioBase : IScenario
     public abstract string Name { get; }
     public abstract string Description { get; }
 
-    public abstract Task<BenchmarkResult> RunAsync(IBenchmarkHub service, BenchmarkConfig config, CancellationToken cancellationToken = default);
+    public abstract Task<BenchmarkResult> RunAsync(IReadOnlyList<IBenchmarkHub> services, BenchmarkConfig config, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 生成测试字符串

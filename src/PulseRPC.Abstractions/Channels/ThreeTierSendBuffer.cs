@@ -3,6 +3,7 @@ using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Channels;
@@ -19,9 +20,10 @@ namespace PulseRPC.Client.Channels;
 /// </summary>
 public sealed class ThreeTierSendBuffer : IDisposable
 {
-    // L1: 线程本地批量缓冲 (无锁)
-    [ThreadStatic]
-    private static List<ReadOnlyMemory<byte>>? _threadLocalBatch;
+    // L1: 实例级别的线程本地批量缓冲
+    // 使用 ConditionalWeakTable 以线程ID为键，支持多实例隔离
+    // 注意：不使用 ThreadStatic 是因为它是静态的，会在多个实例间共享
+    private readonly ConditionalWeakTable<Thread, List<ReadOnlyMemory<byte>>> _threadLocalBatches = new();
 
     // L2: 全局发送队列（使用 SendItem 封装缓冲区所有权）
     private readonly Channel<SendItem> _sendQueue;
@@ -63,6 +65,15 @@ public sealed class ThreeTierSendBuffer : IDisposable
     }
 
     /// <summary>
+    /// 获取当前线程的本地批量缓冲（实例隔离）
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private List<ReadOnlyMemory<byte>> GetThreadLocalBatch()
+    {
+        return _threadLocalBatches.GetValue(Thread.CurrentThread, _ => new List<ReadOnlyMemory<byte>>(_l1BatchSize));
+    }
+
+    /// <summary>
     /// L1: 本地批量入队（无锁，超快）
     /// </summary>
     public async ValueTask EnqueueAsync(ReadOnlyMemory<byte> message, CancellationToken cancellationToken = default)
@@ -70,11 +81,11 @@ public sealed class ThreeTierSendBuffer : IDisposable
         if (_disposed)
             throw new ObjectDisposedException(nameof(ThreeTierSendBuffer));
 
-        _threadLocalBatch ??= new List<ReadOnlyMemory<byte>>(_l1BatchSize);
-        _threadLocalBatch.Add(message);
+        var batch = GetThreadLocalBatch();
+        batch.Add(message);
 
         // 达到批量阈值时刷新到 L2
-        if (_threadLocalBatch.Count >= _l1BatchSize)
+        if (batch.Count >= _l1BatchSize)
         {
             await FlushLocalBatchAsync(cancellationToken);
         }
@@ -93,12 +104,13 @@ public sealed class ThreeTierSendBuffer : IDisposable
     /// </summary>
     private async ValueTask FlushLocalBatchAsync(CancellationToken cancellationToken = default)
     {
-        if (_threadLocalBatch == null || _threadLocalBatch.Count == 0)
+        var batch = GetThreadLocalBatch();
+        if (batch.Count == 0)
             return;
 
         // 优化：在这里复制数据到池化缓冲区，而不是在调用方复制
         // ThreeTierSendBuffer 负责管理这些缓冲区的生命周期
-        foreach (var msg in _threadLocalBatch)
+        foreach (var msg in batch)
         {
             // 从池中租借缓冲区并复制数据
             var buffer = ArrayPool<byte>.Shared.Rent(msg.Length);
@@ -108,7 +120,7 @@ public sealed class ThreeTierSendBuffer : IDisposable
             await _sendQueue.Writer.WriteAsync(item, cancellationToken);
         }
 
-        _threadLocalBatch.Clear();
+        batch.Clear();
     }
 
     /// <summary>

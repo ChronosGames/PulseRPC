@@ -15,13 +15,16 @@ public class StabilityScenario : ScenarioBase
     public override string Name => "stability";
     public override string Description => "长时间运行测试，监控内存泄漏和连接稳定性";
 
-    public override async Task<BenchmarkResult> RunAsync(IBenchmarkHub service, BenchmarkConfig config, CancellationToken cancellationToken = default)
+    public override async Task<BenchmarkResult> RunAsync(IReadOnlyList<IBenchmarkHub> services, BenchmarkConfig config, CancellationToken cancellationToken = default)
     {
         var result = new BenchmarkResult
         {
             ScenarioName = Name,
             StartTime = DateTime.UtcNow
         };
+
+        // 稳定性测试是串行的，使用第一个连接
+        var service = services[0];
 
         try
         {

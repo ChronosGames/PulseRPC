@@ -180,6 +180,9 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
     {
         _logger.LogDebug("消息调度器 #{DispatcherId} 启动", dispatcherId);
 
+        // 预分配等待任务数组，避免每次循环创建新数组
+        var waitTasks = new Task<bool>[_priorityReaders.Length];
+
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -199,13 +202,16 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
                     }
                 }
 
-                // 如果没有任务，等待一小段时间
+                // 如果没有任务，等待任意通道有数据
                 if (!taskHandled)
                 {
-                    // 使用 WaitToReadAsync 等待任何优先级通道有数据
-                    var waitTasks = _priorityReaders.Select(reader => reader.WaitToReadAsync(cancellationToken).AsTask());
                     try
                     {
+                        // 复用数组，仅更新任务引用
+                        for (int i = 0; i < _priorityReaders.Length; i++)
+                        {
+                            waitTasks[i] = _priorityReaders[i].WaitToReadAsync(cancellationToken).AsTask();
+                        }
                         await Task.WhenAny(waitTasks).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException)

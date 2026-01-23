@@ -250,22 +250,30 @@ public static class RoutingTableGenerator
 
 
     /// <summary>
-    /// 生成代理实例获取方法
+    /// 生成代理实例获取方法（使用 ConditionalWeakTable 缓存，避免每次请求创建新 Proxy）
     /// </summary>
     private static void GenerateProxyGetter(StringBuilder sb, ServiceModel service)
     {
         var proxyClassName = $"{service.InterfaceName.TrimStart('I')}Proxy";
+        var serviceName = service.InterfaceName.TrimStart('I');
+        var cacheFieldName = $"_{serviceName}ProxyCache";
+
+        sb.AppendLine($"    // Proxy 缓存 - 使用 ConditionalWeakTable 避免内存泄漏，键为服务实现实例");
+        sb.AppendLine($"    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<{service.InterfaceFullName}, {service.Namespace}.Generated.{proxyClassName}> {cacheFieldName} = new();");
+        sb.AppendLine();
 
         sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// Get or create proxy for {service.InterfaceName} from ServiceProvider");
+        sb.AppendLine($"    /// Get or create cached proxy for {service.InterfaceName} from ServiceProvider");
+        sb.AppendLine($"    /// 使用 ConditionalWeakTable 缓存 Proxy 实例，避免重复创建");
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine($"    private {service.Namespace}.Generated.{proxyClassName} GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy(IServiceProvider serviceProvider)");
+        sb.AppendLine($"    private {service.Namespace}.Generated.{proxyClassName} GetOrCreate{serviceName}Proxy(IServiceProvider serviceProvider)");
         sb.AppendLine("    {");
         sb.AppendLine($"        var implementation = ({service.InterfaceFullName}?)serviceProvider?.GetService(typeof({service.InterfaceFullName}));");
         sb.AppendLine("        if (implementation is null)");
         sb.AppendLine($"            throw new InvalidOperationException($\"Service implementation for {service.InterfaceName} not registered in DI container\");");
-        sb.AppendLine($"        return new {service.Namespace}.Generated.{proxyClassName}(implementation);");
+        sb.AppendLine();
+        sb.AppendLine($"        return {cacheFieldName}.GetValue(implementation, impl => new {service.Namespace}.Generated.{proxyClassName}(impl));");
         sb.AppendLine("    }");
         sb.AppendLine();
     }

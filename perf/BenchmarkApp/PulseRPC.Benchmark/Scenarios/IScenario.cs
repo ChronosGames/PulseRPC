@@ -21,5 +21,8 @@ public interface IScenario
     /// <summary>
     /// 运行场景
     /// </summary>
-    Task<BenchmarkResult> RunAsync(IBenchmarkHub service, BenchmarkConfig config, CancellationToken cancellationToken = default);
+    /// <param name="services">多个独立连接的服务代理列表</param>
+    /// <param name="config">基准测试配置</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    Task<BenchmarkResult> RunAsync(IReadOnlyList<IBenchmarkHub> services, BenchmarkConfig config, CancellationToken cancellationToken = default);
 }

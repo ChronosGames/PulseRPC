@@ -9,6 +9,7 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -80,7 +81,68 @@ public readonly struct ChunkHeader
 }
 
 /// <summary>
+/// 发送项 - 封装待发送的数据（支持小包和大包分片）
+/// 使用 readonly struct 避免堆分配
+/// </summary>
+internal readonly struct TcpSendItem
+{
+    /// <summary>
+    /// 发送项类型
+    /// </summary>
+    public enum ItemType : byte
+    {
+        SmallPacket,      // 小包：直接发送
+        LargePacketChunks // 大包分片：所有分片连续发送
+    }
+
+    public readonly ItemType Type;
+    public readonly byte[] Buffer;           // 池化缓冲区
+    public readonly int DataLength;          // 实际数据长度
+    public readonly int ChunkId;             // 大包分片ID（仅大包使用）
+    public readonly int TotalChunks;         // 总分片数（仅大包使用）
+    public readonly int ChunkSize;           // 每个分片大小（仅大包使用）
+
+    /// <summary>
+    /// 创建小包发送项
+    /// </summary>
+    public TcpSendItem(byte[] buffer, int dataLength)
+    {
+        Type = ItemType.SmallPacket;
+        Buffer = buffer;
+        DataLength = dataLength;
+        ChunkId = 0;
+        TotalChunks = 0;
+        ChunkSize = 0;
+    }
+
+    /// <summary>
+    /// 创建大包发送项
+    /// </summary>
+    public TcpSendItem(byte[] buffer, int dataLength, int chunkId, int totalChunks, int chunkSize)
+    {
+        Type = ItemType.LargePacketChunks;
+        Buffer = buffer;
+        DataLength = dataLength;
+        ChunkId = chunkId;
+        TotalChunks = totalChunks;
+        ChunkSize = chunkSize;
+    }
+
+    /// <summary>
+    /// 归还缓冲区到池
+    /// </summary>
+    public void ReturnBuffer()
+    {
+        if (Buffer != null)
+        {
+            ArrayPool<byte>.Shared.Return(Buffer);
+        }
+    }
+}
+
+/// <summary>
 /// TCP传输基类，提供TCP连接的基础功能
+/// 使用发送队列替代发送锁，支持高并发发送
 /// </summary>
 public abstract class TcpTransport : ITransport
 {
@@ -88,8 +150,11 @@ public abstract class TcpTransport : ITransport
     protected readonly ILogger _logger;
     protected readonly byte[] _receiveBuffer;
     protected readonly LargePacketHandler _packetHandler;
-    protected readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
-    protected readonly byte[] _headerBuffer; // 可重用的头部缓冲区
+    protected readonly byte[] _headerBuffer; // 可重用的头部缓冲区（仅发送任务使用）
+
+    // 发送队列（替代 _sendLock）
+    private readonly Channel<TcpSendItem> _sendQueue;
+    private Task? _sendTask;
 
     protected int _nextChunkId;
     protected Socket? _socket;
@@ -122,14 +187,31 @@ public abstract class TcpTransport : ITransport
         _options = options ?? new TcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
         _receiveBuffer = new byte[_options.RecvBufferSize];
-        _headerBuffer = new byte[MessageHeader.Size + ChunkHeader.Size]; // 预分配可重用缓冲区
+        _headerBuffer = new byte[MessageHeader.Size + ChunkHeader.Size]; // 预分配可重用缓冲区（仅发送任务使用）
         _packetHandler = new LargePacketHandler();
         _nextChunkId = 1;
         _cts = new CancellationTokenSource();
+
+        // 初始化发送队列
+        _sendQueue = Channel.CreateBounded<TcpSendItem>(new BoundedChannelOptions(_options.SendQueueCapacity)
+        {
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = true,   // 单线程发送
+            SingleWriter = false,  // 多线程入队
+            AllowSynchronousContinuations = false
+        });
     }
 
     /// <summary>
-    /// 发送数据 - 使用流式分片避免大对象分配
+    /// 启动发送任务（子类在连接建立后调用）
+    /// </summary>
+    protected void StartSendTask()
+    {
+        _sendTask = Task.Run(SendLoopAsync);
+    }
+
+    /// <summary>
+    /// 发送数据 - 使用发送队列实现高并发（无锁入队，立即返回）
     /// </summary>
     public virtual async Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
@@ -138,36 +220,157 @@ public abstract class TcpTransport : ITransport
             return false;
         }
 
-        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
-
-        // 小包直接发送
-        if (data.Length <= _options.SmallPacketThreshold)
+        // 如果发送任务尚未启动（握手阶段），使用直接发送
+        if (_sendTask == null)
         {
-            return await SendSmallPacketAsync(data, linkedCts.Token);
+            return await SendDirectAsync(data, cancellationToken);
         }
 
-        // 大包使用流式分片发送
-        return await SendLargePacketStreamingAsync(data, linkedCts.Token);
+        try
+        {
+            TcpSendItem item;
+
+            if (data.Length <= _options.SmallPacketThreshold)
+            {
+                // 小包：复制到池化缓冲区后入队
+                var buffer = ArrayPool<byte>.Shared.Rent(data.Length);
+                data.Span.CopyTo(buffer);
+                item = new TcpSendItem(buffer, data.Length);
+            }
+            else
+            {
+                // 大包：复制整个数据到池化缓冲区，由发送任务分片
+                var chunkId = Interlocked.Increment(ref _nextChunkId);
+                var totalChunks = (data.Length + _options.ChunkSize - 1) / _options.ChunkSize;
+
+                var buffer = ArrayPool<byte>.Shared.Rent(data.Length);
+                data.Span.CopyTo(buffer);
+                item = new TcpSendItem(buffer, data.Length, chunkId, totalChunks, _options.ChunkSize);
+            }
+
+            // 尝试同步入队（避免异步开销）
+            if (_sendQueue.Writer.TryWrite(item))
+            {
+                return true;
+            }
+
+            // 队列满时异步等待
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
+            await _sendQueue.Writer.WriteAsync(item, linkedCts.Token);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "发送数据入队失败");
+            return false;
+        }
     }
 
     /// <summary>
-    /// 发送小包数据
+    /// 直接发送（握手阶段使用，发送任务启动前）
     /// </summary>
-    private async Task<bool> SendSmallPacketAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+    private async Task<bool> SendDirectAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
     {
-        await _sendLock.WaitAsync(cancellationToken);
+        if (_stream == null) return false;
+
         try
         {
-            // 创建消息头
             var header = new MessageHeader(data.Length, 0, MessageHeader.FlagNone);
-
-            // 使用 AsyncSpanHelper 避免在 async 方法中直接操作 Span
             var success = await AsyncSpanHelper.SendSmallPacketAsync(
-                _stream!, _headerBuffer, data, header, cancellationToken);
+                _stream, _headerBuffer, data, header, cancellationToken);
 
             if (success)
             {
                 Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + data.Length);
+            }
+            return success;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "直接发送数据失败");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 发送循环 - 单线程顺序发送（保证 TCP 字节流顺序）
+    /// </summary>
+    private async Task SendLoopAsync()
+    {
+        _logger.LogDebug("发送任务启动");
+
+        try
+        {
+            while (!_cts.Token.IsCancellationRequested)
+            {
+                TcpSendItem item;
+                try
+                {
+                    item = await _sendQueue.Reader.ReadAsync(_cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (ChannelClosedException)
+                {
+                    break;
+                }
+
+                try
+                {
+                    switch (item.Type)
+                    {
+                        case TcpSendItem.ItemType.SmallPacket:
+                            await SendSmallPacketInternalAsync(item);
+                            break;
+                        case TcpSendItem.ItemType.LargePacketChunks:
+                            await SendLargePacketInternalAsync(item);
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "发送数据失败");
+                }
+                finally
+                {
+                    // 归还缓冲区
+                    item.ReturnBuffer();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "发送循环异常退出");
+        }
+
+        _logger.LogDebug("发送任务停止");
+    }
+
+    /// <summary>
+    /// 内部发送小包（由发送任务调用，无锁）
+    /// </summary>
+    private async Task<bool> SendSmallPacketInternalAsync(TcpSendItem item)
+    {
+        if (_stream == null) return false;
+
+        try
+        {
+            var header = new MessageHeader(item.DataLength, 0, MessageHeader.FlagNone);
+
+            // 直接使用 _headerBuffer（发送任务独占，无竞争）
+            var success = await AsyncSpanHelper.SendSmallPacketAsync(
+                _stream, _headerBuffer, new ReadOnlyMemory<byte>(item.Buffer, 0, item.DataLength),
+                header, _cts.Token);
+
+            if (success)
+            {
+                Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + item.DataLength);
             }
 
             return success;
@@ -177,58 +380,47 @@ public abstract class TcpTransport : ITransport
             _logger.LogError(ex, "发送小包数据失败");
             return false;
         }
-        finally
-        {
-            _sendLock.Release();
-        }
     }
 
     /// <summary>
-    /// 流式发送大包 - 避免创建临时分片数组
+    /// 内部发送大包分片（由发送任务调用，无锁，所有分片连续发送）
     /// </summary>
-    private async Task<bool> SendLargePacketStreamingAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)
+    private async Task<bool> SendLargePacketInternalAsync(TcpSendItem item)
     {
-        var chunkId = Interlocked.Increment(ref _nextChunkId);
-        var totalChunks = (data.Length + _options.ChunkSize - 1) / _options.ChunkSize;
+        if (_stream == null) return false;
 
         try
         {
-            for (var i = 0; i < totalChunks; i++)
+            var data = new ReadOnlyMemory<byte>(item.Buffer, 0, item.DataLength);
+
+            for (var i = 0; i < item.TotalChunks; i++)
             {
-                var offset = i * _options.ChunkSize;
-                var chunkSize = Math.Min(_options.ChunkSize, data.Length - offset);
+                var offset = i * item.ChunkSize;
+                var chunkSize = Math.Min(item.ChunkSize, item.DataLength - offset);
                 var chunkData = data.Slice(offset, chunkSize);
 
                 var flags = MessageHeader.FlagChunked;
-                if (i == totalChunks - 1)
+                if (i == item.TotalChunks - 1)
                     flags |= MessageHeader.FlagEndOfChunk;
 
                 var messageHeader = new MessageHeader(
                     ChunkHeader.Size + chunkSize,
-                    0, // messageId
+                    0,
                     flags);
 
-                var chunkHeader = new ChunkHeader(chunkId, i, totalChunks, chunkSize);
+                var chunkHeader = new ChunkHeader(item.ChunkId, i, item.TotalChunks, chunkSize);
 
-                await _sendLock.WaitAsync(cancellationToken);
-                try
+                // 直接发送（发送任务独占，无锁）
+                var success = await AsyncSpanHelper.SendChunkAsync(
+                    _stream, _headerBuffer, chunkData, messageHeader, chunkHeader, _cts.Token);
+
+                if (success)
                 {
-                    // 使用 AsyncSpanHelper 发送分片数据
-                    var success = await AsyncSpanHelper.SendChunkAsync(
-                        _stream!, _headerBuffer, chunkData, messageHeader, chunkHeader, cancellationToken);
-
-                    if (success)
-                    {
-                        Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + ChunkHeader.Size + chunkSize);
-                    }
-                    else
-                    {
-                        return false;
-                    }
+                    Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + ChunkHeader.Size + chunkSize);
                 }
-                finally
+                else
                 {
-                    _sendLock.Release();
+                    return false;
                 }
             }
 
@@ -236,7 +428,7 @@ public abstract class TcpTransport : ITransport
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "流式发送大包数据失败");
+            _logger.LogError(ex, "发送大包数据失败");
             return false;
         }
     }
@@ -436,28 +628,55 @@ public abstract class TcpTransport : ITransport
     }
 
     /// <summary>
-    /// 发送消息（带消息头）
+    /// 发送消息（带消息头）- 用于握手等控制消息
+    /// 注意：在发送任务启动前，直接发送；启动后，入队发送
     /// </summary>
     private async Task SendMessageAsync(MessageHeader header, byte[] data, CancellationToken cancellationToken = default)
     {
-        await _sendLock.WaitAsync(cancellationToken);
-        try
-        {
-            // 发送消息头
-            var headerBytes = new byte[MessageHeader.Size];
-            AsyncSpanHelper.WriteMessageHeaderSync(headerBytes, header);
-            await _stream!.WriteAsync(headerBytes, 0, MessageHeader.Size, cancellationToken);
+        if (_stream == null)
+            throw new InvalidOperationException("Stream is not available");
 
-            // 发送消息体
-            await _stream.WriteAsync(data, 0, data.Length, cancellationToken);
-            await _stream.FlushAsync(cancellationToken);
-
-            Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + data.Length);
-        }
-        finally
+        // 如果发送任务尚未启动（握手阶段），直接发送
+        if (_sendTask == null)
         {
-            _sendLock.Release();
+            await SendMessageDirectAsync(header, data, cancellationToken);
+            return;
         }
+
+        // 发送任务已启动，通过队列发送（不等待完成）
+        // 合并头部和数据
+        var totalLength = MessageHeader.Size + data.Length;
+        var buffer = ArrayPool<byte>.Shared.Rent(totalLength);
+
+        // 写入消息头
+        AsyncSpanHelper.WriteMessageHeaderSync(buffer, header);
+        // 写入消息体
+        data.CopyTo(buffer, MessageHeader.Size);
+
+        var item = new TcpSendItem(buffer, totalLength);
+
+        // 尝试同步入队
+        if (!_sendQueue.Writer.TryWrite(item))
+        {
+            await _sendQueue.Writer.WriteAsync(item, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// 直接发送消息（握手阶段使用，发送任务启动前）
+    /// </summary>
+    private async Task SendMessageDirectAsync(MessageHeader header, byte[] data, CancellationToken cancellationToken)
+    {
+        // 发送消息头
+        var headerBytes = new byte[MessageHeader.Size];
+        AsyncSpanHelper.WriteMessageHeaderSync(headerBytes, header);
+        await _stream!.WriteAsync(headerBytes, 0, MessageHeader.Size, cancellationToken);
+
+        // 发送消息体
+        await _stream.WriteAsync(data, 0, data.Length, cancellationToken);
+        await _stream.FlushAsync(cancellationToken);
+
+        Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + data.Length);
     }
 
     /// <summary>
@@ -538,14 +757,29 @@ public abstract class TcpTransport : ITransport
 
         _disposed = true;
 
+        // 标记发送队列完成，停止发送任务
+        _sendQueue.Writer.TryComplete();
+
         _cts.Cancel();
 
         try
         {
+            // 等待发送任务完成
+            if (_sendTask != null)
+            {
+                try
+                {
+                    _sendTask.Wait(TimeSpan.FromSeconds(5));
+                }
+                catch (AggregateException)
+                {
+                    // 忽略任务取消异常
+                }
+            }
+
             _stream?.Dispose();
             _socket?.Dispose();
             _packetHandler?.Dispose();
-            _sendLock?.Dispose();
         }
         catch (Exception ex)
         {

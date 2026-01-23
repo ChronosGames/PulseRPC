@@ -115,6 +115,10 @@ public class TcpServerTransport : TcpTransport, IServerTransport
                 if (accepted)
                 {
                     _handshakeCompleted = true;
+
+                    // 握手完成后启动发送任务（高并发发送优化）
+                    StartSendTask();
+
                     _logger.LogInformation("握手成功: ConnectionId={ConnectionId}, ClientName={ClientName}",
                         _id, handshake.ClientName);
                 }

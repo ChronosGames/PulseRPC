@@ -22,7 +22,7 @@ public class BandwidthScenario : ScenarioBase
         ? "测试客户端到服务端的数据传输带宽"
         : "测试服务端到客户端的数据传输带宽";
 
-    public override async Task<BenchmarkResult> RunAsync(IBenchmarkHub service, BenchmarkConfig config, CancellationToken cancellationToken = default)
+    public override async Task<BenchmarkResult> RunAsync(IReadOnlyList<IBenchmarkHub> services, BenchmarkConfig config, CancellationToken cancellationToken = default)
     {
         var result = new BenchmarkResult
         {
@@ -32,8 +32,9 @@ public class BandwidthScenario : ScenarioBase
 
         try
         {
-            Logger.LogInformation("开始{Direction}带宽测试，迭代次数: {Iterations}, 数据包大小: {Size}B",
-                _isUpload ? "上行" : "下行", config.Iterations, config.MessageSize);
+            var connectionCount = services.Count;
+            Logger.LogInformation("开始{Direction}带宽测试，迭代次数: {Iterations}, 数据包大小: {Size}B, 独立连接数: {Connections}",
+                _isUpload ? "上行" : "下行", config.Iterations, config.MessageSize, connectionCount);
 
             var latencies = new List<double>();
             var latencyLock = new object();
@@ -41,31 +42,36 @@ public class BandwidthScenario : ScenarioBase
             long failCount = 0;
             long totalBytes = 0;
 
-            // 预热
-            Logger.LogInformation("预热中...");
-            var warmupCount = Math.Min(config.WarmupIterations, 50);
-            for (int i = 0; i < warmupCount && !cancellationToken.IsCancellationRequested; i++)
+            // 预热（每个连接都预热）
+            Logger.LogInformation("预热中（{Count}个连接）...", connectionCount);
+            var warmupCount = Math.Min(config.WarmupIterations, 50) / connectionCount;
+            var warmupTasks = services.Select(async service =>
             {
-                if (_isUpload)
+                for (int i = 0; i < warmupCount && !cancellationToken.IsCancellationRequested; i++)
                 {
-                    var request = UploadRequest.Create(i, config.MessageSize);
-                    await service.UploadAsync(request);
+                    if (_isUpload)
+                    {
+                        var request = UploadRequest.Create(i, config.MessageSize);
+                        await service.UploadAsync(request);
+                    }
+                    else
+                    {
+                        var request = DownloadRequest.Create(i, config.MessageSize);
+                        await service.DownloadAsync(request);
+                    }
                 }
-                else
-                {
-                    var request = DownloadRequest.Create(i, config.MessageSize);
-                    await service.DownloadAsync(request);
-                }
-            }
+            });
+            await Task.WhenAll(warmupTasks);
 
             // 主测试
             var totalStopwatch = Stopwatch.StartNew();
             var tasks = new List<Task>();
-            var iterationsPerConnection = config.Iterations / Math.Max(1, config.Connections);
+            var iterationsPerConnection = config.Iterations / connectionCount;
 
-            for (int c = 0; c < config.Connections; c++)
+            // 每个独立连接运行一个任务
+            for (int c = 0; c < connectionCount; c++)
             {
-                var connectionId = c;
+                var service = services[c];  // 每个任务使用独立的连接
                 var task = Task.Run(async () =>
                 {
                     var stopwatch = new Stopwatch();

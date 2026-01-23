@@ -1,6 +1,7 @@
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Net;
 using System.Runtime.CompilerServices;
@@ -494,20 +495,17 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             return;
         }
 
-        List<Action<ReadOnlyMemory<byte>>>? handlers;
-        lock (_syncRoot)
+        // 无锁读取：ConcurrentDictionary + ImmutableArray
+        if (!_protocolIdEventHandlers.TryGetValue(message.Header.ProtocolId, out var handlers))
         {
-            if (!_protocolIdEventHandlers.TryGetValue(message.Header.ProtocolId, out handlers))
+            if (_logger.IsEnabled(LogLevel.Warning))
             {
-                if (_logger.IsEnabled(LogLevel.Warning))
-                {
-                    _logger.LogWarning("收到未注册的事件: ProtocolId=0x{Id:X4}", message.Header.ProtocolId);
-                }
-                return;
+                _logger.LogWarning("收到未注册的事件: ProtocolId=0x{Id:X4}", message.Header.ProtocolId);
             }
-            handlers = new List<Action<ReadOnlyMemory<byte>>>(handlers);
+            return;
         }
 
+        // ImmutableArray 是值类型，无需额外复制
         foreach (var handler in handlers)
         {
             try
@@ -688,12 +686,14 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         }
     }
 
-    // 基于协议号的事件处理器字典（protocolId -> 反序列化委托列表）
-    private readonly Dictionary<ushort, List<Action<ReadOnlyMemory<byte>>>> _protocolIdEventHandlers = new();
+    // 基于协议号的事件处理器字典（protocolId -> 不可变委托数组）
+    // 使用 ConcurrentDictionary + ImmutableArray 实现无锁读取
+    private readonly ConcurrentDictionary<ushort, ImmutableArray<Action<ReadOnlyMemory<byte>>>> _protocolIdEventHandlers = new();
 
     /// <summary>
     /// [Server Sent Event] 注册事件接收处理器 - 使用协议号（零拷贝路径）
     /// 源生成器专用：使用协议号替代事件名，性能更优
+    /// 使用 CAS 操作实现无锁注册
     /// </summary>
     /// <param name="protocolId">协议号（由源生成器生成）</param>
     /// <param name="deserializeAndInvoke">反序列化+调用委托（由源生成器生成）</param>
@@ -702,40 +702,49 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         ushort protocolId,
         Action<ReadOnlyMemory<byte>> deserializeAndInvoke)
     {
-        lock (_syncRoot)
-        {
-            if (!_protocolIdEventHandlers.TryGetValue(protocolId, out var handlers))
-            {
-                handlers = new List<Action<ReadOnlyMemory<byte>>>();
-                _protocolIdEventHandlers[protocolId] = handlers;
-            }
+        // 使用 CAS 操作无锁更新 ImmutableArray
+        _protocolIdEventHandlers.AddOrUpdate(
+            protocolId,
+            // 添加新条目
+            _ => ImmutableArray.Create(deserializeAndInvoke),
+            // 更新现有条目：创建新的 ImmutableArray 包含新处理器
+            (_, existing) => existing.Add(deserializeAndInvoke));
 
-            handlers.Add(deserializeAndInvoke);
-
-            var subscriptionId = Guid.NewGuid();
-            return new SubscriptionToken(
-                subscriptionId,
-                $"Protocol:{protocolId:X4}",  // 使用协议号的十六进制表示作为标识
-                typeof(ReadOnlyMemory<byte>),
-                () => UnsubscribeProtocolIdEvent(protocolId, deserializeAndInvoke));
-        }
+        var subscriptionId = Guid.NewGuid();
+        return new SubscriptionToken(
+            subscriptionId,
+            $"Protocol:{protocolId:X4}",  // 使用协议号的十六进制表示作为标识
+            typeof(ReadOnlyMemory<byte>),
+            () => UnsubscribeProtocolIdEvent(protocolId, deserializeAndInvoke));
     }
 
     /// <summary>
-    /// 取消订阅基于协议号的事件
+    /// 取消订阅基于协议号的事件（无锁实现）
     /// </summary>
     private void UnsubscribeProtocolIdEvent(ushort protocolId, Action<ReadOnlyMemory<byte>> handler)
     {
-        lock (_syncRoot)
+        // 使用 CAS 操作无锁更新
+        while (_protocolIdEventHandlers.TryGetValue(protocolId, out var existing))
         {
-            if (_protocolIdEventHandlers.TryGetValue(protocolId, out var handlers))
+            var newHandlers = existing.Remove(handler);
+
+            if (newHandlers.IsEmpty)
             {
-                handlers.Remove(handler);
-                if (handlers.Count == 0)
+                // 移除空条目（使用 TryUpdate 配合空数组检查，兼容 netstandard2.1）
+                if (_protocolIdEventHandlers.TryRemove(protocolId, out _))
                 {
-                    _protocolIdEventHandlers.Remove(protocolId);
+                    break;
                 }
             }
+            else
+            {
+                // 更新为新数组
+                if (_protocolIdEventHandlers.TryUpdate(protocolId, newHandlers, existing))
+                {
+                    break;
+                }
+            }
+            // CAS 失败，重试
         }
     }
 

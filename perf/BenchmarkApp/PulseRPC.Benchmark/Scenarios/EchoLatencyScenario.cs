@@ -15,13 +15,16 @@ public class EchoLatencyScenario : ScenarioBase
     public override string Name => "latency";
     public override string Description => "测量单次RPC调用的往返时间(RTT)";
 
-    public override async Task<BenchmarkResult> RunAsync(IBenchmarkHub service, BenchmarkConfig config, CancellationToken cancellationToken = default)
+    public override async Task<BenchmarkResult> RunAsync(IReadOnlyList<IBenchmarkHub> services, BenchmarkConfig config, CancellationToken cancellationToken = default)
     {
         var result = new BenchmarkResult
         {
             ScenarioName = Name,
             StartTime = DateTime.UtcNow
         };
+
+        // 延迟测试是串行的，使用第一个连接
+        var service = services[0];
 
         try
         {

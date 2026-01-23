@@ -57,6 +57,11 @@ public class TcpClientTransport : TcpTransport, IClientTransport
             _socket?.Dispose();
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
+            // 设置Socket选项（重要：NoDelay 禁用 Nagle 算法，避免小包延迟）
+            _socket.NoDelay = _options.NoDelay;
+            _socket.ReceiveBufferSize = _options.RecvBufferSize;
+            _socket.SendBufferSize = _options.SendBufferSize;
+
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
             linkedCts.CancelAfter(_options.ConnectionTimeout);
 
@@ -97,6 +102,9 @@ public class TcpClientTransport : TcpTransport, IClientTransport
                 ChangeStateWithConnectionEvents(ConnectionState.Failed, "握手超时或被拒绝");
                 throw new InvalidOperationException("握手超时或被拒绝");
             }
+
+            // 握手完成后启动发送任务（高并发发送优化）
+            StartSendTask();
 
             _logger.LogInformation("已连接到服务器并完成握手: {Host}:{Port}", host, port);
         }

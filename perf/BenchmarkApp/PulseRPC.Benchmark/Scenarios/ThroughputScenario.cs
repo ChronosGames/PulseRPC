@@ -15,7 +15,7 @@ public class ThroughputScenario : ScenarioBase
     public override string Name => "throughput";
     public override string Description => "测量系统的吞吐量和处理能力";
 
-    public override async Task<BenchmarkResult> RunAsync(IBenchmarkHub service, BenchmarkConfig config, CancellationToken cancellationToken = default)
+    public override async Task<BenchmarkResult> RunAsync(IReadOnlyList<IBenchmarkHub> services, BenchmarkConfig config, CancellationToken cancellationToken = default)
     {
         var result = new BenchmarkResult
         {
@@ -25,21 +25,26 @@ public class ThroughputScenario : ScenarioBase
 
         try
         {
-            Logger.LogInformation("开始吞吐量测试，持续时间: {Duration}秒, 并发连接: {Connections}",
-                config.DurationSeconds, config.Connections);
+            var connectionCount = services.Count;
+            Logger.LogInformation("开始吞吐量测试，持续时间: {Duration}秒, 独立连接数: {Connections}",
+                config.DurationSeconds, connectionCount);
 
             var latencies = new List<double>();
             var latencyLock = new object();
             long successCount = 0;
             long failCount = 0;
 
-            // 预热
-            Logger.LogInformation("预热中...");
-            for (int i = 0; i < config.WarmupIterations && !cancellationToken.IsCancellationRequested; i++)
+            // 预热（每个连接都预热）
+            Logger.LogInformation("预热中（{Count}个连接）...", connectionCount);
+            var warmupTasks = services.Select(async service =>
             {
-                var warmupRequest = EchoRequest.Create(GenerateTestString(config.MessageSize));
-                await service.EchoAsync(warmupRequest);
-            }
+                for (int i = 0; i < config.WarmupIterations / connectionCount && !cancellationToken.IsCancellationRequested; i++)
+                {
+                    var warmupRequest = EchoRequest.Create(GenerateTestString(config.MessageSize));
+                    await service.EchoAsync(warmupRequest);
+                }
+            });
+            await Task.WhenAll(warmupTasks);
 
             // 主测试
             var testDuration = TimeSpan.FromSeconds(config.DurationSeconds);
@@ -49,8 +54,10 @@ public class ThroughputScenario : ScenarioBase
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(testDuration);
 
-            for (int c = 0; c < config.Connections; c++)
+            // 每个独立连接运行一个任务
+            for (int c = 0; c < connectionCount; c++)
             {
+                var service = services[c];  // 每个任务使用独立的连接
                 var task = Task.Run(async () =>
                 {
                     var stopwatch = new Stopwatch();
