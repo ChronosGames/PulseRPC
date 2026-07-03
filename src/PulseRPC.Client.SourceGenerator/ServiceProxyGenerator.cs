@@ -92,12 +92,18 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 .Select(g => g.First())
                 .ToList();
 
+            // 一次性为编译单元内所有 IPulseHub 接口聚合分配协议号（冲突检测范围与服务端
+            // AssignProtocolIdsForIncremental 保持一致，避免跨接口哈希碰撞在客户端被漏检）
+            var serviceProtocolIds = ProtocolIdGenerator.AssignProtocolIds(
+                uniqueServiceTypes.Select(st => st.Type).OfType<INamedTypeSymbol>(),
+                spc);
+
             // 生成服务代理
             foreach (var serviceTypeInfo in uniqueServiceTypes)
             {
                 if (serviceTypeInfo.Type is INamedTypeSymbol namedType)
                 {
-                    var stubCode = GenerateServiceStub(namedType, spc);
+                    var stubCode = GenerateServiceStub(namedType, spc, serviceProtocolIds);
                     // 使用完整类型名称（包含命名空间）确保文件名唯一
                     // 格式: {Namespace}_{TypeNameWithoutI}.Stub.g.cs
                     var fileName = $"{GetSafeFileName(namedType)}.Stub.g.cs";
@@ -166,6 +172,12 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 .Select(g => g.First())
                 .ToList();
 
+            // 一次性为编译单元内所有 IPulseReceiver 接口聚合分配协议号（独立于 Hub 协议号空间，
+            // 冲突检测范围与服务端 AssignReceiverProtocolIds 保持一致）
+            var receiverProtocolIds = ProtocolIdGenerator.AssignProtocolIds(
+                uniqueEventTypes.Select(et => et.Type).OfType<INamedTypeSymbol>(),
+                spc);
+
             // 注意：支持类型已移至 PulseRPC.Abstractions 库中（PulseRPC.Client.Events 命名空间）
             // 不再需要在此处生成 EventHandlerSupportTypes
 
@@ -183,14 +195,14 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                     // 格式: {Namespace}_{TypeNameWithoutI}.SmartHandler.g.cs
                     if (hasSmartHandlerAttribute || generateSmartHandlers)
                     {
-                        var smartHandlerCode = SmartEventHandlerGenerator.GenerateSmartEventHandler(namedType, spc);
+                        var smartHandlerCode = SmartEventHandlerGenerator.GenerateSmartEventHandler(namedType, spc, receiverProtocolIds);
                         var smartHandlerFileName = $"{GetSafeFileName(namedType)}.SmartHandler.g.cs";
                         spc.AddSource(smartHandlerFileName, SourceText.From(smartHandlerCode, Encoding.UTF8));
                     }
 
                     // 始终生成接收器调度器（轻量级，推荐使用）
                     // 格式: {Namespace}_{TypeNameWithoutI}.Dispatcher.g.cs
-                    var dispatcherCode = ReceiverDispatcherGenerator.GenerateReceiverDispatcher(namedType, spc);
+                    var dispatcherCode = ReceiverDispatcherGenerator.GenerateReceiverDispatcher(namedType, spc, receiverProtocolIds);
                     var dispatcherFileName = $"{GetSafeFileName(namedType)}.Dispatcher.g.cs";
                     spc.AddSource(dispatcherFileName, SourceText.From(dispatcherCode, Encoding.UTF8));
                 }
@@ -285,7 +297,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         return false;
     }
 
-    private static string GenerateServiceStub(INamedTypeSymbol interfaceSymbol, SourceProductionContext context)
+    private static string GenerateServiceStub(INamedTypeSymbol interfaceSymbol, SourceProductionContext context, Dictionary<string, ushort> protocolIds)
     {
         var interfaceName = interfaceSymbol.Name;
         var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;
@@ -293,9 +305,6 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
         // 获取通道特性
         var defaultChannelName = GetChannelAttributeValue(interfaceSymbol) ?? "default";
-
-        // 为所有方法生成协议号
-        var protocolIds = ProtocolIdGenerator.AssignProtocolIds(interfaceSymbol, context);
 
         var sb = new StringBuilder();
 

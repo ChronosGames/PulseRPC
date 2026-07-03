@@ -12,16 +12,13 @@ public static class SmartEventHandlerGenerator
     /// <summary>
     /// 生成智能事件处理器
     /// </summary>
-    public static string GenerateSmartEventHandler(INamedTypeSymbol interfaceSymbol, SourceProductionContext context)
+    public static string GenerateSmartEventHandler(INamedTypeSymbol interfaceSymbol, SourceProductionContext context, Dictionary<string, ushort> protocolIds)
     {
         var interfaceName = interfaceSymbol.Name;
         var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;
         var namespaceName = isGlobalNamespace ? null : interfaceSymbol.ContainingNamespace.ToDisplayString();
         var handlerClassName = GetHandlerClassName(interfaceName);
         var channelName = GetChannelAttributeValue(interfaceSymbol) ?? "default";
-
-        // 为所有方法生成协议号
-        var protocolIds = ProtocolIdGenerator.AssignProtocolIds(interfaceSymbol, context);
 
         var sb = new StringBuilder();
 

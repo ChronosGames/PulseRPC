@@ -166,7 +166,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             if (receiverModels.Count > 0)
             {
                 // 为接收器分配协议号
-                AssignReceiverProtocolIds(receiverModels);
+                AssignReceiverProtocolIds(receiverModels, context);
 
                 // 为每个接收器生成代理
                 foreach (var receiver in receiverModels)
@@ -251,7 +251,6 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     private static void AssignProtocolIdsForIncremental(List<ServiceModel> serviceModels, SourceProductionContext context)
     {
         var usedIds = new Dictionary<ushort, (string service, string method)>();
-        var manualIds = new HashSet<ushort>();
 
         // 第一遍：收集所有手动指定的协议号
         foreach (var service in serviceModels)
@@ -260,22 +259,10 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             {
                 if (method.ProtocolId != 0)
                 {
-                    manualIds.Add(method.ProtocolId);
-
                     // 检查手动指定的协议号是否冲突
                     if (usedIds.TryGetValue(method.ProtocolId, out var existing))
                     {
-                        var descriptor = new DiagnosticDescriptor(
-                            "PULSE003",
-                            "Protocol ID conflict detected",
-                            $"Protocol ID 0x{method.ProtocolId:X4} is already used by {existing.service}.{existing.method}. " +
-                            $"Method {service.InterfaceName}.{method.MethodName} cannot use the same protocol ID. " +
-                            $"Please manually specify a different protocol ID using [Protocol(0xXXXX)] attribute.",
-                            "PulseRPC.Server.SourceGenerator",
-                            DiagnosticSeverity.Error,
-                            true);
-
-                        context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+                        ReportProtocolIdConflict(context, method.ProtocolId, existing, service.InterfaceName, method.MethodName, isManual: true);
                     }
                     else
                     {
@@ -285,29 +272,35 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             }
         }
 
-        // 第二遍：为没有手动指定的方法生成协议号
+        // 第二遍：为没有手动指定的方法生成协议号（纯哈希函数，不做线性探测——探测会让协议号
+        // 随编译单元中方法的增删而漂移，且客户端/服务端各自独立编译时可见的"邻居"集合可能不同，
+        // 导致双方为同一方法算出不同协议号）。一旦发现冲突立即报错，要求开发者显式指定 [Protocol]。
         foreach (var service in serviceModels)
         {
             foreach (var method in service.Methods)
             {
                 if (method.ProtocolId == 0)
                 {
-                    var protocolId = GenerateProtocolIdInternal(service, method, usedIds, manualIds);
+                    var protocolId = GenerateProtocolIdInternal(service, method);
                     method.ProtocolId = protocolId;
-                    usedIds[protocolId] = (service.InterfaceName, method.MethodName);
+
+                    if (usedIds.TryGetValue(protocolId, out var existing))
+                    {
+                        ReportProtocolIdConflict(context, protocolId, existing, service.InterfaceName, method.MethodName, isManual: false);
+                    }
+                    else
+                    {
+                        usedIds[protocolId] = (service.InterfaceName, method.MethodName);
+                    }
                 }
             }
         }
     }
 
     /// <summary>
-    /// 生成协议号（基于 FNV-1a 哈希）
+    /// 生成协议号（基于 FNV-1a 哈希的纯函数，不做线性探测）
     /// </summary>
-    private static ushort GenerateProtocolIdInternal(
-        ServiceModel service,
-        MethodModel method,
-        Dictionary<ushort, (string service, string method)> usedIds,
-        HashSet<ushort> manualIds)
+    private static ushort GenerateProtocolIdInternal(ServiceModel service, MethodModel method)
     {
         // 构造方法签名字符串 - 排除 CancellationToken 参数（与客户端保持一致）
         var parameterTypes = ProtocolIdHelper.FilterCancellationToken(
@@ -318,9 +311,40 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             method.MethodName,
             parameterTypes);
 
-        // 使用辅助类生成唯一协议号
-        var usedIdSet = new HashSet<ushort>(usedIds.Keys);
-        return ProtocolIdHelper.GenerateUniqueProtocolId(signature, usedIdSet, manualIds);
+        return ProtocolIdHelper.GenerateProtocolId(signature);
+    }
+
+    /// <summary>
+    /// 报告协议号冲突（PULSE003）
+    /// </summary>
+    /// <remarks>
+    /// 协议号是方法签名的纯哈希函数，不做线性探测；一旦冲突（无论是手动号之间、自动号之间，
+    /// 还是手动号与自动号之间）立即报错，要求开发者用 <c>[Protocol(0xXXXX)]</c> 显式区分，
+    /// 而不是静默改号，避免协议号随代码提交或编译单元内容变化而漂移。
+    /// </remarks>
+    private static void ReportProtocolIdConflict(
+        SourceProductionContext context,
+        ushort protocolId,
+        (string service, string method) existing,
+        string conflictingService,
+        string conflictingMethod,
+        bool isManual)
+    {
+        var reason = isManual
+            ? "手动指定的协议号与既有方法冲突"
+            : "自动计算的协议号（FNV-1a 哈希）与既有方法冲突";
+
+        var descriptor = new DiagnosticDescriptor(
+            "PULSE003",
+            "Protocol ID conflict detected",
+            $"[{reason}] Protocol ID 0x{protocolId:X4} is already used by {existing.service}.{existing.method}. " +
+            $"Method {conflictingService}.{conflictingMethod} cannot use the same protocol ID. " +
+            $"Please manually specify a different protocol ID using [Protocol(0xXXXX)] attribute.",
+            "PulseRPC.Server.SourceGenerator",
+            DiagnosticSeverity.Error,
+            true);
+
+        context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
     }
 
     /// <summary>
@@ -636,9 +660,14 @@ public static partial class ProtocolIdMapping
     /// <summary>
     /// 为接收器方法分配协议号
     /// </summary>
-    private static void AssignReceiverProtocolIds(List<ReceiverModel> receivers)
+    /// <remarks>
+    /// 独立于 Hub 方法的协议号空间；同样使用纯哈希函数、不做线性探测，冲突时报告
+    /// <c>PULSE004</c> 编译错误（接收器方法当前不支持 <c>[Protocol]</c> 手动指定，因此
+    /// 冲突只可能发生在两个自动生成的号之间）。
+    /// </remarks>
+    private static void AssignReceiverProtocolIds(List<ReceiverModel> receivers, SourceProductionContext context)
     {
-        var usedIds = new HashSet<ushort>();
+        var usedIds = new Dictionary<ushort, (string receiver, string method)>();
 
         foreach (var receiver in receivers)
         {
@@ -653,11 +682,28 @@ public static partial class ProtocolIdMapping
                     method.MethodName,
                     parameterTypes);
 
-                // 生成唯一协议号
-                var protocolId = ProtocolIdHelper.GenerateUniqueProtocolId(signature, usedIds);
-
-                usedIds.Add(protocolId);
+                // 纯哈希函数，不做线性探测
+                var protocolId = ProtocolIdHelper.GenerateProtocolId(signature);
                 method.ProtocolId = protocolId;
+
+                if (usedIds.TryGetValue(protocolId, out var existing))
+                {
+                    var descriptor = new DiagnosticDescriptor(
+                        "PULSE004",
+                        "Receiver protocol ID conflict detected",
+                        $"Protocol ID 0x{protocolId:X4} is already used by {existing.receiver}.{existing.method}. " +
+                        $"Method {receiver.InterfaceName}.{method.MethodName} cannot use the same protocol ID. " +
+                        $"Rename one of the methods, or change its parameter types, to change its hash.",
+                        "PulseRPC.Server.SourceGenerator",
+                        DiagnosticSeverity.Error,
+                        true);
+
+                    context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+                }
+                else
+                {
+                    usedIds[protocolId] = (receiver.InterfaceName, method.MethodName);
+                }
             }
         }
     }

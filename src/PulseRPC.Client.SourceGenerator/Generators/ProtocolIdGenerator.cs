@@ -13,40 +13,25 @@ namespace PulseRPC.Generator.Generators;
 public static class ProtocolIdGenerator
 {
     /// <summary>
-    /// 为方法生成协议号
+    /// 计算方法对应的协议号（纯函数：仅基于方法签名的 FNV-1a 哈希，不做线性探测）
     /// </summary>
+    /// <remarks>
+    /// 协议号必须是签名的纯函数，不依赖"同一次编译中还有哪些其他方法"这类外部状态：
+    /// 一旦引入线性探测（冲突时 +1 寻找空位），协议号就会随着编译单元中方法的增删而漂移，
+    /// 且客户端/服务端各自独立编译时能看到的"邻居"集合可能不同，导致双方为同一方法算出
+    /// 不同的协议号。冲突检测与报告统一由调用方（<see cref="AssignProtocolIds(System.Collections.Generic.IEnumerable{INamedTypeSymbol},SourceProductionContext)"/>）负责：
+    /// 一旦发现冲突即报错（PRPC001），要求开发者用 <c>[Protocol(0xXXXX)]</c> 显式区分，而不是静默改号。
+    /// </remarks>
     /// <param name="method">方法符号</param>
-    /// <param name="usedIds">已使用的协议号字典（用于冲突检测）</param>
-    /// <param name="manualIds">手动指定的协议号集合</param>
     /// <returns>生成的协议号</returns>
-    public static ushort GenerateProtocolId(
-        IMethodSymbol method,
-        Dictionary<ushort, (string service, string method)> usedIds,
-        HashSet<ushort> manualIds)
+    public static ushort GenerateProtocolId(IMethodSymbol method)
     {
         // 构造方法签名字符串：InterfaceName.MethodName(ParameterTypes)
         var signature = BuildMethodSignature(method);
 
-        // 使用 FNV-1a 哈希生成初始协议号
+        // 使用 FNV-1a 哈希生成协议号（纯函数，无探测/无递增）
         var hash = ComputeFnv1aHash(signature);
-        var protocolId = (ushort)(hash & 0xFFFF);
-
-        // 如果冲突，使用线性探测找到下一个可用的协议号
-        var attempts = 0;
-        while (usedIds.ContainsKey(protocolId) || manualIds.Contains(protocolId))
-        {
-            protocolId = (ushort)((protocolId + 1) & 0xFFFF);
-            attempts++;
-
-            // 防止无限循环（理论上不应该发生，因为 ushort 有 65536 个可能值）
-            if (attempts > 65536)
-            {
-                throw new InvalidOperationException(
-                    $"Failed to generate unique protocol ID for {method.ContainingType.ToDisplayString()}.{method.Name}");
-            }
-        }
-
-        return protocolId;
+        return (ushort)(hash & 0xFFFF);
     }
 
     /// <summary>
@@ -222,19 +207,57 @@ public static class ProtocolIdGenerator
     }
 
     /// <summary>
-    /// 为接口的所有方法分配协议号（包括继承的接口方法）
+    /// 为单个接口的所有方法分配协议号（包括继承的接口方法）
     /// </summary>
+    /// <remarks>
+    /// 冲突检测范围仅限于该接口自身；如需要与编译单元内其他接口一起做冲突检测
+    /// （与服务端 <c>AssignProtocolIdsForIncremental</c> 的可见域保持一致），请使用
+    /// <see cref="AssignProtocolIds(IEnumerable{INamedTypeSymbol}, SourceProductionContext)"/> 重载。
+    /// </remarks>
     /// <returns>键为 "{InterfaceFullName}.{MethodName}" 的协议号字典</returns>
     public static Dictionary<string, ushort> AssignProtocolIds(
         INamedTypeSymbol interfaceSymbol,
         SourceProductionContext context)
+        => AssignProtocolIds(new[] { interfaceSymbol }, context);
+
+    /// <summary>
+    /// 为多个接口的所有方法统一分配协议号（包括各自继承的接口方法）
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 冲突检测聚合到整个传入集合（通常是编译单元内所有 <c>IPulseHub</c> 或所有
+    /// <c>IPulseReceiver</c> 派生接口），而非逐接口独立判定。这与服务端
+    /// <c>PulseRPCSourceGenerator.AssignProtocolIdsForIncremental</c> 的聚合范围保持一致，
+    /// 避免"客户端只看到当前接口、服务端能看到全部接口"导致双方对同一方法算出不同协议号。
+    /// </para>
+    /// <para>
+    /// 协议号本身是方法签名的纯哈希函数，不做线性探测；一旦发现冲突（无论是手动号之间、
+    /// 自动号之间，还是手动号与自动号之间）立即报告 <c>PRPC001</c> 编译错误，要求开发者
+    /// 通过 <c>[Protocol(0xXXXX)]</c> 显式区分，而不是静默改号。
+    /// </para>
+    /// </remarks>
+    /// <returns>键为 "{InterfaceFullName}.{MethodName}" 的协议号字典</returns>
+    public static Dictionary<string, ushort> AssignProtocolIds(
+        IEnumerable<INamedTypeSymbol> interfaceSymbols,
+        SourceProductionContext context)
     {
         var protocolIds = new Dictionary<string, ushort>();
         var usedIds = new Dictionary<ushort, (string service, string method)>();
-        var manualIds = new HashSet<ushort>();
 
-        // 收集所有方法（包括继承的接口方法）
-        var methods = GetAllInterfaceMethods(interfaceSymbol).ToList();
+        // 收集全部接口的方法（按声明接口+方法名去重，避免共享基接口的方法被重复处理为"冲突"）
+        var methods = new List<IMethodSymbol>();
+        var seenMethodKeys = new HashSet<string>();
+        foreach (var interfaceSymbol in interfaceSymbols)
+        {
+            foreach (var method in GetAllInterfaceMethods(interfaceSymbol))
+            {
+                var methodKey = $"{method.ContainingType.ToDisplayString()}.{method.Name}";
+                if (seenMethodKeys.Add(methodKey))
+                {
+                    methods.Add(method);
+                }
+            }
+        }
 
         // 第一遍：收集所有手动指定的协议号
         foreach (var method in methods)
@@ -245,8 +268,6 @@ public static class ProtocolIdGenerator
             var manualId = GetManualProtocolId(method);
             if (manualId != 0)
             {
-                manualIds.Add(manualId);
-
                 // 检查手动指定的协议号是否冲突
                 if (usedIds.TryGetValue(manualId, out var existing))
                 {
@@ -260,7 +281,7 @@ public static class ProtocolIdGenerator
             }
         }
 
-        // 第二遍：为没有手动指定的方法生成协议号
+        // 第二遍：为没有手动指定的方法生成协议号（纯哈希，不做线性探测）
         foreach (var method in methods)
         {
             var declaringInterface = method.ContainingType.ToDisplayString();
@@ -268,9 +289,8 @@ public static class ProtocolIdGenerator
 
             if (!protocolIds.ContainsKey(methodKey))
             {
-                var protocolId = GenerateProtocolId(method, usedIds, manualIds);
+                var protocolId = GenerateProtocolId(method);
 
-                // 再次检查生成的协议号是否冲突（理论上不应该，但保险起见）
                 if (usedIds.TryGetValue(protocolId, out var existing))
                 {
                     ReportProtocolIdConflict(context, method, protocolId, existing);

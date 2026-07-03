@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -17,6 +16,15 @@ internal static class ProtocolIdHelper
     /// </summary>
     /// <param name="signature">方法签名字符串</param>
     /// <returns>16位协议号</returns>
+    /// <remarks>
+    /// 这是一个纯函数：相同的签名总是产生相同的协议号，且不依赖调用方传入的"已使用 ID"集合。
+    /// 早期版本在这里做过线性探测（冲突时 +1 寻找空位），已被移除——探测会让协议号随编译单元
+    /// 中方法的增删而静默漂移，且客户端与服务端各自独立编译时能看到的"冲突邻居"可能不同，
+    /// 导致双方对同一方法算出不同的协议号。冲突检测与报告现在统一由调用方
+    /// （<see cref="PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator"/> 中的
+    /// <c>AssignProtocolIdsForIncremental</c> / <c>AssignReceiverProtocolIds</c>）负责：
+    /// 一旦发现冲突立即报告编译错误，要求开发者用 <c>[Protocol(0xXXXX)]</c> 显式区分。
+    /// </remarks>
     public static ushort GenerateProtocolId(string signature)
     {
         var hash = FnvOffsetBasis;
@@ -28,37 +36,6 @@ internal static class ProtocolIdHelper
         }
 
         return (ushort)(hash & 0xFFFF);
-    }
-
-    /// <summary>
-    /// 生成唯一协议号（处理冲突）
-    /// </summary>
-    /// <param name="signature">方法签名字符串</param>
-    /// <param name="usedIds">已使用的协议号集合</param>
-    /// <param name="reservedIds">保留的协议号集合（可选）</param>
-    /// <returns>唯一的16位协议号</returns>
-    public static ushort GenerateUniqueProtocolId(
-        string signature,
-        ICollection<ushort> usedIds,
-        ICollection<ushort>? reservedIds = null)
-    {
-        var protocolId = GenerateProtocolId(signature);
-
-        // 如果冲突，使用线性探测找到下一个可用的协议号
-        var attempts = 0;
-        while (usedIds.Contains(protocolId) || (reservedIds?.Contains(protocolId) ?? false))
-        {
-            protocolId = (ushort)((protocolId + 1) & 0xFFFF);
-            attempts++;
-
-            if (attempts > 65536)
-            {
-                throw new InvalidOperationException(
-                    $"Failed to generate unique protocol ID for signature: {signature}");
-            }
-        }
-
-        return protocolId;
     }
 
     /// <summary>

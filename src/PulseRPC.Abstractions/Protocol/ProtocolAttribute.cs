@@ -7,18 +7,22 @@ namespace PulseRPC.Protocol;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 用于手动指定方法的协议号，避免自动生成的协议号冲突。
+/// 用于手动指定方法的协议号，解决自动生成的协议号冲突。
 /// </para>
 /// <para>
 /// <strong>使用场景</strong>:
 /// </para>
 /// <list type="bullet">
-/// <item><description>协议号碰撞时，手动分配唯一ID</description></item>
+/// <item><description>协议号碰撞时，手动分配唯一ID（<strong>必需</strong>：编译期一旦检测到
+/// 两个方法的协议号相同即报错——<c>PULSE003</c>（服务端 Hub 方法）/ <c>PULSE004</c>
+/// （服务端 Receiver 方法）/ <c>PRPC001</c>（客户端）——不会像早期版本那样自动 +1 寻找空位，
+/// 因此这是解决冲突的唯一方式）</description></item>
 /// <item><description>版本兼容性要求，固定协议号</description></item>
 /// <item><description>跨语言互操作，需要明确的协议号</description></item>
 /// </list>
 /// <para>
-/// <strong>注意</strong>: 协议号自动生成由 SourceGenerator 完成，无需手动生成。
+/// <strong>注意</strong>: 协议号自动生成由 SourceGenerator 完成（FNV-1a 哈希方法签名的纯函数，
+/// 不做线性探测），无需手动生成；只有在编译报错提示冲突时才需要添加本特性。
 /// </para>
 /// </remarks>
 /// <example>
