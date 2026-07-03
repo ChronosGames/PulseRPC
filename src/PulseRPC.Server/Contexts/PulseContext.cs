@@ -71,6 +71,18 @@ public static class PulseContext
     }
 
     /// <summary>
+    /// Gets the current routed service instance key (convenience accessor).
+    /// </summary>
+    /// <remarks>
+    /// Returns <c>null</c> when no context is set, or an empty string when the request carried no instance key.
+    /// </remarks>
+    public static string? CurrentServiceKey
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _current.Value?.ServiceKey;
+    }
+
+    /// <summary>
     /// Gets the current caller ID (convenience accessor).
     /// </summary>
     public static string? CurrentCallerId

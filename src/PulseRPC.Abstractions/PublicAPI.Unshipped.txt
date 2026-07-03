@@ -5,3 +5,29 @@ PulseRPC.ClientFacingAttribute.Enabled.get -> bool
 PulseRPC.IPulseReceiver
 PulseRPC.ReentrantAttribute
 PulseRPC.ReentrantAttribute.ReentrantAttribute() -> void
+PulseRPC.Messaging.MessageHeader.ServiceKey.get -> string!
+PulseRPC.Messaging.MessageHeader.ServiceKey.set -> void
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ReadOnlyEnvelopeHeader() -> void
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ReadOnlyEnvelopeHeader(PulseRPC.Messaging.MessageType type, System.Guid messageId, string! hub, string! key, ushort methodId, PulseRPC.Messaging.MessageFlags flags) -> void
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Type.get -> PulseRPC.Messaging.MessageType
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.MessageId.get -> System.Guid
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Hub.get -> string!
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Key.get -> string!
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.MethodId.get -> ushort
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Flags.get -> PulseRPC.Messaging.MessageFlags
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ToHeader() -> PulseRPC.Messaging.MessageHeader!
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.WithKey(string! key) -> PulseRPC.Messaging.ReadOnlyEnvelopeHeader
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.WithHub(string! hub) -> PulseRPC.Messaging.ReadOnlyEnvelopeHeader
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Equals(PulseRPC.Messaging.ReadOnlyEnvelopeHeader other) -> bool
+override PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Equals(object? obj) -> bool
+override PulseRPC.Messaging.ReadOnlyEnvelopeHeader.GetHashCode() -> int
+override PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ToString() -> string!
+static PulseRPC.Messaging.ReadOnlyEnvelopeHeader.FromHeader(PulseRPC.Messaging.MessageHeader! header) -> PulseRPC.Messaging.ReadOnlyEnvelopeHeader
+PulseRPC.Messaging.EnvelopeRelay
+const PulseRPC.Messaging.EnvelopeRelay.HeaderLengthPrefixSize = 4 -> int
+static PulseRPC.Messaging.EnvelopeRelay.TryReadHeader(System.ReadOnlySpan<byte> frame, out PulseRPC.Messaging.ReadOnlyEnvelopeHeader header, out System.ReadOnlySpan<byte> body) -> bool
+static PulseRPC.Messaging.EnvelopeRelay.TryReadHeader(System.ReadOnlyMemory<byte> frame, out PulseRPC.Messaging.ReadOnlyEnvelopeHeader header, out System.ReadOnlyMemory<byte> body) -> bool
+static PulseRPC.Messaging.EnvelopeRelay.GetFrameSize(in PulseRPC.Messaging.ReadOnlyEnvelopeHeader header, int bodyLength) -> int
+static PulseRPC.Messaging.EnvelopeRelay.TryWriteFrame(in PulseRPC.Messaging.ReadOnlyEnvelopeHeader header, System.ReadOnlySpan<byte> body, System.Span<byte> destination, out int bytesWritten) -> bool
+static PulseRPC.Messaging.EnvelopeRelay.WriteFrame(in PulseRPC.Messaging.ReadOnlyEnvelopeHeader header, System.ReadOnlySpan<byte> body) -> byte[]!

@@ -40,6 +40,9 @@ public sealed record class PulseContextData : IPulseContext
     public string ServiceName { get; init; } = string.Empty;
 
     /// <inheritdoc/>
+    public string ServiceKey { get; init; } = string.Empty;
+
+    /// <inheritdoc/>
     public string MethodName { get; init; } = string.Empty;
 
     /// <inheritdoc/>

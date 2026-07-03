@@ -148,6 +148,26 @@ public partial class MessageHeader
     [MemoryPackOrder(7)]
     public ushort SequenceNumber { get; set; }
 
+    /// <summary>
+    /// 目标服务实例键（Actor / keyed-hub 的实例标识，即完整 ServiceId <c>"ServiceName:BusinessId"</c> 中的 <c>BusinessId</c> 部分）。
+    /// <para>
+    /// 空字符串表示「无实例键」（非 keyed 服务，或由服务端自行解析实例）。
+    /// </para>
+    /// <para>
+    /// 该字段与 <see cref="ServiceName"/>（Hub）、<see cref="ProtocolId"/>（MethodId）共同构成
+    /// <strong>只读信封头地址</strong>：网关（Gateway）可仅凭信封头
+    /// （Hub=<see cref="ServiceName"/> / Key=<see cref="ServiceKey"/> / MethodId=<see cref="ProtocolId"/>）
+    /// 决定目标节点/实例并转发原始帧，<strong>无需反序列化消息体（body）</strong>。
+    /// 参见 <see cref="EnvelopeRelay"/> 与 <see cref="ReadOnlyEnvelopeHeader"/>。
+    /// </para>
+    /// <para>
+    /// 兼容性：作为 MemoryPack 尾部新增成员，旧版本序列化的头部（不含该字段）反序列化后此值为空字符串，
+    /// 新旧两端可互操作。
+    /// </para>
+    /// </summary>
+    [MemoryPackOrder(8)]
+    public string ServiceKey { get; set; } = string.Empty;
+
     [MemoryPackConstructor]
     public MessageHeader()
     {

@@ -420,6 +420,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 // 不再需要重新解析 MessagePacket，直接使用 envelope.Header
                 var serviceName = envelope.Header.ServiceName ?? "Unknown";
                 var methodName = envelope.Header.MethodName ?? "Unknown";
+                var serviceKey = envelope.Header.ServiceKey ?? string.Empty;
 
                 _logger.LogTrace("处理消息: Service={ServiceName}, Method={MethodName}, MessageId={MessageId}, ConnectionId={ConnectionId}",
                     serviceName, methodName, envelope.MessageId, envelope.ConnectionId);
@@ -444,6 +445,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                         {
                             ConnectionId = envelope.ConnectionId,
                             ServiceName = serviceName,
+                            ServiceKey = serviceKey,
                             MethodName = methodName
                         };
                     }
@@ -457,6 +459,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                         {
                             ConnectionId = envelope.ConnectionId,
                             ServiceName = serviceName,
+                            ServiceKey = serviceKey,
                             MethodName = methodName
                         };
                     }

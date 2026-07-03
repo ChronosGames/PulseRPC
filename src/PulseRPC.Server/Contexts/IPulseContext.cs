@@ -45,6 +45,16 @@ public interface IPulseContext : IServiceRequestContext, IDisposable
     string ServiceName { get; }
 
     /// <summary>
+    /// Target service instance key (the routed keyed-hub / Actor instance identifier,
+    /// i.e. the <c>BusinessId</c> part of the full ServiceId <c>"ServiceName:BusinessId"</c>).
+    /// </summary>
+    /// <remarks>
+    /// Populated from the envelope header (<see cref="PulseRPC.Messaging.MessageHeader.ServiceKey"/>) that a
+    /// gateway used to route the request. Empty string when no instance key was supplied.
+    /// </remarks>
+    string ServiceKey => string.Empty;
+
+    /// <summary>
     /// Target method name being invoked.
     /// </summary>
     string MethodName { get; }
