@@ -1,816 +1,93 @@
 # PulseRPC.Client
 
-PulseRPC.Client is a high-performance, enterprise-grade network client library that provides intelligent connection management, advanced routing, and seamless service discovery for distributed applications.
+PulseRPC.Client 是 PulseRPC 框架的高性能网络客户端库，提供连接管理、路由、负载均衡与服务发现能力，面向分布式应用与 Unity 游戏客户端设计。
 
-## Features
+> 客户端 API 仍在演进中，部分接口可能发生变化。完整、可运行的用法请以仓库 [`samples/`](../../samples/)（尤其是 [ChatApp](../../samples/ChatApp/)）和 [`docs/`](../../docs/) 中的中文文档为准。
 
-- **Intelligent Connection Management**: Multi-strategy connection lifecycle with automatic pooling and cleanup
-- **Advanced Service Discovery**: Support for Consul, Kubernetes, Etcd, DNS, and custom discovery mechanisms
-- **Smart Load Balancing**: 8+ built-in strategies including consistent hashing, least connections, and custom algorithms
-- **Connection Pooling**: High-performance connection pools with lease-based resource management
-- **Dynamic Routing**: Rule-based intelligent request routing with context-aware decisions
-- **Multi-Transport Support**: TCP and KCP protocols with pluggable transport architecture
-- **Enterprise Reliability**: Health monitoring, automatic failover, and comprehensive retry policies
-- **Real-time Monitoring**: Detailed statistics, performance metrics, and health reporting
-- **Source Code Generation**: Zero-reflection service proxies via compile-time code generation
-- **Cross-Platform**: Supports .NET 9+ and Unity (netstandard2.1)
+## 特性
 
-## Architecture Overview
+- **连接管理**：多策略连接生命周期管理，支持连接池与自动清理
+- **服务发现**：支持 Consul、Kubernetes、Etcd、DNS 及自定义发现机制
+- **负载均衡**：内置随机、轮询、最少连接、加权轮询、一致性哈希、故障转移等多种策略
+- **连接池**：基于租约（lease）的连接池资源管理
+- **动态路由**：基于规则的请求路由
+- **多传输协议**：TCP 与 KCP，可插拔的传输架构
+- **可靠性**：健康监测、自动故障转移与重试策略
+- **源代码生成**：编译期生成服务代理，客户端调用避免使用反射
+- **跨平台**：支持 .NET 10+ 与 Unity（`netstandard2.1`）
 
-### Three-Layer Abstraction Architecture
+## 架构概览
 
-PulseRPC.Client采用三层抽象架构设计，实现了清晰的职责分离和最大化的代码复用：
+### 三层抽象架构
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                 应用层 (Application Layer)                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │   Service    │  │   Event      │  │    Routing      │   │
-│  │   Proxies    │  │  Listeners   │  │   & Discovery   │   │
-│  └──────────────┘  └──────────────┘  └─────────────────┘   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              IClientChannel (Client-Specific)          │   │
-│  │  • GetServiceAsync<T>()                            │   │
-│  │  • RegisterEventListenerAsync<T>()                 │   │
-│  │  • CheckHealthAsync() / ReconnectAsync()           │   │
-│  └─────────────────────────────────────────────────────┘   │
-├─────────────────────────────────────────────────────────────┤
-│                 会话层 (Session Layer)                      │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │         ISessionChannel (Shared Abstraction)       │   │
-│  │  • Authentication Context Management               │   │
-│  │  • Properties Dictionary                           │   │
-│  │  • SetAuthentication() / ClearAuthentication()     │   │
-│  └─────────────────────────────────────────────────────┘   │
-├─────────────────────────────────────────────────────────────┤
-│                 传输层 (Transport Layer)                   │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │       ITransportConnection (Shared Foundation)      │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │   │
-│  │  │TCP Conn │ │KCP Conn │ │WS Conn  │ │QUIC Conn│   │   │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘   │   │
-│  └──────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Core Component Architecture
+PulseRPC.Client 采用三层抽象架构设计，实现清晰的职责分离和代码复用：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    IPulseClient                         │
+│                 应用层 (Application Layer)                    │
+│   Service Proxies  ·  Event Listeners  ·  Routing/Discovery   │
+│   IClientChannel（客户端专用能力，如获取服务代理、健康检查）  │
 ├─────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐   │
-│  │ Connection   │  │ Connection   │  │  Load Balancer  │   │
-│  │  Registry    │  │  Lifecycle   │  │   & Router      │   │
-│  └──────────────┘  └──────────────┘  └─────────────────┘   │
+│                 会话层 (Session Layer)                        │
+│   ISessionChannel（认证上下文、属性字典等，与服务端共享抽象） │
 ├─────────────────────────────────────────────────────────────┤
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │            Connection Pool Manager                   │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │   │
-│  │  │TCP Pool │ │KCP Pool │ │Session  │ │OnDemand │   │   │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘   │   │
-│  └──────────────────────────────────────────────────────┘   │
-├─────────────────────────────────────────────────────────────┤
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              Service Discovery Layer                 │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐   │   │
-│  │  │ Consul  │ │   K8s   │ │  Etcd   │ │ Custom  │   │   │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘   │   │
-│  └──────────────────────────────────────────────────────┘   │
+│                 传输层 (Transport Layer)                      │
+│   ITransportConnection（TCP / KCP 等具体连接的共享基础）      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Service Invocation Call Chain
+### 核心组件
 
-#### 完整的 GetServiceAsync<T> 调用链
+- **`IPulseClient`**：客户端统一入口，负责初始化、连接与生命周期管理
+- **`IConnectionManager`**：连接注册、查询、路由与生命周期管理（统一入口）
+- **`ILoadBalancer`**：连接选择与负载均衡
+- **`IClientChannel`**：面向业务的客户端连接抽象，提供服务代理获取等能力
+- **服务发现层**：`IServiceDiscovery` 及其 Consul / Kubernetes / Etcd / DNS 等实现
 
-```
-Client Application Code
-        ↓
-1. IPulseClient.GetServiceAsync<T>()
-        ↓
-2. IClientChannelRouter.RouteAsync() → Select Best IClientChannel
-        ↓
-3. IClientChannel.GetServiceAsync<T>() [Generated Proxy Creation]
-        ↓
-4. Source Generated ServiceProxy Constructor
-        ↓
-5. ServiceProxy.MethodAsync() [User calls specific method]
-        ↓
-6. IClientChannel.SendAsync<T>(RpcRequest) [Generated proxy calls]
-        ↓
-7. SimpleConnection.SendAsync<T>() [Delegation wrapper]
-        ↓
-8. IClientChannelContext.InvokeAsync<T>() [Session layer processing]
-        ↓
-9. IClientTransport.SendAsync(byte[]) [Transport layer]
-        ↓
-10. Network Protocol (TCP/KCP)
-```
-
-#### 详细调用流程说明
-
-**步骤 1-2：应用层路由**
-- `IPulseClient` 通过 `IClientChannelRouter` 选择最佳连接
-- 基于负载均衡策略、路由规则和连接健康状态
-
-**步骤 3-4：服务代理创建**
-- `IClientChannel.GetServiceAsync<T>()` 检查代理缓存
-- 如果未缓存，通过 Source Generator 生成的工厂方法创建代理
-- 代理构造函数接收 `IClientChannel` 实例
-
-**步骤 5-6：方法调用和请求构造**
-- 用户调用代理的具体方法（如 `userService.GetUserAsync(123)`）
-- 生成的代理方法构造 `RpcRequest` 并调用 `IClientChannel.SendAsync<T>()`
-
-**步骤 7-8：会话层处理**
-- `SimpleConnection` 委托到 `IClientChannelContext.InvokeAsync<T>()`
-- 序列化请求、管理请求-响应映射、更新连接活动状态
-
-**步骤 9-10：传输层发送**
-- `IClientChannelContext` 通过 `IClientTransport.SendAsync()` 发送数据
-- 底层网络协议（TCP/KCP）传输到服务器
-
-#### 响应处理流程
+### 服务调用调用链（概念）
 
 ```
-Network Response
-        ↓
-1. IClientTransport.DataReceived Event
-        ↓
-2. IClientChannelContext.OnDataReceived() [Response matching]
-        ↓
-3. TaskCompletionSource<T>.SetResult() [Complete pending request]
-        ↓
-4. IClientChannelContext.InvokeAsync<T>() returns result
-        ↓
-5. Generated ServiceProxy method returns T
-        ↓
-6. Client Application Code receives result
+应用代码
+   ↓ 获取服务代理（Source Generator 生成）
+IClientChannel（经负载均衡/路由选择）
+   ↓ 代理方法构造 RpcRequest 并发送
+会话层（序列化、请求-响应映射）
+   ↓
+传输层（TCP / KCP）
+   ↓
+网络
 ```
 
-### Key Interfaces
+## 快速开始
 
-#### 应用层接口 (Application Layer)
-- **`IPulseClient`**: Unified client entry point with comprehensive management capabilities
-- **`IClientChannel`**: Client-specific connection with business-oriented APIs
-- **`IClientChannelRegistry`**: Connection registration, querying, and lifecycle tracking
-- **`IClientChannelLifecycleManager`**: Connection creation, destruction, and health management
-- **`IConnectionPool`**: High-performance connection pooling with lease-based resource control
-- **`IClientChannelRouter`**: Intelligent routing with rule-based decision making
-
-#### 会话层接口 (Session Layer - Shared with Server)
-- **`ISessionChannel`**: Authentication and properties management (from PulseRPC.Abstractions)
-- **`IServiceDiscovery`**: Dynamic service discovery with real-time change monitoring
-- **`ILoadBalancer`**: Advanced load balancing with performance-based selection
-
-#### 传输层接口 (Transport Layer - Shared Foundation)
-- **`ITransportConnection`**: Core transport-level connection abstraction (from PulseRPC.Abstractions)
-- **`IClientTransport`**: Client-side transport implementation
-- **`ITransportManager`**: Transport protocol management and factory
-
-## Quick Start
-
-### Basic Client Setup
+以下示例基于 [`samples/ChatApp`](../../samples/ChatApp/)，演示如何创建客户端并建立连接：
 
 ```csharp
+using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
+using PulseRPC.Client.Configuration;
 
-// Create and configure client
+// 通过 Builder 配置并创建客户端
 var client = new PulseClientBuilder()
-    .AddConnection(new ConnectionDescriptor
-    {
-        Id = "main-service",
-        Name = "api-service",
-        ServiceName = "user-api-service",
-        Transport = TransportType.Tcp,
-        Strategy = ConnectionStrategy.Persistent,
-        AutoReconnect = true
-    })
-    .WithServiceDiscovery(new ConsulServiceDiscovery("http://consul:8500"))
-    .WithLoadBalancing(LoadBalancingStrategy.WeightedRoundRobin)
+    .AddConnection(ConnectionConfig.Tcp(name: "ChatServer", host: "127.0.0.1", port: 7000).ToDescriptor())
+    .WithLogging(LoggerFactory.Create(b => b.AddConsole()))
     .Build();
 
-// Initialize and connect
+// 初始化并建立连接
 await client.InitializeAsync();
 
-// Get service proxy
-var userService = await client.GetServiceAsync<IUserService>();
-var user = await userService.GetUserAsync(123);
+// 通过 Source Generator 生成的代理调用远程服务
+// （代理及其扩展方法由 PulseRPC.Client.SourceGenerator 生成）
 
-// Graceful shutdown
+// 优雅关闭
 await client.StopAsync();
 ```
 
-### Service Discovery Integration
+`PulseClientBuilder` 同时提供若干便捷预设，可根据场景选择，例如低延迟游戏场景的 `UseGameClientPreset()` 与开发调试用的 `UseDevelopmentPreset()`。更多配置项（连接策略、传输参数、重试策略、服务发现、负载均衡等）请参阅下文文档链接与示例。
 
-```csharp
-var client = new PulseClientBuilder()
-    .WithServiceDiscovery(new KubernetesServiceDiscovery())
-    .WithLoadBalancing(LoadBalancingStrategy.LeastConnections)
-    .Configure(options =>
-    {
-        options.DefaultTimeout = TimeSpan.FromSeconds(30);
-        options.EnableStatistics = true;
-    })
-    .Build();
+## 服务代理生成
 
-await client.InitializeAsync();
-
-// Dynamic service connection
-var orderConnection = await client.ConnectToServiceAsync("order-service",
-    new ServiceConnectionOptions
-    {
-        Strategy = ConnectionStrategy.Session,
-        PreferredTransport = TransportType.Tcp,
-        LoadBalancingHint = LoadBalancingHint.LeastConnections,
-        Tags = new Dictionary<string, string> { ["version"] = "v2.0" }
-    });
-
-var orderService = await orderConnection.GetServiceAsync<IOrderService>();
-```
-
-## Advanced Features
-
-### Connection Pool Management
-
-```csharp
-var poolFactory = new ConnectionPoolFactory();
-
-// Create high-performance connection pool
-var dbPool = poolFactory.CreatePool(
-    "database-pool",
-    new ConnectionDescriptor
-    {
-        Id = "db-template",
-        Name = "database",
-        ServiceName = "postgres-cluster",
-        Transport = TransportType.Tcp,
-        Strategy = ConnectionStrategy.Pooled
-    },
-    new ConnectionPoolOptions
-    {
-        Strategy = PoolingStrategy.Dynamic,
-        MinSize = 5,
-        MaxSize = 50,
-        AcquireTimeout = TimeSpan.FromSeconds(10),
-        IdleTimeout = TimeSpan.FromMinutes(5),
-        ValidateOnAcquire = true
-    });
-
-await dbPool.InitializeAsync();
-
-// Lease-based resource management
-using (var lease = await dbPool.AcquireAsync())
-{
-    var dbService = await lease.Connection.GetServiceAsync<IDatabaseService>();
-    var result = await dbService.ExecuteQueryAsync("SELECT * FROM users");
-    // Connection automatically returned to pool
-}
-
-// Monitor pool health
-var stats = dbPool.GetStatistics();
-Console.WriteLine($"Pool utilization: {stats.ActiveConnections}/{stats.CurrentSize}");
-```
-
-### Intelligent Routing
-
-```csharp
-// Register custom routing rules
-client.Router.RegisterRule(new RoutingRule
-{
-    Id = "admin-routing",
-    Name = "Route admin requests to premium servers",
-    Matcher = (key, context) => context?.Tags.GetValueOrDefault("user_type") == "admin",
-    Selector = (connections, context) =>
-        connections.FirstOrDefault(c => c.Descriptor.Tags.GetValueOrDefault("tier") == "premium"),
-    Priority = 100
-});
-
-client.Router.RegisterRule(new RoutingRule
-{
-    Id = "region-affinity",
-    Name = "Route by geographic region",
-    Matcher = (key, context) => !string.IsNullOrEmpty(context?.PreferredRegion),
-    Selector = (connections, context) =>
-        connections.FirstOrDefault(c => c.Descriptor.Tags.GetValueOrDefault("region") == context?.PreferredRegion),
-    Priority = 50
-});
-
-// Use routing context for intelligent decisions
-var routingContext = new RoutingContext
-{
-    UserId = "admin-user-123",
-    Tags = new Dictionary<string, string> { ["user_type"] = "admin" },
-    PreferredRegion = "us-west-2",
-    LoadBalancingHint = LoadBalancingHint.ConsistentHash
-};
-
-var connection = await client.Router.RouteAsync("api-service", routingContext);
-var apiService = await connection.GetServiceAsync<IApiService>();
-```
-
-### Load Balancing Strategies
-
-```csharp
-// Configure advanced load balancing
-var client = new PulseClientBuilder()
-    .WithLoadBalancing(LoadBalancingStrategy.ConsistentHash, new Dictionary<string, object>
-    {
-        ["virtual_nodes"] = 100,
-        ["hash_function"] = "sha256"
-    })
-    .Build();
-
-// Custom load balancing strategy
-var loadBalancerFactory = new LoadBalancerFactory();
-loadBalancerFactory.RegisterCustomStrategy("weighted-response-time", options =>
-{
-    return new WeightedResponseTimeLoadBalancer(options);
-});
-
-var customClient = new PulseClientBuilder()
-    .WithLoadBalancing(LoadBalancingStrategy.Custom, new Dictionary<string, object>
-    {
-        ["strategy_name"] = "weighted-response-time",
-        ["response_time_window"] = TimeSpan.FromMinutes(5)
-    })
-    .Build();
-```
-
-### Event-Driven Architecture
-
-```csharp
-// Register event listeners with advanced options
-var eventHandler = new SystemEventHandler();
-var subscription = await client.RegisterEventListenerAsync<ISystemEventHandler>(
-    eventHandler,
-    new EventListenerOptions
-    {
-        EventFilter = evt => evt.GetType().Name.Contains("Critical"),
-        ErrorHandling = EventErrorHandlingStrategy.Log
-    });
-
-// Watch service changes in real-time
-var serviceWatcher = await client.ServiceDiscovery.WatchAsync("payment-service", change =>
-{
-    Console.WriteLine($"Service change: {change.ChangeType} for {change.ServiceName}");
-
-    if (change.ChangeType == ServiceChangeType.EndpointAdded && change.Endpoint != null)
-    {
-        // Dynamically add new connection
-        _ = Task.Run(async () =>
-        {
-            await client.ConnectToServiceAsync(change.ServiceName);
-        });
-    }
-});
-```
-
-### Health Monitoring and Reliability
-
-```csharp
-// Configure comprehensive reliability features
-var client = new PulseClientBuilder()
-    .WithRetryPolicy(new RetryPolicy
-    {
-        MaxRetries = 5,
-        BaseDelay = TimeSpan.FromMilliseconds(200),
-        MaxDelay = TimeSpan.FromSeconds(10),
-        BackoffStrategy = BackoffStrategy.Exponential,
-        JitterFactor = 0.2,
-        ShouldRetry = ex => ex is TimeoutException or SocketException
-    })
-    .Configure(options =>
-    {
-        options.HealthCheckInterval = TimeSpan.FromSeconds(30);
-        options.EnablePerformanceMonitoring = true;
-        options.MaxConcurrentConnections = 200;
-    })
-    .Build();
-
-// Monitor client health
-var healthResult = await client.CheckHealthAsync();
-Console.WriteLine($"Overall health: {healthResult.OverallHealth}");
-
-foreach (var connHealth in healthResult.ConnectionResults)
-{
-    Console.WriteLine($"Connection {connHealth.ConnectionId}: {connHealth.Health} " +
-                     $"(Response: {connHealth.ResponseTime.TotalMilliseconds:F1}ms)");
-}
-
-// Get comprehensive statistics
-var stats = client.GetStatistics();
-Console.WriteLine($"""
-    Client Performance:
-    - Uptime: {stats.Uptime}
-    - Active Connections: {stats.ActiveConnections}/{stats.TotalConnections}
-    - Request Success Rate: {(double)stats.SuccessfulRequests / stats.TotalRequests:P2}
-    - Average Response Time: {stats.AverageResponseTimeMs:F2}ms
-    - Throughput: {stats.BytesSent + stats.BytesReceived:N0} bytes
-    """);
-```
-
-### Batch Operations and Management
-
-```csharp
-// Batch connection management
-var disconnectedCount = await client.DisconnectAsync(
-    conn => conn.Descriptor.Tags.GetValueOrDefault("environment") == "staging",
-    graceful: true);
-
-// Query connections by criteria
-var coreServices = client.Registry.GetConnectionsByTags(
-    new Dictionary<string, string> { ["type"] = "core-service" });
-
-var healthyConnections = client.Registry.GetConnectionsByState(
-    new HashSet<ConnectionState> { ConnectionState.Connected });
-
-// Bulk health checks
-var healthResults = await client.Lifecycle.PerformHealthChecksAsync();
-var unhealthyCount = healthResults.Count(r => r.Health != ConnectionHealth.Healthy);
-
-// Automated cleanup
-var cleanedCount = await client.Lifecycle.CleanupIdleConnectionsAsync(TimeSpan.FromMinutes(30));
-var expiredCount = await client.Lifecycle.CleanupExpiredConnectionsAsync();
-
-Console.WriteLine($"Maintenance: Cleaned {cleanedCount} idle, {expiredCount} expired connections");
-```
-
-## Configuration Options
-
-### Connection Strategies
-
-```csharp
-// Persistent connections for core services
-new ConnectionDescriptor
-{
-    Strategy = ConnectionStrategy.Persistent,  // Long-lived, auto-reconnect
-    AutoReconnect = true,
-    TimeToLive = null  // No expiration
-}
-
-// Session-based connections for user interactions
-new ConnectionDescriptor
-{
-    Strategy = ConnectionStrategy.Session,     // Medium-lived, context-aware
-    IdleTimeout = TimeSpan.FromMinutes(10),
-    TimeToLive = TimeSpan.FromHours(2)
-}
-
-// On-demand connections for sporadic operations
-new ConnectionDescriptor
-{
-    Strategy = ConnectionStrategy.OnDemand,    // Created when needed
-    IdleTimeout = TimeSpan.FromMinutes(1),
-    AutoReconnect = false
-}
-
-// Pooled connections for high-throughput scenarios
-new ConnectionDescriptor
-{
-    Strategy = ConnectionStrategy.Pooled,      // Managed by connection pool
-    TimeToLive = TimeSpan.FromMinutes(30)
-}
-```
-
-### Transport Configuration
-
-```csharp
-// TCP for reliable, ordered communication
-.WithTransportOptions(TransportType.Tcp, new TransportOptions
-{
-    ConnectionTimeout = 10000,
-    KeepAlive = true,
-    NoDelay = true,
-    ReceiveBufferSize = 65536,
-    SendBufferSize = 65536
-})
-
-// KCP for low-latency, real-time communication
-.WithTransportOptions(TransportType.Kcp, new TransportOptions
-{
-    Kcp = new KcpOptions
-    {
-        NoDelay = 1,        // Disable Nagle-like algorithm
-        Interval = 10,      // 10ms update interval
-        Resend = 2,         // Fast resend mode
-        DisableFlowControl = false
-    }
-})
-```
-
-## Service Proxy Generation
-
-PulseRPC.Client uses compile-time source generation for efficient service proxies with zero reflection overhead:
-
-### Generated Proxy Implementation
-
-#### Source Interface Definition
-
-```csharp
-// Define service interface
-[PulseService]
-public interface ICalculatorService : IPulseHub
-{
-    Task<int> AddAsync(int a, int b);
-    Task<double> DivideAsync(double a, double b);
-    Task<ComplexResult> ComplexOperationAsync(ComplexInput input);
-}
-```
-
-#### Generated Proxy Class (Simplified)
-
-```csharp
-// Auto-generated by PulseRPC.Client.SourceGenerator
-public sealed class ICalculatorServiceProxy : ICalculatorService
-{
-    private readonly IClientChannel _connection;
-
-    public ICalculatorServiceProxy(IClientChannel connection)
-    {
-        _connection = connection ?? throw new ArgumentNullException(nameof(connection));
-    }
-
-    public async Task<int> AddAsync(int a, int b, CancellationToken cancellationToken = default)
-    {
-        // Construct RPC request message
-        var request = new PulseRPC.Messaging.RpcRequest
-        {
-            ServiceName = "ICalculatorService",
-            MethodName = "AddAsync",
-            Channel = "default",
-            Parameters = new object?[] { a, b }
-        };
-
-        // Direct call through connection (no reflection)
-        return await _connection.SendAsync<int>(request, cancellationToken);
-    }
-
-    public async Task<double> DivideAsync(double a, double b, CancellationToken cancellationToken = default)
-    {
-        var request = new PulseRPC.Messaging.RpcRequest
-        {
-            ServiceName = "ICalculatorService",
-            MethodName = "DivideAsync",
-            Channel = "default",
-            Parameters = new object?[] { a, b }
-        };
-
-        return await _connection.SendAsync<double>(request, cancellationToken);
-    }
-}
-```
-
-#### Generated Extension Method
-
-```csharp
-// Auto-generated proxy factory extension
-public static class ConnectionExtensions
-{
-    public static T CreateServiceProxy<T>(this IClientChannel connection) where T : class, IPulseHub
-    {
-        if (connection == null)
-            throw new ArgumentNullException(nameof(connection));
-
-        if (typeof(T) == typeof(ICalculatorService))
-        {
-            return (T)(object)new ICalculatorServiceProxy(connection);
-        }
-        // ... other service types
-
-        throw new ArgumentException($"No proxy available for service type {typeof(T).Name}");
-    }
-}
-```
-
-### Complete Call Chain Example
-
-```csharp
-// 1. Client requests service proxy
-var calculator = await client.GetServiceAsync<ICalculatorService>();
-
-// 2. Behind the scenes:
-//    - IPulseClient.GetServiceAsync<ICalculatorService>()
-//    - IClientChannelRouter.RouteAsync() → selects best IClientChannel
-//    - IClientChannel.GetServiceAsync<ICalculatorService>()
-//    - connection.CreateServiceProxy<ICalculatorService>()
-//    - returns new ICalculatorServiceProxy(connection)
-
-// 3. User calls method on proxy
-var result = await calculator.AddAsync(5, 3);
-
-// 4. Generated proxy method:
-//    - Creates RpcRequest with method info and parameters
-//    - Calls _connection.SendAsync<int>(request, cancellationToken)
-//    - SimpleConnection.SendAsync<int>() → IClientChannelContext.InvokeAsync<int>()
-//    - Serializes request and sends via IClientTransport.SendAsync()
-//    - Waits for response via request-response mapping
-//    - Deserializes and returns result
-
-```
-
-### Server Push Reception (IPulseReceiver)
-
-PulseRPC supports server-to-client push messaging through the `IPulseReceiver` interface. This follows [MagicOnion](https://cysharp.github.io/MagicOnion/streaminghub/call-client) design patterns.
-
-#### Define Receiver Interface
-
-```csharp
-// Define what events the client can receive from the server
-public interface IGameReceiver : IPulseReceiver
-{
-    Task OnMatchFoundAsync(MatchFoundNotification notification);
-    Task OnPlayerJoinedAsync(PlayerInfo player);
-    Task OnChatMessageAsync(string sender, string message);
-}
-```
-
-#### Implement and Register Receiver
-
-```csharp
-// Implement the receiver
-public class MyGameReceiver : IGameReceiver
-{
-    public Task OnMatchFoundAsync(MatchFoundNotification notification)
-    {
-        Console.WriteLine($"Match found: {notification.MatchId}");
-        return Task.CompletedTask;
-    }
-
-    public Task OnPlayerJoinedAsync(PlayerInfo player)
-    {
-        Console.WriteLine($"Player joined: {player.Name}");
-        return Task.CompletedTask;
-    }
-
-    public Task OnChatMessageAsync(string sender, string message)
-    {
-        Console.WriteLine($"[{sender}]: {message}");
-        return Task.CompletedTask;
-    }
-}
-
-// Register receiver on the client channel
-var receiver = new MyGameReceiver();
-var subscription = channel.RegisterReceiver(receiver);
-
-// Unregister when done
-subscription.Dispose();
-```
-
-## Enterprise Integration
-
-### Dependency Injection
-
-```csharp
-using Microsoft.Extensions.DependencyInjection;
-
-// Configure services
-services.AddSingleton<IPulseClient>(provider =>
-{
-    return new PulseClientBuilder()
-        .WithServiceDiscovery(provider.GetRequiredService<IServiceDiscovery>())
-        .WithLogging(provider.GetRequiredService<ILoggerFactory>())
-        .WithAuthentication(provider.GetRequiredService<IAuthenticationProvider>())
-        .Configure(options =>
-        {
-            options.DefaultTimeout = TimeSpan.FromSeconds(30);
-            options.EnableStatistics = true;
-        })
-        .Build();
-});
-
-// Use in controllers/services
-public class OrderController : ControllerBase
-{
-    private readonly IPulseClient _client;
-
-    public OrderController(IPulseClient client)
-    {
-        _client = client;
-    }
-
-    public async Task<IActionResult> GetOrder(int id)
-    {
-        var orderService = await _client.GetServiceAsync<IOrderService>();
-        var order = await orderService.GetOrderAsync(id);
-        return Ok(order);
-    }
-}
-```
-
-### Microservices Architecture
-
-```csharp
-// Service mesh integration
-var client = new PulseClientBuilder()
-    .WithServiceDiscovery(new ServiceMeshDiscovery())
-    .WithLoadBalancing(LoadBalancingStrategy.LeastConnections)
-    .Configure(options =>
-    {
-        options.Name = "order-service-client";
-        options.EnablePerformanceMonitoring = true;
-    })
-    .Build();
-
-// Circuit breaker pattern
-client.Registry.ConnectionRegistered += (sender, args) =>
-{
-    var connection = args.Connection;
-    var circuitBreaker = new CircuitBreaker(connection);
-
-    connection.StateChanged += (connSender, connArgs) =>
-    {
-        if (connArgs.CurrentState == ConnectionState.Failed)
-        {
-            circuitBreaker.TripCircuit();
-        }
-    };
-};
-```
-
-## Performance Characteristics
-
-- **Zero Reflection**: Service proxies generated at compile time
-- **Connection Pooling**: Efficient resource reuse with lease-based management
-- **Smart Routing**: Context-aware connection selection
-- **Async Throughout**: Fully asynchronous operation with cancellation support
-- **Memory Efficient**: Object pooling and buffer reuse
-- **Network Optimized**: Protocol-specific optimizations (TCP/KCP)
-
-## Platform Support
-
-### .NET Applications
-- **.NET 10.0+**: Full feature set with latest performance optimizations
-- **ASP.NET Core**: Seamless integration with dependency injection
-- **Worker Services**: Background service and long-running application support
-
-### Unity Game Development
-- **Unity 2022.3+ LTS**: Full compatibility with netstandard2.1
-- **IL2CPP**: Ahead-of-time compilation support
-- **Mobile Platforms**: iOS and Android optimization
-
-```csharp
-// Unity integration example
-public class GameNetworkManager : MonoBehaviour
-{
-    private IPulseClient _client;
-
-    async void Start()
-    {
-        _client = new PulseClientBuilder()
-            .AddConnection(new ConnectionDescriptor
-            {
-                Id = "game-server",
-                Name = "game",
-                Endpoint = new EndpointAddress { Host = "game.company.com", Port = 9090 },
-                Transport = TransportType.Kcp,  // Low latency for games
-                Strategy = ConnectionStrategy.Persistent
-            })
-            .Configure(options =>
-            {
-                options.DefaultTimeout = TimeSpan.FromSeconds(15);
-                options.EnableStatistics = false;  // Reduce overhead on mobile
-            })
-            .Build();
-
-        await _client.InitializeAsync();
-    }
-
-    void OnDestroy()
-    {
-        _client?.Dispose();
-    }
-}
-```
-
-## Dependencies
-
-### Core Dependencies
-- **PulseRPC.Abstractions**: Core interfaces and types (includes shared connection abstractions)
-- **Microsoft.Extensions.Logging.Abstractions**: Logging infrastructure
-- **System.Text.Json**: High-performance JSON serialization
-
-### Development Dependencies
-- **PulseRPC.Client.SourceGenerator**: Compile-time proxy generation
-- **Microsoft.CodeAnalysis.PublicApiAnalyzers**: API compatibility validation
-
-### Optional Dependencies
-- **Microsoft.Extensions.DependencyInjection**: IoC container integration
-- **Microsoft.Extensions.Options**: Configuration binding
-- **Microsoft.Extensions.Hosting**: Hosted service integration
-
-### Shared Infrastructure
-The client relies on shared abstractions from PulseRPC.Abstractions:
-- **`ITransportConnection`**: Foundation transport-level connection interface
-- **`ISessionChannel`**: Authentication and session management interface
-- **`IPulseHub`**: Service interface marker for all remote services
-- **`IPulseReceiver`**: Event handler interface marker
-
-## Source Generator Integration
-
-The client library includes an integrated Source Generator for maximum performance:
+PulseRPC.Client 使用编译期源代码生成为服务接口生成代理，客户端调用无需反射。将 Source Generator 作为分析器引用即可：
 
 ```xml
 <ItemGroup>
@@ -820,12 +97,35 @@ The client library includes an integrated Source Generator for maximum performan
 </ItemGroup>
 ```
 
-Generated proxies are compatible with C# 9.0+ and follow strict performance guidelines.
+生成的代理遵循 C# 9.0 及以下语法规范，以兼容 Unity。
 
-## License
+## 平台支持
 
-This project is part of the PulseRPC framework. See the main project LICENSE file for details.
+- **.NET 10.0+**：完整功能，可与 ASP.NET Core、Worker Service 等无缝集成
+- **Unity 2022.3+ LTS**：通过 `netstandard2.1` 兼容，支持 IL2CPP 与移动平台
 
-## Contributing
+Unity 集成的详细步骤请参阅 [Unity Source Generator 集成指南](../../docs/使用指南/Unity%20Source%20Generator%20集成指南.md)。
 
-Please refer to the main PulseRPC project for contribution guidelines and development setup instructions.
+## 依赖
+
+- **PulseRPC.Abstractions**：核心接口与共享连接抽象
+- **Microsoft.Extensions.Logging.Abstractions**：日志基础设施
+- **System.Text.Json**：JSON 序列化
+- **PulseRPC.Client.SourceGenerator**（开发期）：编译期代理生成
+
+## 相关文档
+
+完整文档位于仓库 [`docs/`](../../docs/) 目录：
+
+- [PulseRPC 快速开始指南](../../docs/使用指南/PulseRPC%20快速开始指南.md)
+- [PulseRPC 客户端和服务端使用指南](../../docs/使用指南/PulseRPC%20客户端和服务端使用指南.md)
+- [PulseRPC 最佳实践指南](../../docs/使用指南/PulseRPC%20最佳实践指南.md)
+- [IPulseHub 统一架构使用指南](../../docs/架构设计与分析/IPulseHub%20统一架构使用指南.md)
+
+## 许可证
+
+本项目是 PulseRPC 框架的一部分，许可证详见仓库根目录的 [LICENSE](../../LICENSE) 文件。
+
+## 贡献
+
+贡献指南与开发环境配置请参阅主项目 [README](../../README.md)。
