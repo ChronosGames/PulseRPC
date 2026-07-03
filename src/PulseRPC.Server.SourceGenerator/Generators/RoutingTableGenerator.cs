@@ -301,6 +301,30 @@ public static class RoutingTableGenerator
             sb.AppendLine($"            [\"{service.InterfaceFullName}\"] = {service.Methods.Count},");
         }
         sb.AppendLine("        };");
+        sb.AppendLine();
+
+        // 可重入（只读）方法的协议号集合，供邮箱调度判断是否可并发执行。
+        var reentrantMethods = services
+            .SelectMany(s => s.Methods)
+            .Where(m => m.IsReentrant)
+            .ToList();
+
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Protocol IDs of methods marked with [Reentrant] (read-only, may run concurrently).");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public static readonly System.Collections.Generic.HashSet<ushort> ReentrantProtocolIds = new()");
+        sb.AppendLine("        {");
+        foreach (var method in reentrantMethods)
+        {
+            sb.AppendLine($"            0x{method.ProtocolId:X4}, // {method.MethodName}");
+        }
+        sb.AppendLine("        };");
+        sb.AppendLine();
+
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Returns true if the method identified by <paramref name=\"protocolId\"/> is marked [Reentrant].");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public static bool IsReentrant(ushort protocolId) => ReentrantProtocolIds.Contains(protocolId);");
 
         sb.AppendLine("    }");
         sb.AppendLine();

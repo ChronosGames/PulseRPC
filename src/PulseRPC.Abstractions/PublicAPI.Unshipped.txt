@@ -1,2 +1,4 @@
 #nullable enable
 PulseRPC.IPulseReceiver
+PulseRPC.ReentrantAttribute
+PulseRPC.ReentrantAttribute.ReentrantAttribute() -> void

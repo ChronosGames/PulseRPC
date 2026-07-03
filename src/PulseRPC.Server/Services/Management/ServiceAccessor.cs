@@ -137,6 +137,58 @@ public static class ServiceAccessorExtensions
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// 以可重入（只读）方式在服务队列中执行操作
+    /// </summary>
+    /// <typeparam name="TService">服务类型</typeparam>
+    /// <typeparam name="TResult">返回类型</typeparam>
+    /// <param name="accessor">服务访问器</param>
+    /// <param name="serviceId">服务实例 ID</param>
+    /// <param name="operation">要执行的只读操作</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>操作结果</returns>
+    /// <remarks>
+    /// <para>
+    /// 适用于不修改服务状态的只读查询。在 Actor（DedicatedQueue）模式下，
+    /// 以此方式提交的操作彼此之间可并发执行，但绝不会与写操作重叠。
+    /// </para>
+    /// <para>
+    /// <strong>调用方必须确保 <paramref name="operation"/> 不修改共享状态</strong>，否则会破坏一致性。
+    /// </para>
+    /// <code>
+    /// var playerInfo = await _playerService.ExecuteReadAsync(
+    ///     playerId,
+    ///     service => service.GetPlayerInfoAsync());
+    /// </code>
+    /// </remarks>
+    public static async Task<TResult> ExecuteReadAsync<TService, TResult>(
+        this IServiceAccessor<TService> accessor,
+        string serviceId,
+        Func<TService, Task<TResult>> operation,
+        CancellationToken cancellationToken = default)
+        where TService : UnifiedPulseServiceBase
+    {
+        var service = await accessor.GetAsync(serviceId, cancellationToken);
+        return await service.EnqueueReadAsync(() => operation(service), cancellationToken);
+    }
+
+    /// <summary>
+    /// 以可重入（只读）方式在服务队列中执行操作（无返回值）
+    /// </summary>
+    public static async Task ExecuteReadAsync<TService>(
+        this IServiceAccessor<TService> accessor,
+        string serviceId,
+        Func<TService, Task> operation,
+        CancellationToken cancellationToken = default)
+        where TService : UnifiedPulseServiceBase
+    {
+        var service = await accessor.GetAsync(serviceId, cancellationToken);
+        await service.EnqueueReadAsync(async () =>
+        {
+            await operation(service);
+        }, cancellationToken);
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Singleton 服务的简化 API
     // ═══════════════════════════════════════════════════════════════════════

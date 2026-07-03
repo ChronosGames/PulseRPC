@@ -54,7 +54,7 @@ namespace PulseRPC.Server.Services;
 public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedServiceLifecycle, IUnifiedServiceHealthCheck
 {
     private readonly SemaphoreSlim _stateLock = new(1, 1);
-    private readonly Channel<Func<Task>>? _messageQueue;
+    private readonly Channel<WorkItem>? _messageQueue;
     private readonly IThreadAffinityScheduler? _affinityScheduler;
     private Task? _messageProcessingTask;
     private CancellationTokenSource? _processingCts;
@@ -207,7 +207,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
         // 根据调度模式创建消息队列
         if (ExecutionOptions.SchedulingMode == ServiceSchedulingMode.DedicatedQueue)
         {
-            _messageQueue = Channel.CreateBounded<Func<Task>>(
+            _messageQueue = Channel.CreateBounded<WorkItem>(
                 new BoundedChannelOptions(ExecutionOptions.QueueCapacity)
                 {
                     FullMode = ExecutionOptions.BackpressureMode switch
@@ -351,7 +351,32 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// 并在工作项执行时恢复，确保上下文在队列处理中正确传播。
     /// </para>
     /// </remarks>
-    public async Task EnqueueAsync(Func<Task> work, CancellationToken cancellationToken = default)
+    public Task EnqueueAsync(Func<Task> work, CancellationToken cancellationToken = default)
+        => EnqueueCoreAsync(work, reentrant: false, cancellationToken);
+
+    /// <summary>
+    /// 将工作项提交到服务队列执行，可选择以可重入（只读）方式执行。
+    /// </summary>
+    /// <param name="work">要执行的工作项</param>
+    /// <param name="reentrant">
+    /// 为 <see langword="true"/> 时，工作项作为读者并发执行（仅 DedicatedQueue 模式生效）；
+    /// 为 <see langword="false"/> 时作为写者独占执行。
+    /// </param>
+    /// <param name="cancellationToken">取消令牌</param>
+    public Task EnqueueAsync(Func<Task> work, bool reentrant, CancellationToken cancellationToken = default)
+        => EnqueueCoreAsync(work, reentrant, cancellationToken);
+
+    /// <summary>
+    /// 以可重入（只读）方式将工作项提交到服务队列执行。
+    /// </summary>
+    /// <remarks>
+    /// 在 DedicatedQueue（Actor）模式下，读者之间可并发执行，但绝不会与写者重叠。
+    /// 其它调度模式下与 <see cref="EnqueueAsync(Func{Task}, CancellationToken)"/> 行为一致。
+    /// </remarks>
+    public Task EnqueueReadAsync(Func<Task> work, CancellationToken cancellationToken = default)
+        => EnqueueCoreAsync(work, reentrant: true, cancellationToken);
+
+    private async Task EnqueueCoreAsync(Func<Task> work, bool reentrant, CancellationToken cancellationToken)
     {
         if (State != ServiceLifecycleState.Running)
         {
@@ -366,7 +391,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             // DedicatedQueue 模式：使用专属队列
             var capturedContext = PulseContext.Current;
 
-            await _messageQueue.Writer.WriteAsync(async () =>
+            Func<Task> wrapped = async () =>
             {
                 if (capturedContext != null)
                 {
@@ -377,11 +402,13 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                 {
                     await work();
                 }
-            }, cancellationToken);
+            };
+
+            await _messageQueue.Writer.WriteAsync(new WorkItem(wrapped, reentrant), cancellationToken);
         }
         else if (_affinityScheduler != null && ExecutionOptions.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
         {
-            // ThreadAffinity 模式：使用共享调度器路由到固定工作线程
+            // ThreadAffinity 模式：使用共享调度器路由到固定工作线程（可重入标志不适用，按串行处理）
             var key = new ServiceSchedulingKey(ServiceType, ServiceId);
             var capturedContext = PulseContext.Current;
 
@@ -423,7 +450,32 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// <item><description><see cref="ServiceSchedulingMode.DefaultPool"/>：立即在当前线程执行</description></item>
     /// </list>
     /// </remarks>
-    public async Task<TResult> EnqueueAsync<TResult>(Func<Task<TResult>> work, CancellationToken cancellationToken = default)
+    public Task<TResult> EnqueueAsync<TResult>(Func<Task<TResult>> work, CancellationToken cancellationToken = default)
+        => EnqueueCoreAsync(work, reentrant: false, cancellationToken);
+
+    /// <summary>
+    /// 将工作项提交到服务队列执行并返回结果，可选择以可重入（只读）方式执行。
+    /// </summary>
+    /// <param name="work">要执行的工作项</param>
+    /// <param name="reentrant">
+    /// 为 <see langword="true"/> 时，工作项作为读者并发执行（仅 DedicatedQueue 模式生效）；
+    /// 为 <see langword="false"/> 时作为写者独占执行。
+    /// </param>
+    /// <param name="cancellationToken">取消令牌</param>
+    public Task<TResult> EnqueueAsync<TResult>(Func<Task<TResult>> work, bool reentrant, CancellationToken cancellationToken = default)
+        => EnqueueCoreAsync(work, reentrant, cancellationToken);
+
+    /// <summary>
+    /// 以可重入（只读）方式将工作项提交到服务队列执行并返回结果。
+    /// </summary>
+    /// <remarks>
+    /// 在 DedicatedQueue（Actor）模式下，读者之间可并发执行，但绝不会与写者重叠。
+    /// 其它调度模式下与 <see cref="EnqueueAsync{TResult}(Func{Task{TResult}}, CancellationToken)"/> 行为一致。
+    /// </remarks>
+    public Task<TResult> EnqueueReadAsync<TResult>(Func<Task<TResult>> work, CancellationToken cancellationToken = default)
+        => EnqueueCoreAsync(work, reentrant: true, cancellationToken);
+
+    private async Task<TResult> EnqueueCoreAsync<TResult>(Func<Task<TResult>> work, bool reentrant, CancellationToken cancellationToken)
     {
         if (State != ServiceLifecycleState.Running)
         {
@@ -439,7 +491,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             var capturedContext = PulseContext.Current;
             var valueTaskSource = PooledValueTaskSource<TResult>.Create();
 
-            await _messageQueue.Writer.WriteAsync(async () =>
+            Func<Task> wrapped = async () =>
             {
                 try
                 {
@@ -459,13 +511,15 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                 {
                     valueTaskSource.TrySetException(ex);
                 }
-            }, cancellationToken);
+            };
+
+            await _messageQueue.Writer.WriteAsync(new WorkItem(wrapped, reentrant), cancellationToken);
 
             return await valueTaskSource.GetValueTask();
         }
         else if (_affinityScheduler != null && ExecutionOptions.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
         {
-            // ThreadAffinity 模式：使用共享调度器路由到固定工作线程
+            // ThreadAffinity 模式：使用共享调度器路由到固定工作线程（可重入标志不适用，按串行处理）
             var key = new ServiceSchedulingKey(ServiceType, ServiceId);
             var capturedContext = PulseContext.Current;
 
@@ -526,17 +580,24 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
         Logger.LogDebug("Message processing started for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
 
+        // 在途读者（可重入方法）集合：读者之间并发执行，但绝不与写者重叠。
+        var inFlightReaders = new List<Task>();
+
         try
         {
-            await foreach (var work in _messageQueue.Reader.ReadAllAsync(cancellationToken))
+            await foreach (var item in _messageQueue.Reader.ReadAllAsync(cancellationToken))
             {
-                try
+                if (item.Reentrant)
                 {
-                    await work();
+                    // 读者：并发派发，不等待其完成即可继续读取下一项。
+                    PruneCompleted(inFlightReaders);
+                    inFlightReaders.Add(RunWorkSafeAsync(item.Work));
                 }
-                catch (Exception ex)
+                else
                 {
-                    Logger.LogError(ex, "Error processing message in {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                    // 写者：先排空所有在途读者，再独占执行，确保读写不重叠且写者按 FIFO 顺序执行。
+                    await DrainReadersAsync(inFlightReaders);
+                    await RunWorkSafeAsync(item.Work);
                 }
             }
         }
@@ -548,8 +609,77 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
         {
             Logger.LogError(ex, "Message processing failed for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
         }
+        finally
+        {
+            // 停止/取消时排空剩余在途读者，避免遗留悬空任务。
+            try
+            {
+                await DrainReadersAsync(inFlightReaders);
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Error draining in-flight readers for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+            }
+        }
 
         Logger.LogDebug("Message processing stopped for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+    }
+
+    /// <summary>
+    /// 执行工作项并吞掉异常（记录日志），使其可安全地用于 <see cref="Task.WhenAll(IEnumerable{Task})"/>。
+    /// </summary>
+    private async Task RunWorkSafeAsync(Func<Task> work)
+    {
+        try
+        {
+            await work();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Error processing message in {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+        }
+    }
+
+    /// <summary>
+    /// 移除已完成的在途读者任务，防止列表无限增长。
+    /// </summary>
+    private static void PruneCompleted(List<Task> tasks)
+    {
+        for (int i = tasks.Count - 1; i >= 0; i--)
+        {
+            if (tasks[i].IsCompleted)
+            {
+                tasks.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 等待所有在途读者完成并清空集合。
+    /// </summary>
+    private static async Task DrainReadersAsync(List<Task> tasks)
+    {
+        if (tasks.Count == 0) return;
+        await Task.WhenAll(tasks);
+        tasks.Clear();
+    }
+
+    /// <summary>
+    /// 邮箱工作项，携带可重入（只读）标志。
+    /// </summary>
+    private readonly struct WorkItem
+    {
+        /// <summary>要执行的工作。</summary>
+        public readonly Func<Task> Work;
+
+        /// <summary>是否为可重入（只读）工作项，可与其它读者并发执行。</summary>
+        public readonly bool Reentrant;
+
+        public WorkItem(Func<Task> work, bool reentrant)
+        {
+            Work = work;
+            Reentrant = reentrant;
+        }
     }
 }
 

@@ -196,6 +196,30 @@ public class PriorityAttribute : Attribute
 }
 
 /// <summary>
+/// 标记方法为可重入（只读）方法，允许其绕过 Service 的串行邮箱以并发执行。
+/// </summary>
+/// <remarks>
+/// 默认情况下，同一 Service 实例（Actor / DedicatedQueue 模式）内的所有方法调用都通过
+/// 单消费者串行邮箱按 FIFO 顺序独占执行，以保证状态一致性。
+/// <para>
+/// 对于不修改状态的只读查询方法，可标注 <see cref="ReentrantAttribute"/>，此时：
+/// </para>
+/// <list type="bullet">
+/// <item>被标注的方法（读者）之间可以并发执行；</item>
+/// <item>未标注的方法（写者）仍然独占执行，且在其执行前会等待所有在途读者完成；</item>
+/// <item>读者与写者永远不会重叠，写者按 FIFO 顺序执行且不会被读者饿死。</item>
+/// </list>
+/// <para>
+/// 注意：仅在 Actor（DedicatedQueue）模式下提供读并发语义；DefaultPool 模式本身即并发，
+/// ThreadAffinity 模式将其视为普通串行调用。标注的方法必须确保不修改共享状态，否则会破坏一致性。
+/// </para>
+/// </remarks>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+public sealed class ReentrantAttribute : Attribute
+{
+}
+
+/// <summary>
 /// 标记接口需要生成 SmartHandler（高级事件处理器）
 /// </summary>
 /// <remarks>

@@ -713,6 +713,9 @@ public static partial class ProtocolIdMapping
 
                     var methodAuthorization = AuthorizationHelper.GetAuthorization(methodSymbol);
 
+                    var isReentrant = methodSymbol.GetAttributes()
+                        .Any(attr => attr.AttributeClass?.Name is "ReentrantAttribute" or "Reentrant");
+
                     var method = new MethodModel
                     {
                         MethodName = methodSymbol.Name,
@@ -730,7 +733,8 @@ public static partial class ProtocolIdMapping
                         ResponseTypeFullName = responseTypeFullName,
                         IsResponseMemoryPackable = responseTypeFullName != null,
                         ProtocolId = manualProtocolId ?? 0, // 0 表示需要自动生成
-                        Authorization = methodAuthorization
+                        Authorization = methodAuthorization,
+                        IsReentrant = isReentrant
                     };
 
                     methods.Add(method);

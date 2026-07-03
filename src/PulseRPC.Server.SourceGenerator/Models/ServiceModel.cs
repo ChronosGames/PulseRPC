@@ -55,6 +55,11 @@ public sealed class MethodModel
     /// </summary>
     public AuthorizationModel? Authorization { get; set; }
 
+    /// <summary>
+    /// 方法是否标记为可重入（只读），可绕过串行邮箱与其它读者并发执行。
+    /// </summary>
+    public bool IsReentrant { get; set; }
+
     public bool HasParameters => Parameters.Count > 0;
     public bool IsSingleParameter => Parameters.Count == 1;
     public ParameterModel? FirstParameter => Parameters.FirstOrDefault();
