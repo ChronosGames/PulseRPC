@@ -56,6 +56,17 @@ public sealed class UnifiedServerOptions
     public bool EnableDetailedLogging { get; set; } = false;
 
     /// <summary>
+    /// P-6：启用 facet 级 client-facing 可见性门闸的强制检查。
+    /// </summary>
+    /// <remarks>
+    /// 默认 <c>false</c>，以保持向后兼容——现有项目在未主动开启前，未标注 <see cref="PulseRPC.ClientFacingAttribute"/>
+    /// 的方法仍可像升级前一样被外部客户端调用。显式设置为 <c>true</c> 后，只有标注了
+    /// <see cref="PulseRPC.ClientFacingAttribute"/>（facet 级或方法级）的方法才允许外部客户端调用，
+    /// 其余方法即使实现了业务鉴权逻辑也会被协议框架层直接拒绝（<see cref="PulseRPC.Server.Security.ClientFacingAccessDeniedException"/>）。
+    /// </remarks>
+    public bool EnableClientFacingGate { get; set; } = false;
+
+    /// <summary>
     /// Validates the configuration options.
     /// </summary>
     /// <exception cref="InvalidOperationException">Configuration is invalid</exception>

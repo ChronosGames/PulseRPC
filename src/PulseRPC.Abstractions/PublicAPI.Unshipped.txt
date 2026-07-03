@@ -1,4 +1,7 @@
 #nullable enable
+PulseRPC.ClientFacingAttribute
+PulseRPC.ClientFacingAttribute.ClientFacingAttribute(bool enabled = true) -> void
+PulseRPC.ClientFacingAttribute.Enabled.get -> bool
 PulseRPC.IPulseReceiver
 PulseRPC.ReentrantAttribute
 PulseRPC.ReentrantAttribute.ReentrantAttribute() -> void

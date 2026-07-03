@@ -60,6 +60,12 @@ public sealed class MethodModel
     /// </summary>
     public bool IsReentrant { get; set; }
 
+    /// <summary>
+    /// P-6：方法是否对客户端可见（已解析出的最终值 = 方法级标注覆盖 facet 级默认值）。
+    /// 未标注 <c>[ClientFacing]</c> 的方法默认为 <c>false</c>（白名单语义，拒绝优先）。
+    /// </summary>
+    public bool IsClientFacing { get; set; }
+
     public bool HasParameters => Parameters.Count > 0;
     public bool IsSingleParameter => Parameters.Count == 1;
     public ParameterModel? FirstParameter => Parameters.FirstOrDefault();

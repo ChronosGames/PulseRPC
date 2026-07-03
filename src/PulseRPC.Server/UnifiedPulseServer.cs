@@ -64,6 +64,9 @@ public sealed class UnifiedPulseServer : IPulseServer
         // Validate configuration
         _options.Validate();
 
+        // P-6：按配置启用/禁用 client-facing 可见性门闸的强制检查（默认关闭，向后兼容）
+        Security.ClientFacingGate.EnforcementEnabled = _options.EnableClientFacingGate;
+
         _messageEngine = messageEngine ?? throw new ArgumentNullException(nameof(messageEngine));
         _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
         _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));

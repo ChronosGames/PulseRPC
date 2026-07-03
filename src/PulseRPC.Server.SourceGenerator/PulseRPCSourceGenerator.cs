@@ -700,6 +700,9 @@ public static partial class ProtocolIdMapping
         {
             var methods = new List<MethodModel>();
 
+            // P-6：facet（接口）级客户端可见性默认值；未标注 [ClientFacing] 时默认不可见（白名单语义）。
+            var facetClientFacing = ClientFacingHelper.GetClientFacing(typeSymbol) ?? false;
+
             foreach (var member in typeSymbol.GetMembers())
             {
                 if (member is IMethodSymbol methodSymbol && methodSymbol.DeclaredAccessibility == Accessibility.Public)
@@ -715,6 +718,9 @@ public static partial class ProtocolIdMapping
 
                     var isReentrant = methodSymbol.GetAttributes()
                         .Any(attr => attr.AttributeClass?.Name is "ReentrantAttribute" or "Reentrant");
+
+                    // P-6：方法级 [ClientFacing] 覆盖 facet 级默认值
+                    var isClientFacing = ClientFacingHelper.GetClientFacing(methodSymbol) ?? facetClientFacing;
 
                     var method = new MethodModel
                     {
@@ -734,7 +740,8 @@ public static partial class ProtocolIdMapping
                         IsResponseMemoryPackable = responseTypeFullName != null,
                         ProtocolId = manualProtocolId ?? 0, // 0 表示需要自动生成
                         Authorization = methodAuthorization,
-                        IsReentrant = isReentrant
+                        IsReentrant = isReentrant,
+                        IsClientFacing = isClientFacing
                     };
 
                     methods.Add(method);

@@ -242,6 +242,11 @@ public static class RoutingTableGenerator
         sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
         sb.AppendLine($"    private ValueTask<object?> {routerMethodName}(IServiceProvider serviceProvider, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
         sb.AppendLine("    {");
+
+        // P-6：客户端可见性门闸——强制链的唯一必经检查点，位于所有协议号路由的公共出口。
+        // isClientFacing 由源生成器在编译期根据 [ClientFacing] 解析得出，与业务鉴权（[Authorize] 等）无关。
+        sb.AppendLine($"        PulseRPC.Server.Security.ClientFacingGate.Enforce(isClientFacing: {(method.IsClientFacing ? "true" : "false")}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
+
         sb.AppendLine($"        var proxy = GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy(serviceProvider);");
         sb.AppendLine($"        return proxy.Invoke_{method.MethodName}_Async(data, cancellationToken);");
         sb.AppendLine("    }");
@@ -325,6 +330,35 @@ public static class RoutingTableGenerator
         sb.AppendLine("        /// Returns true if the method identified by <paramref name=\"protocolId\"/> is marked [Reentrant].");
         sb.AppendLine("        /// </summary>");
         sb.AppendLine("        public static bool IsReentrant(ushort protocolId) => ReentrantProtocolIds.Contains(protocolId);");
+        sb.AppendLine();
+
+        // P-6：客户端可见性白名单——由生成器根据 [ClientFacing]（facet 级默认值 + 方法级覆盖）解析得出。
+        // 实际强制检查发生在各协议号路由方法内（见 ClientFacingGate.Enforce 调用），此处仅作为可
+        // 供外部工具/CI 校验、审计的白名单清单。
+        var clientFacingMethods = services
+            .SelectMany(s => s.Methods)
+            .Where(m => m.IsClientFacing)
+            .ToList();
+
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Protocol IDs of methods marked [ClientFacing] (whitelisted for invocation by external clients).");
+        sb.AppendLine("        /// This is the compile-time whitelist produced by the generator; enforcement happens in the");
+        sb.AppendLine("        /// per-protocol routing method via ClientFacingGate.Enforce, on every protocol-based dispatch.");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public static readonly System.Collections.Generic.HashSet<ushort> ClientFacingProtocolIds = new()");
+        sb.AppendLine("        {");
+        foreach (var method in clientFacingMethods)
+        {
+            sb.AppendLine($"            0x{method.ProtocolId:X4}, // {method.MethodName}");
+        }
+        sb.AppendLine("        };");
+        sb.AppendLine();
+
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// Returns true if the method identified by <paramref name=\"protocolId\"/> is marked [ClientFacing]");
+        sb.AppendLine("        /// (i.e. whitelisted for invocation by external clients).");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        public static bool IsClientFacing(ushort protocolId) => ClientFacingProtocolIds.Contains(protocolId);");
 
         sb.AppendLine("    }");
         sb.AppendLine();
