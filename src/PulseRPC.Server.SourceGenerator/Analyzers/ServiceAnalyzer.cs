@@ -165,7 +165,8 @@ public static class ServiceAnalyzer
             ChannelName = methodChannelName,
             ResponseTypeFullName = responseTypeFullName,
             IsResponseMemoryPackable = responseTypeFullName != null,
-            Authorization = authorization
+            Authorization = authorization,
+            Location = methodSymbol.Locations.FirstOrDefault()
         };
     }
 

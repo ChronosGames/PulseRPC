@@ -250,7 +250,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// </summary>
     private static void AssignProtocolIdsForIncremental(List<ServiceModel> serviceModels, SourceProductionContext context)
     {
-        var usedIds = new Dictionary<ushort, (string service, string method)>();
+        var usedIds = new Dictionary<ushort, (string service, string method, Location? location)>();
 
         // 第一遍：收集所有手动指定的协议号
         foreach (var service in serviceModels)
@@ -262,11 +262,11 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
                     // 检查手动指定的协议号是否冲突
                     if (usedIds.TryGetValue(method.ProtocolId, out var existing))
                     {
-                        ReportProtocolIdConflict(context, method.ProtocolId, existing, service.InterfaceName, method.MethodName, isManual: true);
+                        ReportProtocolIdConflict(context, method.ProtocolId, existing, service.InterfaceName, method.MethodName, method.Location, usedIds.Keys, isManual: true);
                     }
                     else
                     {
-                        usedIds[method.ProtocolId] = (service.InterfaceName, method.MethodName);
+                        usedIds[method.ProtocolId] = (service.InterfaceName, method.MethodName, method.Location);
                     }
                 }
             }
@@ -286,11 +286,11 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
 
                     if (usedIds.TryGetValue(protocolId, out var existing))
                     {
-                        ReportProtocolIdConflict(context, protocolId, existing, service.InterfaceName, method.MethodName, isManual: false);
+                        ReportProtocolIdConflict(context, protocolId, existing, service.InterfaceName, method.MethodName, method.Location, usedIds.Keys, isManual: false);
                     }
                     else
                     {
-                        usedIds[protocolId] = (service.InterfaceName, method.MethodName);
+                        usedIds[protocolId] = (service.InterfaceName, method.MethodName, method.Location);
                     }
                 }
             }
@@ -321,13 +321,19 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// 协议号是方法签名的纯哈希函数，不做线性探测；一旦冲突（无论是手动号之间、自动号之间，
     /// 还是手动号与自动号之间）立即报错，要求开发者用 <c>[Protocol(0xXXXX)]</c> 显式区分，
     /// 而不是静默改号，避免协议号随代码提交或编译单元内容变化而漂移。
+    /// 诊断定位在冲突方法的声明处（而非 <see cref="Location.None"/>），并在
+    /// <see cref="Diagnostic.Properties"/> 中附带一个当前未被占用的建议协议号
+    /// （键为 <c>SuggestedProtocolId</c>，值为 4 位十六进制字符串），供
+    /// <c>ProtocolIdConflictCodeFixProvider</c> 自动插入 <c>[Protocol(0xXXXX)]</c> 使用。
     /// </remarks>
     private static void ReportProtocolIdConflict(
         SourceProductionContext context,
         ushort protocolId,
-        (string service, string method) existing,
+        (string service, string method, Location? location) existing,
         string conflictingService,
         string conflictingMethod,
+        Location? conflictingLocation,
+        ICollection<ushort> usedProtocolIds,
         bool isManual)
     {
         var reason = isManual
@@ -344,7 +350,30 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             DiagnosticSeverity.Error,
             true);
 
-        context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+        var properties = BuildSuggestedProtocolIdProperties(protocolId, usedProtocolIds);
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            conflictingLocation ?? Location.None,
+            existing.location != null ? new[] { existing.location } : null,
+            properties));
+    }
+
+    /// <summary>
+    /// 从指定协议号开始向后查找一个尚未被占用的协议号，作为 CodeFixProvider 的插入建议。
+    /// </summary>
+    private static ImmutableDictionary<string, string?> BuildSuggestedProtocolIdProperties(ushort protocolId, ICollection<ushort> usedProtocolIds)
+    {
+        for (var offset = 1; offset <= ushort.MaxValue; offset++)
+        {
+            var candidate = unchecked((ushort)(protocolId + offset));
+            if (!usedProtocolIds.Contains(candidate))
+            {
+                return ImmutableDictionary<string, string?>.Empty.Add("SuggestedProtocolId", candidate.ToString("X4"));
+            }
+        }
+
+        return ImmutableDictionary<string, string?>.Empty;
     }
 
     /// <summary>
@@ -626,6 +655,9 @@ public static partial class ProtocolIdMapping
                         continue;
                     }
 
+                    // 尝试读取 [Protocol] 特性（与 Hub 方法一致，用于解决协议号冲突）
+                    var manualProtocolId = TryGetProtocolIdFromAttribute(methodSymbol);
+
                     var method = new ReceiverMethodModel
                     {
                         MethodName = methodSymbol.Name,
@@ -636,7 +668,9 @@ public static partial class ProtocolIdMapping
                             Name = p.Name,
                             TypeName = p.Type.Name,
                             TypeFullName = p.Type.ToDisplayString()
-                        }).ToList()
+                        }).ToList(),
+                        ProtocolId = manualProtocolId ?? 0, // 0 表示需要自动生成
+                        Location = methodSymbol.Locations.FirstOrDefault()
                     };
 
                     methods.Add(method);
@@ -661,18 +695,42 @@ public static partial class ProtocolIdMapping
     /// 为接收器方法分配协议号
     /// </summary>
     /// <remarks>
-    /// 独立于 Hub 方法的协议号空间；同样使用纯哈希函数、不做线性探测，冲突时报告
-    /// <c>PULSE004</c> 编译错误（接收器方法当前不支持 <c>[Protocol]</c> 手动指定，因此
-    /// 冲突只可能发生在两个自动生成的号之间）。
+    /// 独立于 Hub 方法的协议号空间；同样使用纯哈希函数、不做线性探测。支持 <c>[Protocol(0xXXXX)]</c>
+    /// 手动指定协议号（与 Hub 方法一致，由 <c>CreateReceiverModelFromSymbol</c> 读取），冲突
+    /// （无论手动号之间、自动号之间，还是手动号与自动号之间）一律报告 <c>PULSE004</c> 编译错误，
+    /// 要求开发者手动指定不同的协议号来区分。
     /// </remarks>
     private static void AssignReceiverProtocolIds(List<ReceiverModel> receivers, SourceProductionContext context)
     {
-        var usedIds = new Dictionary<ushort, (string receiver, string method)>();
+        var usedIds = new Dictionary<ushort, (string receiver, string method, Location? location)>();
 
+        // 第一遍：收集所有手动指定的协议号
         foreach (var receiver in receivers)
         {
             foreach (var method in receiver.Methods)
             {
+                if (method.ProtocolId != 0)
+                {
+                    if (usedIds.TryGetValue(method.ProtocolId, out var existing))
+                    {
+                        ReportReceiverProtocolIdConflict(context, method.ProtocolId, existing, receiver.InterfaceName, method.MethodName, method.Location, usedIds.Keys);
+                    }
+                    else
+                    {
+                        usedIds[method.ProtocolId] = (receiver.InterfaceName, method.MethodName, method.Location);
+                    }
+                }
+            }
+        }
+
+        // 第二遍：为没有手动指定的方法生成协议号（纯哈希函数，不做线性探测）
+        foreach (var receiver in receivers)
+        {
+            foreach (var method in receiver.Methods)
+            {
+                if (method.ProtocolId != 0)
+                    continue;
+
                 // 构造方法签名 - 排除 CancellationToken 参数（与客户端保持一致）
                 var parameterTypes = ProtocolIdHelper.FilterCancellationToken(
                     method.Parameters.Select(p => p.TypeFullName));
@@ -682,30 +740,54 @@ public static partial class ProtocolIdMapping
                     method.MethodName,
                     parameterTypes);
 
-                // 纯哈希函数，不做线性探测
                 var protocolId = ProtocolIdHelper.GenerateProtocolId(signature);
                 method.ProtocolId = protocolId;
 
                 if (usedIds.TryGetValue(protocolId, out var existing))
                 {
-                    var descriptor = new DiagnosticDescriptor(
-                        "PULSE004",
-                        "Receiver protocol ID conflict detected",
-                        $"Protocol ID 0x{protocolId:X4} is already used by {existing.receiver}.{existing.method}. " +
-                        $"Method {receiver.InterfaceName}.{method.MethodName} cannot use the same protocol ID. " +
-                        $"Rename one of the methods, or change its parameter types, to change its hash.",
-                        "PulseRPC.Server.SourceGenerator",
-                        DiagnosticSeverity.Error,
-                        true);
-
-                    context.ReportDiagnostic(Diagnostic.Create(descriptor, Location.None));
+                    ReportReceiverProtocolIdConflict(context, protocolId, existing, receiver.InterfaceName, method.MethodName, method.Location, usedIds.Keys);
                 }
                 else
                 {
-                    usedIds[protocolId] = (receiver.InterfaceName, method.MethodName);
+                    usedIds[protocolId] = (receiver.InterfaceName, method.MethodName, method.Location);
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// 报告接收器协议号冲突（PULSE004）
+    /// </summary>
+    /// <remarks>
+    /// 诊断定位在冲突方法的声明处，并在 <see cref="Diagnostic.Properties"/> 中附带建议协议号
+    /// （键 <c>SuggestedProtocolId</c>），供 <c>ProtocolIdConflictCodeFixProvider</c> 使用。
+    /// </remarks>
+    private static void ReportReceiverProtocolIdConflict(
+        SourceProductionContext context,
+        ushort protocolId,
+        (string receiver, string method, Location? location) existing,
+        string conflictingReceiver,
+        string conflictingMethod,
+        Location? conflictingLocation,
+        ICollection<ushort> usedProtocolIds)
+    {
+        var descriptor = new DiagnosticDescriptor(
+            "PULSE004",
+            "Receiver protocol ID conflict detected",
+            $"Protocol ID 0x{protocolId:X4} is already used by {existing.receiver}.{existing.method}. " +
+            $"Method {conflictingReceiver}.{conflictingMethod} cannot use the same protocol ID. " +
+            $"Please manually specify a different protocol ID using [Protocol(0xXXXX)] attribute.",
+            "PulseRPC.Server.SourceGenerator",
+            DiagnosticSeverity.Error,
+            true);
+
+        var properties = BuildSuggestedProtocolIdProperties(protocolId, usedProtocolIds);
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            conflictingLocation ?? Location.None,
+            existing.location != null ? new[] { existing.location } : null,
+            properties));
     }
 
     /// <summary>
@@ -787,7 +869,8 @@ public static partial class ProtocolIdMapping
                         ProtocolId = manualProtocolId ?? 0, // 0 表示需要自动生成
                         Authorization = methodAuthorization,
                         IsReentrant = isReentrant,
-                        IsClientFacing = isClientFacing
+                        IsClientFacing = isClientFacing,
+                        Location = methodSymbol.Locations.FirstOrDefault()
                     };
 
                     methods.Add(method);

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.CodeAnalysis;
 
 namespace PulseRPC.Server.SourceGenerator.Models;
 
@@ -81,9 +82,17 @@ public sealed class ReceiverMethodModel
     public bool IsAsync { get; set; }
 
     /// <summary>
-    /// 协议号
+    /// 协议号（独立于 Hub 方法的协议号空间）；0 表示尚未分配，由生成器在 <c>AssignReceiverProtocolIds</c>
+    /// 中填充为手动指定值（通过 <c>[Protocol(0xXXXX)]</c>）或自动计算的哈希值。
     /// </summary>
     public ushort ProtocolId { get; set; }
+
+    /// <summary>
+    /// 方法声明的源码位置（用于协议号冲突诊断定位，以支持 CodeFixProvider 自动插入
+    /// <c>[Protocol(0xXXXX)]</c>）。当方法来自引用程序集的元数据（而非当前编译单元的源码）时为 <c>null</c>。
+    /// </summary>
+    public Location? Location { get; set; }
+
 
     /// <summary>
     /// 是否返回 Task

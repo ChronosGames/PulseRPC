@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -122,11 +123,17 @@ public static class ProtocolIdGenerator
     /// <summary>
     /// 报告协议号冲突的诊断信息
     /// </summary>
+    /// <remarks>
+    /// 在 <see cref="Diagnostic.Properties"/> 中附带一个当前未被占用的建议协议号
+    /// （键 <c>SuggestedProtocolId</c>，值为 4 位十六进制字符串），供
+    /// <c>ProtocolIdConflictCodeFixProvider</c>（客户端）自动插入 <c>[Protocol(0xXXXX)]</c> 使用。
+    /// </remarks>
     public static void ReportProtocolIdConflict(
         SourceProductionContext context,
         IMethodSymbol method,
         ushort protocolId,
-        (string service, string method) existing)
+        (string service, string method) existing,
+        IReadOnlyCollection<ushort>? usedProtocolIds = null)
     {
         var descriptor = new DiagnosticDescriptor(
             "PRPC001",
@@ -138,7 +145,34 @@ public static class ProtocolIdGenerator
             DiagnosticSeverity.Error,
             true);
 
-        context.ReportDiagnostic(Diagnostic.Create(descriptor, method.Locations.FirstOrDefault()));
+        var properties = ImmutableDictionary<string, string?>.Empty;
+        if (usedProtocolIds != null)
+        {
+            var suggested = FindSuggestedProtocolId(protocolId, usedProtocolIds);
+            if (suggested.HasValue)
+            {
+                properties = properties.Add("SuggestedProtocolId", suggested.Value.ToString("X4"));
+            }
+        }
+
+        context.ReportDiagnostic(Diagnostic.Create(descriptor, method.Locations.FirstOrDefault(), properties));
+    }
+
+    /// <summary>
+    /// 从指定协议号开始向后查找一个尚未被占用的协议号，作为 CodeFixProvider 的插入建议。
+    /// </summary>
+    private static ushort? FindSuggestedProtocolId(ushort protocolId, IReadOnlyCollection<ushort> usedProtocolIds)
+    {
+        for (var offset = 1; offset <= ushort.MaxValue; offset++)
+        {
+            var candidate = unchecked((ushort)(protocolId + offset));
+            if (!usedProtocolIds.Contains(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -271,7 +305,7 @@ public static class ProtocolIdGenerator
                 // 检查手动指定的协议号是否冲突
                 if (usedIds.TryGetValue(manualId, out var existing))
                 {
-                    ReportProtocolIdConflict(context, method, manualId, existing);
+                    ReportProtocolIdConflict(context, method, manualId, existing, usedIds.Keys);
                 }
                 else
                 {
@@ -293,7 +327,7 @@ public static class ProtocolIdGenerator
 
                 if (usedIds.TryGetValue(protocolId, out var existing))
                 {
-                    ReportProtocolIdConflict(context, method, protocolId, existing);
+                    ReportProtocolIdConflict(context, method, protocolId, existing, usedIds.Keys);
                 }
                 else
                 {

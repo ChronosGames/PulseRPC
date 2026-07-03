@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.CodeAnalysis;
 
 namespace PulseRPC.Server.SourceGenerator.Models;
 
@@ -39,6 +40,12 @@ public sealed class MethodModel
     /// 协议号 - 用于高性能方法路由
     /// </summary>
     public ushort ProtocolId { get; set; }
+
+    /// <summary>
+    /// 方法声明的源码位置（用于协议号冲突诊断定位，以支持 CodeFixProvider 自动插入
+    /// <c>[Protocol(0xXXXX)]</c>）。当方法来自引用程序集的元数据（而非当前编译单元的源码）时为 <c>null</c>。
+    /// </summary>
+    public Location? Location { get; set; }
 
     /// <summary>
     /// 当方法返回 Task&lt;T&gt;/ValueTask&lt;T&gt; 时，该属性为泛型参数的完全限定名；否则为 null。

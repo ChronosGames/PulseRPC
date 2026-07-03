@@ -26,7 +26,12 @@
     <!-- Unity兼容性设置 -->
     <DevelopmentDependency>true</DevelopmentDependency>
     <!-- 禁用 RS1035 和 RS1041 分析器规则以支持向后兼容和 .NET 10 目标框架 -->
-    <NoWarn>$(NoWarn);NU5128;RS1035;RS1041</NoWarn>
+    <!-- 禁用 RS1038：本项目将 CodeFixProvider（依赖 Microsoft.CodeAnalysis.Workspaces）与
+         IIncrementalGenerator 放在同一程序集中，简化打包结构。经验证，.NET SDK 的生成器宿主
+         （dotnet build / MSBuild 内置的 VBCSCompiler）在本仓库环境下可正常解析 Workspaces 程序集；
+         即使在缺少该程序集的极端宿主环境下，Roslyn 对 Assembly.GetTypes() 的类型加载失败具备
+         容错处理，最多导致 CodeFixProvider 本身不可用，不会影响 IIncrementalGenerator 的正常生成。 -->
+    <NoWarn>$(NoWarn);NU5128;RS1035;RS1041;RS1038</NoWarn>
     <TargetFramework>net10.0</TargetFramework>
   </PropertyGroup>
 
@@ -35,6 +40,8 @@
     <!-- require to support SyntaxValueProvider.ForAttributeWithMetadataName(Roslyn 4.3.0, VS2022 17.3) -->
     <!-- Unity 2022.3.12f1 or newer supports 4.3.0 -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <!-- CodeFixProvider 基础设施（CodeFixProvider/CodeAction/Formatter），仅供 IDE 分析器宿主使用，不随包发布 -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" PrivateAssets="all" />
     <PackageReference Include="Microsoft.CodeAnalysis.Analyzers">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

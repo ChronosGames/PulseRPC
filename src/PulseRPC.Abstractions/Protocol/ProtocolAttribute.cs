@@ -40,6 +40,13 @@ namespace PulseRPC.Protocol;
 ///     [Protocol("0x5678")]
 ///     ValueTask JoinRoomAsync(string roomId);
 /// }
+///
+/// // IPulseReceiver（服务端推送）方法同样支持该特性，协议号空间与 Hub 方法相互独立
+/// public interface IChatReceiver : IPulseReceiver
+/// {
+///     [Protocol(0x2001)]
+///     ValueTask OnMessageReceivedAsync(string message);
+/// }
 /// </code>
 /// </example>
 [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
