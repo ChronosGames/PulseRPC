@@ -235,8 +235,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
             // 传递给 TieredMessageProcessor
             if (!_tieredProcessors.TryGetValue(connectionId, out var processor))
             {
-                messagePacket.Dispose(); // 丢弃：归还池化缓冲
-                return false;
+                return RejectSlot(slot.PayloadOwner);
             }
 
             var success = processor.TryEnqueueMessageSlot(slot);
@@ -254,11 +253,22 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         }
         catch (Exception ex)
         {
-            messagePacket.Dispose(); // 异常丢弃：归还池化缓冲
             _metrics.EnqueueErrors.Add(1);
             _logger.LogWarning(ex, "消息入队失败: ConnectionId={ConnectionId}", connectionId);
-            return false;
+            return RejectSlot(messagePacket);
         }
+    }
+
+    /// <summary>
+    /// 统一「拒绝入队」路径的载荷归还：将 slot/holder 持有的池化缓冲释放，并返回 <c>false</c>。
+    /// <see cref="MessagePacketHolder.Dispose"/> 幂等（Interlocked 守卫），
+    /// 即便调用方误判所有权状态重复调用本方法也不会二次归还池或抛异常。
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool RejectSlot(IDisposable? payloadOwner)
+    {
+        payloadOwner?.Dispose();
+        return false;
     }
 
     /// <summary>
@@ -284,8 +294,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                     _logger.LogWarning("L1利用率过高({Utilization:P}), 丢弃普通消息: MessageId={MessageId}",
                         utilization, slot.MessageId);
                     _metrics.MessagesDropped.Add(1);
-                    slot.PayloadOwner?.Dispose(); // 丢弃：归还池化缓冲
-                    return false;
+                    return RejectSlot(slot.PayloadOwner);
                 }
                 return TryEnqueueWithRetry(slot, TimeSpan.FromMicroseconds(100), 1);
 
@@ -293,13 +302,11 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 // 低优先级：直接丢弃
                 _logger.LogDebug("低优先级消息被丢弃: MessageId={MessageId}", slot.MessageId);
                 _metrics.MessagesDropped.Add(1);
-                slot.PayloadOwner?.Dispose(); // 丢弃：归还池化缓冲
-                return false;
+                return RejectSlot(slot.PayloadOwner);
 
             default:
                 _metrics.MessagesDropped.Add(1);
-                slot.PayloadOwner?.Dispose(); // 丢弃：归还池化缓冲
-                return false;
+                return RejectSlot(slot.PayloadOwner);
         }
     }
 
@@ -325,8 +332,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         _logger.LogWarning("消息入队重试{RetryCount}次后失败: MessageId={MessageId}, ConnectionId={ConnectionId}",
             maxRetries, slot.MessageId, slot.ConnectionId);
         _metrics.MessagesDropped.Add(1);
-        slot.PayloadOwner?.Dispose(); // 重试耗尽丢弃：归还池化缓冲
-        return false;
+        return RejectSlot(slot.PayloadOwner);
     }
 
     /// <summary>

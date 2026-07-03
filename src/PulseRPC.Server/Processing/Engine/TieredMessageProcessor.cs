@@ -187,7 +187,8 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
     /// </summary>
     private async Task L1ToL2BatchTransferLoop()
     {
-        var batchBuffer = new MessageSlot[_options.MaxBatchSize];
+        // 收集用的临时缓冲：仅在本次迭代内使用，随后复制到每批独立数组。
+        var scratch = new MessageSlot[_options.MaxBatchSize];
         // 信号等待超时 - 作为安全兜底，防止信号丢失
         const int signalTimeoutMs = 10;
 
@@ -199,9 +200,9 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
                 var batchStartTime = Stopwatch.GetTimestamp();
 
                 // 首先尝试快速收集一批消息
-                while (batchSize < batchBuffer.Length && _l1Buffer.TryDequeue(out var slot))
+                while (batchSize < scratch.Length && _l1Buffer.TryDequeue(out var slot))
                 {
-                    batchBuffer[batchSize++] = slot;
+                    scratch[batchSize++] = slot;
                     _metrics.L1MessagesDequeued.Add(1);
                 }
 
@@ -214,11 +215,19 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
                         _messageSignal.Wait(0); // 非阻塞尝试消耗
                     }
 
-                    // 创建批处理（使用ArrayPool减少内存分配）
+                    // 修复内存别名 bug：为每个批次分配独立数组。
+                    // 此前 Messages 指向跨迭代复用的共享缓冲，通道缓冲多批时后续迭代会覆写
+                    // 仍在处理中的批次内存，导致含引用的 MessageSlot 结构被撕裂（→ 载荷二次归还/泄漏、
+                    // 甚至读到非法 offset/length 崩溃）。这直接破坏 P1-8 的“恰好一次归还”语义。
+                    var batchArray = new MessageSlot[batchSize];
+                    Array.Copy(scratch, batchArray, batchSize);
+                    Array.Clear(scratch, 0, batchSize); // 避免临时缓冲长期持有 MessageSlot 内的引用
+
+                    // 创建批处理
                     var batch = new TieredMessageBatch
                     {
                         BatchId = Interlocked.Increment(ref s_batchIdCounter),
-                        Messages = new ReadOnlyMemory<MessageSlot>(batchBuffer, 0, batchSize),
+                        Messages = batchArray,
                         CreateTime = batchStartTime,
                         ProcessorId = _processorId
                     };

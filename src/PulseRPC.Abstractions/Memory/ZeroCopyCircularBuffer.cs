@@ -106,7 +106,10 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     private void PrewarmBuffer()
     {
         var span = _buffer.Span;
-        for (var i = 0; i < span.Length; i += MemorySpecs.ALIGNMENT_BYTES / Unsafe.SizeOf<T>())
+        // 步长按缓存行大小估算；当元素本身 >= 一个缓存行（如含多个引用字段的大结构体）时，
+        // 整数除法会得到 0，必须钳到至少 1，否则 i 永不前进 → 构造函数死循环。
+        var step = Math.Max(1, MemorySpecs.ALIGNMENT_BYTES / Unsafe.SizeOf<T>());
+        for (var i = 0; i < span.Length; i += step)
         {
             span[i] = default;
         }
