@@ -213,6 +213,13 @@ public static class ReceiverDispatcherGenerator
         var constName = $"Protocol_{methodName}";
         var parameters = methodSymbol.Parameters;
 
+        // [P-4] 返回 Task<T>/ValueTask<T> 的方法 => 反向 Ask，注册请求处理器（RegisterRequestHandler）
+        if (TryGetReverseAskResponseType(methodSymbol, out var responseType))
+        {
+            GenerateRequestHandlerRegistration(sb, methodSymbol, responseType, constName, bodyIndent, innerIndent, deepIndent);
+            return;
+        }
+
         // 判断返回类型是否为 void - void 不能赋值给 discard
         var isVoidReturn = methodSymbol.ReturnsVoid;
         var callPrefix = isVoidReturn ? "" : "_ = ";
@@ -245,6 +252,72 @@ public static class ReceiverDispatcherGenerator
             sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}({argList});");
         }
 
+        sb.AppendLine($"{innerIndent}}}));");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// [P-4] 判断方法是否为反向 Ask（返回 <c>Task&lt;T&gt;</c> / <c>ValueTask&lt;T&gt;</c>），并取出响应类型 <c>T</c>。
+    /// </summary>
+    private static bool TryGetReverseAskResponseType(IMethodSymbol methodSymbol, out ITypeSymbol responseType)
+    {
+        responseType = null!;
+
+        if (methodSymbol.ReturnType is INamedTypeSymbol named &&
+            named.IsGenericType &&
+            named.TypeArguments.Length == 1)
+        {
+            var ns = named.ContainingNamespace?.ToDisplayString();
+            if (ns == "System.Threading.Tasks" && (named.Name == "Task" || named.Name == "ValueTask"))
+            {
+                responseType = named.TypeArguments[0];
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// [P-4] 生成反向请求处理器注册：反序列化请求参数 -> await 用户实现 -> 序列化响应结果。
+    /// </summary>
+    private static void GenerateRequestHandlerRegistration(
+        StringBuilder sb,
+        IMethodSymbol methodSymbol,
+        ITypeSymbol responseType,
+        string constName,
+        string bodyIndent,
+        string innerIndent,
+        string deepIndent)
+    {
+        var methodName = methodSymbol.Name;
+        var parameters = methodSymbol.Parameters;
+
+        sb.AppendLine($"{bodyIndent}// 注册 {methodName} 反向请求处理器（Server→Client Reverse Ask）");
+        sb.AppendLine($"{bodyIndent}_subscriptions.Add(channel.RegisterRequestHandler(");
+        sb.AppendLine($"{innerIndent}protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}handler: async (ReadOnlyMemory<byte> __data__, System.Threading.CancellationToken __ct__) =>");
+        sb.AppendLine($"{innerIndent}{{");
+
+        if (parameters.Length == 0)
+        {
+            sb.AppendLine($"{deepIndent}var __result__ = await _implementation.{methodName}();");
+        }
+        else if (parameters.Length == 1)
+        {
+            var param = parameters[0];
+            sb.AppendLine($"{deepIndent}var __arg__ = MemoryPackSerializer.Deserialize<{param.Type.ToDisplayString()}>(__data__.Span)!;");
+            sb.AppendLine($"{deepIndent}var __result__ = await _implementation.{methodName}(__arg__);");
+        }
+        else
+        {
+            var tupleType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
+            sb.AppendLine($"{deepIndent}var __args__ = MemoryPackSerializer.Deserialize<{tupleType}>(__data__.Span)!;");
+            var argList = string.Join(", ", Enumerable.Range(0, parameters.Length).Select(i => $"__args__.Item{i + 1}"));
+            sb.AppendLine($"{deepIndent}var __result__ = await _implementation.{methodName}({argList});");
+        }
+
+        sb.AppendLine($"{deepIndent}return MemoryPackSerializer.Serialize<{responseType.ToDisplayString()}>(__result__);");
         sb.AppendLine($"{innerIndent}}}));");
         sb.AppendLine();
     }

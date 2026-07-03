@@ -109,6 +109,17 @@ public sealed class ReceiverMethodModel
         ReturnTypeName == "System.Threading.Tasks.ValueTask";
 
     /// <summary>
+    /// [P-4] 反向 Ask 的响应类型完全限定名（来自 <c>Task&lt;T&gt;</c> / <c>ValueTask&lt;T&gt;</c> 的内部类型 <c>T</c>）。
+    /// 非泛型（<c>Task</c> / <c>ValueTask</c> / <c>void</c>）为 <c>null</c>，此时保持单向 push（Event）语义。
+    /// </summary>
+    public string? ResponseTypeName { get; set; }
+
+    /// <summary>
+    /// [P-4] 是否为请求-响应（反向 Ask）方法：返回 <c>Task&lt;T&gt;</c> / <c>ValueTask&lt;T&gt;</c>。
+    /// </summary>
+    public bool IsRequestResponse => ResponseTypeName != null;
+
+    /// <summary>
     /// 是否有参数
     /// </summary>
     public bool HasParameters => Parameters.Count > 0;

@@ -198,6 +198,7 @@ public enum MessageType : byte
     Event = 7,         // 事件
     Error = 8,         // 错误响应
     Cancel = 9,        // 取消请求
+    ReverseRequest = 10, // 反向请求（服务端→客户端，需应答；客户端以 Response/Error 回显 MessageId 应答）
 }
 
 /// <summary>

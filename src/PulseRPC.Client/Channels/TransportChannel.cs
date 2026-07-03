@@ -452,6 +452,9 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                 case MessageType.Event:
                     ProcessEvent(message);
                     break;
+                case MessageType.ReverseRequest:
+                    ProcessReverseRequest(message);
+                    break;
                 case MessageType.Ping:
                     ProcessPing(message);
                     break;
@@ -716,6 +719,119 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             $"Protocol:{protocolId:X4}",  // 使用协议号的十六进制表示作为标识
             typeof(ReadOnlyMemory<byte>),
             () => UnsubscribeProtocolIdEvent(protocolId, deserializeAndInvoke));
+    }
+
+    // ============================================================================
+    // [P-4] 服务端→客户端反向 Ask（Reverse Ask）
+    // ============================================================================
+
+    // 基于协议号的反向请求处理器字典（protocolId -> 处理器），1:1 语义
+    private readonly ConcurrentDictionary<ushort, Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<ReadOnlyMemory<byte>>>> _requestHandlers = new();
+
+    /// <summary>
+    /// [Server→Client Reverse Ask] 注册反向请求处理器 - 使用协议号（零拷贝路径）
+    /// </summary>
+    public ISubscriptionToken RegisterRequestHandler(
+        ushort protocolId,
+        Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<ReadOnlyMemory<byte>>> handler)
+    {
+        if (handler == null) throw new ArgumentNullException(nameof(handler));
+
+        if (!_requestHandlers.TryAdd(protocolId, handler))
+        {
+            throw new InvalidOperationException(
+                $"协议号 0x{protocolId:X4} 已注册反向请求处理器；反向 Ask 为 1:1 语义，不支持重复注册。");
+        }
+
+        var subscriptionId = Guid.NewGuid();
+        return new SubscriptionToken(
+            subscriptionId,
+            $"ReverseRequest:{protocolId:X4}",
+            typeof(ReadOnlyMemory<byte>),
+            () => _requestHandlers.TryRemove(protocolId, out _));
+    }
+
+    /// <summary>
+    /// 处理服务端发起的反向请求：调用已注册处理器，并以 Response/Error 回传应答。
+    /// </summary>
+    private async void ProcessReverseRequest(NetworkMessage message)
+    {
+        var messageId = message.Header.MessageId;
+        var protocolId = message.Header.ProtocolId;
+
+        try
+        {
+            if (protocolId == 0 || !_requestHandlers.TryGetValue(protocolId, out var handler))
+            {
+                if (_logger.IsEnabled(LogLevel.Warning))
+                {
+                    _logger.LogWarning("收到未注册的反向请求: ProtocolId=0x{Id:X4}, MessageId={MessageId}", protocolId, messageId);
+                }
+
+                var notFound = ErrorResponse.Create(
+                    "REVERSE_HANDLER_NOT_FOUND",
+                    $"客户端未注册协议号 0x{protocolId:X4} 的反向请求处理器。");
+                await SendReverseReplyAsync(messageId, MessageType.Error, MemoryPack.MemoryPackSerializer.Serialize(notFound));
+                return;
+            }
+
+            try
+            {
+                var result = await handler(message.Body, _cts.Token);
+                await SendReverseReplyAsync(messageId, MessageType.Response, result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "反向请求处理异常: ProtocolId=0x{Id:X4}, MessageId={MessageId}", protocolId, messageId);
+                var error = ErrorResponse.Create(ex.GetType().Name, ex.Message);
+                await SendReverseReplyAsync(messageId, MessageType.Error, MemoryPack.MemoryPackSerializer.Serialize(error));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "处理反向请求失败（无法回传应答）: ProtocolId=0x{Id:X4}, MessageId={MessageId}", protocolId, messageId);
+        }
+    }
+
+    /// <summary>
+    /// 构建并发送反向请求的应答帧（Response 成功 / Error 失败），回显 MessageId。
+    /// </summary>
+    private async ValueTask SendReverseReplyAsync(Guid messageId, MessageType type, ReadOnlyMemory<byte> body)
+    {
+        var messageBuffer = _bufferWriterPool.Get();
+        try
+        {
+            messageBuffer.Clear();
+
+            var header = new MessageHeader
+            {
+                Type = type,
+                MessageId = messageId,
+                ProtocolId = 0,
+                ServiceName = string.Empty,
+                MethodName = string.Empty,
+                Flags = type == MessageType.Error ? MessageFlags.Error : MessageFlags.None,
+                Timestamp = DateTimeOffset.UtcNow.Ticks
+            };
+
+            var headerBytes = MemoryPack.MemoryPackSerializer.Serialize(header);
+            BinaryPrimitives.WriteInt32LittleEndian(messageBuffer.GetSpan(4), headerBytes.Length);
+            messageBuffer.Advance(4);
+            messageBuffer.Write(headerBytes);
+
+            if (!body.IsEmpty)
+            {
+                messageBuffer.Write(body.Span);
+            }
+
+            // BUGFIX: 复制数据以避免缓冲区被复用
+            var data = messageBuffer.WrittenMemory.ToArray();
+            await _transport.SendAsync(data, CancellationToken.None);
+        }
+        finally
+        {
+            _bufferWriterPool.Return(messageBuffer);
+        }
     }
 
     /// <summary>

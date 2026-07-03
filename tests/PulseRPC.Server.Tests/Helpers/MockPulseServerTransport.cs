@@ -101,12 +101,19 @@ public class MockServerTransport : IServerTransport
     public EndPoint LocalEndPoint => new IPEndPoint(IPAddress.Loopback, 8080);
     public EndPoint RemoteEndPoint { get; }
 
+    /// <summary>Captured frames passed to <see cref="SendAsync"/> (test helper).</summary>
+    public List<byte[]> SentFrames { get; } = new();
+
+    /// <summary>Value returned by <see cref="SendAsync"/> (test helper).</summary>
+    public bool SendResult { get; set; } = true;
+
     public event EventHandler<TransportStateEventArgs>? StateChanged;
     public event EventHandler<TransportDataEventArgs>? DataReceived;
 
     public Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
-        return Task.FromResult(true);
+        SentFrames.Add(data.ToArray());
+        return Task.FromResult(SendResult);
     }
 
     public Task CloseAsync(CancellationToken cancellationToken = default)
@@ -124,5 +131,13 @@ public class MockServerTransport : IServerTransport
     public void SimulateDataReceived(ReadOnlyMemory<byte> data)
     {
         DataReceived?.Invoke(this, new TransportDataEventArgs(data));
+    }
+
+    // Test helper: simulate a transport state transition (e.g., disconnect)
+    public void SimulateStateChanged(PulseRPC.Transport.ConnectionState newState)
+    {
+        var previous = State;
+        State = newState;
+        StateChanged?.Invoke(this, new TransportStateEventArgs(Id, previous, newState));
     }
 }

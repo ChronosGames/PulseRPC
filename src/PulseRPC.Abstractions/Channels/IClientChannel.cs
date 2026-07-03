@@ -101,6 +101,24 @@ public interface IClientChannel : IDisposable
         ushort protocolId,
         Action<ReadOnlyMemory<byte>> deserializeAndInvoke);
 
+    /// <summary>
+    /// [Server→Client Reverse Ask] 注册反向请求处理器 - 使用协议号（零拷贝路径）
+    /// 源生成器专用：服务端可发起需应答的请求（<see cref="MessageType.ReverseRequest"/>），
+    /// 客户端通过此处理器处理并返回结果，由框架以 <see cref="MessageType.Response"/> / <see cref="MessageType.Error"/> 回传服务端。
+    /// </summary>
+    /// <param name="protocolId">协议号（由源生成器生成）</param>
+    /// <param name="handler">
+    /// 反序列化 + 调用 + 返回序列化结果的委托（由源生成器生成）。
+    /// 入参为请求载荷；返回已序列化的响应载荷。抛出的异常会被框架转换为 <see cref="MessageType.Error"/> 回传。
+    /// </param>
+    /// <returns>订阅令牌，用于取消注册</returns>
+    /// <remarks>
+    /// 反向 Ask 为 1:1 语义（每个协议号至多一个处理器）；重复注册同一协议号将抛出 <see cref="InvalidOperationException"/>。
+    /// </remarks>
+    ISubscriptionToken RegisterRequestHandler(
+        ushort protocolId,
+        Func<ReadOnlyMemory<byte>, CancellationToken, ValueTask<ReadOnlyMemory<byte>>> handler);
+
     #endregion
 
     /// <summary>

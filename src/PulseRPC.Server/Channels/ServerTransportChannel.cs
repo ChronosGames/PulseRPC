@@ -83,6 +83,26 @@ public interface IServerChannel : IDisposable
     Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// [Server→Client Reverse Ask] 向该连接的客户端发起「需应答」的反向请求，并等待客户端应答。
+    /// </summary>
+    /// <param name="protocolId">协议号（由源生成器生成）</param>
+    /// <param name="payload">已序列化的请求载荷</param>
+    /// <param name="timeout">等待应答的超时时间；小于等于 <see cref="TimeSpan.Zero"/> 时使用默认超时。</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>客户端返回的已序列化响应载荷。</returns>
+    /// <remarks>
+    /// 关联键为 <see cref="MessageHeader.MessageId"/>。客户端以 <see cref="MessageType.Response"/> 表示成功、
+    /// <see cref="MessageType.Error"/> 表示失败进行应答。超时抛出 <see cref="TimeoutException"/>；
+    /// 连接断开、客户端处理异常等抛出 <see cref="PulseReverseCallException"/>。
+    /// </remarks>
+    Task<ReadOnlyMemory<byte>> InvokeClientAsync(
+        ushort protocolId,
+        ReadOnlyMemory<byte> payload,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("当前 IServerChannel 实现不支持服务端→客户端反向调用（Reverse Ask）。");
+
+    /// <summary>
     /// 状态变更事件
     /// </summary>
     event EventHandler<TransportStateEventArgs>? StateChanged;
@@ -112,6 +132,24 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
     private IAuthenticationContext? _authenticationContext;
     private DateTime _lastActiveTime;
     private bool _disposed;
+
+    // === [P-4] 服务端→客户端反向 Ask（Reverse Ask）挂起状态 ===
+
+    /// <summary>反向调用默认超时时间</summary>
+    private static readonly TimeSpan DefaultReverseCallTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// 挂起中的反向调用（按连接归属，天然支持断线兜底）。
+    /// 键为 <see cref="MessageHeader.MessageId"/>。
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, ReverseCallState> _pendingReverseCalls = new();
+
+    private sealed class ReverseCallState
+    {
+        public ReverseCallState(TaskCompletionSource<ReadOnlyMemory<byte>> tcs) => Tcs = tcs;
+
+        public TaskCompletionSource<ReadOnlyMemory<byte>> Tcs { get; }
+    }
 
     // === TransportChannelBase 抽象成员实现 ===
 
@@ -325,6 +363,9 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
         if (e.CurrentState == ConnectionState.Disconnected)
         {
             ClearAuthentication();
+
+            // [P-4] 断线兜底：使所有挂起的反向调用失败
+            FailAllPendingReverseCalls("连接已断开，反向调用（Reverse Ask）被中止。");
         }
     }
 
@@ -352,6 +393,151 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
     }
 
     /// <summary>
+    /// [P-4] 向该连接的客户端发起「需应答」的反向请求，并等待客户端应答。
+    /// </summary>
+    public async Task<ReadOnlyMemory<byte>> InvokeClientAsync(
+        ushort protocolId,
+        ReadOnlyMemory<byte> payload,
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        if (_disposed)
+        {
+            throw new PulseReverseCallException("连接已关闭，无法发起反向调用（Reverse Ask）。");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var effectiveTimeout = timeout <= TimeSpan.Zero ? DefaultReverseCallTimeout : timeout;
+        var messageId = Guid.NewGuid();
+        var tcs = new TaskCompletionSource<ReadOnlyMemory<byte>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var state = new ReverseCallState(tcs);
+
+        if (!_pendingReverseCalls.TryAdd(messageId, state))
+        {
+            throw new PulseReverseCallException("反向调用消息ID发生冲突，无法发起反向调用。");
+        }
+
+        using var timeoutCts = new CancellationTokenSource(effectiveTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        // 超时 / 取消兜底
+        using var registration = linkedCts.Token.Register(() =>
+        {
+            if (_pendingReverseCalls.TryRemove(messageId, out var removed))
+            {
+                if (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    removed.Tcs.TrySetException(new TimeoutException(
+                        $"反向调用超时（{effectiveTimeout.TotalMilliseconds:F0}ms）：ProtocolId=0x{protocolId:X4}, MessageId={messageId}"));
+                }
+                else
+                {
+                    removed.Tcs.TrySetCanceled(cancellationToken);
+                }
+            }
+        });
+
+        try
+        {
+            // 构建 ReverseRequest 帧：[4字节头长度][MemoryPack 头][载荷]
+            var header = new MessageHeader(MessageType.ReverseRequest, string.Empty, string.Empty)
+            {
+                MessageId = messageId,
+                ProtocolId = protocolId,
+                Flags = MessageFlags.RequireResponse,
+                Timestamp = DateTimeOffset.UtcNow.Ticks
+            };
+
+            var packet = new MessagePacket(header, payload.Span);
+            using var buffer = System.Buffers.MemoryPool<byte>.Shared.Rent(packet.EstimateSize());
+            var bytesWritten = packet.WriteTo(buffer.Memory.Span);
+
+            var sent = await SendAsync(buffer.Memory[..bytesWritten], cancellationToken).ConfigureAwait(false);
+            if (!sent && _pendingReverseCalls.TryRemove(messageId, out var removed))
+            {
+                removed.Tcs.TrySetException(new PulseReverseCallException("反向调用发送失败：连接不可用。"));
+            }
+
+            return await tcs.Task.ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not TimeoutException and not OperationCanceledException and not PulseReverseCallException)
+        {
+            _pendingReverseCalls.TryRemove(messageId, out _);
+            throw new PulseReverseCallException("反向调用失败。", ex);
+        }
+        finally
+        {
+            _pendingReverseCalls.TryRemove(messageId, out _);
+        }
+    }
+
+    /// <summary>
+    /// 尝试用客户端应答（Response/Error）完成挂起的反向调用。
+    /// </summary>
+    /// <returns>命中挂起调用返回 true，否则返回 false。</returns>
+    private bool TryCompleteReverseCall(MessageHeader header, ReadOnlySpan<byte> payload)
+    {
+        if (!_pendingReverseCalls.TryRemove(header.MessageId, out var state))
+        {
+            return false;
+        }
+
+        if (header.Type == MessageType.Error)
+        {
+            var message = "客户端反向调用处理失败。";
+            string? errorCode = null;
+            try
+            {
+                if (!payload.IsEmpty)
+                {
+                    var error = MemoryPack.MemoryPackSerializer.Deserialize<ErrorResponse>(payload);
+                    if (error != null)
+                    {
+                        errorCode = string.IsNullOrEmpty(error.ErrorCode) ? null : error.ErrorCode;
+                        if (!string.IsNullOrEmpty(error.ErrorMessage))
+                        {
+                            message = error.ErrorMessage;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "[反向调用] {ConnectionId} 解析错误响应失败，MessageId={MessageId}", ConnectionId, header.MessageId);
+            }
+
+            state.Tcs.TrySetException(new PulseReverseCallException(message, errorCode));
+        }
+        else
+        {
+            // 成功：复制载荷（payload 位于复用的接收缓冲区之上）
+            state.Tcs.TrySetResult(payload.ToArray());
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// 断线兜底：使所有挂起的反向调用失败。
+    /// </summary>
+    private void FailAllPendingReverseCalls(string reason)
+    {
+        if (_pendingReverseCalls.IsEmpty)
+        {
+            return;
+        }
+
+        foreach (var kvp in _pendingReverseCalls)
+        {
+            if (_pendingReverseCalls.TryRemove(kvp.Key, out var state))
+            {
+                state.Tcs.TrySetException(new PulseReverseCallException(reason));
+            }
+        }
+    }
+
+    /// <summary>
     /// 处理接收到的数据，解析消息包并触发 MessageParsed 事件
     /// </summary>
     private void ProcessReceivedData(ReadOnlyMemory<byte> data)
@@ -371,6 +557,20 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
                     _logger?.LogTrace("[系统消息] {ConnectionId} 收到Ping消息，直接回复Pong", ConnectionId);
                     _ = HandlePingMessageAsync(messagePacket.Header.MessageId);
                     return; // 不触发 MessageParsed 事件
+                }
+
+                // [P-4] 特殊处理：客户端对「反向请求」的应答（Response/Error）。
+                // 正常客户端不会向服务端发送 Response/Error，因此在此拦截并完成挂起的反向调用，不进入消息处理管道。
+                if (messagePacket.Header.Type == MessageType.Response || messagePacket.Header.Type == MessageType.Error)
+                {
+                    if (TryCompleteReverseCall(messagePacket.Header, messagePacket.Payload))
+                    {
+                        return; // 已由反向调用消费
+                    }
+
+                    _logger?.LogWarning("[反向调用] {ConnectionId} 收到未匹配的应答（可能已超时或断线），Type={Type}, MessageId={MessageId}",
+                        ConnectionId, messagePacket.Header.Type, messagePacket.Header.MessageId);
+                    return;
                 }
 
                 // 创建消息包持有者（避免 ref struct 的生命周期问题）
@@ -445,6 +645,9 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
         _transport.StateChanged -= OnTransportStateChanged;
         _transport.DataReceived -= OnTransportDataReceived;
 
+        // [P-4] 断线兜底：使所有挂起的反向调用失败
+        FailAllPendingReverseCalls("连接已释放，反向调用（Reverse Ask）被中止。");
+
         // 清理认证信息
         ClearAuthentication();
 
@@ -456,5 +659,20 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
 
         // 调用基类释放
         base.Dispose();
+    }
+
+    /// <summary>
+    /// 释放资源（防御性：当通过 <see cref="IDisposable"/> 接口引用释放时，
+    /// 基类 <c>Dispose()</c> 会调用此虚方法，确保反向调用挂起状态在任一释放路径下都被清理）。
+    /// </summary>
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            // [P-4] 断线兜底：使所有挂起的反向调用失败（幂等，可与 Dispose() 重复调用）
+            FailAllPendingReverseCalls("连接已释放，反向调用（Reverse Ask）被中止。");
+        }
+
+        base.Dispose(disposing);
     }
 }

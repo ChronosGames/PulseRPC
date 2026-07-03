@@ -5,6 +5,13 @@ PulseRPC.ClientFacingAttribute.Enabled.get -> bool
 PulseRPC.IPulseReceiver
 PulseRPC.ReentrantAttribute
 PulseRPC.ReentrantAttribute.ReentrantAttribute() -> void
+PulseRPC.PulseReverseCallException
+PulseRPC.PulseReverseCallException.PulseReverseCallException(string! message) -> void
+PulseRPC.PulseReverseCallException.PulseReverseCallException(string! message, string? errorCode) -> void
+PulseRPC.PulseReverseCallException.PulseReverseCallException(string! message, System.Exception! innerException) -> void
+PulseRPC.PulseReverseCallException.ErrorCode.get -> string?
+PulseRPC.Client.IClientChannel.RegisterRequestHandler(ushort protocolId, System.Func<System.ReadOnlyMemory<byte>, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<System.ReadOnlyMemory<byte>>>! handler) -> PulseRPC.ISubscriptionToken!
+PulseRPC.Messaging.MessageType.ReverseRequest = 10 -> PulseRPC.Messaging.MessageType
 PulseRPC.Messaging.MessageHeader.ServiceKey.get -> string!
 PulseRPC.Messaging.MessageHeader.ServiceKey.set -> void
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader

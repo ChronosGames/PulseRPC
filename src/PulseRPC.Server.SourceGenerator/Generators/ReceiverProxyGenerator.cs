@@ -154,6 +154,13 @@ public static class ReceiverProxyGenerator
 
     private static void GenerateMethodImplementation(StringBuilder sb, ReceiverModel receiver, ReceiverMethodModel method)
     {
+        // [P-4] 返回 Task<T>/ValueTask<T> 的方法 => 反向 Ask（等待客户端应答）
+        if (method.IsRequestResponse)
+        {
+            GenerateReverseAskMethod(sb, receiver, method);
+            return;
+        }
+
         var constName = $"Protocol_{method.MethodName}";
 
         // 生成方法签名 - 仅支持 Task/ValueTask 返回类型
@@ -206,6 +213,48 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("            // 归还租借的缓冲区到池");
         sb.AppendLine("            rentedPacket.Dispose();");
         sb.AppendLine("        }");
+
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// [P-4] 生成反向 Ask 方法实现（Task&lt;T&gt;/ValueTask&lt;T&gt;）：
+    /// 序列化参数 -> 通过唯一目标连接发起需应答请求 -> 反序列化客户端应答为 T。
+    /// </summary>
+    private static void GenerateReverseAskMethod(StringBuilder sb, ReceiverModel receiver, ReceiverMethodModel method)
+    {
+        var constName = $"Protocol_{method.MethodName}";
+
+        sb.AppendLine($"    /// <inheritdoc/>");
+        sb.Append($"    public async {method.ReturnTypeName} {method.MethodName}(");
+
+        for (var i = 0; i < method.Parameters.Count; i++)
+        {
+            if (i > 0) sb.Append(", ");
+            var param = method.Parameters[i];
+            sb.Append($"{param.TypeFullName} {param.Name}");
+        }
+
+        sb.AppendLine(")");
+        sb.AppendLine("    {");
+
+        // 反向 Ask 要求恰好 1 个目标连接（多目标语义不明确，禁止）
+        sb.AppendLine("        // [P-4] 反向 Ask：要求恰好 1 个目标连接");
+        sb.AppendLine("        var count = _targets.Count;");
+        sb.AppendLine("        if (count != 1)");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            throw new InvalidOperationException(\"反向 Ask 方法 '{method.MethodName}' 需要恰好 1 个目标连接，当前为 \" + count + \" 个。请使用 Single/Client 指定单一连接。\");");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+
+        // 序列化参数（复用 push 路径的序列化逻辑，产出 payload）
+        GenerateSerializationCode(sb, method);
+        sb.AppendLine();
+
+        // 发起反向请求并等待应答（超时使用通道默认值；失败由通道抛出 TimeoutException/PulseReverseCallException）
+        sb.AppendLine($"        var __responseBytes__ = await _targets[0].InvokeClientAsync({constName}, payload, System.TimeSpan.Zero, CancellationToken.None);");
+        sb.AppendLine($"        return MemoryPackSerializer.Deserialize<{method.ResponseTypeName}>(__responseBytes__.Span)!;");
 
         sb.AppendLine("    }");
         sb.AppendLine();

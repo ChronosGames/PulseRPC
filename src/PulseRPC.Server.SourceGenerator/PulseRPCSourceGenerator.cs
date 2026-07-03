@@ -663,6 +663,8 @@ public static partial class ProtocolIdMapping
                         MethodName = methodSymbol.Name,
                         ReturnTypeName = returnType,
                         IsAsync = isAsync,
+                        // [P-4] Task<T>/ValueTask<T> => 反向 Ask 的响应类型；非泛型返回 null（保持单向 push）
+                        ResponseTypeName = GetResponseTypeFullName(returnType),
                         Parameters = methodSymbol.Parameters.Select(p => new ReceiverParameterModel
                         {
                             Name = p.Name,
