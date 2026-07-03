@@ -573,8 +573,17 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
                     return;
                 }
 
-                // 创建消息包持有者（避免 ref struct 的生命周期问题）
+                // 创建消息包持有者：此处将载荷复制进池化缓冲（P1-8），持有者所有权在同步触发事件后
+                // 移交给消息处理管道（最终由 MessageEngine/TieredMessageProcessor 在终结点归还）。
                 var messagePacketHolder = new MessagePacketHolder(messagePacket);
+
+                var handler = MessageParsed;
+                if (handler is null)
+                {
+                    // 无订阅者：无人接管所有权，就地归还池化缓冲，避免泄漏。
+                    messagePacketHolder.Dispose();
+                    return;
+                }
 
                 // 触发消息解析完成事件（仅处理业务消息）
                 var parsedEventArgs = new MessageParsedEventArgs(
@@ -584,10 +593,10 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
                     0 // ProcessorId 暂时设为0，可以后续优化
                 );
 
-                MessageParsed?.Invoke(this, parsedEventArgs);
+                handler.Invoke(this, parsedEventArgs);
 
                 _logger?.LogTrace("[消息解析] {ConnectionId} 消息解析事件已触发，订阅者数量: {SubscriberCount}",
-                    ConnectionId, MessageParsed?.GetInvocationList()?.Length ?? 0);
+                    ConnectionId, handler.GetInvocationList()?.Length ?? 0);
             }
             else
             {

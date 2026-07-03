@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
@@ -15,21 +16,21 @@ internal static class AsyncSpanHelper
     /// <summary>
     /// 准备消息头和块头的组合缓冲区
     /// </summary>
-    public static int PrepareChunkHeaders(byte[] buffer, MessageHeader messageHeader, ChunkHeader chunkHeader)
+    public static int PrepareChunkHeaders(byte[] buffer, FrameHeader messageHeader, ChunkHeader chunkHeader)
     {
         // 使用同步方法操作 Span，避免在 async 上下文中直接使用 Span
-        WriteMessageHeaderSync(buffer.AsSpan(0, MessageHeader.Size), messageHeader);
-        WriteChunkHeaderSync(buffer.AsSpan(MessageHeader.Size, ChunkHeader.Size), chunkHeader);
-        return MessageHeader.Size + ChunkHeader.Size;
+        WriteFrameHeaderSync(buffer.AsSpan(0, FrameHeader.Size), messageHeader);
+        WriteChunkHeaderSync(buffer.AsSpan(FrameHeader.Size, ChunkHeader.Size), chunkHeader);
+        return FrameHeader.Size + ChunkHeader.Size;
     }
 
     /// <summary>
     /// 准备单独的消息头
     /// </summary>
-    public static int PrepareMessageHeader(byte[] buffer, MessageHeader messageHeader)
+    public static int PrepareFrameHeader(byte[] buffer, FrameHeader messageHeader)
     {
-        WriteMessageHeaderSync(buffer.AsSpan(0, MessageHeader.Size), messageHeader);
-        return MessageHeader.Size;
+        WriteFrameHeaderSync(buffer.AsSpan(0, FrameHeader.Size), messageHeader);
+        return FrameHeader.Size;
     }
 
     /// <summary>
@@ -39,7 +40,7 @@ internal static class AsyncSpanHelper
         Stream stream,
         byte[] headerBuffer,
         ReadOnlyMemory<byte> chunkData,
-        MessageHeader messageHeader,
+        FrameHeader messageHeader,
         ChunkHeader chunkHeader,
         CancellationToken cancellationToken)
     {
@@ -72,13 +73,13 @@ internal static class AsyncSpanHelper
         Stream stream,
         byte[] headerBuffer,
         ReadOnlyMemory<byte> data,
-        MessageHeader messageHeader,
+        FrameHeader messageHeader,
         CancellationToken cancellationToken)
     {
         try
         {
             // 在同步上下文中准备头部数据
-            var headerSize = PrepareMessageHeader(headerBuffer, messageHeader);
+            var headerSize = PrepareFrameHeader(headerBuffer, messageHeader);
 
             // 异步发送头部
             await stream.WriteAsync(headerBuffer, 0, headerSize, cancellationToken);
@@ -101,13 +102,13 @@ internal static class AsyncSpanHelper
     /// 从缓冲区读取消息头 - 同步版本
     /// 格式: [Magic:2][Length:4][MessageId:2][Flags:2]
     /// </summary>
-    public static MessageHeader ReadMessageHeaderSync(ReadOnlySpan<byte> buffer)
+    public static FrameHeader ReadFrameHeaderSync(ReadOnlySpan<byte> buffer)
     {
-        var magic = BitConverter.ToUInt16(buffer[..2]);
-        var length = BitConverter.ToInt32(buffer.Slice(2, 4));
-        var messageId = BitConverter.ToUInt16(buffer.Slice(6, 2));
-        var flags = BitConverter.ToUInt16(buffer.Slice(8, 2));
-        return new MessageHeader(magic, length, messageId, flags);
+        var magic = BinaryPrimitives.ReadUInt16LittleEndian(buffer[..2]);
+        var length = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(2, 4));
+        var messageId = BinaryPrimitives.ReadUInt16LittleEndian(buffer.Slice(6, 2));
+        var flags = BinaryPrimitives.ReadUInt16LittleEndian(buffer.Slice(8, 2));
+        return new FrameHeader(magic, length, messageId, flags);
     }
 
     /// <summary>
@@ -115,10 +116,10 @@ internal static class AsyncSpanHelper
     /// </summary>
     public static ChunkHeader ReadChunkHeaderSync(ReadOnlySpan<byte> buffer)
     {
-        var chunkId = BitConverter.ToInt32(buffer[..4]);
-        var chunkIndex = BitConverter.ToInt32(buffer.Slice(4, 4));
-        var totalChunks = BitConverter.ToInt32(buffer.Slice(8, 4));
-        var chunkSize = BitConverter.ToInt32(buffer.Slice(12, 4));
+        var chunkId = BinaryPrimitives.ReadInt32LittleEndian(buffer[..4]);
+        var chunkIndex = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(4, 4));
+        var totalChunks = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(8, 4));
+        var chunkSize = BinaryPrimitives.ReadInt32LittleEndian(buffer.Slice(12, 4));
         return new ChunkHeader(chunkId, chunkIndex, totalChunks, chunkSize);
     }
 
@@ -128,20 +129,20 @@ internal static class AsyncSpanHelper
     /// 将消息头写入缓冲区 - 同步版本
     /// 格式: [Magic:2][Length:4][MessageId:2][Flags:2]
     /// </summary>
-    public static void WriteMessageHeaderSync(Span<byte> buffer, MessageHeader header)
+    public static void WriteFrameHeaderSync(Span<byte> buffer, FrameHeader header)
     {
-        BitConverter.GetBytes(header.Magic).CopyTo(buffer);
-        BitConverter.GetBytes(header.Length).CopyTo(buffer[2..]);
-        BitConverter.GetBytes(header.MessageId).CopyTo(buffer[6..]);
-        BitConverter.GetBytes(header.Flags).CopyTo(buffer[8..]);
+        BinaryPrimitives.WriteUInt16LittleEndian(buffer, header.Magic);
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[2..], header.Length);
+        BinaryPrimitives.WriteUInt16LittleEndian(buffer[6..], header.MessageId);
+        BinaryPrimitives.WriteUInt16LittleEndian(buffer[8..], header.Flags);
     }
 
     private static void WriteChunkHeaderSync(Span<byte> buffer, ChunkHeader header)
     {
-        BitConverter.GetBytes(header.ChunkId).CopyTo(buffer);
-        BitConverter.GetBytes(header.ChunkIndex).CopyTo(buffer[4..]);
-        BitConverter.GetBytes(header.TotalChunks).CopyTo(buffer[8..]);
-        BitConverter.GetBytes(header.ChunkSize).CopyTo(buffer[12..]);
+        BinaryPrimitives.WriteInt32LittleEndian(buffer, header.ChunkId);
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[4..], header.ChunkIndex);
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[8..], header.TotalChunks);
+        BinaryPrimitives.WriteInt32LittleEndian(buffer[12..], header.ChunkSize);
     }
 
     #endregion

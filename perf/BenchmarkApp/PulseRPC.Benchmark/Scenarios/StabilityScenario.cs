@@ -30,7 +30,10 @@ public class StabilityScenario : ScenarioBase
         {
             Logger.LogInformation("开始稳定性测试，持续时间: {Duration}秒", config.DurationSeconds);
 
-            var latencies = new List<double>();
+            // 使用蓄水池采样，保持固定内存占用（最多10万个样本）
+            const int MaxLatencySamples = 100_000;
+            var latencies = new double[MaxLatencySamples];
+            int latencyCount = 0;
             var memorySamples = new List<(DateTime Time, long Memory)>();
             long successCount = 0;
             long failCount = 0;
@@ -57,7 +60,21 @@ public class StabilityScenario : ScenarioBase
 
                     if (response.Success)
                     {
-                        latencies.Add(latencyStopwatch.Elapsed.TotalMilliseconds);
+                        // 蓄水池采样：保持固定大小的样本集合
+                        var totalOps = successCount + 1;
+                        if (latencyCount < MaxLatencySamples)
+                        {
+                            latencies[latencyCount++] = latencyStopwatch.Elapsed.TotalMilliseconds;
+                        }
+                        else
+                        {
+                            // 以概率 MaxLatencySamples/totalOps 替换随机位置
+                            var replaceIndex = Random.Shared.NextInt64(totalOps);
+                            if (replaceIndex < MaxLatencySamples)
+                            {
+                                latencies[replaceIndex] = latencyStopwatch.Elapsed.TotalMilliseconds;
+                            }
+                        }
                         successCount++;
                     }
                     else
@@ -92,8 +109,8 @@ public class StabilityScenario : ScenarioBase
             // 最后一次内存采样
             memorySamples.Add((DateTime.UtcNow, GC.GetTotalMemory(false)));
 
-            // 填充延迟指标
-            PopulateLatencyMetrics(result.Latency, latencies.ToArray());
+            // 填充延迟指标（使用实际采集的样本数）
+            PopulateLatencyMetrics(result.Latency, latencies.AsSpan(0, latencyCount).ToArray());
 
             // 填充吞吐量指标
             result.Throughput.TotalOperations = successCount + failCount;

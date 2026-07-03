@@ -83,7 +83,7 @@ public class TcpServerTransport : TcpTransport, IServerTransport
     /// <summary>
     /// 处理握手消息
     /// </summary>
-    protected override async Task HandleHandshakeMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
+    protected override async Task HandleHandshakeMessageAsync(FrameHeader header, ReadOnlyMemory<byte> data)
     {
         try
         {

@@ -50,11 +50,11 @@ public interface IResponseProcessor : IDisposable
 /// 负责序列化响应和发送给客户端
 /// 符合三层抽象架构，使用会话管理器发送响应
 /// </summary>
-internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
+internal sealed class ResponseProcessor : IResponseProcessor
 {
     private readonly IServerChannelManager _sessionManager;
     private readonly ISerializerProvider _serializerProvider;
-    private readonly ILogger<HighPerformanceResponseProcessor> _logger;
+    private readonly ILogger<ResponseProcessor> _logger;
     private readonly ResponseProcessorOptions _options;
 
     // 高性能通道用于响应处理
@@ -86,17 +86,17 @@ internal sealed class HighPerformanceResponseProcessor : IResponseProcessor
     // 所有线程的指标集合（用于聚合）
     private readonly ConcurrentBag<ProcessorMetrics> _allMetrics = new();
 
-    public HighPerformanceResponseProcessor(
+    public ResponseProcessor(
         IServerChannelManager sessionManager,
         ISerializerProvider? serializerProvider = null,
         ResponseProcessorOptions? options = null,
-        ILogger<HighPerformanceResponseProcessor>? logger = null,
+        ILogger<ResponseProcessor>? logger = null,
         IResponseSerializerRegistry? responseSerializerRegistry = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
         _options = options ?? new ResponseProcessorOptions();
-        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HighPerformanceResponseProcessor>.Instance;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ResponseProcessor>.Instance;
         _responseSerializerRegistry = responseSerializerRegistry;
 
          // 创建有界响应通道

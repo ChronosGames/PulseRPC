@@ -46,9 +46,9 @@ public interface IMessageDispatcher : IDisposable
 /// 高性能消息调度器实现
 /// 支持优先级调度、负载均衡和背压控制
 /// </summary>
-internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
+internal sealed class MessageDispatcher : IMessageDispatcher
 {
-    private readonly ILogger<HighPerformanceMessageDispatcher> _logger;
+    private readonly ILogger<MessageDispatcher> _logger;
     private readonly DispatcherOptions _options;
     private readonly IServiceRoutingTable _serviceRoutingTable;
 
@@ -68,12 +68,12 @@ internal sealed class HighPerformanceMessageDispatcher : IMessageDispatcher
 
     public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
 
-    public HighPerformanceMessageDispatcher(
+    public MessageDispatcher(
         DispatcherOptions? options = null,
-        ILogger<HighPerformanceMessageDispatcher>? logger = null)
+        ILogger<MessageDispatcher>? logger = null)
     {
         _options = options ?? new DispatcherOptions();
-        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<HighPerformanceMessageDispatcher>.Instance;
+        _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<MessageDispatcher>.Instance;
         _serviceRoutingTable = ServiceRoutingTableRegistry.Instance ?? throw new ArgumentNullException(nameof(ServiceRoutingTableRegistry.Instance));
 
         // 创建多优先级通道

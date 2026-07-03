@@ -168,6 +168,22 @@ public partial class MessageHeader
     [MemoryPackOrder(8)]
     public string ServiceKey { get; set; } = string.Empty;
 
+    /// <summary>
+    /// 请求的相对超时（Deadline）提示，单位毫秒；<c>0</c> 表示不设置 Deadline。
+    /// <para>
+    /// 采用<strong>相对时长</strong>而非绝对时间戳，以规避客户端与服务端<strong>时钟不同步</strong>问题
+    /// （对齐 gRPC 的 <c>grpc-timeout</c> 语义）：客户端仅声明「我愿意等待 N 毫秒」，
+    /// 服务端在<strong>收到消息的本地单调时钟</strong>（<see cref="System.Diagnostics.Stopwatch"/>）基础上计算绝对截止点并强制执行——
+    /// 派发前若已超期则直接卸载（不执行 handler），否则以剩余时间对 handler 的 <see cref="System.Threading.CancellationToken"/> 执行 <c>CancelAfter</c>。
+    /// </para>
+    /// <para>
+    /// 兼容性：作为 MemoryPack 尾部新增成员，旧版本序列化的头部（不含该字段）反序列化后此值为 <c>0</c>，
+    /// 等价于「不设置 Deadline」，新旧两端可互操作。
+    /// </para>
+    /// </summary>
+    [MemoryPackOrder(9)]
+    public int TimeoutMs { get; set; }
+
     [MemoryPackConstructor]
     public MessageHeader()
     {
@@ -197,7 +213,24 @@ public enum MessageType : byte
     Pong = 6,          // Pong
     Event = 7,         // 事件
     Error = 8,         // 错误响应
-    Cancel = 9,        // 取消请求
+
+    /// <summary>
+    /// 取消请求（客户端→服务端，携带待取消请求的 MessageId）。
+    /// </summary>
+    /// <remarks>
+    /// 已知限制（截至当前版本，端到端取消尚未打通）：
+    /// <list type="bullet">
+    /// <item>客户端调用侧的 <see cref="System.Threading.CancellationToken"/> 触发时，仅在<strong>本地</strong>
+    /// 结束等待（将挂起的响应任务置为已取消），<strong>不会</strong>向服务端发送本消息。</item>
+    /// <item>服务端目前<strong>不处理</strong> <c>Cancel</c> 帧，因此不会中止已在执行的服务方法；
+    /// 服务端仍会照常执行并回送响应（该响应将被客户端丢弃）。</item>
+    /// </list>
+    /// 端到端取消（客户端发送 Cancel + 服务端按 MessageId 取消在途请求的 CTS 并将 token 注入 handler）
+    /// 计划与「服务端 Deadline 强制 / 管道收敛」一并实现，参见 P2-13。
+    /// 保留本枚举值以固定线格式（wire）取值，便于后续前向兼容。
+    /// </remarks>
+    Cancel = 9,
+
     ReverseRequest = 10, // 反向请求（服务端→客户端，需应答；客户端以 Response/Error 回显 MessageId 应答）
 }
 

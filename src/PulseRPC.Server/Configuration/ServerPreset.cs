@@ -88,15 +88,6 @@ public static class ServerPresets
         options.MaxConcurrentOperations = 1000;
         options.EnableDetailedLogging = false;
 
-        // MessageReceiver 默认配置
-        options.MessageReceiver.MaxBufferSize = 16 * 1024 * 1024; // 16MB
-
-        // ResponseTransmitter 默认配置
-        options.ResponseTransmitter.WorkerCount = 2;
-        options.ResponseTransmitter.QueueCapacity = 10_000;
-        options.ResponseTransmitter.MaxBatchSize = 50;
-        options.ResponseTransmitter.MaxBatchDelayMs = 1;
-
         // BackpressurePolicy 默认配置
         options.BackpressurePolicy.ThrottleThreshold = 0.7;
         options.BackpressurePolicy.RejectThreshold = 0.9;
@@ -112,15 +103,6 @@ public static class ServerPresets
         options.DefaultOperationTimeout = TimeSpan.FromSeconds(60);
         options.MaxConcurrentOperations = 5000;
         options.EnableDetailedLogging = false;
-
-        // MessageReceiver 高吞吐配置 - 更大的缓冲区
-        options.MessageReceiver.MaxBufferSize = 64 * 1024 * 1024; // 64MB
-
-        // ResponseTransmitter 高吞吐配置 - 更多工作线程、大批量
-        options.ResponseTransmitter.WorkerCount = Environment.ProcessorCount;
-        options.ResponseTransmitter.QueueCapacity = 50_000;
-        options.ResponseTransmitter.MaxBatchSize = 128;
-        options.ResponseTransmitter.MaxBatchDelayMs = 5;
 
         // BackpressurePolicy 高吞吐配置 - 更高阈值容忍更多压力
         options.BackpressurePolicy.ThrottleThreshold = 0.85;
@@ -138,15 +120,6 @@ public static class ServerPresets
         options.MaxConcurrentOperations = 2000;
         options.EnableDetailedLogging = false;
 
-        // MessageReceiver 低延迟配置 - 较小缓冲区快速处理
-        options.MessageReceiver.MaxBufferSize = 8 * 1024 * 1024; // 8MB
-
-        // ResponseTransmitter 低延迟配置 - 小批量、无延迟
-        options.ResponseTransmitter.WorkerCount = 4;
-        options.ResponseTransmitter.QueueCapacity = 5_000;
-        options.ResponseTransmitter.MaxBatchSize = 8;
-        options.ResponseTransmitter.MaxBatchDelayMs = 0; // 立即发送
-
         // BackpressurePolicy 低延迟配置 - 较低阈值快速限流
         options.BackpressurePolicy.ThrottleThreshold = 0.5;
         options.BackpressurePolicy.RejectThreshold = 0.75;
@@ -163,15 +136,6 @@ public static class ServerPresets
         options.MaxConcurrentOperations = 2000;
         options.EnableDetailedLogging = false;
 
-        // MessageReceiver 平衡配置
-        options.MessageReceiver.MaxBufferSize = 32 * 1024 * 1024; // 32MB
-
-        // ResponseTransmitter 平衡配置
-        options.ResponseTransmitter.WorkerCount = Math.Max(2, Environment.ProcessorCount / 2);
-        options.ResponseTransmitter.QueueCapacity = 20_000;
-        options.ResponseTransmitter.MaxBatchSize = 64;
-        options.ResponseTransmitter.MaxBatchDelayMs = 2;
-
         // BackpressurePolicy 平衡配置
         options.BackpressurePolicy.ThrottleThreshold = 0.65;
         options.BackpressurePolicy.RejectThreshold = 0.85;
@@ -187,15 +151,6 @@ public static class ServerPresets
         options.DefaultOperationTimeout = TimeSpan.FromSeconds(30);
         options.MaxConcurrentOperations = 100;
         options.EnableDetailedLogging = false;
-
-        // MessageReceiver 最小配置
-        options.MessageReceiver.MaxBufferSize = 4 * 1024 * 1024; // 4MB
-
-        // ResponseTransmitter 最小配置
-        options.ResponseTransmitter.WorkerCount = 1;
-        options.ResponseTransmitter.QueueCapacity = 1_000;
-        options.ResponseTransmitter.MaxBatchSize = 16;
-        options.ResponseTransmitter.MaxBatchDelayMs = 5;
 
         // BackpressurePolicy 最小配置
         options.BackpressurePolicy.ThrottleThreshold = 0.6;

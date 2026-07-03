@@ -59,8 +59,11 @@ public sealed class LargePacketHandler : IDisposable
 
             if (isComplete)
             {
-                // 获取完整数据并清理状态
-                completeData = packetState.GetCompleteData();
+                // 获取完整数据。注意：GetCompleteData 返回的是池化缓冲区的视图，
+                // 必须在归还池（Dispose）之前复制到独立缓冲，否则会出现 use-after-free：
+                // 缓冲被归还后可能被其它租用者复用，导致 completeData 数据被覆盖。
+                var completed = packetState.GetCompleteData();
+                completeData = completed.ToArray();
                 _activePackets.Remove(chunkHeader.ChunkId);
                 packetState.Dispose();
                 return true;

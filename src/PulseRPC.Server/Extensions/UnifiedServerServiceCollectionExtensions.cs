@@ -166,8 +166,8 @@ public static class UnifiedServerServiceCollectionExtensions
     private static void RegisterInternalDependencies(IServiceCollection services)
     {
         // 1. 首先注册基础依赖（不依赖其他服务）
-        services.TryAddSingleton<IMessageDispatcher, HighPerformanceMessageDispatcher>();
-        services.TryAddSingleton<IResponseProcessor, HighPerformanceResponseProcessor>();
+        services.TryAddSingleton<IMessageDispatcher, MessageDispatcher>();
+        services.TryAddSingleton<IResponseProcessor, ResponseProcessor>();
 
         // 1.5. 注册序列化提供程序（EventPublisher 的依赖）
         services.TryAddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
@@ -185,7 +185,7 @@ public static class UnifiedServerServiceCollectionExtensions
         }));
 
         // 3. 注册依赖于 IMessageDispatcher 的 TieredMessageEngineManager
-        services.TryAddSingleton<ITieredMessageEngine, HighPerformanceMessageEngine>();
+        services.TryAddSingleton<ITieredMessageEngine, MessageEngine>();
 
         // 4. 注册 ServerChannelManager（依赖于上面的所有服务）
         services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
@@ -377,7 +377,7 @@ public static class NamedPulseServerServiceCollectionExtensions
 
         // 2. 消息分发器（每个服务器独立）
         services.AddKeyedSingleton<IMessageDispatcher>(serverName, (sp, key) =>
-            new HighPerformanceMessageDispatcher());
+            new MessageDispatcher());
 
         // 3. 响应处理器（每个服务器独立）
         services.AddKeyedSingleton<IResponseProcessor>(serverName, (sp, key) =>
@@ -385,10 +385,10 @@ public static class NamedPulseServerServiceCollectionExtensions
             var channelManager = sp.GetRequiredKeyedService<IServerChannelManager>(key);
             var serializerProvider = sp.GetService<ISerializerProvider>();
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var logger = loggerFactory.CreateLogger<HighPerformanceResponseProcessor>();
+            var logger = loggerFactory.CreateLogger<ResponseProcessor>();
             var responseSerializerRegistry = sp.GetService<IResponseSerializerRegistry>();
 
-            return new HighPerformanceResponseProcessor(
+            return new ResponseProcessor(
                 channelManager,
                 serializerProvider,
                 null, // options
@@ -400,7 +400,7 @@ public static class NamedPulseServerServiceCollectionExtensions
         services.AddKeyedSingleton<ITieredMessageEngine>(serverName, (sp, key) =>
         {
             var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-            var logger = loggerFactory.CreateLogger<HighPerformanceMessageEngine>();
+            var logger = loggerFactory.CreateLogger<MessageEngine>();
             var dispatcher = sp.GetRequiredKeyedService<IMessageDispatcher>(key);
             var channelManager = sp.GetRequiredKeyedService<IServerChannelManager>(key);
             var responseProcessor = sp.GetRequiredKeyedService<IResponseProcessor>(key);
@@ -408,7 +408,7 @@ public static class NamedPulseServerServiceCollectionExtensions
 
             var engineOptions = Options.Create(new MessageEngineConfiguration());
 
-            return new HighPerformanceMessageEngine(
+            return new MessageEngine(
                 dispatcher,
                 sp, // IServiceProvider
                 engineOptions,

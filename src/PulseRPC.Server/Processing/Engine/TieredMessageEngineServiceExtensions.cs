@@ -49,7 +49,7 @@ public static class TieredMessageEngineServiceExtensions
         });
 
         // 注册核心引擎管理器
-        services.AddSingleton<ITieredMessageEngine, HighPerformanceMessageEngine>();
+        services.AddSingleton<ITieredMessageEngine, MessageEngine>();
 
         return services;
     }

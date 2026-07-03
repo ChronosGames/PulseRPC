@@ -4,7 +4,7 @@ using PulseRPC.Server.Services.Scheduling;
 namespace PulseRPC.Server.Processing.Engine;
 
 /// <summary>
-/// Extension methods for integrating ServiceThreadScheduler into HighPerformanceMessageEngine.
+/// Extension methods for integrating ServiceThreadScheduler into MessageEngine.
 /// </summary>
 public static class SchedulerIntegrationExtensions
 {
@@ -47,7 +47,7 @@ public static class SchedulerIntegrationExtensions
 }
 
 /// <summary>
-/// Integration notes for HighPerformanceMessageEngine modification (T028):
+/// Integration notes for MessageEngine modification (T028):
 ///
 /// In the message processing pipeline (after L2 batch processing), add:
 ///
@@ -77,7 +77,7 @@ public static class SchedulerIntegrationExtensions
 /// </code>
 ///
 /// Key integration points:
-/// 1. Inject IServiceScheduler? (nullable) in HighPerformanceMessageEngine constructor
+/// 1. Inject IServiceScheduler? (nullable) in MessageEngine constructor
 /// 2. Store IServiceScheduler field: private readonly IServiceScheduler? _scheduler;
 /// 3. Call InvokeWithSchedulerAsync() before service dispatch
 /// 4. Maintain backward compatibility (null scheduler = direct invocation)

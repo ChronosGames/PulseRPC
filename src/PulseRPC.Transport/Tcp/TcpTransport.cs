@@ -21,7 +21,7 @@ namespace PulseRPC.Transport.Tcp;
 /// 格式: [Magic:2][Length:4][MessageId:2][Flags:2] = 10 bytes
 /// </summary>
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
-public readonly struct MessageHeader
+public readonly struct FrameHeader
 {
     public readonly ushort Magic;      // 协议魔数 0x5052 ('PR')
     public readonly int Length;        // 消息体长度
@@ -37,12 +37,12 @@ public readonly struct MessageHeader
     public const ushort FlagChunked = 0x0004;
     public const ushort FlagEndOfChunk = 0x0008;
 
-    public MessageHeader(int length, ushort messageId, ushort flags = FlagNone)
+    public FrameHeader(int length, ushort messageId, ushort flags = FlagNone)
         : this(ProtocolConstants.ProtocolMagic, length, messageId, flags)
     {
     }
 
-    public MessageHeader(ushort magic, int length, ushort messageId, ushort flags)
+    public FrameHeader(ushort magic, int length, ushort messageId, ushort flags)
     {
         Magic = magic;
         Length = length;
@@ -81,51 +81,33 @@ public readonly struct ChunkHeader
 }
 
 /// <summary>
-/// 发送项 - 封装待发送的数据（支持小包和大包分片）
-/// 使用 readonly struct 避免堆分配
+/// 发送项 - 封装一个完整帧（单帧收发，不再有应用层分片）。
+/// 使用 readonly struct 避免堆分配。
 /// </summary>
+/// <remarks>
+/// 缓冲区布局为「头部预留区 + 消息体」：
+/// <c>Buffer[0 .. FrameHeader.Size)</c> 预留给帧头（由发送循环写入），
+/// <c>Buffer[FrameHeader.Size .. FrameHeader.Size + BodyLength)</c> 为消息体。
+/// 发送时一次性写出 <c>Buffer[0 .. FrameHeader.Size + BodyLength)</c>，
+/// 避免头/体两次写入产生的额外 TCP 分段。
+/// </remarks>
 internal readonly struct TcpSendItem
 {
-    /// <summary>
-    /// 发送项类型
-    /// </summary>
-    public enum ItemType : byte
-    {
-        SmallPacket,      // 小包：直接发送
-        LargePacketChunks // 大包分片：所有分片连续发送
-    }
+    /// <summary>池化缓冲区（含头部预留区 + 消息体）。</summary>
+    public readonly byte[] Buffer;
+    /// <summary>消息体长度（不含头部）。</summary>
+    public readonly int BodyLength;
+    /// <summary>帧头 MessageId（业务消息为 0，握手为特殊值）。</summary>
+    public readonly ushort MessageId;
+    /// <summary>帧头标志位。</summary>
+    public readonly ushort Flags;
 
-    public readonly ItemType Type;
-    public readonly byte[] Buffer;           // 池化缓冲区
-    public readonly int DataLength;          // 实际数据长度
-    public readonly int ChunkId;             // 大包分片ID（仅大包使用）
-    public readonly int TotalChunks;         // 总分片数（仅大包使用）
-    public readonly int ChunkSize;           // 每个分片大小（仅大包使用）
-
-    /// <summary>
-    /// 创建小包发送项
-    /// </summary>
-    public TcpSendItem(byte[] buffer, int dataLength)
+    public TcpSendItem(byte[] buffer, int bodyLength, ushort messageId = 0, ushort flags = FrameHeader.FlagNone)
     {
-        Type = ItemType.SmallPacket;
         Buffer = buffer;
-        DataLength = dataLength;
-        ChunkId = 0;
-        TotalChunks = 0;
-        ChunkSize = 0;
-    }
-
-    /// <summary>
-    /// 创建大包发送项
-    /// </summary>
-    public TcpSendItem(byte[] buffer, int dataLength, int chunkId, int totalChunks, int chunkSize)
-    {
-        Type = ItemType.LargePacketChunks;
-        Buffer = buffer;
-        DataLength = dataLength;
-        ChunkId = chunkId;
-        TotalChunks = totalChunks;
-        ChunkSize = chunkSize;
+        BodyLength = bodyLength;
+        MessageId = messageId;
+        Flags = flags;
     }
 
     /// <summary>
@@ -156,7 +138,6 @@ public abstract class TcpTransport : ITransport
     private readonly Channel<TcpSendItem> _sendQueue;
     private Task? _sendTask;
 
-    protected int _nextChunkId;
     protected Socket? _socket;
     protected NetworkStream? _stream;
     protected ConnectionState _state;
@@ -187,9 +168,8 @@ public abstract class TcpTransport : ITransport
         _options = options ?? new TcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
         _receiveBuffer = new byte[_options.RecvBufferSize];
-        _headerBuffer = new byte[MessageHeader.Size + ChunkHeader.Size]; // 预分配可重用缓冲区（仅发送任务使用）
+        _headerBuffer = new byte[FrameHeader.Size + ChunkHeader.Size]; // 预分配可重用缓冲区（仅发送任务使用）
         _packetHandler = new LargePacketHandler();
-        _nextChunkId = 1;
         _cts = new CancellationTokenSource();
 
         // 初始化发送队列
@@ -226,27 +206,23 @@ public abstract class TcpTransport : ITransport
             return await SendDirectAsync(data, cancellationToken);
         }
 
+        // 单包最大尺寸上限校验：拒绝超大消息，避免接收端因超限而断开连接
+        if (data.Length <= 0 || data.Length > _options.MaxPacketSize)
+        {
+            _logger.LogError(
+                "发送数据长度非法: {Length} 字节 (允许范围 1..{Max})，已拒绝发送",
+                data.Length, _options.MaxPacketSize);
+            return false;
+        }
+
         try
         {
-            TcpSendItem item;
-
-            if (data.Length <= _options.SmallPacketThreshold)
-            {
-                // 小包：复制到池化缓冲区后入队
-                var buffer = ArrayPool<byte>.Shared.Rent(data.Length);
-                data.Span.CopyTo(buffer);
-                item = new TcpSendItem(buffer, data.Length);
-            }
-            else
-            {
-                // 大包：复制整个数据到池化缓冲区，由发送任务分片
-                var chunkId = Interlocked.Increment(ref _nextChunkId);
-                var totalChunks = (data.Length + _options.ChunkSize - 1) / _options.ChunkSize;
-
-                var buffer = ArrayPool<byte>.Shared.Rent(data.Length);
-                data.Span.CopyTo(buffer);
-                item = new TcpSendItem(buffer, data.Length, chunkId, totalChunks, _options.ChunkSize);
-            }
+            // 统一以单帧发送：传输层不再做应用层分片。
+            // 租用「头部预留区 + 消息体」缓冲，消息体拷贝至头部之后，
+            // 由单线程发送任务写入帧头并一次性写出（header+body 合并）。
+            var buffer = ArrayPool<byte>.Shared.Rent(FrameHeader.Size + data.Length);
+            data.Span.CopyTo(buffer.AsSpan(FrameHeader.Size));
+            var item = new TcpSendItem(buffer, data.Length);
 
             // 尝试同步入队（避免异步开销）
             if (_sendQueue.Writer.TryWrite(item))
@@ -279,13 +255,13 @@ public abstract class TcpTransport : ITransport
 
         try
         {
-            var header = new MessageHeader(data.Length, 0, MessageHeader.FlagNone);
+            var header = new FrameHeader(data.Length, 0, FrameHeader.FlagNone);
             var success = await AsyncSpanHelper.SendSmallPacketAsync(
                 _stream, _headerBuffer, data, header, cancellationToken);
 
             if (success)
             {
-                Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + data.Length);
+                Interlocked.Add(ref _totalBytesSent, FrameHeader.Size + data.Length);
             }
             return success;
         }
@@ -323,15 +299,7 @@ public abstract class TcpTransport : ITransport
 
                 try
                 {
-                    switch (item.Type)
-                    {
-                        case TcpSendItem.ItemType.SmallPacket:
-                            await SendSmallPacketInternalAsync(item);
-                            break;
-                        case TcpSendItem.ItemType.LargePacketChunks:
-                            await SendLargePacketInternalAsync(item);
-                            break;
-                    }
+                    await SendFrameInternalAsync(item);
                 }
                 catch (Exception ex)
                 {
@@ -353,82 +321,32 @@ public abstract class TcpTransport : ITransport
     }
 
     /// <summary>
-    /// 内部发送小包（由发送任务调用，无锁）
+    /// 内部发送单帧（由发送任务调用，无锁）。
+    /// 缓冲区已按「头部预留区 + 消息体」布局，此处写入帧头后一次性写出整帧。
     /// </summary>
-    private async Task<bool> SendSmallPacketInternalAsync(TcpSendItem item)
+    private async Task<bool> SendFrameInternalAsync(TcpSendItem item)
     {
         if (_stream == null) return false;
 
         try
         {
-            var header = new MessageHeader(item.DataLength, 0, MessageHeader.FlagNone);
+            var header = new FrameHeader(item.BodyLength, item.MessageId, item.Flags);
 
-            // 直接使用 _headerBuffer（发送任务独占，无竞争）
-            var success = await AsyncSpanHelper.SendSmallPacketAsync(
-                _stream, _headerBuffer, new ReadOnlyMemory<byte>(item.Buffer, 0, item.DataLength),
-                header, _cts.Token);
+            // 将帧头写入缓冲区头部预留区（同步、无分配）
+            AsyncSpanHelper.WriteFrameHeaderSync(
+                item.Buffer.AsSpan(0, FrameHeader.Size), header);
 
-            if (success)
-            {
-                Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + item.DataLength);
-            }
+            var totalLength = FrameHeader.Size + item.BodyLength;
 
-            return success;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "发送小包数据失败");
-            return false;
-        }
-    }
+            // 一次性写出整帧（header+body 合并，减少 TCP 分段；不再逐包 Flush）
+            await _stream.WriteAsync(new ReadOnlyMemory<byte>(item.Buffer, 0, totalLength), _cts.Token);
 
-    /// <summary>
-    /// 内部发送大包分片（由发送任务调用，无锁，所有分片连续发送）
-    /// </summary>
-    private async Task<bool> SendLargePacketInternalAsync(TcpSendItem item)
-    {
-        if (_stream == null) return false;
-
-        try
-        {
-            var data = new ReadOnlyMemory<byte>(item.Buffer, 0, item.DataLength);
-
-            for (var i = 0; i < item.TotalChunks; i++)
-            {
-                var offset = i * item.ChunkSize;
-                var chunkSize = Math.Min(item.ChunkSize, item.DataLength - offset);
-                var chunkData = data.Slice(offset, chunkSize);
-
-                var flags = MessageHeader.FlagChunked;
-                if (i == item.TotalChunks - 1)
-                    flags |= MessageHeader.FlagEndOfChunk;
-
-                var messageHeader = new MessageHeader(
-                    ChunkHeader.Size + chunkSize,
-                    0,
-                    flags);
-
-                var chunkHeader = new ChunkHeader(item.ChunkId, i, item.TotalChunks, chunkSize);
-
-                // 直接发送（发送任务独占，无锁）
-                var success = await AsyncSpanHelper.SendChunkAsync(
-                    _stream, _headerBuffer, chunkData, messageHeader, chunkHeader, _cts.Token);
-
-                if (success)
-                {
-                    Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + ChunkHeader.Size + chunkSize);
-                }
-                else
-                {
-                    return false;
-                }
-            }
-
+            Interlocked.Add(ref _totalBytesSent, totalLength);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "发送大包数据失败");
+            _logger.LogError(ex, "发送帧数据失败");
             return false;
         }
     }
@@ -440,17 +358,17 @@ public abstract class TcpTransport : ITransport
     {
         try
         {
-            var headerBuffer = new byte[MessageHeader.Size];
+            var headerBuffer = new byte[FrameHeader.Size];
 
             while (!_cts.IsCancellationRequested && IsConnected)
             {
                 // 读取消息头
-                if (!await ReadExactBytesAsync(headerBuffer, 0, MessageHeader.Size))
+                if (!await ReadExactBytesAsync(headerBuffer, 0, FrameHeader.Size))
                 {
                     break;
                 }
 
-                var header = AsyncSpanHelper.ReadMessageHeaderSync(headerBuffer.AsSpan());
+                var header = AsyncSpanHelper.ReadFrameHeaderSync(headerBuffer.AsSpan());
 
                 // 验证魔数
                 if (!header.IsValid)
@@ -462,13 +380,13 @@ public abstract class TcpTransport : ITransport
                     break;  // 断开连接
                 }
 
-                // 验证长度
-                if (header.Length <= 0 || header.Length > _options.RecvBufferSize * 2)
+                // 验证长度：以单包最大尺寸上限为界，允许大消息以单帧收发
+                if (header.Length <= 0 || header.Length > _options.MaxPacketSize)
                 {
                     var remoteEndpoint = _socket?.RemoteEndPoint?.ToString() ?? "Unknown";
                     _logger.LogWarning(
-                        "收到无效的消息长度: {Length} 来自 {RemoteEndpoint}，断开连接",
-                        header.Length, remoteEndpoint);
+                        "收到无效的消息长度: {Length} (允许上限 {Max}) 来自 {RemoteEndpoint}，断开连接",
+                        header.Length, _options.MaxPacketSize, remoteEndpoint);
                     break;  // 断开连接
                 }
 
@@ -481,7 +399,7 @@ public abstract class TcpTransport : ITransport
                     break;
                 }
 
-                Interlocked.Add(ref _totalBytesReceived, MessageHeader.Size + header.Length);
+                Interlocked.Add(ref _totalBytesReceived, FrameHeader.Size + header.Length);
 
                 // 检查是否为握手消息
                 if (header.IsHandshake)
@@ -530,7 +448,7 @@ public abstract class TcpTransport : ITransport
     /// <summary>
     /// 处理分片消息 - 使用优化的处理器
     /// </summary>
-    private Task ProcessChunkedMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
+    private Task ProcessChunkedMessageAsync(FrameHeader header, ReadOnlyMemory<byte> data)
     {
         try
         {
@@ -569,7 +487,7 @@ public abstract class TcpTransport : ITransport
     /// <summary>
     /// 处理握手消息 - 由子类实现
     /// </summary>
-    protected virtual Task HandleHandshakeMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
+    protected virtual Task HandleHandshakeMessageAsync(FrameHeader header, ReadOnlyMemory<byte> data)
     {
         // 默认实现：忽略握手消息（用于不需要握手的场景）
         _handshakeCompleted = true;
@@ -586,7 +504,7 @@ public abstract class TcpTransport : ITransport
             var handshake = new HandshakeMessage(ProtocolConstants.CurrentProtocolVersion, clientName);
             var handshakeData = handshake.ToBytes();
 
-            var header = new MessageHeader(
+            var header = new FrameHeader(
                 handshakeData.Length,
                 ProtocolConstants.HandshakeMessageId,
                 ProtocolConstants.HandshakeRequestFlag);
@@ -613,7 +531,7 @@ public abstract class TcpTransport : ITransport
             var response = new HandshakeResponse(accepted, ProtocolConstants.CurrentProtocolVersion, reason);
             var responseData = response.ToBytes();
 
-            var header = new MessageHeader(
+            var header = new FrameHeader(
                 responseData.Length,
                 ProtocolConstants.HandshakeMessageId,
                 ProtocolConstants.HandshakeResponseFlag);
@@ -631,7 +549,7 @@ public abstract class TcpTransport : ITransport
     /// 发送消息（带消息头）- 用于握手等控制消息
     /// 注意：在发送任务启动前，直接发送；启动后，入队发送
     /// </summary>
-    private async Task SendMessageAsync(MessageHeader header, byte[] data, CancellationToken cancellationToken = default)
+    private async Task SendMessageAsync(FrameHeader header, byte[] data, CancellationToken cancellationToken = default)
     {
         if (_stream == null)
             throw new InvalidOperationException("Stream is not available");
@@ -643,17 +561,13 @@ public abstract class TcpTransport : ITransport
             return;
         }
 
-        // 发送任务已启动，通过队列发送（不等待完成）
-        // 合并头部和数据
-        var totalLength = MessageHeader.Size + data.Length;
-        var buffer = ArrayPool<byte>.Shared.Rent(totalLength);
+        // 发送任务已启动，通过队列发送（不等待完成）。
+        // 按「头部预留区 + 消息体」布局：消息体拷贝至头部之后，
+        // 帧头（含 MessageId/Flags）由发送循环统一写入。
+        var buffer = ArrayPool<byte>.Shared.Rent(FrameHeader.Size + data.Length);
+        data.CopyTo(buffer, FrameHeader.Size);
 
-        // 写入消息头
-        AsyncSpanHelper.WriteMessageHeaderSync(buffer, header);
-        // 写入消息体
-        data.CopyTo(buffer, MessageHeader.Size);
-
-        var item = new TcpSendItem(buffer, totalLength);
+        var item = new TcpSendItem(buffer, data.Length, header.MessageId, header.Flags);
 
         // 尝试同步入队
         if (!_sendQueue.Writer.TryWrite(item))
@@ -665,18 +579,18 @@ public abstract class TcpTransport : ITransport
     /// <summary>
     /// 直接发送消息（握手阶段使用，发送任务启动前）
     /// </summary>
-    private async Task SendMessageDirectAsync(MessageHeader header, byte[] data, CancellationToken cancellationToken)
+    private async Task SendMessageDirectAsync(FrameHeader header, byte[] data, CancellationToken cancellationToken)
     {
         // 发送消息头
-        var headerBytes = new byte[MessageHeader.Size];
-        AsyncSpanHelper.WriteMessageHeaderSync(headerBytes, header);
-        await _stream!.WriteAsync(headerBytes, 0, MessageHeader.Size, cancellationToken);
+        var headerBytes = new byte[FrameHeader.Size];
+        AsyncSpanHelper.WriteFrameHeaderSync(headerBytes, header);
+        await _stream!.WriteAsync(headerBytes, 0, FrameHeader.Size, cancellationToken);
 
         // 发送消息体
         await _stream.WriteAsync(data, 0, data.Length, cancellationToken);
         await _stream.FlushAsync(cancellationToken);
 
-        Interlocked.Add(ref _totalBytesSent, MessageHeader.Size + data.Length);
+        Interlocked.Add(ref _totalBytesSent, FrameHeader.Size + data.Length);
     }
 
     /// <summary>

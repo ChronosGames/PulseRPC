@@ -334,17 +334,67 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
     /// </summary>
     private async Task ProcessMessageSlot(MessageSlot slot)
     {
+        // P1-8：无论后续走 Deadline 卸载、正常处理还是异常，均在最外层 finally 归还载荷池化缓冲，
+        // 确保「恰好一次」确定性归还（handler 在其调用期间已同步消费完 Payload）。
         try
         {
-            slot.Status = MessageStatus.Processing;
-            var result = await _messageHandler(slot, _cancellationTokenSource.Token);
-            slot.Status = result.Success ? MessageStatus.Completed : MessageStatus.Failed;
+            // Deadline 强制（P2-13）：客户端在头部声明相对超时 TimeoutMs（毫秒，0=不设置）。
+            // 使用服务端本地单调时钟（slot.EnqueueTime 为收包入队时的 Stopwatch.GetTimestamp()）计算，
+            // 规避跨机器时钟不同步问题。
+            var timeoutMs = slot.Header?.TimeoutMs ?? 0;
+            CancellationTokenSource? deadlineCts = null;
+            var handlerToken = _cancellationTokenSource.Token;
+
+            if (timeoutMs > 0)
+            {
+                var elapsedMs = Stopwatch.GetElapsedTime(slot.EnqueueTime).TotalMilliseconds;
+                var remainingMs = timeoutMs - elapsedMs;
+
+                if (remainingMs <= 0)
+                {
+                    // 派发前已超过 Deadline：直接卸载，不执行 handler（避免为客户端已放弃的请求做无用功）。
+                    slot.Status = MessageStatus.Failed;
+                    _metrics.MessagesDropped.Add(1);
+                    _logger.LogDebug(
+                        "请求在派发前已超过 Deadline，卸载：ProcessorId={ProcessorId}, MessageId={MessageId}, TimeoutMs={TimeoutMs}, ElapsedMs={ElapsedMs:F1}",
+                        _processorId, slot.MessageId, timeoutMs, elapsedMs);
+                    return;
+                }
+
+                deadlineCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
+                deadlineCts.CancelAfter(TimeSpan.FromMilliseconds(remainingMs));
+                handlerToken = deadlineCts.Token;
+            }
+
+            try
+            {
+                slot.Status = MessageStatus.Processing;
+                var result = await _messageHandler(slot, handlerToken);
+                slot.Status = result.Success ? MessageStatus.Completed : MessageStatus.Failed;
+            }
+            catch (OperationCanceledException) when (deadlineCts is { IsCancellationRequested: true }
+                                                     && !_cancellationTokenSource.IsCancellationRequested)
+            {
+                // 达到 Deadline 被取消（区别于处理器关闭）。
+                slot.Status = MessageStatus.Failed;
+                _logger.LogDebug(
+                    "请求处理达到 Deadline 被取消：ProcessorId={ProcessorId}, MessageId={MessageId}, TimeoutMs={TimeoutMs}",
+                    _processorId, slot.MessageId, timeoutMs);
+            }
+            catch (Exception ex)
+            {
+                slot.Status = MessageStatus.Failed;
+                _logger.LogWarning(ex, "消息处理失败: ProcessorId={ProcessorId}, MessageId={MessageId}",
+                    _processorId, slot.MessageId);
+            }
+            finally
+            {
+                deadlineCts?.Dispose();
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            slot.Status = MessageStatus.Failed;
-            _logger.LogWarning(ex, "消息处理失败: ProcessorId={ProcessorId}, MessageId={MessageId}",
-                _processorId, slot.MessageId);
+            slot.PayloadOwner?.Dispose(); // 确定性归还载荷池化缓冲
         }
     }
 
@@ -407,11 +457,10 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
             await _l2Scheduler.DisposeAsync();
         }
 
-        // 清理L1缓冲区中剩余的消息
-        // 使用零拷贝方式，ReadOnlyMemory<byte> 会自动管理生命周期
+        // 清理L1缓冲区中剩余的消息：关闭时归还其载荷池化缓冲（P1-8），避免关闭路径上的缓冲丢失。
         while (_l1Buffer.TryDequeue(out var slot))
         {
-            // 无需手动清理
+            slot.PayloadOwner?.Dispose();
         }
 
         // 释放L1缓冲区
@@ -507,9 +556,15 @@ public struct MessageSlot
     public MessageHeader Header { get; set; }
 
     /// <summary>
-    /// 消息负载数据（零拷贝）
+    /// 消息负载数据（零拷贝，指向 <see cref="PayloadOwner"/> 持有的池化缓冲）
     /// </summary>
     public ReadOnlyMemory<byte> Payload { get; set; }
+
+    /// <summary>
+    /// 载荷所有者（P1-8）。承载 <see cref="Payload"/> 底层池化缓冲的生命周期，随槽在管道中流转；
+    /// 必须在该槽的**终结点**（处理完成 / 各丢弃分支 / 关闭排空）恰好 <c>Dispose</c> 一次以归还池。
+    /// </summary>
+    public IDisposable? PayloadOwner { get; set; }
 
     /// <summary>
     /// 消息优先级

@@ -86,13 +86,28 @@ public abstract class TransportOptions
     public bool UseEncryption { get; set; } = false;
 
     /// <summary>
+    /// 单个消息帧允许的最大字节数（消息体长度上限）。
+    /// 接收端据此校验帧长度，超过则视为非法并断开连接，用于防御异常/恶意超大帧。
+    /// 发送端超过该上限的消息将被拒绝发送。
+    /// 默认 4 MB，可按业务需要调大。
+    /// </summary>
+    public int MaxPacketSize { get; set; } = 4 * 1024 * 1024;
+
+    /// <summary>
     /// 小包阈值
     /// </summary>
+    /// <remarks>
+    /// 已废弃：传输层不再进行应用层分片，所有消息以单帧收发（受 <see cref="MaxPacketSize"/> 约束）。
+    /// 保留仅为兼容旧配置，不再影响 framing 行为。
+    /// </remarks>
     public int SmallPacketThreshold { get; set; } = 64 * 1024;
 
     /// <summary>
     /// 分块大小
     /// </summary>
+    /// <remarks>
+    /// 已废弃：传输层不再进行应用层分片。保留仅为兼容旧配置，不再影响 framing 行为。
+    /// </remarks>
     public int ChunkSize { get; set; } = 32 * 1024;
 }
 

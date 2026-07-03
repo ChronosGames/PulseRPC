@@ -34,7 +34,7 @@ namespace PulseRPC.Server.Processing.Engine;
 /// • 分层内存管理：NUMA感知的多级内存池
 /// • 丰富监控指标：实时性能追踪和诊断
 /// </summary>
-internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchProcessor, ITieredMessageEngine
+internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITieredMessageEngine
 {
     #region 技术规格常量
 
@@ -60,7 +60,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
     private readonly IMessageDispatcher _messageDispatcher;
     private readonly IServiceProvider _serviceProvider;
     private readonly MessageEngineConfiguration _options;
-    private readonly ILogger<HighPerformanceMessageEngine> _logger;
+    private readonly ILogger<MessageEngine> _logger;
     private readonly IServiceScheduler? _scheduler;
     private readonly IServerChannelManager _channelManager;
     private readonly IResponseProcessor _responseProcessor;
@@ -84,11 +84,11 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
     /// <summary>
     /// 构造高性能消息引擎 (使用 IMessageDispatcher)
     /// </summary>
-    public HighPerformanceMessageEngine(
+    public MessageEngine(
         IMessageDispatcher messageDispatcher,
         IServiceProvider serviceProvider,
         IOptions<MessageEngineConfiguration> configuration,
-        ILogger<HighPerformanceMessageEngine> logger,
+        ILogger<MessageEngine> logger,
         IServerChannelManager serverChannelManager,
         IResponseProcessor responseProcessor,
         IServiceScheduler? scheduler = null)
@@ -125,7 +125,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         _metrics = new EngineMetrics();
         _performanceMonitor = new PerformanceMonitor(_metrics, _logger);
 
-        _logger.LogInformation("HighPerformanceMessageEngine初始化完成: L1Size={L1Size}", Specifications.L1_BUFFER_SIZE);
+        _logger.LogInformation("MessageEngine初始化完成: L1Size={L1Size}", Specifications.L1_BUFFER_SIZE);
 
         _channelManager.ChannelConnected += OnChannelConnected;
         _channelManager.ChannelDisconnected += OnChannelDisconnected;
@@ -182,7 +182,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
     /// </summary>
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("启动HighPerformanceMessageEngine");
+        _logger.LogInformation("启动MessageEngine");
 
         try
         {
@@ -190,11 +190,11 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
             await _responseProcessor.StartAsync(cancellationToken);
 
-            _logger.LogInformation("HighPerformanceMessageEngine启动成功");
+            _logger.LogInformation("MessageEngine启动成功");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "HighPerformanceMessageEngine启动失败");
+            _logger.LogError(ex, "MessageEngine启动失败");
             throw;
         }
     }
@@ -219,12 +219,14 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
             // }
 
             // 构造包含完整元数据的 MessageSlot
+            // P1-8：载荷所有权（池化缓冲）随 slot.PayloadOwner 流转，必须在终结点归还。
             var slot = new MessageSlot
             {
                 MessageId = messagePacket.Header.MessageId,
                 ConnectionId = connectionId,
                 Header = messagePacket.Header,
-                Payload = messagePacket.Payload.AsMemory(), // 零拷贝
+                Payload = messagePacket.Payload, // 零拷贝（指向 holder 池化缓冲）
+                PayloadOwner = messagePacket,    // 所有权移交给 slot
                 Priority = priority,
                 EnqueueTime = startTicks,
                 Status = MessageStatus.Pending
@@ -233,6 +235,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
             // 传递给 TieredMessageProcessor
             if (!_tieredProcessors.TryGetValue(connectionId, out var processor))
             {
+                messagePacket.Dispose(); // 丢弃：归还池化缓冲
                 return false;
             }
 
@@ -240,7 +243,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
             if (!success)
             {
                 _metrics.BackpressureEvents.Add(1);
-                // 背压处理：根据优先级决定策略
+                // 背压处理：根据优先级决定策略（内部各丢弃分支负责归还）
                 return HandleBackpressure(slot);
             }
 
@@ -251,6 +254,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         }
         catch (Exception ex)
         {
+            messagePacket.Dispose(); // 异常丢弃：归还池化缓冲
             _metrics.EnqueueErrors.Add(1);
             _logger.LogWarning(ex, "消息入队失败: ConnectionId={ConnectionId}", connectionId);
             return false;
@@ -280,6 +284,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                     _logger.LogWarning("L1利用率过高({Utilization:P}), 丢弃普通消息: MessageId={MessageId}",
                         utilization, slot.MessageId);
                     _metrics.MessagesDropped.Add(1);
+                    slot.PayloadOwner?.Dispose(); // 丢弃：归还池化缓冲
                     return false;
                 }
                 return TryEnqueueWithRetry(slot, TimeSpan.FromMicroseconds(100), 1);
@@ -288,10 +293,12 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
                 // 低优先级：直接丢弃
                 _logger.LogDebug("低优先级消息被丢弃: MessageId={MessageId}", slot.MessageId);
                 _metrics.MessagesDropped.Add(1);
+                slot.PayloadOwner?.Dispose(); // 丢弃：归还池化缓冲
                 return false;
 
             default:
                 _metrics.MessagesDropped.Add(1);
+                slot.PayloadOwner?.Dispose(); // 丢弃：归还池化缓冲
                 return false;
         }
     }
@@ -318,6 +325,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
         _logger.LogWarning("消息入队重试{RetryCount}次后失败: MessageId={MessageId}, ConnectionId={ConnectionId}",
             maxRetries, slot.MessageId, slot.ConnectionId);
         _metrics.MessagesDropped.Add(1);
+        slot.PayloadOwner?.Dispose(); // 重试耗尽丢弃：归还池化缓冲
         return false;
     }
 
@@ -691,13 +699,13 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
     /// </summary>
     public async Task StopAsync()
     {
-        _logger.LogInformation("停止HighPerformanceMessageEngine");
+        _logger.LogInformation("停止MessageEngine");
 
         await _cancellationTokenSource.CancelAsync();
 
         await _responseProcessor.StopAsync();
 
-        _logger.LogInformation("HighPerformanceMessageEngine已停止");
+        _logger.LogInformation("MessageEngine已停止");
     }
 
     /// <summary>
@@ -707,7 +715,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
     {
         if (_isDisposed) return;
 
-        _logger.LogInformation("释放HighPerformanceMessageEngine资源");
+        _logger.LogInformation("释放MessageEngine资源");
 
         await StopAsync();
 
@@ -718,7 +726,7 @@ internal sealed class HighPerformanceMessageEngine : IAsyncDisposable, IBatchPro
 
         _isDisposed = true;
 
-        _logger.LogInformation("HighPerformanceMessageEngine资源释放完成");
+        _logger.LogInformation("MessageEngine资源释放完成");
     }
 
     /// <summary>

@@ -40,10 +40,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     // 三层响应管理器（替代 _pendingRequests）
     private readonly ResponseContextManager _responseManager;
 
-    // 三层发送缓冲（批量零拷贝发送）
-    private readonly ThreeTierSendBuffer _sendBuffer;
-
-
     // 优化: 预分配的缓冲区和线程本地存储
     private static readonly ThreadLocal<byte[]> ThreadLocalTempBuffer =
         new(() => new byte[8192]);
@@ -124,11 +120,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
 
         // 初始化零拷贝组件
         _responseManager = new ResponseContextManager(shardCount: 16, defaultTimeout: _options.DefaultTimeout);
-        _sendBuffer = new ThreeTierSendBuffer(
-            _transport,
-            l1BatchSize: _options.SendBufferL1BatchSize,
-            l2BatchSize: _options.SendBufferL2BatchSize,
-            queueCapacity: 1024);
 
         _messageQueue = Channel.CreateBounded<NetworkMessage>(new BoundedChannelOptions(_options.MessageQueueCapacity)
         {
@@ -588,7 +579,10 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             EnqueueTimestamp = Stopwatch.GetTimestamp()
         };
 
-        // 注册取消处理
+        // 注册取消处理。
+        // 已知限制：此处仅本地取消（结束等待并抛 OperationCanceledException），
+        // 不会向服务端发送 MessageType.Cancel 帧，服务端不会中止已在执行的方法。
+        // 端到端取消见 MessageType.Cancel 说明与优化计划 P2-13。
         context.CancellationRegistration = cancellationToken.Register(() =>
         {
             _responseManager.TryCancel(messageId, new OperationCanceledException(cancellationToken));
@@ -611,7 +605,12 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                     ServiceName = string.Empty,  // 协议号模式下无需服务名
                     MethodName = string.Empty,   // 协议号模式下无需方法名
                     Flags = MessageFlags.RequireResponse,
-                    Timestamp = DateTimeOffset.UtcNow.Ticks
+                    Timestamp = DateTimeOffset.UtcNow.Ticks,
+                    // Deadline 传播：告知服务端本次请求愿意等待的相对时长（毫秒）。
+                    // 服务端据此在本地单调时钟上强制 Deadline（见 MessageHeader.TimeoutMs 说明）。
+                    TimeoutMs = _options.DefaultTimeout > TimeSpan.Zero
+                        ? (int)Math.Clamp(_options.DefaultTimeout.TotalMilliseconds, 0, int.MaxValue)
+                        : 0
                 };
 
                 var headerBytes = MemoryPack.MemoryPackSerializer.Serialize(header);
@@ -622,14 +621,9 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                 // 写入载荷
                 messageBuffer.Write(serializedRequest.Span);
 
-                // Step 3: 投入三层发送缓冲（零拷贝批量发送）
-                await _sendBuffer.EnqueueAsync(messageBuffer.WrittenMemory, cancellationToken);
-
-                // 根据配置决定是否立即刷新
-                if (_options.ImmediateFlush)
-                {
-                    await _sendBuffer.FlushAsync(cancellationToken);
-                }
+                // Step 3: 直接交给传输层发送（传输层内部有单写者发送队列并做单帧写出）。
+                // SendAsync 在返回前已同步将数据拷入其自有池化缓冲，故此后可安全归还 messageBuffer。
+                await _transport.SendAsync(messageBuffer.WrittenMemory, cancellationToken);
             }
             finally
             {
@@ -679,9 +673,8 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             messageBuffer.Write(headerBytes);
             messageBuffer.Write(serializedCommand.Span);
 
-            // 投入三层发送缓冲（零拷贝批量发送）
-            await _sendBuffer.EnqueueAsync(messageBuffer.WrittenMemory, cancellationToken);
-            // 注意：Command 不需要立即刷新，可以等待批量发送以提高吞吐量
+            // 直接交给传输层发送（传输层内部有单写者发送队列）。
+            await _transport.SendAsync(messageBuffer.WrittenMemory, cancellationToken);
         }
         finally
         {
@@ -907,7 +900,6 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
 
             // 释放零拷贝组件
             _responseManager?.Dispose();
-            _sendBuffer?.Dispose();
         }
         catch (Exception ex)
         {

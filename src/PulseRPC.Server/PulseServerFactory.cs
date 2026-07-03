@@ -153,15 +153,15 @@ public static class PulseServerFactory
         var transportIntegrationManager = new TransportIntegrationManager(transportProviders, transportManagerLogger);
 
         // 创建消息分发器
-        var dispatcher = new HighPerformanceMessageDispatcher();
+        var dispatcher = new MessageDispatcher();
 
         // 创建通道管理器
         var channelManagerLogger = loggerFactory.CreateLogger<ServerChannelManager>();
         var channelManager = new ServerChannelManager(channelManagerLogger, loggerFactory);
 
         // 创建响应处理器
-        var responseProcessorLogger = loggerFactory.CreateLogger<HighPerformanceResponseProcessor>();
-        var responseProcessor = new HighPerformanceResponseProcessor(
+        var responseProcessorLogger = loggerFactory.CreateLogger<ResponseProcessor>();
+        var responseProcessor = new ResponseProcessor(
             channelManager,
             PulseRPCSerializerProvider.Instance,
             null,
@@ -172,8 +172,8 @@ public static class PulseServerFactory
         var engineConfig = Options.Create(new MessageEngineConfiguration());
 
         // 创建消息引擎
-        var engineLogger = loggerFactory.CreateLogger<HighPerformanceMessageEngine>();
-        var messageEngine = new HighPerformanceMessageEngine(
+        var engineLogger = loggerFactory.CreateLogger<MessageEngine>();
+        var messageEngine = new MessageEngine(
             dispatcher,
             serviceProvider,
             engineConfig,

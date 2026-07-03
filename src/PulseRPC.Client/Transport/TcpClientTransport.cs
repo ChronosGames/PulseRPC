@@ -198,7 +198,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     /// <summary>
     /// 处理握手消息（服务端响应）
     /// </summary>
-    protected override async Task HandleHandshakeMessageAsync(MessageHeader header, ReadOnlyMemory<byte> data)
+    protected override async Task HandleHandshakeMessageAsync(FrameHeader header, ReadOnlyMemory<byte> data)
     {
         try
         {

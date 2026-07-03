@@ -21,16 +21,6 @@ public sealed class UnifiedServerOptions
     // === Pipeline Configuration (from ServerHost) ===
 
     /// <summary>
-    /// Configuration for message receiver component.
-    /// </summary>
-    public MessageReceiverOptions MessageReceiver { get; set; } = new();
-
-    /// <summary>
-    /// Configuration for response transmitter component.
-    /// </summary>
-    public ResponseTransmitterOptions ResponseTransmitter { get; set; } = new();
-
-    /// <summary>
     /// Configuration for backpressure policy component.
     /// </summary>
     public BackpressurePolicyOptions BackpressurePolicy { get; set; } = new();

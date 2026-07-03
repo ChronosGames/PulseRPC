@@ -4,7 +4,7 @@ namespace PulseRPC.Server.Processing.Memory;
 
 /// <summary>
 /// 消息状态枚举
-/// 注意: MessageEnvelope 已移至 HighPerformanceMessageEngine.cs 中定义
+/// 注意: MessageEnvelope 已移至 MessageEngine.cs 中定义
 /// </summary>
 public enum MessageStatus : byte
 {
