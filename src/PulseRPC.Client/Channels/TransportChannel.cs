@@ -155,7 +155,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     /// 优化的序列化方法 - 减少内存拷贝
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private void SerializeMessageOptimized<T>(IBufferWriter<byte> writer, MessageHeader header, T? payload)
+    private void SerializeMessage<T>(IBufferWriter<byte> writer, MessageHeader header, T? payload)
     {
         var serializer = _serializerProvider.Create(MethodType.Unary, null);
 
@@ -180,7 +180,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         // Console.WriteLine($"TotalSize={totalSize}, HeaderSize={headerSpan.Length}, PayloadSize={payloadSpan.Length}");
 
         // 直接打包到目标缓冲区
-        PackMessageOptimized(targetSpan, headerSpan, payloadSpan);
+        PackMessage(targetSpan, headerSpan, payloadSpan);
         // Console.WriteLine(
         //     $"[消息封装] {Id} 消息包2: Size={totalSize} bytes, TargetSpanLength={targetSpan.Length}, Data=[{BitConverter.ToString(targetSpan[..Math.Min(totalSize, 128)].ToArray()).Replace("-", "")}]");
         writer.Advance(totalSize);
@@ -215,7 +215,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     /// 优化的消息打包 - 使用unsafe代码提升性能
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void PackMessageOptimized(Span<byte> destination, ReadOnlySpan<byte> headerSpan, ReadOnlySpan<byte> payloadSpan)
+    private static void PackMessage(Span<byte> destination, ReadOnlySpan<byte> headerSpan, ReadOnlySpan<byte> payloadSpan)
     {
         var headerSize = headerSpan.Length;
         var offset = 0;
@@ -292,7 +292,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                     if (now - _lastHeartbeatTime < _options.HeartbeatInterval)
                         continue;
 
-                    await SendHeartbeatOptimizedAsync(_cts.Token);
+                    await SendPingAsync(_cts.Token);
                     _lastHeartbeatTime = now;
                 }
                 catch (OperationCanceledException)
@@ -311,7 +311,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         }
     }
 
-    private async ValueTask SendHeartbeatOptimizedAsync(CancellationToken cancellationToken)
+    private async ValueTask SendPingAsync(CancellationToken cancellationToken)
     {
         var header = _messageHeaderPool.Get();
         try
@@ -325,7 +325,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             try
             {
                 bufferWriter.Clear();
-                SerializeMessageOptimized<object>(bufferWriter, header, null);
+                SerializeMessage<object>(bufferWriter, header, null);
 
                 // BUGFIX: 复制数据以避免缓冲区被复用
                 var data = bufferWriter.WrittenMemory.ToArray();
@@ -529,7 +529,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                 try
                 {
                     bufferWriter.Clear();
-                    SerializeMessageOptimized<object>(bufferWriter, header, null);
+                    SerializeMessage<object>(bufferWriter, header, null);
 
                     // BUGFIX: 复制数据以避免缓冲区被复用
                     var data = bufferWriter.WrittenMemory.ToArray();

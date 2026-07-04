@@ -19,14 +19,14 @@ public static class PlayerServiceRegistration
     /// <remarks>
     /// <para><strong>架构说明</strong>：</para>
     /// <list type="bullet">
-    /// <item><description>PlayerService - 有状态服务（继承 UnifiedPulseServiceBase）</description></item>
+    /// <item><description>PlayerService - 有状态服务（继承 PulseServiceBase）</description></item>
     /// <item><description>PlayerHub - 无状态 Hub（实现 IPlayerHub，RPC 入口）</description></item>
     /// <item><description>Hub 与 Service 分离，Hub 通过 IServiceAccessor&lt;T&gt; 访问 Service</description></item>
     /// </list>
     /// </remarks>
     public static IServiceCollection AddPlayerServices(this IServiceCollection services)
     {
-        // 1. 注册有状态服务（由 UnifiedServiceManager 管理）
+        // 1. 注册有状态服务（由 PulseServiceManager 管理）
         services.AddPulseService<PlayerService>((sp, playerId) =>
         {
             var logger = sp.GetRequiredService<ILogger<PlayerService>>();

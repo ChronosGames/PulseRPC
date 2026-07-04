@@ -195,7 +195,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                     // 格式: {Namespace}_{TypeNameWithoutI}.SmartHandler.g.cs
                     if (hasSmartHandlerAttribute || generateSmartHandlers)
                     {
-                        var smartHandlerCode = SmartEventHandlerGenerator.GenerateSmartEventHandler(namedType, spc, receiverProtocolIds);
+                        var smartHandlerCode = EventHandlerGenerator.GenerateEventHandler(namedType, spc, receiverProtocolIds);
                         var smartHandlerFileName = $"{GetSafeFileName(namedType)}.SmartHandler.g.cs";
                         spc.AddSource(smartHandlerFileName, SourceText.From(smartHandlerCode, Encoding.UTF8));
                     }
@@ -438,7 +438,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         }
     }
 
-    private static void GenerateHighPerformanceMethodImplementation(
+    private static void GenerateMethodImplementation(
         StringBuilder sb,
         IMethodSymbol methodSymbol,
         string defaultChannelName,

@@ -5,12 +5,11 @@ using PulseRPC.Shared;
 namespace PulseRPC.Server.Configuration;
 
 /// <summary>
-/// Configuration options for UnifiedPulseServer.
-/// Consolidates options from both PulseServer and ServerHost architectures.
+/// Configuration options for <see cref="PulseServer"/>.
 /// </summary>
-public sealed class UnifiedServerOptions
+public sealed class PulseServerOptions
 {
-    // === Transport Configuration (from PulseServer) ===
+    // === Transport Configuration ===
 
     /// <summary>
     /// List of transport configurations.
@@ -18,7 +17,7 @@ public sealed class UnifiedServerOptions
     /// </summary>
     public List<TransportChannelConfiguration> Transports { get; set; } = new();
 
-    // === Pipeline Configuration (from ServerHost) ===
+    // === Pipeline Configuration ===
 
     /// <summary>
     /// Configuration for backpressure policy component.
@@ -92,7 +91,7 @@ public sealed class UnifiedServerOptions
     /// </summary>
     /// <param name="preset">预设模式</param>
     /// <returns>当前选项实例，支持链式调用</returns>
-    public UnifiedServerOptions UsePreset(ServerPreset preset)
+    public PulseServerOptions UsePreset(ServerPreset preset)
     {
         ServerPresets.ApplyPreset(this, preset);
         return this;
@@ -105,7 +104,7 @@ public sealed class UnifiedServerOptions
     /// <param name="isDefault">是否为默认传输</param>
     /// <param name="configure">传输选项配置</param>
     /// <returns>当前选项实例，支持链式调用</returns>
-    public UnifiedServerOptions AddTcp(int port, bool isDefault = true, Action<TcpTransportOptions>? configure = null)
+    public PulseServerOptions AddTcp(int port, bool isDefault = true, Action<TcpTransportOptions>? configure = null)
     {
         var options = new TcpTransportOptions();
         configure?.Invoke(options);
@@ -121,7 +120,7 @@ public sealed class UnifiedServerOptions
     /// <param name="isDefault">是否为默认传输</param>
     /// <param name="configure">传输选项配置</param>
     /// <returns>当前选项实例，支持链式调用</returns>
-    public UnifiedServerOptions AddTcp(string name, int port, bool isDefault = true, Action<TcpTransportOptions>? configure = null)
+    public PulseServerOptions AddTcp(string name, int port, bool isDefault = true, Action<TcpTransportOptions>? configure = null)
     {
         var options = new TcpTransportOptions();
         configure?.Invoke(options);
@@ -136,7 +135,7 @@ public sealed class UnifiedServerOptions
     /// <param name="isDefault">是否为默认传输</param>
     /// <param name="configure">传输选项配置</param>
     /// <returns>当前选项实例，支持链式调用</returns>
-    public UnifiedServerOptions AddKcp(int port, bool isDefault = false, Action<KcpTransportOptions>? configure = null)
+    public PulseServerOptions AddKcp(int port, bool isDefault = false, Action<KcpTransportOptions>? configure = null)
     {
         var options = new KcpTransportOptions();
         configure?.Invoke(options);
@@ -152,7 +151,7 @@ public sealed class UnifiedServerOptions
     /// <param name="isDefault">是否为默认传输</param>
     /// <param name="configure">传输选项配置</param>
     /// <returns>当前选项实例，支持链式调用</returns>
-    public UnifiedServerOptions AddKcp(string name, int port, bool isDefault = false, Action<KcpTransportOptions>? configure = null)
+    public PulseServerOptions AddKcp(string name, int port, bool isDefault = false, Action<KcpTransportOptions>? configure = null)
     {
         var options = new KcpTransportOptions();
         configure?.Invoke(options);

@@ -80,7 +80,7 @@ public class PulseServiceFactoryOptions
     /// <value>默认 true</value>
     /// <remarks>
     /// <para>
-    /// 如果启用，将定期调用 <see cref="Abstractions.IUnifiedServiceHealthCheck.CheckHealthAsync"/> 检查实例健康状态。
+    /// 如果启用，将定期调用 <see cref="Abstractions.IPulseServiceHealthCheck.CheckHealthAsync"/> 检查实例健康状态。
     /// </para>
     /// <para>
     /// <strong>使用建议</strong>：

@@ -36,9 +36,9 @@ public static class ChatServiceRegistration
         // ════════════════════════════════════════════════════════════════════
         //
         // AddPulseService 会自动：
-        //   - 注册 UnifiedServiceManagement（如果尚未注册）
+        //   - 注册 PulseServiceManagement（如果尚未注册）
         //   - 注册 IServiceAccessor<ChatRoomService>
-        //   - 注册服务工厂到 UnifiedServiceManager
+        //   - 注册服务工厂到 PulseServiceManager
         //
         // 服务实例按 RoomId 缓存，相同 RoomId 返回相同实例
         //
@@ -72,7 +72,7 @@ public static class ChatServiceRegistration
 /// builder.ConfigureServices((context, services) =>
 /// {
 ///     // 添加 PulseRPC 服务器
-///     services.AddUnifiedPulseServer(options =>
+///     services.AddPulseServer(options =>
 ///     {
 ///         options.Transports = new()
 ///         {

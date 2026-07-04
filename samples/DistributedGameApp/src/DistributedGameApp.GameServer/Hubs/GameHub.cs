@@ -38,7 +38,7 @@ public class GameHub : PulseHubBase, IGameHub
     private readonly AccountRepository _accountRepository;
     private readonly IServiceAccessor<CharacterService> _characterService;
     private readonly IServiceAccessor<MailService> _mailService;
-    private readonly UnifiedServiceClientManager _serviceClientManager;
+    private readonly ServiceClientManager _serviceClientManager;
     private readonly IAuthenticationService _authenticationService;
     private readonly IUserConnectionMapping _userConnectionMapping;
     private readonly ILogger<GameHub> _logger;
@@ -48,7 +48,7 @@ public class GameHub : PulseHubBase, IGameHub
         AccountRepository accountRepository,
         IServiceAccessor<CharacterService> characterService,
         IServiceAccessor<MailService> mailService,
-        UnifiedServiceClientManager serviceClientManager,
+        ServiceClientManager serviceClientManager,
         IUserConnectionMapping userConnectionMapping,
         ILogger<GameHub> logger,
         IAuthenticationService authenticationService)
@@ -215,7 +215,7 @@ public class GameHub : PulseHubBase, IGameHub
             _logger.LogInformation("Player {PlayerId} 请求匹配: Mode={Mode}",
                 UserId, request.Mode);
 
-            // 使用 UnifiedServiceClientManager 获取 BackendHub 代理
+            // 使用 ServiceClientManager 获取 BackendHub 代理
             var backendHub = _serviceClientManager.GetHub<IBackendHub>(UserId);
 
             if (backendHub == null)

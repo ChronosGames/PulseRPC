@@ -7,7 +7,7 @@ using PulseRPC.Server.Hubs; using PulseRPC.Server.Services; using PulseRPC.Serve
 namespace PulseRPC.Server.Services.Management;
 
 /// <summary>
-/// 统一服务管理器 - 管理所有 <see cref="IUnifiedPulseService"/> 实例的生命周期和调度
+/// 统一服务管理器 - 管理所有 <see cref="IPulseService"/> 实例的生命周期和调度
 /// </summary>
 /// <remarks>
 /// <para>
@@ -21,21 +21,21 @@ namespace PulseRPC.Server.Services.Management;
 /// <item><description>请求路由到正确的服务实例</description></item>
 /// </list>
 /// </remarks>
-public sealed class UnifiedServiceManager : IAsyncDisposable
+public sealed class PulseServiceManager : IAsyncDisposable
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<UnifiedServiceManager> _logger;
-    private readonly UnifiedServiceManagerOptions _options;
+    private readonly ILogger<PulseServiceManager> _logger;
+    private readonly PulseServiceManagerOptions _options;
 
     // 服务注册表：ServiceType -> ServiceRegistration
     private readonly ConcurrentDictionary<string, ServiceTypeRegistration> _registrations = new();
 
     // 服务实例缓存：ServiceAddress -> Service Instance
-    private readonly ConcurrentDictionary<string, IUnifiedPulseService> _instances = new();
+    private readonly ConcurrentDictionary<string, IPulseService> _instances = new();
 
     // 正在创建中的服务（用于避免竞态条件下的重复创建）
     // Key: ServiceAddress, Value: 创建任务
-    private readonly ConcurrentDictionary<string, Task<IUnifiedPulseService>> _pendingCreations = new();
+    private readonly ConcurrentDictionary<string, Task<IPulseService>> _pendingCreations = new();
 
     // 自动启动服务的 ServiceAddress 列表
     private readonly List<string> _autoStartServices = new();
@@ -45,14 +45,14 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     private long _totalDisposed;
     private long _totalRaceConditionsAvoided; // 统计避免的竞态创建次数
 
-    public UnifiedServiceManager(
+    public PulseServiceManager(
         IServiceProvider serviceProvider,
-        ILogger<UnifiedServiceManager> logger,
-        UnifiedServiceManagerOptions? options = null)
+        ILogger<PulseServiceManager> logger,
+        PulseServiceManagerOptions? options = null)
     {
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _options = options ?? new UnifiedServiceManagerOptions();
+        _options = options ?? new PulseServiceManagerOptions();
     }
 
     /// <summary>
@@ -61,7 +61,7 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     /// <typeparam name="TService">服务实现类型</typeparam>
     /// <param name="factory">服务实例工厂</param>
     public void Register<TService>(Func<IServiceProvider, string, TService>? factory = null)
-        where TService : class, IUnifiedPulseService
+        where TService : class, IPulseService
     {
         var serviceType = typeof(TService);
         var attribute = serviceType.GetCustomAttribute<PulseServiceAttribute>() ?? new PulseServiceAttribute();
@@ -154,7 +154,7 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     /// 确保同一时刻只有一个创建任务在执行。
     /// </para>
     /// </remarks>
-    public async ValueTask<IUnifiedPulseService> GetOrCreateServiceAsync(
+    public async ValueTask<IPulseService> GetOrCreateServiceAsync(
         string serviceType,
         string serviceId,
         CancellationToken cancellationToken = default)
@@ -204,7 +204,7 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     /// <summary>
     /// 创建并注册服务实例（内部方法，仅被 GetOrCreateServiceAsync 调用）
     /// </summary>
-    private async Task<IUnifiedPulseService> CreateAndRegisterServiceAsync(
+    private async Task<IPulseService> CreateAndRegisterServiceAsync(
         string serviceAddress,
         ServiceTypeRegistration registration,
         string serviceId,
@@ -249,7 +249,7 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     /// <summary>
     /// 获取服务实例（不创建）
     /// </summary>
-    public IUnifiedPulseService? GetService(string serviceType, string serviceId)
+    public IPulseService? GetService(string serviceType, string serviceId)
     {
         var serviceAddress = $"{serviceType}:{serviceId}";
         _instances.TryGetValue(serviceAddress, out var service);
@@ -294,13 +294,13 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     /// <summary>
     /// 获取所有活跃的服务实例
     /// </summary>
-    public IEnumerable<IUnifiedPulseService> GetAllServices()
+    public IEnumerable<IPulseService> GetAllServices()
         => _instances.Values;
 
     /// <summary>
     /// 获取指定类型的所有服务实例
     /// </summary>
-    public IEnumerable<IUnifiedPulseService> GetServicesByType(string serviceType)
+    public IEnumerable<IPulseService> GetServicesByType(string serviceType)
         => _instances
             .Where(kvp => kvp.Key.StartsWith($"{serviceType}:"))
             .Select(kvp => kvp.Value);
@@ -322,7 +322,7 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
-        _logger.LogInformation("Disposing UnifiedServiceManager with {Count} active instances", _instances.Count);
+        _logger.LogInformation("Disposing PulseServiceManager with {Count} active instances", _instances.Count);
 
         var services = _instances.Values.ToList();
         _instances.Clear();
@@ -341,14 +341,14 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error disposing service: {ServiceAddress}",
-                    ((IUnifiedPulseService)service).ServiceAddress);
+                    ((IPulseService)service).ServiceAddress);
             }
         }
 
         _registrations.Clear();
         _autoStartServices.Clear();
 
-        _logger.LogInformation("UnifiedServiceManager disposed");
+        _logger.LogInformation("PulseServiceManager disposed");
     }
 
     private void ValidateServiceId(ServiceTypeRegistration registration, string serviceId)
@@ -385,8 +385,8 @@ public sealed class UnifiedServiceManager : IAsyncDisposable
     /// </list>
     /// <para>性能提升约 50-80 倍</para>
     /// </remarks>
-    private static Func<IServiceProvider, string, IUnifiedPulseService> CreateDefaultFactory<TService>()
-        where TService : class, IUnifiedPulseService
+    private static Func<IServiceProvider, string, IPulseService> CreateDefaultFactory<TService>()
+        where TService : class, IPulseService
     {
         // 使用编译后的工厂（首次调用编译并缓存，后续直接使用委托）
         var typedFactory = CompiledConstructorFactory.GetOrCreateFactory<TService>();
@@ -402,13 +402,13 @@ internal sealed class ServiceTypeRegistration
     public required Type ServiceType { get; init; }
     public required string ServiceName { get; init; }
     public required PulseServiceAttribute Attribute { get; init; }
-    public required Func<IServiceProvider, string, IUnifiedPulseService> Factory { get; init; }
+    public required Func<IServiceProvider, string, IPulseService> Factory { get; init; }
 }
 
 /// <summary>
-/// UnifiedServiceManager 配置选项
+/// PulseServiceManager 配置选项
 /// </summary>
-public sealed class UnifiedServiceManagerOptions
+public sealed class PulseServiceManagerOptions
 {
     /// <summary>
     /// 自动启动失败时是否继续启动其他服务

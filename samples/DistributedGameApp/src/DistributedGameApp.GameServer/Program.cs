@@ -66,7 +66,7 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         services.AddSingleton<LocalServiceRegistry>();
 
         // 注册统一服务客户端管理器（强类型 Hub 代理的核心）
-        services.AddSingleton<UnifiedServiceClientManager>();
+        services.AddSingleton<ServiceClientManager>();
 
         // ✅ 使用 AddPulseService 注册 Singleton 服务
         // 这样 Hub 可以通过 IServiceAccessor<TService> 访问服务，确保队列调度和线程安全
@@ -95,7 +95,7 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         // 添加后台服务：定期刷新服务列表
         services.AddSingleton<ServiceDiscoveryRefreshService>(sp =>
             new ServiceDiscoveryRefreshService(
-                sp.GetRequiredService<UnifiedServiceClientManager>(),
+                sp.GetRequiredService<ServiceClientManager>(),
                 sp.GetRequiredService<ILogger<ServiceDiscoveryRefreshService>>(),
                 TimeSpan.FromSeconds(30))); // 每30秒刷新一次
         services.AddHostedService(sp => sp.GetRequiredService<ServiceDiscoveryRefreshService>());
@@ -105,11 +105,11 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 var app = builder.Build();
 
 // ✅ 服务客户端初始化已移至 Bootstrap 流程中（Phase 5.5）
-// UnifiedServiceClientManager 会在 ServerBootstrapOrchestrator 的 Phase5_5 阶段自动初始化
+// ServiceClientManager 会在 ServerBootstrapOrchestrator 的 Phase5_5 阶段自动初始化
 // 这确保了：
 // 1. 在 Consul 注册之前初始化，等待依赖服务（BackendServer, BattleServer）就绪
 // 2. 只有当所有依赖服务可用时，才注册到 Consul 并开始接受请求
 // 3. 避免因服务启动顺序导致的"BackendServer 不可用"错误
-app.Services.GetRequiredService<UnifiedServiceClientManager>().RegisterHubProxyFactory(new HubProxyFactory());
+app.Services.GetRequiredService<ServiceClientManager>().RegisterHubProxyFactory(new HubProxyFactory());
 
 await app.RunAsync();

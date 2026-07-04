@@ -17,7 +17,7 @@ public class ReentrantMailboxTests
     /// <summary>
     /// 探针服务：记录并发读者峰值、活跃写者数，以及是否出现读写重叠。
     /// </summary>
-    private sealed class ProbeService : UnifiedPulseServiceBase
+    private sealed class ProbeService : PulseServiceBase
     {
         private int _currentReaders;
         private int _currentWriters;

@@ -265,7 +265,7 @@ public interface INamedPulseServer : IPulseServer
 public static IServiceCollection AddNamedPulseServer(
     this IServiceCollection services,
     string serverName,
-    Action<UnifiedServerOptions> configureOptions)
+    Action<PulseServerOptions> configureOptions)
 ```
 
 #### AddNamedPulseServer (使用 IConfiguration)
@@ -291,7 +291,7 @@ public static IServiceCollection AddNamedPulseServer(
 
 ```csharp
 // ❌ 只能注册一个服务器
-services.AddUnifiedPulseServer(options => { ... });
+services.AddPulseServer(options => { ... });
 
 // ❌ 无法再注册第二个服务器
 ```
@@ -328,6 +328,6 @@ services.AddNamedPulseServer("Server3", options => { ... });
 ## 更多资源
 
 - [PulseRPC 文档](../README.md)
-- [配置选项详解](./UnifiedServerOptions.md)
+- [配置选项详解](./PulseServerOptions.md)
 - [传输层配置](./Transport-Configuration.md)
 - [DistributedGameApp 示例](../samples/DistributedGameApp/)

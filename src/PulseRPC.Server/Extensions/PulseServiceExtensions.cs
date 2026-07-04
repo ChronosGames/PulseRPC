@@ -14,7 +14,7 @@ namespace PulseRPC.Server.Extensions;
 /// <para><strong>架构说明</strong>：</para>
 /// <list type="bullet">
 /// <item><description><c>IPulseHub</c> - 无状态的 RPC 接口契约</description></item>
-/// <item><description><c>IUnifiedPulseService</c> - 有状态的服务实例</description></item>
+/// <item><description><c>IPulseService</c> - 有状态的服务实例</description></item>
 /// <item><description>Hub 与 Service 分离，Hub 通过 <c>IServiceAccessor&lt;T&gt;</c> 访问 Service</description></item>
 /// </list>
 /// <para><strong>注册示例</strong>：</para>
@@ -26,7 +26,7 @@ namespace PulseRPC.Server.Extensions;
 /// services.AddTransient&lt;IPlayerHub, PlayerHub&gt;();
 /// </code>
 /// </remarks>
-public static class UnifiedServiceExtensions
+public static class PulseServiceExtensions
 {
     /// <summary>
     /// 添加统一服务管理系统
@@ -34,15 +34,15 @@ public static class UnifiedServiceExtensions
     /// <param name="services">服务集合</param>
     /// <param name="configure">配置委托</param>
     /// <returns>服务集合，支持链式调用</returns>
-    public static IServiceCollection AddUnifiedServiceManagement(
+    public static IServiceCollection AddPulseServiceManagement(
         this IServiceCollection services,
-        Action<UnifiedServiceManagerOptions>? configure = null)
+        Action<PulseServiceManagerOptions>? configure = null)
     {
-        var options = new UnifiedServiceManagerOptions();
+        var options = new PulseServiceManagerOptions();
         configure?.Invoke(options);
 
         // 使用 IOptions 模式注册配置
-        services.Configure<UnifiedServiceManagerOptions>(opt =>
+        services.Configure<PulseServiceManagerOptions>(opt =>
         {
             opt.ContinueOnAutoStartFailure = options.ContinueOnAutoStartFailure;
             opt.CleanupInterval = options.CleanupInterval;
@@ -51,10 +51,10 @@ public static class UnifiedServiceExtensions
         });
 
         services.TryAddSingleton(options);
-        services.TryAddSingleton<UnifiedServiceManager>();
+        services.TryAddSingleton<PulseServiceManager>();
 
         // 添加后台服务以自动启动 AutoStart 服务
-        services.AddHostedService<UnifiedServiceHostedService>();
+        services.AddHostedService<PulseServiceManagerHostedService>();
 
         // 添加服务实例清理器（如果启用）
         if (options.EnableInstanceEviction)
@@ -78,7 +78,7 @@ public static class UnifiedServiceExtensions
     /// </para>
     /// <list type="number">
     /// <item><description>注册统一服务管理系统（如果尚未注册）</description></item>
-    /// <item><description>注册服务工厂到 UnifiedServiceManager</description></item>
+    /// <item><description>注册服务工厂到 PulseServiceManager</description></item>
     /// <item><description>注册 IServiceAccessor&lt;TService&gt; 访问器</description></item>
     /// </list>
     /// <para>
@@ -101,10 +101,10 @@ public static class UnifiedServiceExtensions
     public static IServiceCollection AddPulseService<TService>(
         this IServiceCollection services,
         Func<IServiceProvider, string, TService>? factory = null)
-        where TService : class, IUnifiedPulseService
+        where TService : class, IPulseService
     {
         // 1. 确保统一服务管理系统已注册
-        services.AddUnifiedServiceManagement();
+        services.AddPulseServiceManagement();
 
         // 2. 注册服务类型本身（用于 DI 创建）
         services.TryAddTransient<TService>();
@@ -135,12 +135,12 @@ public static class UnifiedServiceExtensions
 internal sealed class ServiceRegistrationEntry
 {
     public required Type ServiceType { get; init; }
-    public Func<IServiceProvider, string, IUnifiedPulseService>? Factory { get; init; }
+    public Func<IServiceProvider, string, IPulseService>? Factory { get; init; }
 
     /// <summary>
-    /// 注册委托 - 直接调用 UnifiedServiceManager.Register，避免反射
+    /// 注册委托 - 直接调用 PulseServiceManager.Register，避免反射
     /// </summary>
-    public required Action<UnifiedServiceManager> RegisterAction { get; init; }
+    public required Action<PulseServiceManager> RegisterAction { get; init; }
 }
 
 /// <summary>
@@ -157,16 +157,16 @@ internal sealed class ServiceRegistrationCollection
 /// <summary>
 /// 统一服务的 HostedService - 负责启动 AutoStart 服务
 /// </summary>
-internal sealed class UnifiedServiceHostedService : IHostedService
+internal sealed class PulseServiceManagerHostedService : IHostedService
 {
-    private readonly UnifiedServiceManager _serviceManager;
+    private readonly PulseServiceManager _serviceManager;
     private readonly IServiceProvider _serviceProvider;
-    private readonly ILogger<UnifiedServiceHostedService> _logger;
+    private readonly ILogger<PulseServiceManagerHostedService> _logger;
 
-    public UnifiedServiceHostedService(
-        UnifiedServiceManager serviceManager,
+    public PulseServiceManagerHostedService(
+        PulseServiceManager serviceManager,
         IServiceProvider serviceProvider,
-        ILogger<UnifiedServiceHostedService> logger)
+        ILogger<PulseServiceManagerHostedService> logger)
     {
         _serviceManager = serviceManager;
         _serviceProvider = serviceProvider;
@@ -175,7 +175,7 @@ internal sealed class UnifiedServiceHostedService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting UnifiedServiceHostedService");
+        _logger.LogInformation("Starting PulseServiceManagerHostedService");
 
         // 注册所有配置的服务
         var serviceCollection = _serviceProvider.GetService<Microsoft.Extensions.Options.IOptions<ServiceRegistrationCollection>>();
@@ -190,14 +190,14 @@ internal sealed class UnifiedServiceHostedService : IHostedService
         // 启动所有 AutoStart 服务
         await _serviceManager.StartAutoStartServicesAsync(cancellationToken);
 
-        _logger.LogInformation("UnifiedServiceHostedService started");
+        _logger.LogInformation("PulseServiceManagerHostedService started");
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Stopping UnifiedServiceHostedService");
+        _logger.LogInformation("Stopping PulseServiceManagerHostedService");
         await _serviceManager.DisposeAsync();
-        _logger.LogInformation("UnifiedServiceHostedService stopped");
+        _logger.LogInformation("PulseServiceManagerHostedService stopped");
     }
 
     private void RegisterServiceDynamic(ServiceRegistrationEntry entry)

@@ -10,7 +10,7 @@ namespace DistributedGameApp.BackendServer.Services;
 /// <remarks>
 /// <para><strong>设计模式</strong>:</para>
 /// <list type="bullet">
-/// <item><description>继承 UnifiedPulseServiceBase，获得生命周期管理和消息队列支持</description></item>
+/// <item><description>继承 PulseServiceBase，获得生命周期管理和消息队列支持</description></item>
 /// <item><description>全局单例，自动启动</description></item>
 /// <item><description>可配置并发度（只读服务）</description></item>
 /// </list>
@@ -21,7 +21,7 @@ namespace DistributedGameApp.BackendServer.Services;
     InstanceScope = ServiceInstanceScope.Singleton,
     DisplayName = "LeaderboardService",
     EnableHealthCheck = true)]
-public class LeaderboardService : UnifiedPulseServiceBase
+public class LeaderboardService : PulseServiceBase
 {
     public LeaderboardService(ILogger<LeaderboardService> logger)
         : base("LeaderboardService", "Global", logger)

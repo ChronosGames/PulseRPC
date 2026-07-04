@@ -14,16 +14,16 @@ using BackpressurePolicyCore = PulseRPC.Server.Services.BackpressurePolicy;
 namespace PulseRPC.Server;
 
 /// <summary>
-/// Unified server implementation consolidating PulseServer and ServerHost functionality.
-/// Provides a single, clear API entry point for RPC server management.
+/// Default RPC server implementation providing a single, clear API entry point
+/// for transport, connection, and message pipeline management.
 /// </summary>
-public sealed class UnifiedPulseServer : IPulseServer
+public sealed class PulseServer : IPulseServer
 {
     private readonly ILoggerFactory _loggerFactory;
-    private readonly UnifiedServerOptions _options;
+    private readonly PulseServerOptions _options;
     private readonly IServerChannelManager _channelManager;
     private readonly ITransportIntegrationManager _transportIntegrationManager;
-    private readonly ILogger<UnifiedPulseServer> _logger;
+    private readonly ILogger<PulseServer> _logger;
 
     // Pipeline components
     private readonly ITieredMessageEngine _messageEngine;
@@ -50,16 +50,16 @@ public sealed class UnifiedPulseServer : IPulseServer
     public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
     public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
-    public UnifiedPulseServer(
+    public PulseServer(
         ITieredMessageEngine? messageEngine = null,
         IServerChannelManager? channelManager = null,
         ITransportIntegrationManager? transportIntegrationManager = null,
         ILoggerFactory? loggerFactory = null,
-        IOptions<UnifiedServerOptions>? options = null)
+        IOptions<PulseServerOptions>? options = null)
     {
         _loggerFactory = loggerFactory ?? new NullLoggerFactory();
-        _logger = _loggerFactory.CreateLogger<UnifiedPulseServer>();
-        _options = options?.Value ?? new UnifiedServerOptions();
+        _logger = _loggerFactory.CreateLogger<PulseServer>();
+        _options = options?.Value ?? new PulseServerOptions();
 
         // Validate configuration
         _options.Validate();
@@ -80,7 +80,7 @@ public sealed class UnifiedPulseServer : IPulseServer
             _transports.TryAdd(transport.Name, transport);
         }
 
-        _logger.LogInformation("UnifiedPulseServer initialized with {TransportCount} transports", _transports.Count);
+        _logger.LogInformation("PulseServer initialized with {TransportCount} transports", _transports.Count);
     }
 
     // === Lifecycle Management ===

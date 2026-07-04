@@ -11,7 +11,7 @@ namespace PulseRPC.Server.Services;
 /// </summary>
 /// <typeparam name="TService">需要启动的服务类型</typeparam>
 public class PulseServiceHostedService<TService> : IHostedService
-    where TService : class, IUnifiedPulseService
+    where TService : class, IPulseService
 {
     private readonly TService _service;
     private readonly ILogger<PulseServiceHostedService<TService>> _logger;

@@ -37,7 +37,7 @@ namespace DistributedGameApp.GameServer.Services.Player;
     EnableHealthCheck = true)]
 [ImplementsHub(typeof(IPlayerHub), FileSuffix = "Player")]
 [ImplementsHub(typeof(IGameHub), FileSuffix = "Game")]
-public partial class PlayerService : UnifiedPulseServiceBase, IUnifiedServiceLifecycle
+public partial class PlayerService : PulseServiceBase, IPulseServiceLifecycle
 {
     private readonly ILogger<PlayerService> _logger;
     private readonly CharacterRepository _characterRepository;

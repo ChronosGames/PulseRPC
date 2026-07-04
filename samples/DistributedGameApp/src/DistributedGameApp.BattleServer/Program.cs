@@ -58,7 +58,7 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
 
         // 注册服务间通信（通用版）
         services.AddSingleton<LocalServiceRegistry>();
-        services.AddSingleton<UnifiedServiceClientManager>();
+        services.AddSingleton<ServiceClientManager>();
 
         // 添加连接上下文管理器
         services.AddSingleton<BattleConnectionContext>();
@@ -76,7 +76,7 @@ var app = builder.Build();
 // ✅ 服务客户端初始化已移至 Bootstrap 流程中（Phase 5.5）
 // BattleServer 是底层服务，没有硬依赖，可以独立启动
 // GameServer 和 BackendServer 作为延迟依赖，在运行时按需建立连接
-app.Services.GetRequiredService<UnifiedServiceClientManager>().RegisterHubProxyFactory(new HubProxyFactory());
+app.Services.GetRequiredService<ServiceClientManager>().RegisterHubProxyFactory(new HubProxyFactory());
 
 
 await app.RunAsync();

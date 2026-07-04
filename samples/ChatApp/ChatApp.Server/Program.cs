@@ -91,7 +91,7 @@ internal abstract class Program
     {
         // 添加PulseRPC服务器 - 基于指南文档的最佳实践
         // 必须先添加，因为它会注册核心服务（IEventPublisher等）
-        services.AddUnifiedPulseServer(options =>
+        services.AddPulseServer(options =>
         {
             options.Transports = new()
             {
@@ -120,7 +120,7 @@ internal abstract class Program
         // 使用 PulseRPC.Server 中的简化实现
         services.AddSingleton<PulseRPC.Server.IJwtTokenService, PulseRPC.Server.JwtTokenService>();
 
-        // 手动注册 IAuthenticationService（AddUnifiedPulseServer 未注册它）
+        // 手动注册 IAuthenticationService（AddPulseServer 未注册它）
         services.AddSingleton<IAuthenticationService, AuthenticationService>();
 
         // 添加权限验证器（ChatRoomManager 依赖）

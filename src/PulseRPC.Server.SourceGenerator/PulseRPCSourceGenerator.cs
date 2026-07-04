@@ -175,7 +175,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
                 }
 
                 // 生成统一的 DI 扩展方法
-                var unifiedExtensions = ReceiverProxyGenerator.GenerateUnifiedDIExtensions(receiverModels);
+                var unifiedExtensions = ReceiverProxyGenerator.GenerateDIExtensions(receiverModels);
                 context.AddSource("PulseReceiverServiceExtensions.g.cs", SourceText.From(unifiedExtensions, Encoding.UTF8));
 
                 // 生成接收器协议号映射表

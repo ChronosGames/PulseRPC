@@ -9,7 +9,7 @@ namespace PulseRPC.Server;
 /// [已废弃] 支持让出的 Service 基类
 /// </summary>
 /// <remarks>
-/// <para><strong>⚠️ 此类已废弃</strong>，请使用 <see cref="PulseRPC.Server.Services.UnifiedPulseServiceBase"/> 替代。</para>
+/// <para><strong>⚠️ 此类已废弃</strong>，请使用 <see cref="PulseRPC.Server.Services.PulseServiceBase"/> 替代。</para>
 /// <para>新体系默认支持 async/await 并自动在队列中恢复执行。</para>
 /// <para><strong>核心特性</strong>：</para>
 /// <list type="bullet">
@@ -46,8 +46,8 @@ namespace PulseRPC.Server;
 /// </list>
 /// </remarks>
 /**
-[Obsolete("使用 UnifiedPulseServiceBase 替代。")]
-public abstract class YieldingService : IUnifiedPulseService
+[Obsolete("使用 PulseServiceBase 替代。")]
+public abstract class YieldingService : IPulseService
 {
     // MethodInfo 缓存 - 用于优化反射性能
     private static readonly ConcurrentDictionary<(Type ServiceType, PulseRPC.Protocol.ProtocolId ProtocolId), System.Reflection.MethodInfo?> _methodInfoCache = new();

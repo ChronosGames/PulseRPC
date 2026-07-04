@@ -19,11 +19,11 @@ namespace DistributedGameApp.Infrastructure.ServiceClient;
 ///
 /// 所有服务共享此实现，无需各自维护连接管理逻辑
 /// </remarks>
-public class UnifiedServiceClientManager : IAsyncDisposable
+public class ServiceClientManager : IAsyncDisposable
 {
     private readonly ConsulServiceDiscovery _serviceDiscovery;
     private readonly ILoggerFactory _loggerFactory;
-    private readonly ILogger<UnifiedServiceClientManager> _logger;
+    private readonly ILogger<ServiceClientManager> _logger;
     private readonly HubTypeRegistry _hubTypeRegistry;
     private readonly LocalServiceRegistry _localServiceRegistry;
     private readonly IAuthenticationProvider? _authenticationProvider;
@@ -40,7 +40,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     private bool _isInitialized;
     private bool _isDisposed;
 
-    public UnifiedServiceClientManager(
+    public ServiceClientManager(
         ConsulServiceDiscovery serviceDiscovery,
         ILoggerFactory loggerFactory,
         LocalServiceRegistry localServiceRegistry,
@@ -50,7 +50,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         _loggerFactory = loggerFactory ?? throw new ArgumentNullException(nameof(loggerFactory));
         _localServiceRegistry = localServiceRegistry ?? throw new ArgumentNullException(nameof(localServiceRegistry));
         _authenticationProvider = authenticationProvider;
-        _logger = loggerFactory.CreateLogger<UnifiedServiceClientManager>();
+        _logger = loggerFactory.CreateLogger<ServiceClientManager>();
         _hubTypeRegistry = new HubTypeRegistry();
         InitializeHubTypeRegistry();
     }
@@ -181,11 +181,11 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     {
         if (_isInitialized)
         {
-            _logger.LogWarning("UnifiedServiceClientManager 已经初始化");
+            _logger.LogWarning("ServiceClientManager 已经初始化");
             return;
         }
 
-        _logger.LogInformation("初始化 UnifiedServiceClientManager，服务类型: {Types}", string.Join(", ", serverTypes));
+        _logger.LogInformation("初始化 ServiceClientManager，服务类型: {Types}", string.Join(", ", serverTypes));
 
         // 并行注册所有服务类型
         var tasks = serverTypes.Select(st =>
@@ -193,7 +193,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         await Task.WhenAll(tasks);
 
         _isInitialized = true;
-        _logger.LogInformation("UnifiedServiceClientManager 初始化完成");
+        _logger.LogInformation("ServiceClientManager 初始化完成");
     }
 
     /// <summary>
@@ -571,7 +571,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     /// <summary>
     /// 获取统计信息
     /// </summary>
-    public UnifiedServiceClientStats GetStats()
+    public ServiceClientStats GetStats()
     {
         var serverStats = new Dictionary<ServerType, ServerTypeStats>();
 
@@ -589,7 +589,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
             };
         }
 
-        return new UnifiedServiceClientStats
+        return new ServiceClientStats
         {
             IsInitialized = _isInitialized,
             RegisteredServerTypes = _serverManagers.Keys.ToList(),
@@ -601,12 +601,12 @@ public class UnifiedServiceClientManager : IAsyncDisposable
     {
         if (!_isInitialized)
         {
-            throw new InvalidOperationException("UnifiedServiceClientManager 未初始化，请先调用 InitializeAsync");
+            throw new InvalidOperationException("ServiceClientManager 未初始化，请先调用 InitializeAsync");
         }
 
         if (_isDisposed)
         {
-            throw new ObjectDisposedException(nameof(UnifiedServiceClientManager));
+            throw new ObjectDisposedException(nameof(ServiceClientManager));
         }
     }
 
@@ -620,7 +620,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
 
         _isDisposed = true;
 
-        _logger.LogInformation("正在释放 UnifiedServiceClientManager...");
+        _logger.LogInformation("正在释放 ServiceClientManager...");
 
         foreach (var (serverType, (manager, router)) in _serverManagers)
         {
@@ -638,7 +638,7 @@ public class UnifiedServiceClientManager : IAsyncDisposable
         // 清理 Adapter 缓存
         _adapterCache.Clear();
 
-        _logger.LogInformation("UnifiedServiceClientManager 已释放");
+        _logger.LogInformation("ServiceClientManager 已释放");
     }
 }
 
@@ -669,7 +669,7 @@ internal class ServiceConnectionAdapter : IServiceConnection
 /// <summary>
 /// 统一服务客户端统计信息
 /// </summary>
-public class UnifiedServiceClientStats
+public class ServiceClientStats
 {
     /// <summary>
     /// 是否已初始化

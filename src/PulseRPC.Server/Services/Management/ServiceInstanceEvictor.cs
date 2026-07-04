@@ -16,7 +16,7 @@ namespace PulseRPC.Server.Services.Management;
 /// </para>
 /// <list type="bullet">
 /// <item><description><strong>空闲超时</strong>：根据 <see cref="PulseServiceAttribute.IdleTimeoutSeconds"/> 清理长时间未访问的实例</description></item>
-/// <item><description><strong>实例上限</strong>：当实例数超过 <see cref="UnifiedServiceManagerOptions.MaxCachedInstances"/> 时，使用 LRU 策略清理</description></item>
+/// <item><description><strong>实例上限</strong>：当实例数超过 <see cref="PulseServiceManagerOptions.MaxCachedInstances"/> 时，使用 LRU 策略清理</description></item>
 /// <item><description><strong>排除条件</strong>：AutoStart 服务和 Singleton 服务不会被清理</description></item>
 /// </list>
 /// <para>
@@ -24,14 +24,14 @@ namespace PulseRPC.Server.Services.Management;
 /// </para>
 /// <list type="number">
 /// <item><description>作为 <see cref="IHostedService"/> 运行，应用启动时自动启动</description></item>
-/// <item><description>按 <see cref="UnifiedServiceManagerOptions.CleanupInterval"/> 间隔执行清理</description></item>
+/// <item><description>按 <see cref="PulseServiceManagerOptions.CleanupInterval"/> 间隔执行清理</description></item>
 /// <item><description>清理过程是异步的，不会阻塞主线程</description></item>
 /// </list>
 /// </remarks>
 public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
 {
-    private readonly UnifiedServiceManager _serviceManager;
-    private readonly UnifiedServiceManagerOptions _options;
+    private readonly PulseServiceManager _serviceManager;
+    private readonly PulseServiceManagerOptions _options;
     private readonly ILogger<ServiceInstanceEvictor> _logger;
 
     private Timer? _cleanupTimer;
@@ -44,12 +44,12 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     private DateTime _lastCleanupTime;
 
     public ServiceInstanceEvictor(
-        UnifiedServiceManager serviceManager,
-        IOptions<UnifiedServiceManagerOptions> options,
+        PulseServiceManager serviceManager,
+        IOptions<PulseServiceManagerOptions> options,
         ILogger<ServiceInstanceEvictor> logger)
     {
         _serviceManager = serviceManager ?? throw new ArgumentNullException(nameof(serviceManager));
-        _options = options?.Value ?? new UnifiedServiceManagerOptions();
+        _options = options?.Value ?? new PulseServiceManagerOptions();
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -187,7 +187,7 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     /// 清理空闲超时的服务实例
     /// </summary>
     private async Task<int> EvictIdleServicesAsync(
-        List<IUnifiedPulseService> services,
+        List<IPulseService> services,
         CancellationToken cancellationToken)
     {
         var evictedCount = 0;
@@ -207,13 +207,13 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
                 continue; // 不清理
 
             // 检查空闲时间
-            if (service is UnifiedPulseServiceBase baseService)
+            if (service is PulseServiceBase baseService)
             {
                 if (baseService.IdleDuration > idleTimeout)
                 {
                     _logger.LogDebug(
                         "Evicting idle service: {ServiceAddress}, idle for {IdleDuration}",
-                        ((IUnifiedPulseService)baseService).ServiceAddress,
+                        ((IPulseService)baseService).ServiceAddress,
                         baseService.IdleDuration);
 
                     var removed = await _serviceManager.RemoveServiceAsync(
@@ -236,7 +236,7 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     /// 使用 LRU 策略清理服务实例
     /// </summary>
     private async Task<int> EvictLRUServicesAsync(
-        List<IUnifiedPulseService> services,
+        List<IPulseService> services,
         int countToEvict,
         CancellationToken cancellationToken)
     {
@@ -245,7 +245,7 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
         // 按最后访问时间排序（最旧的在前）
         var candidateServices = services
             .Where(s => CanEvict(s))
-            .OfType<UnifiedPulseServiceBase>()
+            .OfType<PulseServiceBase>()
             .OrderBy(s => s.LastAccessTime)
             .Take(countToEvict)
             .ToList();
@@ -257,7 +257,7 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
 
             _logger.LogDebug(
                 "Evicting LRU service: {ServiceAddress}, last accessed at {LastAccessTime}",
-                ((IUnifiedPulseService)service).ServiceAddress,
+                ((IPulseService)service).ServiceAddress,
                 service.LastAccessTime);
 
             var removed = await _serviceManager.RemoveServiceAsync(
@@ -277,7 +277,7 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     /// <summary>
     /// 检查服务是否可以被清理
     /// </summary>
-    private static bool CanEvict(IUnifiedPulseService service)
+    private static bool CanEvict(IPulseService service)
     {
         var serviceType = service.GetType();
         var attribute = serviceType.GetCustomAttribute<PulseServiceAttribute>();
@@ -299,7 +299,7 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     /// <summary>
     /// 获取服务的空闲超时时间
     /// </summary>
-    private static TimeSpan GetIdleTimeout(IUnifiedPulseService service)
+    private static TimeSpan GetIdleTimeout(IPulseService service)
     {
         var serviceType = service.GetType();
         var attribute = serviceType.GetCustomAttribute<PulseServiceAttribute>();

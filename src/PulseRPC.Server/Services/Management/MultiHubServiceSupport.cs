@@ -11,7 +11,7 @@ namespace PulseRPC.Server.Services.Management;
 /// </para>
 /// <list type="bullet">
 /// <item><description>IPulseHub - 无状态的 RPC 接口契约</description></item>
-/// <item><description>IUnifiedPulseService - 有状态的服务实例</description></item>
+/// <item><description>IPulseService - 有状态的服务实例</description></item>
 /// <item><description>Hub 与 Service 分离，Hub 通过 IServiceAccessor&lt;T&gt; 访问 Service</description></item>
 /// </list>
 /// <para>

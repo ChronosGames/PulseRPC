@@ -14,7 +14,7 @@ namespace PulseRPC.Server.Services;
 /// <code>
 /// IPulseHub / IPulseReceiver  ← 通信契约（定义 RPC 方法签名）
 ///         ↓
-/// IUnifiedPulseService        ← 服务实例（提供标识和生命周期）
+/// IPulseService        ← 服务实例（提供标识和生命周期）
 ///         ↓
 /// [PulseServiceAttribute]     ← 服务元数据（声明启动类型、实例范围等）
 /// </code>
@@ -33,7 +33,7 @@ namespace PulseRPC.Server.Services;
 /// [PulseService(
 ///     StartupType = ServiceStartupType.OnDemand,
 ///     InstanceScope = ServiceInstanceScope.MultiInstance)]
-/// public class ChatRoomService : IUnifiedPulseService, IChatRoomHub
+/// public class ChatRoomService : IPulseService, IChatRoomHub
 /// {
 ///     public string ServiceType => "ChatRoom";
 ///     public string ServiceId { get; }
@@ -48,7 +48,7 @@ namespace PulseRPC.Server.Services;
 /// }
 /// </code>
 /// </remarks>
-public interface IUnifiedPulseService : IAsyncDisposable
+public interface IPulseService : IAsyncDisposable
 {
     /// <summary>
     /// 服务类型标识（不可变）
@@ -164,7 +164,7 @@ public interface IUnifiedPulseService : IAsyncDisposable
 /// 实现此接口以在服务启动/停止时执行自定义逻辑。
 /// </para>
 /// </remarks>
-public interface IUnifiedServiceLifecycle : IUnifiedPulseService
+public interface IPulseServiceLifecycle : IPulseService
 {
     /// <summary>
     /// 服务启动时调用
@@ -198,7 +198,7 @@ public interface IUnifiedServiceLifecycle : IUnifiedPulseService
 /// <summary>
 /// 服务健康检查接口
 /// </summary>
-public interface IUnifiedServiceHealthCheck : IUnifiedPulseService
+public interface IPulseServiceHealthCheck : IPulseService
 {
     /// <summary>
     /// 执行健康检查

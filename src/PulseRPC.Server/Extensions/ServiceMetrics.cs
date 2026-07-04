@@ -52,7 +52,7 @@ public sealed class ServiceMetrics : IDisposable
     public const string MeterName = "PulseRPC.Server";
 
     private readonly Meter _meter;
-    private readonly UnifiedServiceManager? _serviceManager;
+    private readonly PulseServiceManager? _serviceManager;
     private readonly ServiceInstanceEvictor? _evictor;
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -89,7 +89,7 @@ public sealed class ServiceMetrics : IDisposable
     /// <param name="serviceManager">服务管理器（可选，用于获取实时统计）</param>
     /// <param name="evictor">清理器（可选，用于获取清理统计）</param>
     public ServiceMetrics(
-        UnifiedServiceManager? serviceManager = null,
+        PulseServiceManager? serviceManager = null,
         ServiceInstanceEvictor? evictor = null)
     {
         _serviceManager = serviceManager;

@@ -5,7 +5,7 @@ namespace PulseRPC.Server.Services;
 /// <summary>
 /// 服务实例工厂接口（内部实现）
 /// </summary>
-/// <typeparam name="TService">服务类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
+/// <typeparam name="TService">服务类型，必须实现 <see cref="IPulseService"/></typeparam>
 /// <remarks>
 /// <para>
 /// <strong>注意</strong>：此接口为内部实现，对外请使用 <see cref="IServiceAccessor{TService}"/>。
@@ -50,7 +50,7 @@ namespace PulseRPC.Server.Services;
 /// }
 /// </code>
 /// </example>
-internal interface IPulseServiceFactory<TService> where TService : IUnifiedPulseService
+internal interface IPulseServiceFactory<TService> where TService : IPulseService
 {
     /// <summary>
     /// 获取或创建服务实例
@@ -60,7 +60,7 @@ internal interface IPulseServiceFactory<TService> where TService : IUnifiedPulse
     /// <returns>服务实例</returns>
     /// <remarks>
     /// <para>
-    /// 如果实例已存在于缓存中，直接返回；否则创建新实例并调用 <see cref="IUnifiedServiceLifecycle.OnStartingAsync"/>。
+    /// 如果实例已存在于缓存中，直接返回；否则创建新实例并调用 <see cref="IPulseServiceLifecycle.OnStartingAsync"/>。
     /// </para>
     /// <para>
     /// <strong>并发安全</strong>：多个线程同时请求同一 ServiceId 时，只会创建一个实例。
@@ -104,7 +104,7 @@ internal interface IPulseServiceFactory<TService> where TService : IUnifiedPulse
     /// <returns>如果移除成功返回 <c>true</c>，否则返回 <c>false</c></returns>
     /// <remarks>
     /// <para>
-    /// 移除实例前会调用 <see cref="IUnifiedServiceLifecycle.OnStoppingAsync"/>，然后调用 <see cref="IAsyncDisposable.DisposeAsync"/>（如果实现）。
+    /// 移除实例前会调用 <see cref="IPulseServiceLifecycle.OnStoppingAsync"/>，然后调用 <see cref="IAsyncDisposable.DisposeAsync"/>（如果实现）。
     /// </para>
     /// <para>
     /// <strong>使用场景</strong>：
@@ -191,7 +191,7 @@ public class ServiceCreationException : Exception
 /// 服务激活异常
 /// </summary>
 /// <remarks>
-/// 当服务实例激活失败（<see cref="IUnifiedServiceLifecycle.OnStartingAsync"/> 抛出异常）时抛出此异常。
+/// 当服务实例激活失败（<see cref="IPulseServiceLifecycle.OnStartingAsync"/> 抛出异常）时抛出此异常。
 /// </remarks>
 public class ServiceActivationException : Exception
 {

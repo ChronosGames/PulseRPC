@@ -15,7 +15,7 @@ public static class ServiceMetadataCache
     /// </summary>
     /// <typeparam name="TService">服务类型</typeparam>
     /// <returns>服务元数据</returns>
-    public static ServiceMetadata Get<TService>() where TService : class, IUnifiedPulseService
+    public static ServiceMetadata Get<TService>() where TService : class, IPulseService
     {
         return _cache.GetOrAdd(typeof(TService), static type =>
         {

@@ -16,10 +16,10 @@ namespace ChatApp.NewArchitecture.Services;
 /// <remarks>
 /// <para><strong>核心特性</strong>：</para>
 /// <list type="bullet">
-/// <item><description>继承 <see cref="UnifiedPulseServiceBase"/>，获得消息队列支持</description></item>
+/// <item><description>继承 <see cref="PulseServiceBase"/>，获得消息队列支持</description></item>
 /// <item><description>每个房间（RoomId）对应一个独立实例</description></item>
 /// <item><description>所有状态修改都在队列中顺序执行，无需加锁</description></item>
-/// <item><description>由 <see cref="UnifiedServiceManager"/> 管理生命周期</description></item>
+/// <item><description>由 <see cref="PulseServiceManager"/> 管理生命周期</description></item>
 /// </list>
 /// <para><strong>状态管理</strong>：</para>
 /// <code>
@@ -32,7 +32,7 @@ namespace ChatApp.NewArchitecture.Services;
     Scenario = ServiceScenario.Actor,  // 单线程顺序执行，保证消息顺序和线程安全
     StartupType = ServiceStartupType.OnDemand,           // 按需创建
     InstanceScope = ServiceInstanceScope.MultiInstance)]  // 每个房间一个实例
-public class ChatRoomService : UnifiedPulseServiceBase
+public class ChatRoomService : PulseServiceBase
 {
     // ════════════════════════════════════════════════════════════════════════
     // 房间状态（只在队列中访问，无需加锁）

@@ -7,12 +7,12 @@ namespace PulseRPC.Generator.Generators;
 /// <summary>
 /// 智能事件处理器生成器 - 生成高性能、智能的事件处理代码
 /// </summary>
-public static class SmartEventHandlerGenerator
+public static class EventHandlerGenerator
 {
     /// <summary>
     /// 生成智能事件处理器
     /// </summary>
-    public static string GenerateSmartEventHandler(INamedTypeSymbol interfaceSymbol, SourceProductionContext context, Dictionary<string, ushort> protocolIds)
+    public static string GenerateEventHandler(INamedTypeSymbol interfaceSymbol, SourceProductionContext context, Dictionary<string, ushort> protocolIds)
     {
         var interfaceName = interfaceSymbol.Name;
         var isGlobalNamespace = interfaceSymbol.ContainingNamespace.IsGlobalNamespace;

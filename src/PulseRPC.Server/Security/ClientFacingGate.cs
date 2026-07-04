@@ -36,7 +36,7 @@ public static class ClientFacingGate
     /// <remarks>
     /// 默认 <c>false</c>，以保持向后兼容——现有项目在未主动开启前，行为与升级前完全一致，
     /// 未标注 <see cref="PulseRPC.ClientFacingAttribute"/> 的方法仍可像以前一样被外部客户端调用。
-    /// 通过 <see cref="PulseRPC.Server.Configuration.UnifiedServerOptions.EnableClientFacingGate"/>
+    /// 通过 <see cref="PulseRPC.Server.Configuration.PulseServerOptions.EnableClientFacingGate"/>
     /// 启动服务器即可开启（也可在测试中直接设置本属性）。开启后，只有标注了
     /// <see cref="PulseRPC.ClientFacingAttribute"/> 的方法才允许外部客户端调用。
     /// </remarks>

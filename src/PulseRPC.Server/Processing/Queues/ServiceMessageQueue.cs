@@ -6,7 +6,7 @@ namespace PulseRPC.Server.Processing.Queues;
 /// <summary>
 /// 统一消息队列 - Pure FIFO，高性能串行执行
 /// </summary>
-public sealed class UnifiedMessageQueue : IAsyncDisposable
+public sealed class ServiceMessageQueue : IAsyncDisposable
 {
     private readonly string _queueId;
     private readonly ILogger _logger;
@@ -26,7 +26,7 @@ public sealed class UnifiedMessageQueue : IAsyncDisposable
     private long _totalMessages;
     private long _messagesCompleted;
 
-    public UnifiedMessageQueue(
+    public ServiceMessageQueue(
         string queueId,
         ILogger logger,
         int capacity = -1)
@@ -49,7 +49,7 @@ public sealed class UnifiedMessageQueue : IAsyncDisposable
             });
 
         _logger.LogDebug(
-            "UnifiedMessageQueue created - QueueId: {QueueId}, Capacity: {Capacity}",
+            "ServiceMessageQueue created - QueueId: {QueueId}, Capacity: {Capacity}",
             queueId, capacity > 0 ? capacity : "Unbounded");
     }
 

@@ -1,7 +1,7 @@
 namespace PulseRPC.Server.Services;
 
 /// <summary>
-/// 标记 IUnifiedPulseService 实现类的服务特性
+/// 标记 IPulseService 实现类的服务特性
 /// </summary>
 /// <remarks>
 /// <para>
@@ -19,7 +19,7 @@ namespace PulseRPC.Server.Services;
 /// [PulseService(
 ///     Scenario = ServiceScenario.Actor,
 ///     InstanceScope = ServiceInstanceScope.MultiInstance)]
-/// public class ChatRoomService : UnifiedPulseServiceBase, IChatRoomHub
+/// public class ChatRoomService : PulseServiceBase, IChatRoomHub
 /// {
 /// }
 ///
@@ -27,7 +27,7 @@ namespace PulseRPC.Server.Services;
 /// [PulseService(
 ///     Scenario = ServiceScenario.StatefulIO,
 ///     InstanceScope = ServiceInstanceScope.MultiInstance)]
-/// public class PlayerService : UnifiedPulseServiceBase, IPlayerHub
+/// public class PlayerService : PulseServiceBase, IPlayerHub
 /// {
 /// }
 ///
@@ -36,7 +36,7 @@ namespace PulseRPC.Server.Services;
 ///     Scenario = ServiceScenario.StatelessIO,
 ///     InstanceScope = ServiceInstanceScope.Singleton,
 ///     StartupType = ServiceStartupType.AutoStart)]
-/// public class QueryService : UnifiedPulseServiceBase
+/// public class QueryService : PulseServiceBase
 /// {
 /// }
 ///
@@ -46,7 +46,7 @@ namespace PulseRPC.Server.Services;
 ///     SchedulingMode = ServiceSchedulingMode.DedicatedQueue,
 ///     MaxConcurrency = 4,
 ///     BackpressureMode = ServiceBackpressureMode.DropOldest)]
-/// public class CustomService : UnifiedPulseServiceBase
+/// public class CustomService : PulseServiceBase
 /// {
 /// }
 /// </code>
@@ -145,7 +145,7 @@ public sealed class PulseServiceAttribute : Attribute
     /// </summary>
     /// <remarks>
     /// <para>默认值：true</para>
-    /// <para>启用后，需要实现 <see cref="IUnifiedServiceHealthCheck.CheckHealthAsync"/>。</para>
+    /// <para>启用后，需要实现 <see cref="IPulseServiceHealthCheck.CheckHealthAsync"/>。</para>
     /// </remarks>
     public bool EnableHealthCheck { get; set; } = true;
 

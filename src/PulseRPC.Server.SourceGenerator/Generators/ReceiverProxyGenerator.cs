@@ -639,7 +639,7 @@ public static class ReceiverProxyGenerator
     /// <summary>
     /// 生成所有接收器的统一 DI 扩展方法
     /// </summary>
-    public static string GenerateUnifiedDIExtensions(List<ReceiverModel> receivers)
+    public static string GenerateDIExtensions(List<ReceiverModel> receivers)
     {
         var sb = new StringBuilder();
 

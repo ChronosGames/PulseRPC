@@ -15,7 +15,7 @@ namespace PulseRPC.Server.Services;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 提供 <see cref="IUnifiedPulseService"/> 的默认实现，包括：
+/// 提供 <see cref="IPulseService"/> 的默认实现，包括：
 /// </para>
 /// <list type="bullet">
 /// <item><description>状态管理（Created → Running → Stopped）</description></item>
@@ -29,7 +29,7 @@ namespace PulseRPC.Server.Services;
 /// [PulseService(
 ///     StartupType = ServiceStartupType.OnDemand,
 ///     InstanceScope = ServiceInstanceScope.MultiInstance)]
-/// public class ChatRoomService : UnifiedPulseServiceBase, IChatRoomHub
+/// public class ChatRoomService : PulseServiceBase, IChatRoomHub
 /// {
 ///     private readonly List&lt;Message&gt; _messages = new();
 ///
@@ -52,7 +52,7 @@ namespace PulseRPC.Server.Services;
 /// }
 /// </code>
 /// </remarks>
-public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedServiceLifecycle, IUnifiedServiceHealthCheck
+public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, IPulseServiceHealthCheck
 {
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private readonly Channel<WorkItem>? _messageQueue;
@@ -163,7 +163,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     }
 
     /// <summary>
-    /// 创建新的 UnifiedPulseServiceBase 实例
+    /// 创建新的 PulseServiceBase 实例
     /// </summary>
     /// <param name="serviceType">服务类型</param>
     /// <param name="serviceId">服务实例 ID</param>
@@ -173,7 +173,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// <example>
     /// <code>
     /// // 使用预定义配置
-    /// public class PlayerService : UnifiedPulseServiceBase
+    /// public class PlayerService : PulseServiceBase
     /// {
     ///     public PlayerService(string playerId, ILogger&lt;PlayerService&gt; logger)
     ///         : base("Player", playerId, logger, ServiceExecutionOptions.StatefulIO)
@@ -182,7 +182,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// }
     ///
     /// // 使用场景枚举
-    /// public class ChatRoomService : UnifiedPulseServiceBase
+    /// public class ChatRoomService : PulseServiceBase
     /// {
     ///     public ChatRoomService(string roomId, ILogger&lt;ChatRoomService&gt; logger)
     ///         : base("ChatRoom", roomId, logger, ServiceExecutionOptions.FromScenario(ServiceScenario.Actor))
@@ -191,7 +191,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// }
     /// </code>
     /// </example>
-    protected UnifiedPulseServiceBase(
+    protected PulseServiceBase(
         string serviceType,
         string serviceId,
         ILogger? logger = null,
@@ -242,12 +242,12 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             {
                 Logger.LogWarning(
                     "Cannot start service in state {State}: {ServiceAddress}",
-                    State, ((IUnifiedPulseService)this).ServiceAddress);
+                    State, ((IPulseService)this).ServiceAddress);
                 return;
             }
 
             State = ServiceLifecycleState.Starting;
-            Logger.LogInformation("Starting service: {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+            Logger.LogInformation("Starting service: {ServiceAddress}", ((IPulseService)this).ServiceAddress);
 
             try
             {
@@ -262,7 +262,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                 await OnStartingAsync(cancellationToken);
 
                 State = ServiceLifecycleState.Running;
-                Logger.LogInformation("Service started: {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                Logger.LogInformation("Service started: {ServiceAddress}", ((IPulseService)this).ServiceAddress);
 
                 // 启动固定帧驱动（若类上标注了 [Tick]）——须在 State=Running 之后，
                 // 否则第一帧的 EnqueueAsync 会因服务未运行而被拒绝。
@@ -271,7 +271,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             catch (Exception ex)
             {
                 State = ServiceLifecycleState.Faulted;
-                Logger.LogError(ex, "Failed to start service: {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                Logger.LogError(ex, "Failed to start service: {ServiceAddress}", ((IPulseService)this).ServiceAddress);
                 throw;
             }
         }
@@ -291,12 +291,12 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             {
                 Logger.LogWarning(
                     "Cannot stop service in state {State}: {ServiceAddress}",
-                    State, ((IUnifiedPulseService)this).ServiceAddress);
+                    State, ((IPulseService)this).ServiceAddress);
                 return;
             }
 
             State = ServiceLifecycleState.Stopping;
-            Logger.LogInformation("Stopping service: {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+            Logger.LogInformation("Stopping service: {ServiceAddress}", ((IPulseService)this).ServiceAddress);
 
             try
             {
@@ -324,12 +324,12 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                 await OnStoppingAsync(cancellationToken);
 
                 State = ServiceLifecycleState.Stopped;
-                Logger.LogInformation("Service stopped: {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                Logger.LogInformation("Service stopped: {ServiceAddress}", ((IPulseService)this).ServiceAddress);
             }
             catch (Exception ex)
             {
                 State = ServiceLifecycleState.Faulted;
-                Logger.LogError(ex, "Error during service stop: {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                Logger.LogError(ex, "Error during service stop: {ServiceAddress}", ((IPulseService)this).ServiceAddress);
                 throw;
             }
         }
@@ -392,7 +392,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     {
         if (State != ServiceLifecycleState.Running)
         {
-            throw new InvalidOperationException($"Service is not running: {((IUnifiedPulseService)this).ServiceAddress}");
+            throw new InvalidOperationException($"Service is not running: {((IPulseService)this).ServiceAddress}");
         }
 
         // 更新访问时间（用于空闲清理）
@@ -491,7 +491,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     {
         if (State != ServiceLifecycleState.Running)
         {
-            throw new InvalidOperationException($"Service is not running: {((IUnifiedPulseService)this).ServiceAddress}");
+            throw new InvalidOperationException($"Service is not running: {((IPulseService)this).ServiceAddress}");
         }
 
         // 更新访问时间
@@ -601,7 +601,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
         _tickLoopTask = TickLoopAsync(tick.Interval, _tickCts.Token);
         Logger.LogInformation(
             "Tick loop started at {Hz}Hz (interval {Interval}) for {ServiceAddress}",
-            tick.Hz, tick.Interval, ((IUnifiedPulseService)this).ServiceAddress);
+            tick.Hz, tick.Interval, ((IPulseService)this).ServiceAddress);
     }
 
     /// <summary>
@@ -624,7 +624,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             }
             catch (TimeoutException)
             {
-                Logger.LogWarning("Tick loop did not stop within timeout for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                Logger.LogWarning("Tick loop did not stop within timeout for {ServiceAddress}", ((IPulseService)this).ServiceAddress);
             }
             catch (OperationCanceledException)
             {
@@ -642,6 +642,14 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     /// </summary>
     private async Task TickLoopAsync(TimeSpan interval, CancellationToken cancellationToken)
     {
+        // 复用同一个「系统定时器」上下文与 tick 委托，避免高频 tick 下每帧新建 context/闭包
+        // 造成的分配。该上下文为不可变 record、跨帧共享安全（_cts 为 null，Dispose 为空操作，
+        // 且邮箱路径从不释放 context 对象）。唯一随帧变化的 StartTimestamp 仅供
+        // IPulseContext.GetElapsedTime() 使用，而该方法当前无生产消费，故固定为「开始 tick 的
+        // 时刻」可接受。
+        var systemContext = PulseContextData.CreateSystemContext($"Tick:{ServiceType}");
+        Func<Task> tickWork = () => OnTickAsync(cancellationToken);
+
         try
         {
             using var timer = new PeriodicTimer(interval);
@@ -659,10 +667,9 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                     // 接入既有权限设计（RequirePermission/RequireRole 的 AllowSystem 绕过、
                     // ClientFacingGate 对非 ExternalUser 放行）。上下文在入队时被捕获，
                     // 并在邮箱内执行 OnTickAsync 时恢复，三种调度模式均适用。
-                    var systemContext = PulseContextData.CreateSystemContext($"Tick:{ServiceType}");
                     using (PulseContext.SetContext(systemContext))
                     {
-                        await EnqueueAsync(() => OnTickAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+                        await EnqueueAsync(tickWork, cancellationToken).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException)
@@ -676,7 +683,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError(ex, "Tick handler failed for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                    Logger.LogError(ex, "Tick handler failed for {ServiceAddress}", ((IPulseService)this).ServiceAddress);
                 }
             }
         }
@@ -714,7 +721,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     {
         if (_messageQueue == null) return;
 
-        Logger.LogDebug("Message processing started for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+        Logger.LogDebug("Message processing started for {ServiceAddress}", ((IPulseService)this).ServiceAddress);
 
         // 在途读者（可重入方法）集合：读者之间并发执行，但绝不与写者重叠。
         var inFlightReaders = new List<Task>();
@@ -743,7 +750,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Message processing failed for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+            Logger.LogError(ex, "Message processing failed for {ServiceAddress}", ((IPulseService)this).ServiceAddress);
         }
         finally
         {
@@ -754,11 +761,11 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Error draining in-flight readers for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                Logger.LogError(ex, "Error draining in-flight readers for {ServiceAddress}", ((IPulseService)this).ServiceAddress);
             }
         }
 
-        Logger.LogDebug("Message processing stopped for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+        Logger.LogDebug("Message processing stopped for {ServiceAddress}", ((IPulseService)this).ServiceAddress);
     }
 
     /// <summary>
@@ -772,7 +779,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error processing message in {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+            Logger.LogError(ex, "Error processing message in {ServiceAddress}", ((IPulseService)this).ServiceAddress);
         }
     }
 

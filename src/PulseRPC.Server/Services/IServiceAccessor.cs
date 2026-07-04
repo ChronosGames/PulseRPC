@@ -38,7 +38,7 @@ namespace PulseRPC.Server.Services;
 /// </code>
 /// </remarks>
 /// <typeparam name="TService">服务类型</typeparam>
-public interface IServiceAccessor<TService> where TService : class, IUnifiedPulseService
+public interface IServiceAccessor<TService> where TService : class, IPulseService
 {
     /// <summary>
     /// 获取或创建服务实例
@@ -72,7 +72,7 @@ public interface IServiceAccessor<TService> where TService : class, IUnifiedPuls
     /// <returns>如果移除成功返回 <c>true</c>，否则返回 <c>false</c></returns>
     /// <remarks>
     /// <para>
-    /// 移除实例前会调用 <see cref="IUnifiedServiceLifecycle.OnStoppingAsync"/>，
+    /// 移除实例前会调用 <see cref="IPulseServiceLifecycle.OnStoppingAsync"/>，
     /// 然后调用 <see cref="IAsyncDisposable.DisposeAsync"/>（如果实现）。
     /// </para>
     /// <para>

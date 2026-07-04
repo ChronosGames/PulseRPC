@@ -18,7 +18,7 @@ namespace DistributedGameApp.GameServer.Hubs;
 /// </list>
 /// <para><strong>设计原则</strong>:</para>
 /// <list type="bullet">
-/// <item><description>✅ 继承 UnifiedPulseServiceBase - 因为需要单例模式</description></item>
+/// <item><description>✅ 继承 PulseServiceBase - 因为需要单例模式</description></item>
 /// <item><description>✅ 全局单例 (ServiceId = "Global")</description></item>
 /// <item><description>✅ 使用框架提供的 IUserConnectionMapping 管理连接状态</description></item>
 /// </list>
@@ -29,7 +29,7 @@ namespace DistributedGameApp.GameServer.Hubs;
     InstanceScope = ServiceInstanceScope.Singleton,
     DisplayName = "GameServerInternalHub",
     EnableHealthCheck = true)]
-public class GameServerInternalHub : UnifiedPulseServiceBase, IGameServerInternalHub, IUnifiedServiceLifecycle
+public class GameServerInternalHub : PulseServiceBase, IGameServerInternalHub, IPulseServiceLifecycle
 {
     private readonly IHubContext<IGameReceiver> _gameReceiverContext;
     private readonly IUserConnectionMapping _userConnectionMapping;

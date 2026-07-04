@@ -1074,7 +1074,7 @@ public enum ServiceSchedulingMode
 **示例**：
 ```csharp
 [PulseService(SchedulingMode = ServiceSchedulingMode.DefaultPool)]
-public class QueryService : UnifiedPulseServiceBase
+public class QueryService : PulseServiceBase
 {
     // ⚠️ 必须线程安全！
     private readonly ConcurrentDictionary<string, CachedData> _cache = new();
@@ -1108,7 +1108,7 @@ public class QueryService : UnifiedPulseServiceBase
 [PulseService(
     InstanceScope = ServiceInstanceScope.MultiInstance,
     SchedulingMode = ServiceSchedulingMode.DedicatedQueue)]  // 默认值
-public class ChatRoomService : UnifiedPulseServiceBase
+public class ChatRoomService : PulseServiceBase
 {
     // ✅ 无需加锁 - 队列保证单线程执行
     private readonly HashSet<string> _members = new();
@@ -1160,7 +1160,7 @@ public class ChatRoomService : UnifiedPulseServiceBase
     StartupType = ServiceStartupType.OnDemand,
     InstanceScope = ServiceInstanceScope.MultiInstance,
     SchedulingMode = ServiceSchedulingMode.ThreadAffinity)]
-public class HighFrequencyService : UnifiedPulseServiceBase
+public class HighFrequencyService : PulseServiceBase
 {
     private int _counter;
 
@@ -1186,7 +1186,7 @@ public class HighFrequencyService : UnifiedPulseServiceBase
 **ThreadAffinity 架构图**：
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    UnifiedPulseServiceBase                       │
+│                    PulseServiceBase                       │
 │ ┌─────────────────┬─────────────────┬─────────────────────────┐ │
 │ │   DefaultPool   │  DedicatedQueue │     ThreadAffinity      │ │
 │ │   (直接执行)    │   (私有 Channel) │ (IThreadAffinityScheduler)│ │
@@ -1221,10 +1221,10 @@ public class HighFrequencyService : UnifiedPulseServiceBase
 
 ### 核心接口
 
-#### IUnifiedPulseService - 统一服务接口
+#### IPulseService - 统一服务接口
 
 ```csharp
-public interface IUnifiedPulseService : IAsyncDisposable
+public interface IPulseService : IAsyncDisposable
 {
     string ServiceType { get; }           // 服务类型名称
     string ServiceId { get; }             // 服务实例 ID
@@ -1246,7 +1246,7 @@ public interface IUnifiedPulseService : IAsyncDisposable
     DisplayName = "Player",
     IdleTimeoutSeconds = 600,
     EnableHealthCheck = true)]
-public class PlayerService : UnifiedPulseServiceBase
+public class PlayerService : PulseServiceBase
 {
     // ...
 }
@@ -1319,7 +1319,7 @@ public class PlayerHub : IPlayerHub
 [PulseService(
     StartupType = ServiceStartupType.OnDemand,
     InstanceScope = ServiceInstanceScope.MultiInstance)]
-public partial class PlayerService : UnifiedPulseServiceBase, IPlayerHub
+public partial class PlayerService : PulseServiceBase, IPlayerHub
 {
     // 玩家状态（只在队列线程中访问，无需加锁）
     private Character? _currentCharacter;
@@ -1348,7 +1348,7 @@ public partial class PlayerService : UnifiedPulseServiceBase, IPlayerHub
 #### IServiceAccessor<TService> - 基础访问器
 
 ```csharp
-public interface IServiceAccessor<TService> where TService : class, IUnifiedPulseService
+public interface IServiceAccessor<TService> where TService : class, IPulseService
 {
     ValueTask<TService> GetAsync(string serviceId, CancellationToken ct = default);
     TService? TryGet(string serviceId);
@@ -1564,7 +1564,7 @@ services.MapAllHubsToService<PlayerService>();
 
 ```csharp
 // Program.cs
-services.AddUnifiedServiceManagement(options =>
+services.AddPulseServiceManagement(options =>
 {
     options.ContinueOnAutoStartFailure = true;
     options.MaxCachedInstances = 10000;
@@ -1598,14 +1598,14 @@ services.MapHubToService<IPlayerHub, PlayerService>();
 |---------|------|
 | `Abstractions/ServiceScope.cs` | 服务分类枚举定义 |
 | `Abstractions/PulseServiceAttribute.cs` | 服务元数据特性 |
-| `Abstractions/IUnifiedPulseService.cs` | 统一服务接口 |
+| `Abstractions/IPulseService.cs` | 统一服务接口 |
 | `Abstractions/IServiceAccessor.cs` | 服务访问器接口 |
-| `Services/UnifiedPulseServiceBase.cs` | 服务基类实现 |
-| `ServiceManagement/UnifiedServiceManager.cs` | 服务管理器 |
+| `Services/PulseServiceBase.cs` | 服务基类实现 |
+| `ServiceManagement/PulseServiceManager.cs` | 服务管理器 |
 | `ServiceManagement/ServiceAccessor.cs` | 服务访问器实现 |
 | `ServiceManagement/HubToServiceDispatcher.cs` | Hub→Service 调度器 |
 | `ServiceManagement/MultiHubServiceSupport.cs` | 多 Hub 支持 |
-| `Extensions/UnifiedServiceExtensions.cs` | DI 扩展方法 |
+| `Extensions/PulseServiceExtensions.cs` | DI 扩展方法 |
 
 ## 🎉 总结
 

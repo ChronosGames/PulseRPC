@@ -17,7 +17,7 @@ namespace PulseRPC.Server.Tests;
 public class TickAttributeTests
 {
     [Tick(50)] // 每秒 50 帧（20ms 一帧）
-    private sealed class TickingService : UnifiedPulseServiceBase
+    private sealed class TickingService : PulseServiceBase
     {
         private int _tickCount;
         private int _concurrentTicks;
@@ -55,7 +55,7 @@ public class TickAttributeTests
         }
     }
 
-    private sealed class NonTickingService : UnifiedPulseServiceBase
+    private sealed class NonTickingService : PulseServiceBase
     {
         private int _tickCount;
         public int TickCount => Volatile.Read(ref _tickCount);

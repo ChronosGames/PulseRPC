@@ -241,7 +241,7 @@ public sealed class ReentrantAttribute : Attribute
 /// <para>
 /// <b>启用方式</b>：本特性描述的白名单始终由源生成器计算并写入生成代码，但实际强制检查默认
 /// <b>关闭</b>，以保证现有项目升级后行为不变；需要在服务端显式开启后才会生效
-/// （参见 <c>PulseRPC.Server.Configuration.UnifiedServerOptions.EnableClientFacingGate</c>）。
+/// （参见 <c>PulseRPC.Server.Configuration.PulseServerOptions.EnableClientFacingGate</c>）。
 /// </para>
 /// </remarks>
 [AttributeUsage(AttributeTargets.Interface | AttributeTargets.Method, AllowMultiple = false)]

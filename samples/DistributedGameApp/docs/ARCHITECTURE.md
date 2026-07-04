@@ -588,7 +588,7 @@ public class PlayerHub : IPlayerHub
     StartupType = ServiceStartupType.OnDemand,
     InstanceScope = ServiceInstanceScope.MultiInstance,
     SchedulingMode = ServiceSchedulingMode.DedicatedQueue)]
-public partial class PlayerService : UnifiedPulseServiceBase, IPlayerHub
+public partial class PlayerService : PulseServiceBase, IPlayerHub
 {
     // 玩家状态（队列保证线程安全，无需加锁）
     private Character? _currentCharacter;

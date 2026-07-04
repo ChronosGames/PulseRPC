@@ -10,7 +10,7 @@ namespace DistributedGameApp.Infrastructure.Hosting.Bootstrap;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 此阶段负责在 UnifiedServiceClientManager 中注册服务类型，但不等待服务就绪。
+/// 此阶段负责在 ServiceClientManager 中注册服务类型，但不等待服务就绪。
 /// </para>
 /// <para>
 /// 设计原理：
@@ -51,11 +51,11 @@ public class Phase5_5_InitializeServiceClient : IBootstrapPhase
             _logger.LogInformation("注册服务类型: {Types}（按需连接，不等待就绪）",
                 string.Join(", ", dependencyOptions.ServerTypes));
 
-            // 2. 获取 UnifiedServiceClientManager
-            var serviceClientManager = context.ServiceProvider.GetService<UnifiedServiceClientManager>();
+            // 2. 获取 ServiceClientManager
+            var serviceClientManager = context.ServiceProvider.GetService<ServiceClientManager>();
             if (serviceClientManager == null)
             {
-                _logger.LogWarning("UnifiedServiceClientManager 未注册，跳过服务客户端初始化");
+                _logger.LogWarning("ServiceClientManager 未注册，跳过服务客户端初始化");
                 return true;
             }
 

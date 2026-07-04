@@ -8,7 +8,7 @@ NewArchitecture/
 ├── Contracts/
 │   └── IChatRoomHub.cs          # Hub 接口定义（RPC 契约）
 ├── Services/
-│   ├── ChatRoomService.cs       # 有状态服务（继承 UnifiedPulseServiceBase）
+│   ├── ChatRoomService.cs       # 有状态服务（继承 PulseServiceBase）
 │   └── ChatRoomHub.cs           # 无状态 Hub（Singleton）
 ├── Authentication/
 │   └── ChatAuthenticationHandler.cs  # 认证处理

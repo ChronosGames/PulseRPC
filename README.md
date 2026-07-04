@@ -79,7 +79,7 @@ var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices(services =>
     {
         // 注册 PulseRPC 服务端及传输通道
-        services.AddUnifiedPulseServer(options =>
+        services.AddPulseServer(options =>
         {
             options.Transports = new()
             {

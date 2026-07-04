@@ -16,7 +16,7 @@ namespace DistributedGameApp.BackendServer.Services;
 /// <remarks>
 /// <para><strong>设计模式</strong>:</para>
 /// <list type="bullet">
-/// <item><description>继承 UnifiedPulseServiceBase，获得消息队列保证的单线程顺序执行</description></item>
+/// <item><description>继承 PulseServiceBase，获得消息队列保证的单线程顺序执行</description></item>
 /// <item><description>全局单例，自动启动</description></item>
 /// <item><description>使用普通 Dictionary（消息队列保证线程安全）</description></item>
 /// <item><description>使用 Timer 实现定时匹配任务</description></item>
@@ -28,9 +28,9 @@ namespace DistributedGameApp.BackendServer.Services;
     InstanceScope = ServiceInstanceScope.Singleton,
     DisplayName = "MatchmakingService",
     EnableHealthCheck = true)]
-public class MatchmakingService : UnifiedPulseServiceBase
+public class MatchmakingService : PulseServiceBase
 {
-    // ✅ 使用普通 Dictionary（UnifiedPulseServiceBase 消息队列保证线程安全）
+    // ✅ 使用普通 Dictionary（PulseServiceBase 消息队列保证线程安全）
     private readonly Dictionary<string, MatchmakingTicket> _matchQueue = new();
 
     // 匹配类型配置：每种模式需要的玩家数
@@ -45,7 +45,7 @@ public class MatchmakingService : UnifiedPulseServiceBase
     // 等待时间阈值（秒）- 每超过这个阈值，等级范围放宽一倍
     private const int WaitTimeThreshold = 30;
 
-    private readonly UnifiedServiceClientManager _serviceClientManager;
+    private readonly ServiceClientManager _serviceClientManager;
 
     // 统计指标
     private long _totalMatchRequests;
@@ -58,7 +58,7 @@ public class MatchmakingService : UnifiedPulseServiceBase
 
     public MatchmakingService(
         ILogger<MatchmakingService> logger,
-        UnifiedServiceClientManager serviceClientManager)
+        ServiceClientManager serviceClientManager)
         : base("MatchmakingService", "Global", logger)
     {
         _serviceClientManager = serviceClientManager;
@@ -117,7 +117,7 @@ public class MatchmakingService : UnifiedPulseServiceBase
     /// 开始匹配
     /// </summary>
     /// <remarks>
-    /// ✅ UnifiedPulseServiceBase 消息队列保证单线程顺序执行，无需加锁
+    /// ✅ PulseServiceBase 消息队列保证单线程顺序执行，无需加锁
     /// </remarks>
     public Task<MatchmakingResponse> StartMatchmakingAsync(MatchmakingRequest request)
     {
@@ -557,7 +557,7 @@ public class MatchmakingService : UnifiedPulseServiceBase
         {
             Logger.LogInformation("正在获取 GameServerInternalHub 代理（尝试 {Attempt}/{MaxRetries}）", i + 1, maxRetries);
 
-            // 不指定 serviceId，交给 UnifiedServiceClientManager 按服务类型自动路由
+            // 不指定 serviceId，交给 ServiceClientManager 按服务类型自动路由
             var hub = _serviceClientManager.GetHub<IGameServerInternalHub>();
 
             if (hub != null)

@@ -195,7 +195,7 @@ public static class IPulseServiceExtensions
 /// }
 ///
 /// // 服务使用示例:
-/// public class ChatRoomService : IPulseHub, IUnifiedPulseService
+/// public class ChatRoomService : IPulseHub, IPulseService
 /// {
 ///     public string ServiceType => "ChatRoom";
 ///     public string ServiceId { get; }

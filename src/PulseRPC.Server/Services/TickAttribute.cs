@@ -3,7 +3,7 @@ using System;
 namespace PulseRPC.Server.Services;
 
 /// <summary>
-/// 固定帧驱动特性 - 标记在 <see cref="UnifiedPulseServiceBase"/> 派生的服务类上，
+/// 固定帧驱动特性 - 标记在 <see cref="PulseServiceBase"/> 派生的服务类上，
 /// 让运行时以固定频率周期性地驱动该服务。
 /// </summary>
 /// <remarks>
@@ -15,17 +15,17 @@ namespace PulseRPC.Server.Services;
 /// <strong>运行语义</strong>：
 /// </para>
 /// <list type="bullet">
-/// <item><description>服务 <see cref="UnifiedPulseServiceBase.StartAsync"/> 后，框架按 <see cref="Hz"/>
+/// <item><description>服务 <see cref="PulseServiceBase.StartAsync"/> 后，框架按 <see cref="Hz"/>
 /// 指定的频率周期性地把一次回调投递到服务的串行邮箱，调用
-/// <see cref="UnifiedPulseServiceBase.OnTickAsync"/>；</description></item>
+/// <see cref="PulseServiceBase.OnTickAsync"/>；</description></item>
 /// <item><description>回调经由邮箱执行，因此与其它消息处理<b>串行</b>、天然线程安全
 /// （<see cref="ServiceSchedulingMode.DedicatedQueue"/> / <see cref="ServiceSchedulingMode.ThreadAffinity"/> 模式）；</description></item>
 /// <item><description>每次 tick 作为一次「系统定时器」调用执行，携带
 /// <c>CallSourceType.SystemTimer</c> 上下文，接入既有权限设计（<c>RequirePermission</c>/<c>RequireRole</c>
 /// 的 <c>AllowSystem</c> 绕过、<c>ClientFacingGate</c> 对非外部来源放行）；</description></item>
-/// <item><description>采用「尽力而为」语义：若某次 <see cref="UnifiedPulseServiceBase.OnTickAsync"/>
+/// <item><description>采用「尽力而为」语义：若某次 <see cref="PulseServiceBase.OnTickAsync"/>
 /// 执行耗时超过一个周期，错过的帧不会补偿堆积，而是在下一个周期边界继续；</description></item>
-/// <item><description>服务 <see cref="UnifiedPulseServiceBase.StopAsync"/> 时自动停止驱动。</description></item>
+/// <item><description>服务 <see cref="PulseServiceBase.StopAsync"/> 时自动停止驱动。</description></item>
 /// </list>
 /// <para>
 /// <strong>使用示例</strong>：
@@ -33,7 +33,7 @@ namespace PulseRPC.Server.Services;
 /// <code>
 /// [PulseService(Scenario = ServiceScenario.Actor)]
 /// [Tick(30)] // 每秒 30 帧
-/// public class SceneService : UnifiedPulseServiceBase
+/// public class SceneService : PulseServiceBase
 /// {
 ///     protected override Task OnTickAsync(CancellationToken cancellationToken)
 ///     {

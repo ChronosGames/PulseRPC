@@ -23,7 +23,7 @@ namespace DistributedGameApp.GameServer.Services.Player;
 ///     ↓
 /// PlayerHub.Method() → _playerService.ExecuteAsync(userId, ...)
 ///     ↓
-/// UnifiedServiceManager.Get(userId) → 返回 PlayerService 实例
+/// PulseServiceManager.Get(userId) → 返回 PlayerService 实例
 /// </code>
 /// </remarks>
 public class PlayerHub : PulseHubBase, IPlayerHub

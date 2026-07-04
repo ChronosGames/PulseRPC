@@ -10,12 +10,12 @@ using PulseRPC.Shared;
 namespace PulseRPC.Server;
 
 /// <summary>
-/// 命名服务器实现，包装 UnifiedPulseServer 并添加服务器名称
+/// 命名服务器实现，包装 PulseServer 并添加服务器名称
 /// 支持在同一进程中运行多个独立的服务器实例
 /// </summary>
-internal sealed class NamedUnifiedPulseServer : INamedPulseServer
+internal sealed class NamedPulseServer : INamedPulseServer
 {
-    private readonly UnifiedPulseServer _innerServer;
+    private readonly PulseServer _innerServer;
 
     /// <inheritdoc />
     public string ServerName { get; }
@@ -29,13 +29,13 @@ internal sealed class NamedUnifiedPulseServer : INamedPulseServer
     /// <param name="transportIntegrationManager">传输集成管理器</param>
     /// <param name="loggerFactory">日志工厂</param>
     /// <param name="options">服务器配置选项</param>
-    public NamedUnifiedPulseServer(
+    public NamedPulseServer(
         string serverName,
         ITieredMessageEngine messageEngine,
         IServerChannelManager channelManager,
         ITransportIntegrationManager transportIntegrationManager,
         ILoggerFactory loggerFactory,
-        IOptions<UnifiedServerOptions> options)
+        IOptions<PulseServerOptions> options)
     {
         if (string.IsNullOrWhiteSpace(serverName))
             throw new ArgumentException("Server name cannot be null or whitespace", nameof(serverName));
@@ -43,7 +43,7 @@ internal sealed class NamedUnifiedPulseServer : INamedPulseServer
         ServerName = serverName;
 
         // 创建内部服务器实例
-        _innerServer = new UnifiedPulseServer(
+        _innerServer = new PulseServer(
             messageEngine,
             channelManager,
             transportIntegrationManager,

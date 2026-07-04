@@ -58,7 +58,7 @@ PulseRPC 定义了两种核心标记接口：
 │           │                                                 │
 │           ▼                                                 │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │ UnifiedPulseServiceBase (有状态，多实例)              │   │
+│  │ PulseServiceBase (有状态，多实例)              │   │
 │  │ 通过 IServiceAccessor<T> 获取                        │   │
 │  └─────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
@@ -251,7 +251,7 @@ public class ChatRoomHub : IChatRoomHub
     Scenario = ServiceScenario.Actor,           // 单线程顺序执行
     StartupType = ServiceStartupType.OnDemand,  // 按需创建
     InstanceScope = ServiceInstanceScope.MultiInstance)]  // 每个房间一个实例
-public class ChatRoomService : UnifiedPulseServiceBase
+public class ChatRoomService : PulseServiceBase
 {
     // 状态只在队列中访问，无需加锁
     private readonly HashSet<string> _members = new();
@@ -624,7 +624,7 @@ public interface IGameServerInternalHub : IPulseHub
     Scenario = ServiceScenario.Actor,
     StartupType = ServiceStartupType.AutoStart,
     InstanceScope = ServiceInstanceScope.Singleton)]
-public class GameServerInternalHub : UnifiedPulseServiceBase, IGameServerInternalHub
+public class GameServerInternalHub : PulseServiceBase, IGameServerInternalHub
 {
     private readonly IHubContext<IGameReceiver> _gameReceiverContext;
     private readonly IUserConnectionMapping _userConnectionMapping;
@@ -1734,7 +1734,7 @@ spec:
 | Hub 接口 | `I{Name}Hub : IPulseHub` | `IGameHub`, `IChatRoomHub` |
 | Receiver 接口 | `I{Name}Receiver : IPulseReceiver` | `IGameReceiver`, `IChatReceiver` |
 | Hub 实现 | `{Name}Hub` | `GameHub`, `ChatRoomHub` |
-| Service 实现 | `{Name}Service : UnifiedPulseServiceBase` | `ChatRoomService`, `PlayerService` |
+| Service 实现 | `{Name}Service : PulseServiceBase` | `ChatRoomService`, `PlayerService` |
 | 方法命名 | 异步方法以 `Async` 结尾 | `GetPlayerInfoAsync()`, `JoinRoomAsync()` |
 | 事件方法 | 以 `On` 开头 | `OnMatchFoundAsync()`, `OnKickedAsync()` |
 
@@ -1778,7 +1778,7 @@ public interface IGameServerInternalHub : IPulseHub
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│               UnifiedPulseServiceBase                       │
+│               PulseServiceBase                       │
 │  ✅ 业务状态管理                                            │
 │  ✅ 复杂业务逻辑                                            │
 │  ✅ 数据持久化                                              │
@@ -1861,7 +1861,7 @@ public async Task<Data> LoadDataAsync()
 
 ```csharp
 [PulseService(Scenario = ServiceScenario.Actor)]
-public class RoomService : UnifiedPulseServiceBase
+public class RoomService : PulseServiceBase
 {
     private readonly Timer _timer;
 
@@ -1937,7 +1937,7 @@ return await service.EnqueueAsync(() => service.DoWork());
 
 // Service: 业务逻辑
 [PulseService(Scenario = ServiceScenario.Actor)]
-public class RoomService : UnifiedPulseServiceBase { }
+public class RoomService : PulseServiceBase { }
 ```
 
 ### 🔗 服务间通信

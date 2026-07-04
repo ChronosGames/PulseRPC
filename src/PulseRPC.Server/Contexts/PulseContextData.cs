@@ -7,14 +7,9 @@ using PulseRPC.Shared;
 namespace PulseRPC.Server.Contexts;
 
 /// <summary>
-/// Unified context data that combines RPC, authentication, and transport information.
+/// Request context data that combines RPC, authentication, and transport information
+/// into a single source of truth for all request context information.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This class replaces the former <c>UnifiedContextData</c> and <c>RpcRequestContext</c>,
-/// providing a single source of truth for all request context information.
-/// </para>
-/// </remarks>
 public sealed record class PulseContextData : IPulseContext
 {
     private readonly CancellationTokenSource? _cts;

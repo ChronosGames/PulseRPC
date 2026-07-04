@@ -51,7 +51,7 @@ public static class ServerPresets
     /// </summary>
     /// <param name="options">要配置的选项</param>
     /// <param name="preset">预设模式</param>
-    public static void ApplyPreset(UnifiedServerOptions options, ServerPreset preset)
+    public static void ApplyPreset(PulseServerOptions options, ServerPreset preset)
     {
         switch (preset)
         {
@@ -82,7 +82,7 @@ public static class ServerPresets
     /// <summary>
     /// 默认配置
     /// </summary>
-    private static void ApplyDefaultPreset(UnifiedServerOptions options)
+    private static void ApplyDefaultPreset(PulseServerOptions options)
     {
         options.DefaultOperationTimeout = TimeSpan.FromSeconds(30);
         options.MaxConcurrentOperations = 1000;
@@ -98,7 +98,7 @@ public static class ServerPresets
     /// <summary>
     /// 高吞吐量配置 - 优化批量处理
     /// </summary>
-    private static void ApplyHighThroughputPreset(UnifiedServerOptions options)
+    private static void ApplyHighThroughputPreset(PulseServerOptions options)
     {
         options.DefaultOperationTimeout = TimeSpan.FromSeconds(60);
         options.MaxConcurrentOperations = 5000;
@@ -114,7 +114,7 @@ public static class ServerPresets
     /// <summary>
     /// 低延迟配置 - 优化响应速度
     /// </summary>
-    private static void ApplyLowLatencyPreset(UnifiedServerOptions options)
+    private static void ApplyLowLatencyPreset(PulseServerOptions options)
     {
         options.DefaultOperationTimeout = TimeSpan.FromSeconds(10);
         options.MaxConcurrentOperations = 2000;
@@ -130,7 +130,7 @@ public static class ServerPresets
     /// <summary>
     /// 平衡配置
     /// </summary>
-    private static void ApplyBalancedPreset(UnifiedServerOptions options)
+    private static void ApplyBalancedPreset(PulseServerOptions options)
     {
         options.DefaultOperationTimeout = TimeSpan.FromSeconds(30);
         options.MaxConcurrentOperations = 2000;
@@ -146,7 +146,7 @@ public static class ServerPresets
     /// <summary>
     /// 最小资源配置
     /// </summary>
-    private static void ApplyMinimalPreset(UnifiedServerOptions options)
+    private static void ApplyMinimalPreset(PulseServerOptions options)
     {
         options.DefaultOperationTimeout = TimeSpan.FromSeconds(30);
         options.MaxConcurrentOperations = 100;
@@ -162,7 +162,7 @@ public static class ServerPresets
     /// <summary>
     /// 开发模式配置
     /// </summary>
-    private static void ApplyDevelopmentPreset(UnifiedServerOptions options)
+    private static void ApplyDevelopmentPreset(PulseServerOptions options)
     {
         // 基于默认配置
         ApplyDefaultPreset(options);

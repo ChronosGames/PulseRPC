@@ -9,7 +9,7 @@ namespace PulseRPC.Server.Services.Management;
 /// <summary>
 /// 服务实例工厂默认实现
 /// </summary>
-/// <typeparam name="TService">服务类型，必须实现 <see cref="IUnifiedPulseService"/></typeparam>
+/// <typeparam name="TService">服务类型，必须实现 <see cref="IPulseService"/></typeparam>
 /// <remarks>
 /// <para>
 /// 提供完整的服务实例生命周期管理，包括：
@@ -23,7 +23,7 @@ namespace PulseRPC.Server.Services.Management;
 /// </list>
 /// </remarks>
 internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TService>, IPulseServiceFactoryMetrics, IDisposable
-    where TService : IUnifiedPulseService
+    where TService : IPulseService
 {
     private readonly ConcurrentDictionary<string, ServiceInstanceEntry> _instances;
     private readonly Func<string, TService> _serviceFactory;
@@ -144,7 +144,7 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
                 serviceId, typeof(TService).Name);
 
             // 调用生命周期钩子
-            if (service is IUnifiedServiceLifecycle lifecycle)
+            if (service is IPulseServiceLifecycle lifecycle)
             {
                 try
                 {
@@ -214,7 +214,7 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
             serviceId, entry.AccessCount, DateTimeOffset.UtcNow - entry.CreatedTime);
 
         // 调用停用钩子
-        if (entry.Service is IUnifiedServiceLifecycle lifecycle)
+        if (entry.Service is IPulseServiceLifecycle lifecycle)
         {
             try
             {
@@ -367,7 +367,7 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
 
             foreach (var (serviceId, entry) in _instances)
             {
-                if (entry.Service is IUnifiedServiceHealthCheck healthCheck)
+                if (entry.Service is IPulseServiceHealthCheck healthCheck)
                 {
                     try
                     {

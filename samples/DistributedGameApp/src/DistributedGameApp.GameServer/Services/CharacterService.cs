@@ -13,7 +13,7 @@ namespace DistributedGameApp.GameServer.Services;
 /// <remarks>
 /// <para><strong>设计模式</strong>:</para>
 /// <list type="bullet">
-/// <item><description>继承 UnifiedPulseServiceBase，获得生命周期管理和消息队列支持</description></item>
+/// <item><description>继承 PulseServiceBase，获得生命周期管理和消息队列支持</description></item>
 /// <item><description>全局单例，自动启动</description></item>
 /// <item><description>无状态服务，操作直接访问数据库</description></item>
 /// </list>
@@ -24,7 +24,7 @@ namespace DistributedGameApp.GameServer.Services;
     InstanceScope = ServiceInstanceScope.Singleton,
     DisplayName = "CharacterService",
     EnableHealthCheck = true)]
-public class CharacterService : UnifiedPulseServiceBase
+public class CharacterService : PulseServiceBase
 {
     private readonly CharacterRepository _characterRepository;
 

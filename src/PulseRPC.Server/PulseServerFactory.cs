@@ -102,7 +102,7 @@ public static class PulseServerFactory
     /// </summary>
     /// <param name="configure">配置委托</param>
     /// <returns>配置好的服务器实例</returns>
-    public static IPulseServer Create(Action<UnifiedServerOptions> configure)
+    public static IPulseServer Create(Action<PulseServerOptions> configure)
     {
         return Create(configure, null);
     }
@@ -113,13 +113,13 @@ public static class PulseServerFactory
     /// <param name="configure">配置委托</param>
     /// <param name="loggerFactory">日志工厂</param>
     /// <returns>配置好的服务器实例</returns>
-    public static IPulseServer Create(Action<UnifiedServerOptions> configure, ILoggerFactory? loggerFactory)
+    public static IPulseServer Create(Action<PulseServerOptions> configure, ILoggerFactory? loggerFactory)
     {
         if (configure == null)
             throw new ArgumentNullException(nameof(configure));
 
         // 创建并配置选项
-        var options = new UnifiedServerOptions();
+        var options = new PulseServerOptions();
         configure(options);
 
         // 验证配置
@@ -135,8 +135,8 @@ public static class PulseServerFactory
     /// <summary>
     /// 使用依赖创建服务器实例
     /// </summary>
-    private static UnifiedPulseServer CreateServerWithDependencies(
-        UnifiedServerOptions options,
+    private static PulseServer CreateServerWithDependencies(
+        PulseServerOptions options,
         ILoggerFactory loggerFactory)
     {
         // 创建简单的服务提供者用于消息引擎
@@ -183,7 +183,7 @@ public static class PulseServerFactory
             null); // IServiceScheduler - 可选
 
         // 创建服务器实例
-        return new UnifiedPulseServer(
+        return new PulseServer(
             messageEngine,
             channelManager,
             transportIntegrationManager,

@@ -10,14 +10,14 @@ namespace PulseRPC.Server.Services.Management;
 /// </summary>
 /// <typeparam name="TService">服务类型</typeparam>
 public sealed class ServiceAccessor<TService> : IServiceAccessor<TService>
-    where TService : class, IUnifiedPulseService
+    where TService : class, IPulseService
 {
-    private readonly UnifiedServiceManager _serviceManager;
+    private readonly PulseServiceManager _serviceManager;
     private readonly ILogger<ServiceAccessor<TService>> _logger;
     private readonly string _serviceTypeName;
 
     public ServiceAccessor(
-        UnifiedServiceManager serviceManager,
+        PulseServiceManager serviceManager,
         ILogger<ServiceAccessor<TService>> logger)
     {
         _serviceManager = serviceManager ?? throw new ArgumentNullException(nameof(serviceManager));
@@ -114,7 +114,7 @@ public static class ServiceAccessorExtensions
         string serviceId,
         Func<TService, Task<TResult>> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var service = await accessor.GetAsync(serviceId, cancellationToken);
         return await service.EnqueueAsync(() => operation(service), cancellationToken);
@@ -128,7 +128,7 @@ public static class ServiceAccessorExtensions
         string serviceId,
         Func<TService, Task> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var service = await accessor.GetAsync(serviceId, cancellationToken);
         await service.EnqueueAsync(async () =>
@@ -166,7 +166,7 @@ public static class ServiceAccessorExtensions
         string serviceId,
         Func<TService, Task<TResult>> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var service = await accessor.GetAsync(serviceId, cancellationToken);
         return await service.EnqueueReadAsync(() => operation(service), cancellationToken);
@@ -180,7 +180,7 @@ public static class ServiceAccessorExtensions
         string serviceId,
         Func<TService, Task> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var service = await accessor.GetAsync(serviceId, cancellationToken);
         await service.EnqueueReadAsync(async () =>
@@ -213,7 +213,7 @@ public static class ServiceAccessorExtensions
         this IServiceAccessor<TService> accessor,
         Func<TService, Task<TResult>> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var metadata = ServiceMetadataCache.Get<TService>();
 
@@ -237,7 +237,7 @@ public static class ServiceAccessorExtensions
         this IServiceAccessor<TService> accessor,
         Func<TService, Task> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var metadata = ServiceMetadataCache.Get<TService>();
 
@@ -277,7 +277,7 @@ public static class ServiceAccessorExtensions
         this IServiceAccessor<TService> accessor,
         Func<TService, Task<TResult>> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var userId = PulseContext.CurrentUserId
             ?? throw new InvalidOperationException(
@@ -294,7 +294,7 @@ public static class ServiceAccessorExtensions
         this IServiceAccessor<TService> accessor,
         Func<TService, Task> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var userId = PulseContext.CurrentUserId
             ?? throw new InvalidOperationException(
@@ -324,7 +324,7 @@ public static class ServiceAccessorExtensions
         this IServiceAccessor<TService> accessor,
         Func<TService, string, Task<TResult>> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var userId = PulseContext.CurrentUserId
             ?? throw new InvalidOperationException(
@@ -348,7 +348,7 @@ public static class ServiceAccessorExtensions
         this IServiceAccessor<TService> accessor,
         Func<TService, string, Task> operation,
         CancellationToken cancellationToken = default)
-        where TService : UnifiedPulseServiceBase
+        where TService : PulseServiceBase
     {
         var userId = PulseContext.CurrentUserId
             ?? throw new InvalidOperationException(

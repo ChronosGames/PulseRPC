@@ -35,9 +35,9 @@ public static class CompiledConstructorFactory
     /// <summary>
     /// 服务工厂委托缓存
     /// Key: 服务类型
-    /// Value: 编译后的工厂委托 (IServiceProvider, serviceId) => IUnifiedPulseService
+    /// Value: 编译后的工厂委托 (IServiceProvider, serviceId) => IPulseService
     /// </summary>
-    private static readonly ConcurrentDictionary<Type, Func<IServiceProvider, string, IUnifiedPulseService>> _factoryCache = new();
+    private static readonly ConcurrentDictionary<Type, Func<IServiceProvider, string, IPulseService>> _factoryCache = new();
 
     /// <summary>
     /// 构造函数信息缓存（用于诊断）
@@ -50,7 +50,7 @@ public static class CompiledConstructorFactory
     /// <typeparam name="TService">服务类型</typeparam>
     /// <returns>编译后的工厂委托</returns>
     public static Func<IServiceProvider, string, TService> GetOrCreateFactory<TService>()
-        where TService : class, IUnifiedPulseService
+        where TService : class, IPulseService
     {
         var factory = _factoryCache.GetOrAdd(typeof(TService), static type => CompileFactory(type));
         return (sp, serviceId) => (TService)factory(sp, serviceId);
@@ -61,7 +61,7 @@ public static class CompiledConstructorFactory
     /// </summary>
     /// <param name="serviceType">服务类型</param>
     /// <returns>编译后的工厂委托</returns>
-    public static Func<IServiceProvider, string, IUnifiedPulseService> GetOrCreateFactory(Type serviceType)
+    public static Func<IServiceProvider, string, IPulseService> GetOrCreateFactory(Type serviceType)
     {
         return _factoryCache.GetOrAdd(serviceType, static type => CompileFactory(type));
     }
@@ -69,7 +69,7 @@ public static class CompiledConstructorFactory
     /// <summary>
     /// 编译服务工厂表达式树
     /// </summary>
-    private static Func<IServiceProvider, string, IUnifiedPulseService> CompileFactory(Type serviceType)
+    private static Func<IServiceProvider, string, IPulseService> CompileFactory(Type serviceType)
     {
         // 查找最适合的构造函数
         var (constructor, parameterMappings) = FindBestConstructor(serviceType);
@@ -99,10 +99,10 @@ public static class CompiledConstructorFactory
         var newExpression = Expression.New(constructor, argExpressions);
 
         // 转换为接口类型
-        var castExpression = Expression.Convert(newExpression, typeof(IUnifiedPulseService));
+        var castExpression = Expression.Convert(newExpression, typeof(IPulseService));
 
         // 编译为委托
-        var lambda = Expression.Lambda<Func<IServiceProvider, string, IUnifiedPulseService>>(
+        var lambda = Expression.Lambda<Func<IServiceProvider, string, IPulseService>>(
             castExpression, spParam, serviceIdParam);
 
         var compiledFactory = lambda.Compile();
@@ -264,7 +264,7 @@ public static class CompiledConstructorFactory
     /// 预编译指定类型的工厂（可用于启动时预热）
     /// </summary>
     /// <typeparam name="TService">服务类型</typeparam>
-    public static void Precompile<TService>() where TService : class, IUnifiedPulseService
+    public static void Precompile<TService>() where TService : class, IPulseService
     {
         _ = GetOrCreateFactory<TService>();
     }

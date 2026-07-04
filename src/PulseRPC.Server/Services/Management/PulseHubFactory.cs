@@ -26,7 +26,7 @@ namespace PulseRPC.Server.Services.Management;
 /// </remarks>
 internal sealed class PulseHubFactory<THub, TService> : IPulseHubFactory<THub, TService>, IDisposable
     where THub : class
-    where TService : IUnifiedPulseService
+    where TService : IPulseService
 {
     private readonly IPulseServiceFactory<TService> _serviceFactory;
     private readonly Func<TService, THub> _hubFactory;

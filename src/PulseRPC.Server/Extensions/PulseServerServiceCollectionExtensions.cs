@@ -19,9 +19,9 @@ using PulseRPC.Shared;
 namespace PulseRPC.Server.Extensions;
 
 /// <summary>
-/// DI 容器扩展方法，用于注册 UnifiedPulseServer
+/// DI 容器扩展方法，用于注册 PulseServer
 /// </summary>
-public static class UnifiedServerServiceCollectionExtensions
+public static class PulseServerServiceCollectionExtensions
 {
     /// <summary>
     /// 使用默认配置添加 PulseRPC 服务器（最简配置）
@@ -38,7 +38,7 @@ public static class UnifiedServerServiceCollectionExtensions
         this IServiceCollection services,
         int port)
     {
-        return services.AddUnifiedPulseServer(options => options
+        return services.AddPulseServer(options => options
             .UsePreset(ServerPreset.Default)
             .AddTcp(port));
     }
@@ -60,7 +60,7 @@ public static class UnifiedServerServiceCollectionExtensions
         ServerPreset preset,
         int port)
     {
-        return services.AddUnifiedPulseServer(options => options
+        return services.AddPulseServer(options => options
             .UsePreset(preset)
             .AddTcp(port));
     }
@@ -69,7 +69,7 @@ public static class UnifiedServerServiceCollectionExtensions
     /// 使用自定义配置添加 PulseRPC 服务器
     /// </summary>
     /// <param name="services">服务集合</param>
-    /// <param name="configure">配置委托</param>
+    /// <param name="configureOptions">配置委托</param>
     /// <returns>服务集合</returns>
     /// <example>
     /// <code>
@@ -81,20 +81,7 @@ public static class UnifiedServerServiceCollectionExtensions
     /// </example>
     public static IServiceCollection AddPulseServer(
         this IServiceCollection services,
-        Action<UnifiedServerOptions> configure)
-    {
-        return services.AddUnifiedPulseServer(configure);
-    }
-
-    /// <summary>
-    /// 添加 UnifiedPulseServer 到 DI 容器
-    /// </summary>
-    /// <param name="services">服务集合</param>
-    /// <param name="configureOptions">配置选项的委托</param>
-    /// <returns>服务集合</returns>
-    public static IServiceCollection AddUnifiedPulseServer(
-        this IServiceCollection services,
-        Action<UnifiedServerOptions> configureOptions)
+        Action<PulseServerOptions> configureOptions)
     {
         if (services == null) throw new ArgumentNullException(nameof(services));
         if (configureOptions == null) throw new ArgumentNullException(nameof(configureOptions));
@@ -112,25 +99,25 @@ public static class UnifiedServerServiceCollectionExtensions
         // 注册内部依赖
         RegisterInternalDependencies(services);
 
-        // 注册 UnifiedPulseServer 为单例（使用工厂方法）
-        services.AddSingleton<UnifiedPulseServer>();
+        // 注册 PulseServer 为单例（使用工厂方法）
+        services.AddSingleton<PulseServer>();
 
         // 注册为 IPulseServer 接口
-        services.AddSingleton<IPulseServer>(sp => sp.GetRequiredService<UnifiedPulseServer>());
+        services.AddSingleton<IPulseServer>(sp => sp.GetRequiredService<PulseServer>());
 
         // 注册为托管服务，自动启动/停止
-        services.AddHostedService<UnifiedPulseServerHostedService>();
+        services.AddHostedService<PulseServerHostedService>();
 
         return services;
     }
 
     /// <summary>
-    /// 添加 UnifiedPulseServer 到 DI 容器（使用 IConfiguration）
+    /// 添加 PulseServer 到 DI 容器（使用 IConfiguration）
     /// </summary>
     /// <param name="services">服务集合</param>
     /// <param name="configuration">配置节</param>
     /// <returns>服务集合</returns>
-    public static IServiceCollection AddUnifiedPulseServer(
+    public static IServiceCollection AddPulseServer(
         this IServiceCollection services,
         Microsoft.Extensions.Configuration.IConfiguration configuration)
     {
@@ -138,7 +125,7 @@ public static class UnifiedServerServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         // 从配置绑定选项
-        services.Configure<UnifiedServerOptions>(configuration);
+        services.Configure<PulseServerOptions>(configuration);
 
         // 注册核心依赖
         services.TryAddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
@@ -150,12 +137,12 @@ public static class UnifiedServerServiceCollectionExtensions
         // 注册内部依赖
         RegisterInternalDependencies(services);
 
-        // 注册 UnifiedPulseServer
-        services.AddSingleton<UnifiedPulseServer>();
-        services.AddSingleton<IPulseServer>(sp => sp.GetRequiredService<UnifiedPulseServer>());
+        // 注册 PulseServer
+        services.AddSingleton<PulseServer>();
+        services.AddSingleton<IPulseServer>(sp => sp.GetRequiredService<PulseServer>());
 
         // 注册托管服务
-        services.AddHostedService<UnifiedPulseServerHostedService>();
+        services.AddHostedService<PulseServerHostedService>();
 
         return services;
     }
@@ -205,11 +192,11 @@ public static class UnifiedServerServiceCollectionExtensions
     }
 
     /// <summary>
-    /// 添加 UnifiedPulseServer 构建器
+    /// 添加 PulseServer 构建器
     /// </summary>
     /// <param name="services">服务集合</param>
-    /// <returns>UnifiedPulseServer 构建器</returns>
-    public static IUnifiedPulseServerBuilder AddUnifiedPulseServerBuilder(
+    /// <returns>PulseServer 构建器</returns>
+    public static IPulseServerBuilder AddPulseServerBuilder(
         this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
@@ -221,14 +208,14 @@ public static class UnifiedServerServiceCollectionExtensions
         services.AddSingleton<ITransportProvider>(new TcpTransportProvider());
         services.AddSingleton<ITransportProvider>(new KcpTransportProvider());
 
-        return new UnifiedPulseServerBuilder(services);
+        return new PulseServerBuilder(services);
     }
 }
 
 /// <summary>
-/// UnifiedPulseServer 构建器接口
+/// PulseServer 构建器接口
 /// </summary>
-public interface IUnifiedPulseServerBuilder
+public interface IPulseServerBuilder
 {
     /// <summary>
     /// 服务集合
@@ -238,17 +225,17 @@ public interface IUnifiedPulseServerBuilder
     /// <summary>
     /// 添加 TCP 传输
     /// </summary>
-    IUnifiedPulseServerBuilder AddTcpTransport(string name, int port, bool isDefault = false, Action<TransportOptions>? configure = null);
+    IPulseServerBuilder AddTcpTransport(string name, int port, bool isDefault = false, Action<TransportOptions>? configure = null);
 
     /// <summary>
     /// 添加 KCP 传输
     /// </summary>
-    IUnifiedPulseServerBuilder AddKcpTransport(string name, int port, bool isDefault = false, Action<TransportOptions>? configure = null);
+    IPulseServerBuilder AddKcpTransport(string name, int port, bool isDefault = false, Action<TransportOptions>? configure = null);
 
     /// <summary>
     /// 配置服务器选项
     /// </summary>
-    IUnifiedPulseServerBuilder ConfigureOptions(Action<UnifiedServerOptions> configure);
+    IPulseServerBuilder ConfigureOptions(Action<PulseServerOptions> configure);
 
     /// <summary>
     /// 构建并注册服务器
@@ -257,21 +244,21 @@ public interface IUnifiedPulseServerBuilder
 }
 
 /// <summary>
-/// UnifiedPulseServer 构建器实现
+/// PulseServer 构建器实现
 /// </summary>
-internal class UnifiedPulseServerBuilder : IUnifiedPulseServerBuilder
+internal class PulseServerBuilder : IPulseServerBuilder
 {
     private readonly List<TransportChannelConfiguration> _transports = new();
-    private Action<UnifiedServerOptions>? _optionsConfigurator;
+    private Action<PulseServerOptions>? _optionsConfigurator;
 
     public IServiceCollection Services { get; }
 
-    public UnifiedPulseServerBuilder(IServiceCollection services)
+    public PulseServerBuilder(IServiceCollection services)
     {
         Services = services ?? throw new ArgumentNullException(nameof(services));
     }
 
-    public IUnifiedPulseServerBuilder AddTcpTransport(string name, int port, bool isDefault = false, Action<TransportOptions>? configure = null)
+    public IPulseServerBuilder AddTcpTransport(string name, int port, bool isDefault = false, Action<TransportOptions>? configure = null)
     {
         var options = new TcpTransportOptions();
         configure?.Invoke(options);
@@ -280,7 +267,7 @@ internal class UnifiedPulseServerBuilder : IUnifiedPulseServerBuilder
         return this;
     }
 
-    public IUnifiedPulseServerBuilder AddKcpTransport(string name, int port, bool isDefault = false, Action<TransportOptions>? configure = null)
+    public IPulseServerBuilder AddKcpTransport(string name, int port, bool isDefault = false, Action<TransportOptions>? configure = null)
     {
         var options = new KcpTransportOptions();
         configure?.Invoke(options);
@@ -289,7 +276,7 @@ internal class UnifiedPulseServerBuilder : IUnifiedPulseServerBuilder
         return this;
     }
 
-    public IUnifiedPulseServerBuilder ConfigureOptions(Action<UnifiedServerOptions> configure)
+    public IPulseServerBuilder ConfigureOptions(Action<PulseServerOptions> configure)
     {
         _optionsConfigurator = configure;
         return this;
@@ -297,14 +284,14 @@ internal class UnifiedPulseServerBuilder : IUnifiedPulseServerBuilder
 
     public IServiceCollection Build()
     {
-        Services.AddUnifiedPulseServer(options =>
+        Services.AddPulseServer(options =>
         {
             // 应用用户自定义配置
             _optionsConfigurator?.Invoke(options);
         });
 
         // 配置选项
-        // Services.Configure<UnifiedServerOptions>(options =>
+        // Services.Configure<PulseServerOptions>(options =>
         // {
         //     // 添加传输配置
         //     options.Transports.AddRange(_transports);
@@ -313,12 +300,12 @@ internal class UnifiedPulseServerBuilder : IUnifiedPulseServerBuilder
         //     _optionsConfigurator?.Invoke(options);
         // });
         //
-        // // 注册 UnifiedPulseServer
-        // Services.AddSingleton<UnifiedPulseServer>();
-        // Services.AddSingleton<IPulseServer>(sp => sp.GetRequiredService<UnifiedPulseServer>());
+        // // 注册 PulseServer
+        // Services.AddSingleton<PulseServer>();
+        // Services.AddSingleton<IPulseServer>(sp => sp.GetRequiredService<PulseServer>());
         //
         // // 注册托管服务
-        // Services.AddHostedService<UnifiedPulseServerHostedService>();
+        // Services.AddHostedService<PulseServerHostedService>();
 
         return Services;
     }
@@ -339,14 +326,14 @@ public static class NamedPulseServerServiceCollectionExtensions
     public static IServiceCollection AddNamedPulseServer(
         this IServiceCollection services,
         string serverName,
-        Action<UnifiedServerOptions> configureOptions)
+        Action<PulseServerOptions> configureOptions)
     {
         if (services == null) throw new ArgumentNullException(nameof(services));
         if (string.IsNullOrWhiteSpace(serverName)) throw new ArgumentException("Server name cannot be null or whitespace", nameof(serverName));
         if (configureOptions == null) throw new ArgumentNullException(nameof(configureOptions));
 
         // 使用命名方式注册配置
-        services.Configure<UnifiedServerOptions>(serverName, configureOptions);
+        services.Configure<PulseServerOptions>(serverName, configureOptions);
 
         // 注册核心依赖（如果尚未注册）- 这些依赖可以被多个服务器实例共享
         services.TryAddSingleton<ITransportIntegrationManager, TransportIntegrationManager>();
@@ -423,7 +410,7 @@ public static class NamedPulseServerServiceCollectionExtensions
             serverName,
             (sp, key) =>
             {
-                var options = sp.GetRequiredService<IOptionsMonitor<UnifiedServerOptions>>()
+                var options = sp.GetRequiredService<IOptionsMonitor<PulseServerOptions>>()
                     .Get(serverName);
 
                 var messageEngine = sp.GetRequiredKeyedService<ITieredMessageEngine>(key);
@@ -431,7 +418,7 @@ public static class NamedPulseServerServiceCollectionExtensions
                 var transportIntegrationManager = sp.GetRequiredService<ITransportIntegrationManager>();
                 var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
 
-                return new NamedUnifiedPulseServer(
+                return new NamedPulseServer(
                     serverName,
                     messageEngine,
                     channelManager,
@@ -462,17 +449,17 @@ public static class NamedPulseServerServiceCollectionExtensions
 }
 
 /// <summary>
-/// UnifiedPulseServer 托管服务包装器
+/// PulseServer 托管服务包装器
 /// 自动在应用启动时启动服务器，在应用停止时停止服务器
 /// </summary>
-internal sealed class UnifiedPulseServerHostedService : IHostedService
+internal sealed class PulseServerHostedService : IHostedService
 {
-    private readonly UnifiedPulseServer _server;
-    private readonly ILogger<UnifiedPulseServerHostedService> _logger;
+    private readonly PulseServer _server;
+    private readonly ILogger<PulseServerHostedService> _logger;
 
-    public UnifiedPulseServerHostedService(
-        UnifiedPulseServer server,
-        ILogger<UnifiedPulseServerHostedService> logger)
+    public PulseServerHostedService(
+        PulseServer server,
+        ILogger<PulseServerHostedService> logger)
     {
         _server = server ?? throw new ArgumentNullException(nameof(server));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -480,32 +467,32 @@ internal sealed class UnifiedPulseServerHostedService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Starting UnifiedPulseServer via hosted service");
+        _logger.LogInformation("Starting PulseServer via hosted service");
 
         try
         {
             await _server.StartAsync(cancellationToken);
-            _logger.LogInformation("UnifiedPulseServer started successfully");
+            _logger.LogInformation("PulseServer started successfully");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start UnifiedPulseServer");
+            _logger.LogError(ex, "Failed to start PulseServer");
             throw;
         }
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Stopping UnifiedPulseServer via hosted service");
+        _logger.LogInformation("Stopping PulseServer via hosted service");
 
         try
         {
             await _server.StopAsync(cancellationToken);
-            _logger.LogInformation("UnifiedPulseServer stopped successfully");
+            _logger.LogInformation("PulseServer stopped successfully");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error stopping UnifiedPulseServer");
+            _logger.LogError(ex, "Error stopping PulseServer");
             throw;
         }
     }

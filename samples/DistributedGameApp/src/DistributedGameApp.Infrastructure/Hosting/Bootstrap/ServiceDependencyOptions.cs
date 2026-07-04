@@ -26,7 +26,7 @@ public class ServiceDependencyOptions
     /// 需要调用的服务类型列表
     /// </summary>
     /// <remarks>
-    /// 在启动时注册这些服务类型到 UnifiedServiceClientManager，
+    /// 在启动时注册这些服务类型到 ServiceClientManager，
     /// 但不等待它们就绪。运行时调用时按需建立连接。
     /// </remarks>
     public ServerType[] ServerTypes { get; set; } = [];

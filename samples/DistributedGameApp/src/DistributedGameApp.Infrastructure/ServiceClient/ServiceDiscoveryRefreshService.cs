@@ -9,12 +9,12 @@ namespace DistributedGameApp.Infrastructure.ServiceClient;
 /// </summary>
 public class ServiceDiscoveryRefreshService : BackgroundService
 {
-    private readonly UnifiedServiceClientManager _serviceClientManager;
+    private readonly ServiceClientManager _serviceClientManager;
     private readonly ILogger<ServiceDiscoveryRefreshService> _logger;
     private readonly TimeSpan _refreshInterval;
 
     public ServiceDiscoveryRefreshService(
-        UnifiedServiceClientManager serviceClientManager,
+        ServiceClientManager serviceClientManager,
         ILogger<ServiceDiscoveryRefreshService> logger,
         TimeSpan? refreshInterval = null)
     {

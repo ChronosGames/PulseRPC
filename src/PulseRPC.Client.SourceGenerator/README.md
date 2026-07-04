@@ -33,7 +33,7 @@ PulseRPC.Client.SourceGenerator/
 └── Generators/
     ├── ProtocolIdGenerator.cs            # 协议号生成
     ├── ReceiverDispatcherGenerator.cs    # Receiver 调度器生成
-    ├── SmartEventHandlerGenerator.cs     # 智能事件处理器生成
+    ├── EventHandlerGenerator.cs     # 智能事件处理器生成
     ├── PulseClientExtensionsGenerator.cs # IPulseClient 扩展方法生成
     ├── ClientChannelGenericExtensionsGenerator.cs  # IClientChannel 泛型扩展
     ├── EventHandlerSupportTypes.cs       # 支持类型生成

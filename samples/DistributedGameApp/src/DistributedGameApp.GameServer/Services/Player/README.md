@@ -53,7 +53,7 @@ Services/Player/
     StartupType = ServiceStartupType.OnDemand,
     InstanceScope = ServiceInstanceScope.MultiInstance,
     SchedulingMode = ServiceSchedulingMode.DedicatedQueue)]
-public partial class PlayerService : UnifiedPulseServiceBase
+public partial class PlayerService : PulseServiceBase
 {
     // 玩家状态（只在队列线程中访问，无需加锁）
     private Character? _currentCharacter;

@@ -11,7 +11,7 @@ namespace DistributedGameApp.BackendServer.Services;
 /// <remarks>
 /// <para><strong>设计原则</strong>:</para>
 /// <list type="bullet">
-/// <item><description>✅ 继承 UnifiedPulseServiceBase - 统一的服务基类</description></item>
+/// <item><description>✅ 继承 PulseServiceBase - 统一的服务基类</description></item>
 /// <item><description>✅ 使用专属消息队列保证线程安全</description></item>
 /// <item><description>✅ 全局单例 - 所有玩家共享同一个服务实例</description></item>
 /// <item><description>✅ IO密集型服务 - 所有操作直接访问数据库</description></item>
@@ -24,7 +24,7 @@ namespace DistributedGameApp.BackendServer.Services;
     InstanceScope = ServiceInstanceScope.Singleton,
     DisplayName = "GuildService",
     EnableHealthCheck = true)]
-public class GuildService : UnifiedPulseServiceBase
+public class GuildService : PulseServiceBase
 {
     private readonly GuildRepository _repository;
 
