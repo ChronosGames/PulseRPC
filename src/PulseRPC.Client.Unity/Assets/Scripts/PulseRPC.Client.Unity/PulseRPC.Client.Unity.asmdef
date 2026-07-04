@@ -8,6 +8,7 @@
     "overrideReferences": true,
     "precompiledReferences": [
         "PulseRPC.Abstractions.dll",
+        "PulseRPC.Shared.dll",
         "PulseRPC.Client.dll",
         "PulseRPC.Client.SourceGenerator.dll",
         "MemoryPack.dll",
