@@ -1,4 +1,4 @@
-using PulseRPC.Transport;
+﻿using PulseRPC.Shared;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,7 +10,7 @@ namespace PulseRPC.Server.Transport;
 /// Provides enhanced functionality for connection tracking, statistics, and event handling.
 /// </summary>
 /// <remarks>
-/// This interface extends the existing IServerListener from PulseRPC.Transport with server-specific features
+/// This interface extends the existing IServerListener from PulseRPC.Shared with server-specific features
 /// needed for the message dispatch-process-response pipeline.
 /// </remarks>
 public interface IPulseServerTransport : IServerListener

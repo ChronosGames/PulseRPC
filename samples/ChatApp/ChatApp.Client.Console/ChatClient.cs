@@ -1,7 +1,7 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using System;
 using System.Threading;
 using System.Threading.Tasks;

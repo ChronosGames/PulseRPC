@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Configuration;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using ISubscriptionToken = PulseRPC.ISubscriptionToken;
 
 namespace ChatApp.Console;

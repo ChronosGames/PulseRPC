@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Net;
 using PulseRPC.Authentication;
 
-namespace PulseRPC.Transport;
+namespace PulseRPC.Shared;
 
 /// <summary>
 /// 传输上下文 - 封装连接相关的所有信息

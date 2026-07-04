@@ -1,6 +1,6 @@
 ﻿using System.Buffers;
 using PulseRPC.Messaging;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Client;
 

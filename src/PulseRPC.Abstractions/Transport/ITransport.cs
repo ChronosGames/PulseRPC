@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 
-namespace PulseRPC.Transport;
+namespace PulseRPC.Shared;
 
 /// <summary>
 /// 通用传输接口

@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace DistributedGameApp.Client;
 

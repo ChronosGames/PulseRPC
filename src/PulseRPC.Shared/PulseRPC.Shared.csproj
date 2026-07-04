@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <!-- 与 Abstractions 保持一致的多目标（Unity 兼容） -->
@@ -11,7 +11,7 @@
 
     <!-- 包配置 -->
     <IsPackable>true</IsPackable>
-    <PackageId>PulseRPC.Transport</PackageId>
+    <PackageId>PulseRPC.Shared</PackageId>
     <Description>PulseRPC concrete transport implementations (TCP/KCP, buffer pools, framing) built on PulseRPC.Abstractions</Description>
     <RootNamespace>PulseRPC</RootNamespace>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>

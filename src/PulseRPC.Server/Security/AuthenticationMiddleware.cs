@@ -1,8 +1,8 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Security.Claims;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Security;

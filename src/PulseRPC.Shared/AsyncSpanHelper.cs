@@ -1,11 +1,11 @@
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
-using PulseRPC.Transport.Tcp;
+using PulseRPC.Shared.Tcp;
 
-namespace PulseRPC.Transport;
+namespace PulseRPC.Shared;
 
 /// <summary>
 /// 帮助类：在异步上下文中安全使用 Span<T>

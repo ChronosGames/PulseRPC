@@ -1,6 +1,6 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Transport;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Server.Transport;
 

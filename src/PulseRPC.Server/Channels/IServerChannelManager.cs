@@ -1,5 +1,5 @@
-using PulseRPC.Authentication;
-using PulseRPC.Transport;
+﻿using PulseRPC.Authentication;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Server.Transport;
 

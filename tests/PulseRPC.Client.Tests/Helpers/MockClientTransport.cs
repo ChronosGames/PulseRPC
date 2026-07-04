@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Client.Tests.Helpers;
 

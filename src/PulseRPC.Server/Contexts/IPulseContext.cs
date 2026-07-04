@@ -1,7 +1,7 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Security.Claims;
 using PulseRPC.Authentication;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Server.Contexts;
 

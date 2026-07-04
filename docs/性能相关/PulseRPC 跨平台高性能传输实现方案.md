@@ -1,4 +1,4 @@
-# PulseRPC 跨平台高性能传输实现方案
+﻿# PulseRPC 跨平台高性能传输实现方案
 
 ## 目标平台矩阵
 
@@ -92,7 +92,7 @@
 ```csharp
 // 文件: src/PulseRPC.Core/Transport/IHighPerformanceTransport.cs
 
-namespace PulseRPC.Transport
+namespace PulseRPC.Shared
 {
     /// <summary>
     /// 高性能传输层接口
@@ -146,7 +146,7 @@ using System.Diagnostics;           // P2 修复: Process.GetCurrentProcess()
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Transport
+namespace PulseRPC.Shared
 {
     /// <summary>
     /// 平台能力检测器
@@ -459,7 +459,7 @@ namespace PulseRPC.Transport
 ```csharp
 // 文件: src/PulseRPC.Core/Transport/BatchedTransport.cs
 
-namespace PulseRPC.Transport
+namespace PulseRPC.Shared
 {
     /// <summary>
     /// 批处理传输层 - 全平台通用
@@ -925,7 +925,7 @@ namespace PulseRPC.Transport
 
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Transport.Linux
+namespace PulseRPC.Shared.Linux
 {
     /// <summary>
     /// io_uring 内核结构体定义
@@ -1079,7 +1079,7 @@ namespace PulseRPC.Transport.Linux
 
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Transport.Linux
+namespace PulseRPC.Shared.Linux
 {
     /// <summary>
     /// io_uring 系统调用封装
@@ -1185,7 +1185,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Transport.Linux
+namespace PulseRPC.Shared.Linux
 {
     /// <summary>
     /// io_uring 预注册缓冲区池
@@ -1421,7 +1421,7 @@ namespace PulseRPC.Transport.Linux
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 
-namespace PulseRPC.Transport.Linux
+namespace PulseRPC.Shared.Linux
 {
     /// <summary>
     /// Linux io_uring 高性能传输层
@@ -1871,7 +1871,7 @@ namespace PulseRPC.Transport.Linux
 
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Transport.Windows
+namespace PulseRPC.Shared.Windows
 {
     /// <summary>
     /// Windows Registered I/O 结构体定义
@@ -2050,7 +2050,7 @@ namespace PulseRPC.Transport.Windows
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Transport.Windows
+namespace PulseRPC.Shared.Windows
 {
     /// <summary>
     /// Windows Registered I/O 本地调用封装
@@ -2176,7 +2176,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Transport.Windows
+namespace PulseRPC.Shared.Windows
 {
     /// <summary>
     /// Windows RIO 预注册缓冲区池
@@ -2349,7 +2349,7 @@ namespace PulseRPC.Transport.Windows
 
 using System.Net.Sockets;
 
-namespace PulseRPC.Transport.Windows
+namespace PulseRPC.Shared.Windows
 {
     /// <summary>
     /// Windows Registered I/O 高性能传输层
@@ -2758,7 +2758,7 @@ namespace PulseRPC.Transport.Windows
 ```csharp
 // 文件: src/PulseRPC.Core/Transport/TransportFactory.cs
 
-namespace PulseRPC.Transport
+namespace PulseRPC.Shared
 {
     /// <summary>
     /// 传输层工厂 - 自动选择最优实现
@@ -2855,7 +2855,7 @@ namespace PulseRPC.Transport
 // 文件: src/PulseRPC.Client.Unity/Transport/UnityTransportBridge.cs
 
 #if UNITY_5_3_OR_NEWER
-namespace PulseRPC.Transport.Unity
+namespace PulseRPC.Shared.Unity
 {
     /// <summary>
     /// Unity 主线程安全的传输层桥接
@@ -2922,9 +2922,9 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 
 // P2 修复: 允许测试项目访问 internal 类型
-[assembly: InternalsVisibleTo("PulseRPC.Transport.Tests")]
+[assembly: InternalsVisibleTo("PulseRPC.Shared.Tests")]
 
-namespace PulseRPC.Transport.Metrics
+namespace PulseRPC.Shared.Metrics
 {
     /// <summary>
     /// P2 修复: 传输层监控指标
@@ -3283,7 +3283,7 @@ public class BatchedTransport : IHighPerformanceTransport
 ## Phase 8: 单元测试 (P2 修复)
 
 ```csharp
-// 文件: tests/PulseRPC.Transport.Tests/BatchedTransportTests.cs
+// 文件: tests/PulseRPC.Shared.Tests/BatchedTransportTests.cs
 
 using System;
 using System.Collections.Generic;   // P2 修复: List<T>
@@ -3293,10 +3293,10 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
-using PulseRPC.Transport.Metrics;   // P2 修复: TransportMetrics
+using PulseRPC.Shared.Metrics;   // P2 修复: TransportMetrics
 using Xunit;
 
-namespace PulseRPC.Transport.Tests
+namespace PulseRPC.Shared.Tests
 {
     /// <summary>
     /// P2 修复: 批处理传输单元测试
@@ -3669,14 +3669,14 @@ namespace PulseRPC.Transport.Tests
 ### 8.1 性能基准测试
 
 ```csharp
-// 文件: tests/PulseRPC.Transport.Benchmarks/TransportBenchmarks.cs
+// 文件: tests/PulseRPC.Shared.Benchmarks/TransportBenchmarks.cs
 
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using System.Net;
 using System.Net.Sockets;
 
-namespace PulseRPC.Transport.Benchmarks
+namespace PulseRPC.Shared.Benchmarks
 {
     /// <summary>
     /// P2 修复: 传输层性能基准测试
@@ -4284,8 +4284,8 @@ exporter.Export(snapshot);
 
 运行测试:
 ```bash
-dotnet test tests/PulseRPC.Transport.Tests
-dotnet run -c Release --project tests/PulseRPC.Transport.Benchmarks
+dotnet test tests/PulseRPC.Shared.Tests
+dotnet run -c Release --project tests/PulseRPC.Shared.Benchmarks
 ```
 
 ---
@@ -4351,7 +4351,7 @@ using System.Runtime.InteropServices;
 // 测试文件
 using System.Collections.Generic;
 using System.Diagnostics;
-using PulseRPC.Transport.Metrics;
+using PulseRPC.Shared.Metrics;
 ```
 
 ---

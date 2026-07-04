@@ -1,12 +1,12 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using PulseRPC.Transport.Tcp;
+using PulseRPC.Shared.Tcp;
 
-namespace PulseRPC.Transport;
+namespace PulseRPC.Shared;
 
 /// <summary>
 /// 优化的大包分片处理器 - 减少内存碎片化和拷贝

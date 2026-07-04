@@ -1,5 +1,5 @@
-using PulseRPC.Client.Health;
-using PulseRPC.Transport;
+﻿using PulseRPC.Client.Health;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Client.Configuration;
 

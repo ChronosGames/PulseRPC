@@ -1,4 +1,4 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Channels;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Client.Channels;
 

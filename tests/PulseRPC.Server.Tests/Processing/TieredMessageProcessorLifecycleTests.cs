@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Linq;
@@ -8,7 +8,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Messaging;
 using PulseRPC.Server.Processing.Engine;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using Xunit;
 using MemMessageStatus = PulseRPC.Server.Processing.Memory.MessageStatus;
 

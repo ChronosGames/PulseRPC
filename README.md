@@ -1,4 +1,4 @@
-# PulseRPC
+﻿# PulseRPC
 
 [![NuGet](https://img.shields.io/nuget/v/PulseRPC.Client.svg)](https://www.nuget.org/packages/PulseRPC.Client/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -73,7 +73,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using PulseRPC.Server;
 using PulseRPC.Server.Extensions;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices(services =>

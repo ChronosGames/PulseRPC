@@ -1,8 +1,8 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Client.Transport;
 using PulseRPC.Client.Health;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using System.Collections.Concurrent;
 using PulseRPC.Client.Channels;
 using PulseRPC.Client.Configuration;

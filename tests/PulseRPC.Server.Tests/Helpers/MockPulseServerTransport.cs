@@ -1,4 +1,4 @@
-using PulseRPC.Transport;
+﻿using PulseRPC.Shared;
 using System;
 using System.Collections.Generic;
 using System.Net;
@@ -96,8 +96,8 @@ public class MockServerTransport : IServerTransport
 
     public string Id { get; }
     public TransportType Type => TransportType.TCP;
-    public bool IsConnected => State == PulseRPC.Transport.ConnectionState.Connected;
-    public PulseRPC.Transport.ConnectionState State { get; private set; } = PulseRPC.Transport.ConnectionState.Connected;
+    public bool IsConnected => State == PulseRPC.Shared.ConnectionState.Connected;
+    public PulseRPC.Shared.ConnectionState State { get; private set; } = PulseRPC.Shared.ConnectionState.Connected;
     public EndPoint LocalEndPoint => new IPEndPoint(IPAddress.Loopback, 8080);
     public EndPoint RemoteEndPoint { get; }
 
@@ -118,13 +118,13 @@ public class MockServerTransport : IServerTransport
 
     public Task CloseAsync(CancellationToken cancellationToken = default)
     {
-        State = PulseRPC.Transport.ConnectionState.Disconnected;
+        State = PulseRPC.Shared.ConnectionState.Disconnected;
         return Task.CompletedTask;
     }
 
     public void Dispose()
     {
-        State = PulseRPC.Transport.ConnectionState.Disconnected;
+        State = PulseRPC.Shared.ConnectionState.Disconnected;
     }
 
     // Test helper
@@ -134,7 +134,7 @@ public class MockServerTransport : IServerTransport
     }
 
     // Test helper: simulate a transport state transition (e.g., disconnect)
-    public void SimulateStateChanged(PulseRPC.Transport.ConnectionState newState)
+    public void SimulateStateChanged(PulseRPC.Shared.ConnectionState newState)
     {
         var previous = State;
         State = newState;

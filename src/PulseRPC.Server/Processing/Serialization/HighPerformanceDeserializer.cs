@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
@@ -33,7 +33,7 @@ public sealed class ServiceCallContext
     /// <summary>
     /// 服务器传输连接（用于 RequestContext）
     /// </summary>
-    public PulseRPC.Transport.IServerTransport? Transport { get; }
+    public PulseRPC.Shared.IServerTransport? Transport { get; }
 
     public ServiceCallContext(
         string connectionId,
@@ -46,7 +46,7 @@ public sealed class ServiceCallContext
         DateTime receivedTime,
         int processorId,
         MessageFlags flags,
-        PulseRPC.Transport.IServerTransport? transport = null)
+        PulseRPC.Shared.IServerTransport? transport = null)
     {
         ConnectionId = connectionId;
         MessageId = messageId;

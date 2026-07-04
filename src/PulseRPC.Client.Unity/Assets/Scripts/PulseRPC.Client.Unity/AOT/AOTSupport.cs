@@ -1,11 +1,11 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Generic;
 using PulseRPC.Client.Channels;
 using PulseRPC.Serialization;
-using PulseRPC.Transport;
-using PulseRPC.Transport.Tcp;
-using PulseRPC.Transport.Kcp;
+using PulseRPC.Shared;
+using PulseRPC.Shared.Tcp;
+using PulseRPC.Shared.Kcp;
 using UnityEngine;
 
 namespace PulseRPC.AOT

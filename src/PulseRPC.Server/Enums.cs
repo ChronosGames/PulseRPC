@@ -1,8 +1,8 @@
-namespace PulseRPC.Server;
+﻿namespace PulseRPC.Server;
 
 /// <summary>
 /// Server-side connection state enumeration for application-level connection tracking.
-/// Note: PulseRPC.Transport.ConnectionState is used for transport layer state.
+/// Note: PulseRPC.Shared.ConnectionState is used for transport layer state.
 /// </summary>
 public enum ServerConnectionState : byte
 {

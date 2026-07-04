@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -321,7 +321,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("using System.Threading.Tasks;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
-        sb.AppendLine("using PulseRPC.Transport;");
+        sb.AppendLine("using PulseRPC.Shared;");
 
         // 收集方法参数和返回值类型的命名空间
         var additionalNamespaces = CollectNamespacesFromMethods(interfaceSymbol);
@@ -570,7 +570,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Client;");
         sb.AppendLine("using PulseRPC.Client.Configuration;");
-        sb.AppendLine("using PulseRPC.Transport;");
+        sb.AppendLine("using PulseRPC.Shared;");
 
         // 动态添加需要的命名空间
         var namespacesToAdd = new HashSet<string>();

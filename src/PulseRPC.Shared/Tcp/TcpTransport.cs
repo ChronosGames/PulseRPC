@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace PulseRPC.Transport.Tcp;
+namespace PulseRPC.Shared.Tcp;
 
 /// <summary>
 /// 传输层消息头结构（用于大包拆解）

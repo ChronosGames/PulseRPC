@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Configuration;
+﻿using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -14,7 +14,7 @@ using PulseRPC.Server.Services.Scheduling;
 using PulseRPC.Server.Transport;
 using PulseRPC.Scheduling;
 using PulseRPC.Serialization;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Server.Extensions;
 

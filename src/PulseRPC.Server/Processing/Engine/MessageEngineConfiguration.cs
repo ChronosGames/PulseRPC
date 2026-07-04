@@ -1,9 +1,9 @@
-using System.Buffers;
+﻿using System.Buffers;
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using PulseRPC.Serialization;
 using PulseRPC.Messaging;
 using MemoryPack;

@@ -1,13 +1,13 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using PulseRPC.Authentication;
 using PulseRPC.Channels;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using PulseRPC.Messaging;
 using PulseRPC.Server.Security;
 using MessageProcessedEventArgs = PulseRPC.Server.Processing.Engine.MessageProcessedEventArgs;
-using ConnectionState = PulseRPC.Transport.ConnectionState;
+using ConnectionState = PulseRPC.Shared.ConnectionState;
 
 namespace PulseRPC.Server.Transport;
 

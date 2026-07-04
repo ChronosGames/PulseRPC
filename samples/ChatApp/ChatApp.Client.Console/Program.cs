@@ -1,8 +1,8 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using ChatApp;
 
 namespace ChatApp.Client.Console;

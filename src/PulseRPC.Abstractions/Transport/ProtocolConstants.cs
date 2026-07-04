@@ -1,4 +1,4 @@
-namespace PulseRPC.Transport;
+﻿namespace PulseRPC.Shared;
 
 /// <summary>
 /// PulseRPC 传输层协议常量

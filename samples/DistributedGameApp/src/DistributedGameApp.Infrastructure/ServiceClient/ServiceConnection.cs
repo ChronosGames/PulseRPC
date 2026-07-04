@@ -1,8 +1,8 @@
-using DistributedGameApp.Infrastructure.Consul;
+﻿using DistributedGameApp.Infrastructure.Consul;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Authentication;
 using PulseRPC.Client;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using System.Net.Sockets;
 using PulseRPC.Client.Configuration;
 

@@ -1,4 +1,4 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Authentication;
 using PulseRPC.Serialization;
@@ -6,7 +6,7 @@ using PulseRPC.Client;
 using PulseRPC.Client.Configuration;
 using PulseRPC.Client.Health;
 using PulseRPC.Messaging;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Client;
 

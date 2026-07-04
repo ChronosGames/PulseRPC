@@ -1,6 +1,6 @@
-using System;
+﻿using System;
 
-namespace PulseRPC.Transport;
+namespace PulseRPC.Shared;
 
 /// <summary>
 /// 消息处理结果

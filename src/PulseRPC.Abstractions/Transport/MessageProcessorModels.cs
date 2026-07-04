@@ -1,4 +1,4 @@
-﻿namespace PulseRPC.Transport;
+﻿namespace PulseRPC.Shared;
 
 // 5. 客户端消息基类
 public abstract class ClientMessage

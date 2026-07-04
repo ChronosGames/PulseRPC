@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -134,7 +134,7 @@ public class ServerReverseCallTests
         {
             var task = channel.InvokeClientAsync(0x0005, ReadOnlyMemory<byte>.Empty, TimeSpan.FromSeconds(30));
 
-            transport.SimulateStateChanged(PulseRPC.Transport.ConnectionState.Disconnected);
+            transport.SimulateStateChanged(PulseRPC.Shared.ConnectionState.Disconnected);
 
             Func<Task> act = async () => await task;
             await act.Should().ThrowAsync<PulseReverseCallException>();

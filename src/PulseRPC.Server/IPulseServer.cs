@@ -1,8 +1,8 @@
-using System.Net;
+﻿using System.Net;
 using PulseRPC.Channels;
 using PulseRPC.Server.Transport;
-using PulseRPC.Transport;
-using TransportContext = PulseRPC.Transport.TransportContext;
+using PulseRPC.Shared;
+using TransportContext = PulseRPC.Shared.TransportContext;
 
 namespace PulseRPC.Server;
 
@@ -155,7 +155,7 @@ public enum ServerState
 public sealed class TransportInfo
 {
     public required string Name { get; init; }
-    public PulseRPC.Transport.TransportType Type { get; init; }
+    public PulseRPC.Shared.TransportType Type { get; init; }
     public int Port { get; init; }
     public bool IsDefault { get; init; }
     public bool IsListening { get; init; }

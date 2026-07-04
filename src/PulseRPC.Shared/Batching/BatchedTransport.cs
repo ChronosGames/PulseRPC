@@ -1,7 +1,7 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Threading.Channels;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Abstractions.Transport.Batching;
 

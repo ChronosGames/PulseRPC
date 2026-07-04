@@ -1,4 +1,4 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
@@ -6,7 +6,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using PulseRPC.Server.Extensions;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace GameServer;
 

@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 
-namespace PulseRPC.Transport.Kcp;
+namespace PulseRPC.Shared.Kcp;
 
 /// <summary>
 /// KCP段命令类型

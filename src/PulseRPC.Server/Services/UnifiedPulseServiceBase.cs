@@ -1,11 +1,11 @@
-using System.Threading.Channels;
+﻿using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Scheduling;
 using PulseRPC.Server.Hubs; using PulseRPC.Server.Services; using PulseRPC.Server.Transport;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Services.Scheduling;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Server.Services;
 

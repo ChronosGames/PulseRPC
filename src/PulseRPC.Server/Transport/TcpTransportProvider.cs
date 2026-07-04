@@ -1,6 +1,6 @@
-using Microsoft.Extensions.Logging;
+﻿using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Transport;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Server.Transport;
 
@@ -9,7 +9,7 @@ namespace PulseRPC.Server.Transport;
 /// </summary>
 internal sealed class TcpTransportProvider : ITransportProvider
 {
-    public string TransportType => PulseRPC.Transport.TransportType.TCP.ToString();
+    public string TransportType => PulseRPC.Shared.TransportType.TCP.ToString();
     public string Name => "Built-in TCP Transport Provider";
 
     public IServerListener CreateServerListener(TransportChannelConfiguration config, ILoggerFactory loggerFactory)

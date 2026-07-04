@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
@@ -16,7 +16,7 @@ using PulseRPC.Server.Processing;
 using PulseRPC.Server.Services.Scheduling;
 using PulseRPC.Server.Processing.Serialization;
 using PulseRPC.Server.Transport;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using MessageStatus = PulseRPC.Server.Processing.Memory.MessageStatus;
 using MessageParsedEventArgs = PulseRPC.Server.Transport.MessageParsedEventArgs;
 using MessageProcessedEventArgs = PulseRPC.Server.Processing.Engine.MessageProcessedEventArgs;

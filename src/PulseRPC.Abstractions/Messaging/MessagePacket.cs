@@ -1,11 +1,11 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using MemoryPack;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Messaging;
 

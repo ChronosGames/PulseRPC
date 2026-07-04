@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using System.Collections.Generic;
 using MemoryPack;
 using PulseRPC.Client;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Messaging;
 

@@ -1,5 +1,5 @@
-using System.Net;
-using PulseRPC.Transport;
+﻿using System.Net;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Server.Channels;
 

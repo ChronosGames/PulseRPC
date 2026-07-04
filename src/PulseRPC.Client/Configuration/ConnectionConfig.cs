@@ -1,4 +1,4 @@
-using PulseRPC.Transport;
+﻿using PulseRPC.Shared;
 
 namespace PulseRPC.Client.Configuration;
 

@@ -1,8 +1,8 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Transport;
-using PulseRPC.Transport.Kcp;
+using PulseRPC.Shared;
+using PulseRPC.Shared.Kcp;
 
 namespace PulseRPC.Client.Transport;
 

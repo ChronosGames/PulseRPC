@@ -66,7 +66,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Benchmark", "perf\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Benchmark.Contracts", "perf\BenchmarkApp\PulseRPC.Benchmark.Contracts\PulseRPC.Benchmark.Contracts.csproj", "{1B3F8965-CF91-4CBF-901B-206193538250}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Transport", "src\PulseRPC.Transport\PulseRPC.Transport.csproj", "{C50F3E85-C257-4874-AC00-3721DEEFE381}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PulseRPC.Shared", "src\PulseRPC.Shared\PulseRPC.Shared.csproj", "{C50F3E85-C257-4874-AC00-3721DEEFE381}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

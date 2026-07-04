@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -11,7 +11,7 @@ using PulseRPC.Client.Channels;
 using PulseRPC.Events;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace ChatApp.Unity

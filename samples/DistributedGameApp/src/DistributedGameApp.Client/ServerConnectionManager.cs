@@ -1,9 +1,9 @@
-using DistributedGameApp.Shared.Hubs;
+﻿using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Messages;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 using PulseRPC.Channels;
 using PulseRPC.Client.Configuration;
 

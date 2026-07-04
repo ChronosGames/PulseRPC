@@ -1,9 +1,9 @@
-using Microsoft.Extensions.DependencyInjection;
+﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
 using PulseRPC.Client.Configuration;
 using PulseRPC.Serialization;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace DistributedGameApp.Infrastructure.Hosting.Bootstrap;
 

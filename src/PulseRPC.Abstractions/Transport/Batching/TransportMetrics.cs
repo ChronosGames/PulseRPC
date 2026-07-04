@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
 namespace PulseRPC.Abstractions.Transport.Batching;
@@ -13,7 +13,7 @@ namespace PulseRPC.Abstractions.Transport.Batching;
 /// <para>
 /// 此实现使用 .NET 内置的 <see cref="System.Diagnostics.Metrics"/> API，
 /// 该 API 与 OpenTelemetry .NET SDK 完全兼容。只需添加 OpenTelemetry 包并配置
-/// <c>AddMeter("PulseRPC.Transport")</c> 即可导出指标。
+/// <c>AddMeter("PulseRPC.Shared")</c> 即可导出指标。
 /// </para>
 /// <para>
 /// <strong>配置示例</strong>：
@@ -22,7 +22,7 @@ namespace PulseRPC.Abstractions.Transport.Batching;
 /// services.AddOpenTelemetry()
 ///     .WithMetrics(metrics =>
 ///     {
-///         metrics.AddMeter("PulseRPC.Transport");
+///         metrics.AddMeter("PulseRPC.Shared");
 ///         metrics.AddPrometheusExporter();
 ///     });
 /// </code>
@@ -32,7 +32,7 @@ public sealed class TransportMetrics : IDisposable
     /// <summary>
     /// Meter 名称（用于 OpenTelemetry 配置）
     /// </summary>
-    public const string MeterName = "PulseRPC.Transport";
+    public const string MeterName = "PulseRPC.Shared";
 
     private readonly Meter _meter;
     private readonly string _transportId;

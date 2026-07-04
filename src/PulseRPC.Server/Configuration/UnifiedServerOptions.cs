@@ -1,6 +1,6 @@
-using PulseRPC.Server.Services;
+﻿using PulseRPC.Server.Services;
 using PulseRPC.Server.Processing.Pipeline;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Server.Configuration;
 

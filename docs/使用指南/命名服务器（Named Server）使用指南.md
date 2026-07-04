@@ -1,4 +1,4 @@
-# 命名服务器（Named Server）使用指南
+﻿# 命名服务器（Named Server）使用指南
 
 ## 概述
 
@@ -18,7 +18,7 @@
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
 using PulseRPC.Server.Extensions;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 var services = new ServiceCollection();
 
@@ -158,7 +158,7 @@ await app.RunAsync();
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Extensions;
-using PulseRPC.Transport;
+using PulseRPC.Shared;
 
 var services = new ServiceCollection();
 

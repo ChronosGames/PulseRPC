@@ -2,9 +2,9 @@
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PulseRPC.Transport;
-using PulseRPC.Transport.Tcp;
-using ConnectionState = PulseRPC.Transport.ConnectionState;
+using PulseRPC.Shared;
+using PulseRPC.Shared.Tcp;
+using ConnectionState = PulseRPC.Shared.ConnectionState;
 
 namespace PulseRPC.Server.Transport;
 
