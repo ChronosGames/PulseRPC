@@ -1,4 +1,5 @@
-﻿using System.Threading.Channels;
+﻿using System.Reflection;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Scheduling;
@@ -58,6 +59,10 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     private readonly IThreadAffinityScheduler? _affinityScheduler;
     private Task? _messageProcessingTask;
     private CancellationTokenSource? _processingCts;
+
+    // 固定帧驱动（[Tick]）相关状态
+    private CancellationTokenSource? _tickCts;
+    private Task? _tickLoopTask;
 
     // ════════════════════════════════════════════════════════════════════════
     // 请求上下文访问（通过 PulseContext 统一管理）
@@ -258,6 +263,10 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
                 State = ServiceLifecycleState.Running;
                 Logger.LogInformation("Service started: {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+
+                // 启动固定帧驱动（若类上标注了 [Tick]）——须在 State=Running 之后，
+                // 否则第一帧的 EnqueueAsync 会因服务未运行而被拒绝。
+                StartTickLoop();
             }
             catch (Exception ex)
             {
@@ -291,6 +300,9 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
 
             try
             {
+                // 先停止固定帧驱动，避免在队列关闭后仍尝试投递 tick。
+                await StopTickLoopAsync();
+
                 // 停止接收新消息
                 _messageQueue?.Writer.Complete();
 
@@ -551,6 +563,129 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
     public virtual Task OnStoppingAsync(CancellationToken cancellationToken = default)
         => Task.CompletedTask;
 
+    /// <summary>
+    /// 固定帧驱动回调 - 当服务类标注了 <see cref="TickAttribute"/>（<c>[Tick(hz)]</c>）时，
+    /// 框架会以指定频率周期性地在服务的串行邮箱内调用此方法。
+    /// </summary>
+    /// <param name="cancellationToken">随服务停止而取消的令牌。</param>
+    /// <returns>表示本次帧处理的异步任务。</returns>
+    /// <remarks>
+    /// <para>
+    /// 默认实现为空操作。子类可覆写以实现每帧逻辑（如世界状态推进、定时聚合等）。
+    /// </para>
+    /// <para>
+    /// 此回调经由 <see cref="EnqueueAsync(Func{Task}, CancellationToken)"/> 投递到邮箱，
+    /// 因此在 <see cref="ServiceSchedulingMode.DedicatedQueue"/> /
+    /// <see cref="ServiceSchedulingMode.ThreadAffinity"/> 模式下与其它消息处理串行执行，无需加锁。
+    /// </para>
+    /// <para>
+    /// 回调执行时的 <see cref="PulseContext"/> 调用来源为 <c>CallSourceType.SystemTimer</c>，
+    /// 因此天然接入既有权限绕过设计（<c>AllowSystem</c>），无需为定时逻辑单独放行。
+    /// </para>
+    /// </remarks>
+    protected virtual Task OnTickAsync(CancellationToken cancellationToken)
+        => Task.CompletedTask;
+
+    /// <summary>
+    /// 读取类上的 <see cref="TickAttribute"/> 并启动固定帧驱动循环（若已标注）。
+    /// </summary>
+    private void StartTickLoop()
+    {
+        var tick = GetType().GetCustomAttribute<TickAttribute>(inherit: true);
+        if (tick is null)
+        {
+            return;
+        }
+
+        _tickCts = new CancellationTokenSource();
+        _tickLoopTask = TickLoopAsync(tick.Interval, _tickCts.Token);
+        Logger.LogInformation(
+            "Tick loop started at {Hz}Hz (interval {Interval}) for {ServiceAddress}",
+            tick.Hz, tick.Interval, ((IUnifiedPulseService)this).ServiceAddress);
+    }
+
+    /// <summary>
+    /// 停止固定帧驱动循环并等待其结束。
+    /// </summary>
+    private async Task StopTickLoopAsync()
+    {
+        if (_tickCts is null)
+        {
+            return;
+        }
+
+        _tickCts.Cancel();
+
+        if (_tickLoopTask is not null)
+        {
+            try
+            {
+                await _tickLoopTask.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException)
+            {
+                Logger.LogWarning("Tick loop did not stop within timeout for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+            }
+            catch (OperationCanceledException)
+            {
+                // 正常取消
+            }
+        }
+
+        _tickCts.Dispose();
+        _tickCts = null;
+        _tickLoopTask = null;
+    }
+
+    /// <summary>
+    /// 固定帧驱动主循环：按固定间隔把 <see cref="OnTickAsync"/> 投递到串行邮箱。
+    /// </summary>
+    private async Task TickLoopAsync(TimeSpan interval, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(interval);
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                // 仅在运行态投递；停止过程中的漏帧直接跳过，等待下一次取消退出。
+                if (State != ServiceLifecycleState.Running)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    // 每次 tick 作为一次「系统定时器」调用：绑定 SystemTimer 来源上下文，
+                    // 接入既有权限设计（RequirePermission/RequireRole 的 AllowSystem 绕过、
+                    // ClientFacingGate 对非 ExternalUser 放行）。上下文在入队时被捕获，
+                    // 并在邮箱内执行 OnTickAsync 时恢复，三种调度模式均适用。
+                    var systemContext = PulseContextData.CreateSystemContext($"Tick:{ServiceType}");
+                    using (PulseContext.SetContext(systemContext))
+                    {
+                        await EnqueueAsync(() => OnTickAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (InvalidOperationException)
+                {
+                    // 服务正在停止（邮箱已不接受新工作项），忽略本次 tick。
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "Tick handler failed for {ServiceAddress}", ((IUnifiedPulseService)this).ServiceAddress);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 正常取消
+        }
+    }
+
     /// <inheritdoc/>
     public virtual Task<ServiceHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
     {
@@ -568,6 +703,7 @@ public abstract class UnifiedPulseServiceBase : IUnifiedPulseService, IUnifiedSe
             await StopAsync();
         }
 
+        _tickCts?.Dispose();
         _processingCts?.Dispose();
         _stateLock.Dispose();
 

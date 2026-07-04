@@ -57,10 +57,15 @@ public class RequireRoleAttribute : Attribute
 }
 
 /// <summary>
-/// 仅内部服务可调用 - 标记在方法上，禁止外部用户调用
+/// 仅内部服务可调用 - 标记在方法上，禁止外部用户调用。
 /// </summary>
+/// <remarks>
+/// 对应「契约即接口·HubActor 统一模型」§4.2 声明式注解中的 <c>[Internal]</c>：
+/// 该方法仅服务端（内部服务）可调用，客户端不可见。运行时由 <see cref="PermissionValidator"/>
+/// 强制——仅当调用来源为内部服务（<c>CallSourceType.InternalService</c>）时放行。
+/// </remarks>
 [AttributeUsage(AttributeTargets.Method)]
-public class InternalOnlyAttribute : Attribute
+public class InternalAttribute : Attribute
 {
 }
 

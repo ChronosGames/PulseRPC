@@ -68,8 +68,8 @@ public class PermissionValidator
             return false;
         }
 
-        // 检查InternalOnly特性
-        var internalOnly = methodInfo.GetCustomAttribute<InternalOnlyAttribute>();
+        // 检查 Internal 特性（含旧名 InternalOnly，后者派生自 InternalAttribute）
+        var internalOnly = methodInfo.GetCustomAttribute<InternalAttribute>();
         if (internalOnly != null && authContext.SourceType != CallSourceType.InternalService)
         {
             errorMessage = "This method can only be called by internal services";
@@ -143,7 +143,7 @@ public class PermissionValidator
     {
         return methodInfo.GetCustomAttribute<RequirePermissionAttribute>() != null
             || methodInfo.GetCustomAttribute<RequireRoleAttribute>() != null
-            || methodInfo.GetCustomAttribute<InternalOnlyAttribute>() != null
+            || methodInfo.GetCustomAttribute<InternalAttribute>() != null
             || methodInfo.GetCustomAttribute<ExternalOnlyAttribute>() != null;
     }
 }
