@@ -118,22 +118,24 @@ public sealed class ResponseContextManager : IDisposable
     /// <summary>
     /// 尝试设置异常
     /// </summary>
-    public void TrySetException(Guid messageId, Exception exception)
+    /// <returns>如果找到并完成了对应的等待中请求返回 <c>true</c>，否则（消息ID未匹配/已完成/已超时移除）返回 <c>false</c>。</returns>
+    public bool TrySetException(Guid messageId, Exception exception)
     {
         var shard = GetShard(messageId);
         if (!shard.TryRemove(messageId, out var context))
         {
-            return;
+            return false;
         }
 
         try
         {
             context.CancellationRegistration.Dispose();
-            context.Tcs.TrySetException(exception);
+            return context.Tcs.TrySetException(exception);
         }
         catch
         {
             // 忽略设置异常失败
+            return false;
         }
     }
 

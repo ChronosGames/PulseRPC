@@ -440,6 +440,9 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                 case MessageType.Response:
                     ProcessResponse(message);
                     break;
+                case MessageType.Error:
+                    ProcessError(message);
+                    break;
                 case MessageType.Event:
                     ProcessEvent(message);
                     break;
@@ -473,6 +476,46 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             if (_logger.IsEnabled(LogLevel.Warning))
             {
                 _logger.LogWarning("收到未匹配的响应: MessageId={MessageId}", message.Header.MessageId);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 处理正向 RPC 的错误响应（服务端 Hub 方法执行异常时以 <see cref="MessageType.Error"/> 回传）。
+    /// </summary>
+    private void ProcessError(NetworkMessage message)
+    {
+        var errorMessage = "远程调用失败。";
+        string? errorCode = null;
+        string? errorDetails = null;
+
+        try
+        {
+            if (!message.BodyMemory.IsEmpty)
+            {
+                var error = MemoryPack.MemoryPackSerializer.Deserialize<ErrorResponse>(message.BodyMemory.Span);
+                if (error != null)
+                {
+                    errorCode = string.IsNullOrEmpty(error.ErrorCode) ? null : error.ErrorCode;
+                    errorDetails = error.ErrorDetails;
+                    if (!string.IsNullOrEmpty(error.ErrorMessage))
+                    {
+                        errorMessage = error.ErrorMessage;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "解析错误响应失败: MessageId={MessageId}", message.Header.MessageId);
+        }
+
+        if (!_responseManager.TrySetException(message.Header.MessageId,
+                new PulseRemoteException(errorMessage, errorCode, errorDetails)))
+        {
+            if (_logger.IsEnabled(LogLevel.Warning))
+            {
+                _logger.LogWarning("收到未匹配的错误响应: MessageId={MessageId}", message.Header.MessageId);
             }
         }
     }

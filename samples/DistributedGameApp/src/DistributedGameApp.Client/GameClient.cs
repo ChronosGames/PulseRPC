@@ -320,7 +320,7 @@ public class GameClient : IDisposable
                 loginResult.PlayerId,
                 !string.IsNullOrEmpty(loginRequest.Ticket) ? "Ticket" : "Account");
 
-            // 注册事件监听器（自动注册 GameEventHandler 实现的所有 IPulseReceiver 接口）
+            // 注册事件监听器（自动注册 GameEventHandler 实现的所有推送接收器接口 [Channel("CLIENT")] : IPulseHub）
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
             _connectionManager.RegisterReceivers(server.ServerId, eventHandler);
 
@@ -600,7 +600,7 @@ public class GameClient : IDisposable
                 port,
                 cancellationToken: cancellationToken);
 
-            // 注册事件监听器（自动注册 GameEventHandler 实现的所有 IPulseReceiver 接口）
+            // 注册事件监听器（自动注册 GameEventHandler 实现的所有推送接收器接口 [Channel("CLIENT")] : IPulseHub）
             var eventHandler = new GameEventHandler(this, _loggerFactory.CreateLogger<GameEventHandler>());
             _connectionManager.RegisterReceivers(serverId, eventHandler);
 

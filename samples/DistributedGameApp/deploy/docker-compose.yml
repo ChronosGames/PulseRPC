@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # MongoDB - 带索引初始化脚本
+  # ============================================
+  mongodb:
+    image: mongo:7.0
+    container_name: pulserpc-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password123
+      # 初始化时自动创建的数据库（可选）
+      MONGO_INITDB_DATABASE: game_guilds
+    volumes:
+      # 挂载初始化脚本
+      - ./mongodb/init.js:/docker-entrypoint-initdb.d/init.js:ro
+      # 数据持久化
+      - mongodb_data:/data/db
+      # 配置文件（可选）
+      - ./mongodb/mongod.conf:/etc/mongod.conf:ro
+    command: ["mongod", "--config", "/etc/mongod.conf"]
+    networks:
+      - pulserpc-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  # ============================================
+  # Consul - 服务发现和配置中心
+  # ============================================
+  consul:
+    image: consul:1.17
+    container_name: pulserpc-consul
+    restart: unless-stopped
+    ports:
+      - "8500:8500"  # HTTP API
+      - "8600:8600/udp"  # DNS
+    environment:
+      CONSUL_BIND_INTERFACE: eth0
+    command: agent -server -ui -bootstrap-expect=1 -client=0.0.0.0
+    volumes:
+      - consul_data:/consul/data
+    networks:
+      - pulserpc-network
+    healthcheck:
+      test: ["CMD", "consul", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ============================================
+  # MongoDB Express - Web 管理界面（可选）
+  # ============================================
+  mongo-express:
+    image: mongo-express:1.0
+    container_name: pulserpc-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password123
+      ME_CONFIG_MONGODB_URL: mongodb://admin:password123@mongodb:27017/
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin123
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - pulserpc-network
+
+  # ============================================
+  # Backend Server（示例）
+  # ============================================
+  # backend-server:
+  #   image: pulserpc/backend-server:latest
+  #   container_name: backend-server-1
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     # MongoDB 连接
+  #     MongoDB__ConnectionString: "mongodb://admin:password123@mongodb:27017"
+  #     MongoDB__GuildsDatabase: "game_guilds"
+  #     MongoDB__CharactersDatabase: "game_characters"
+  #
+  #     # Consul 连接
+  #     Consul__Address: "http://consul:8500"
+  #     Consul__ServiceBasePath: "pulserpc"
+  #
+  #     # 禁用代码中的索引初始化（已在 init.js 中创建）
+  #     IndexInitializer__Enabled: "false"
+  #
+  #     # 日志级别
+  #     Logging__LogLevel__Default: "Information"
+  #   depends_on:
+  #     mongodb:
+  #       condition: service_healthy
+  #     consul:
+  #       condition: service_healthy
+  #   networks:
+  #     - pulserpc-network
+
+volumes:
+  mongodb_data:
+    driver: local
+  consul_data:
+    driver: local
+
+networks:
+  pulserpc-network:
+    driver: bridge

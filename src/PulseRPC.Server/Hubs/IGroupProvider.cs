@@ -25,7 +25,7 @@ namespace PulseRPC.Server.Hubs;
 /// </code>
 /// </remarks>
 /// <typeparam name="TReceiver">客户端接收器接口</typeparam>
-public interface IGroupProvider<TReceiver> where TReceiver : IPulseReceiver
+public interface IGroupProvider<TReceiver> where TReceiver : IPulseHub
 {
     /// <summary>
     /// 将当前连接添加到指定组（如果组不存在则创建）

@@ -10,10 +10,12 @@ namespace DistributedGameApp.Shared.Receivers;
 /// 后台服务器推送事件接口
 /// </summary>
 /// <remarks>
-/// 继承 <see cref="IPulseReceiver"/> 表示这是客户端实现的接口（服务器向客户端推送消息）。
+/// 标注 <see cref="ChannelAttribute"/>("CLIENT") 并继承 <see cref="IPulseHub"/> 表示这是客户端实现的接口
+/// （服务器向客户端推送消息；统一 IPulseHub 架构，原 IPulseReceiver 已硬移除）。
 /// 服务端使用 <c>IHubContext&lt;IBackendReceiver&gt;</c> 推送消息。
 /// </remarks>
-public interface IBackendReceiver : IPulseReceiver
+[Channel("CLIENT")]
+public interface IBackendReceiver : IPulseHub
 {
     // ========== 社交事件 ==========
 

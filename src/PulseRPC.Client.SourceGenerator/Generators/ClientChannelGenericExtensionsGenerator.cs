@@ -153,12 +153,12 @@ public static class ClientChannelGenericExtensionsGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 注册指定类型的 Receiver");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        /// <typeparam name=\"T\">Receiver 接口类型（必须实现 IPulseReceiver）</typeparam>");
+        sb.AppendLine("        /// <typeparam name=\"T\">Receiver 接口类型（必须实现 IPulseHub 并标注 [Channel(\\\"CLIENT\\\")]）</typeparam>");
         sb.AppendLine("        /// <param name=\"channel\">客户端通道</param>");
         sb.AppendLine("        /// <param name=\"receiver\">Receiver 实现实例</param>");
         sb.AppendLine("        /// <returns>订阅令牌，用于取消注册</returns>");
         sb.AppendLine("        /// <exception cref=\"ArgumentException\">当类型 T 不是已注册的 Receiver 接口时抛出</exception>");
-        sb.AppendLine("        public static ISubscriptionToken RegisterReceiver<T>(this IClientChannel channel, T receiver) where T : class, IPulseReceiver");
+        sb.AppendLine("        public static ISubscriptionToken RegisterReceiver<T>(this IClientChannel channel, T receiver) where T : class, IPulseHub");
         sb.AppendLine("        {");
         sb.AppendLine("            if (channel == null) throw new ArgumentNullException(nameof(channel));");
         sb.AppendLine("            if (receiver == null) throw new ArgumentNullException(nameof(receiver));");

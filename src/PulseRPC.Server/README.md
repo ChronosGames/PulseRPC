@@ -425,7 +425,7 @@ services.AddPulseServer(builder =>
 - **类型安全**: 强类型配置，编译时错误检查
 - **智能默认**: 合理的默认配置，开箱即用
 - **详细日志**: 完整的日志记录，便于调试和运维
-- **统一接口**: 服务接口使用 `IPulseHub` 标记，推送接口使用 `IPulseReceiver` 标记
+- **统一接口**: 所有远程契约统一继承 `IPulseHub`，推送接口额外标注 `[Channel("CLIENT")]` 表示"客户端实现、服务端推送"
 
 ### 5. 服务器推送（MagicOnion 风格）
 - **IHubContext<T>**: 类似 SignalR/MagicOnion 的服务端推送上下文
@@ -435,15 +435,16 @@ services.AddPulseServer(builder =>
 
 ## 📝 使用示例
 
-### 0. 服务器推送（IPulseReceiver + IHubContext）
+### 0. 服务器推送（[Channel("CLIENT")] : IPulseHub + IHubContext）
 
 参考 [MagicOnion StreamingHub](https://cysharp.github.io/MagicOnion/streaminghub/group) 设计，提供类型安全的服务器推送能力。
 
 #### 定义推送接口
 
 ```csharp
-// 定义服务器可以向客户端推送的事件
-public interface IGameReceiver : IPulseReceiver
+// 定义服务器可以向客户端推送的事件（[Channel("CLIENT")] 表示由客户端实现、服务端推送）
+[Channel("CLIENT")]
+public interface IGameReceiver : IPulseHub
 {
     Task OnMatchFoundAsync(MatchFoundNotification notification);
     Task OnPlayerJoinedAsync(PlayerInfo player);

@@ -7,6 +7,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Text;
 using PulseRPC.Generator.Generators;
+using PulseRPC.Generator.Helpers;
 
 namespace PulseRPC.Generator;
 
@@ -64,7 +65,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 {
                     foreach (var serviceType in classDeclaration)
                     {
-                        // 检查是否实现了IPulseReceiver接口（事件接口）
+                        // 检查是否实现了 [Channel("CLIENT")] : IPulseHub 推送接收器接口（事件接口）
                         if (serviceType.Type != null && IsEventReceiver(serviceType.Type))
                         {
                             result.Add(serviceType);
@@ -172,7 +173,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 .Select(g => g.First())
                 .ToList();
 
-            // 一次性为编译单元内所有 IPulseReceiver 接口聚合分配协议号（独立于 Hub 协议号空间，
+            // 一次性为编译单元内所有 [Channel("CLIENT")] : IPulseHub 推送接收器接口聚合分配协议号（独立于 Hub 协议号空间，
             // 冲突检测范围与服务端 AssignReceiverProtocolIds 保持一致）
             var receiverProtocolIds = ProtocolIdGenerator.AssignProtocolIds(
                 uniqueEventTypes.Select(et => et.Type).OfType<INamedTypeSymbol>(),
@@ -264,34 +265,43 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
     private static bool IsNetworkService(INamedTypeSymbol typeSymbol)
     {
-        // 检查是否实现了 IPulseHub 接口
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
+        // 继承 IPulseHub，且非客户端实现的推送接收器（[Channel("CLIENT")]）→ 客户端调用服务端的 Stub
+        if (!typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub") || HasClientChannel(typeSymbol))
+            return false;
+
+        // §5.2-C 显式覆盖：[PulseHub(Consume=false)] 表示本侧（客户端）不生成调用方 Stub
+        if (PulseHubOverrideHelper.TryGetOverride(typeSymbol, out _, out var consume) && !consume)
+            return false;
+
+        return true;
     }
 
     private static bool IsEventReceiver(INamedTypeSymbol typeSymbol)
     {
-        // 排除 IPulseReceiver 接口本身
-        if (typeSymbol.Name == "IPulseReceiver")
+        // 统一标记模型：所有远程契约都继承 IPulseHub；由 [Channel("CLIENT")] 判定为
+        // 客户端实现的推送接收器（服务端推送、客户端接收），为其生成 Dispatcher。
+        if (!HasClientChannel(typeSymbol))
             return false;
 
-        // 方式 1（主要方式）：检查是否实现了 IPulseReceiver 接口
-        if (typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseReceiver"))
-        {
-            return true;
-        }
+        // §5.2-C 显式覆盖：[PulseHub(Provide=false)] 表示本侧（客户端）不生成被调方 Dispatcher
+        if (PulseHubOverrideHelper.TryGetOverride(typeSymbol, out var provide, out _) && !provide)
+            return false;
 
-        // 方式 2（向后兼容）：检查是否标记了 [Channel("CLIENT")] 特性
+        return true;
+    }
+
+    /// <summary>
+    /// 判断接口是否标注 <c>[Channel("CLIENT")]</c>（大小写不敏感）。
+    /// </summary>
+    private static bool HasClientChannel(INamedTypeSymbol typeSymbol)
+    {
         var channelAttr = typeSymbol.GetAttributes()
             .FirstOrDefault(attr => attr.AttributeClass?.Name is "ChannelAttribute" or "Channel");
 
         if (channelAttr?.ConstructorArguments.Length > 0)
         {
             var channelName = channelAttr.ConstructorArguments[0].Value?.ToString();
-            // 约定：Channel 为 "CLIENT" 的接口视为客户端实现的事件接收器
-            if (string.Equals(channelName, "CLIENT", StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
+            return string.Equals(channelName, ClientChannelConstants.ClientChannelName, StringComparison.OrdinalIgnoreCase);
         }
 
         return false;
@@ -751,7 +761,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         foreach (var baseInterface in interfaceSymbol.AllInterfaces)
         {
             // 跳过 PulseRPC 框架的基础接口
-            if (baseInterface.Name is "IPulseHub" or "IPulseReceiver")
+            if (baseInterface.Name is "IPulseHub")
                 continue;
 
             foreach (var member in baseInterface.GetMembers())

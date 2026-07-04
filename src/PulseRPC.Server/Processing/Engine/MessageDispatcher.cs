@@ -163,8 +163,11 @@ internal sealed class MessageDispatcher : IMessageDispatcher
 
         try
         {
-            _logger.LogTrace("使用协议号路由: ProtocolId=0x{ProtocolId:X4} ({ProtocolId})", header.ProtocolId, header.ProtocolId);
-            return await _serviceRoutingTable.RouteByProtocolIdAsync(serviceProvider, header.ProtocolId, message.Payload, cancellationToken).ConfigureAwait(false);
+            // (Hub,Key) 入站路由：ServiceKey 非空时交由路由表解析/激活 keyed actor 执行；
+            // 为空时路由表的 5 参数重载等价于原有 DI 单例语义（见 IServiceRoutingTable 默认实现）。
+            var serviceKey = header.ServiceKey ?? string.Empty;
+            _logger.LogTrace("使用协议号路由: ProtocolId=0x{ProtocolId:X4} ({ProtocolId}), ServiceKey='{ServiceKey}'", header.ProtocolId, header.ProtocolId, serviceKey);
+            return await _serviceRoutingTable.RouteByProtocolIdAsync(serviceProvider, header.ProtocolId, serviceKey, message.Payload, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

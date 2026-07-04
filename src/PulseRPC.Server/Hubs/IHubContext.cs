@@ -3,7 +3,7 @@ namespace PulseRPC.Server;
 /// <summary>
 /// 服务端推送上下文接口 - 类似 SignalR 的 IHubContext
 /// </summary>
-/// <typeparam name="TReceiver">接收器接口类型，必须继承 <see cref="IPulseReceiver"/></typeparam>
+/// <typeparam name="TReceiver">接收器接口类型，必须继承 <see cref="IPulseHub"/></typeparam>
 /// <remarks>
 /// <para>
 /// 通过依赖注入获取此接口，用于在服务端向客户端推送消息。
@@ -29,7 +29,7 @@ namespace PulseRPC.Server;
 /// }
 /// </code>
 /// </remarks>
-public interface IHubContext<TReceiver> where TReceiver : class, IPulseReceiver
+public interface IHubContext<TReceiver> where TReceiver : class, IPulseHub
 {
     /// <summary>
     /// 获取客户端选择器

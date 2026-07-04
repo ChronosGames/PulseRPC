@@ -177,6 +177,9 @@ public static class PulseServerServiceCollectionExtensions
         // 4. 注册 ServerChannelManager（依赖于上面的所有服务）
         services.TryAddSingleton<IServerChannelManager, ServerChannelManager>();
 
+        // 5. 注册统一路由基础设施（IPulseRouter/IPulseBackplane，依赖于上面的 ServerChannelManager）
+        services.AddPulseRouting();
+
         // 6. 注册 ResponseSerializerRegistry（由源代码生成器生成）
         if (ResponseSerializerRegistry.Instance != null)
         {

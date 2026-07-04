@@ -68,7 +68,7 @@ public sealed class ServerBootstrapperOptions
     /// <list type="number">
     /// <item>桥接 IServerChannelManager 到非 keyed 版本</item>
     /// <item>注册 IUserConnectionMapping 和 IGroupManager</item>
-    /// <item>注册所有 IPulseReceiver 的 IHubContext</item>
+    /// <item>注册所有推送接收器（[Channel("CLIENT")] : IPulseHub）的 IHubContext</item>
     /// </list>
     /// </remarks>
     public bool EnablePushServices { get; set; } = true;
@@ -219,7 +219,7 @@ public static class ServerBootstrapper
     /// <list type="number">
     /// <item>桥接指定服务器的 IServerChannelManager 到非 keyed 版本</item>
     /// <item>注册 IUserConnectionMapping 和 IGroupManager</item>
-    /// <item>注册所有 IPulseReceiver 的 IHubContext（通过源生成器）</item>
+    /// <item>注册所有推送接收器（[Channel("CLIENT")] : IPulseHub）的 IHubContext（通过源生成器）</item>
     /// </list>
     /// </remarks>
     private static void ConfigurePushServices(IServiceCollection services, string serverName)
@@ -232,14 +232,14 @@ public static class ServerBootstrapper
         // 2. 注册 IUserConnectionMapping 和 IGroupManager（IHubContext 依赖）
         services.AddPulseReceiverServices();
 
-        // 3. 注册所有 IPulseReceiver 的 IHubContext（源生成器生成的代码）
+        // 3. 注册所有推送接收器（[Channel("CLIENT")] : IPulseHub）的 IHubContext（源生成器生成的代码）
         // 注意：这里使用反射调用，因为 AddAllPulseReceiverContexts 是源生成器生成的
         // 如果源生成器没有生成这个方法，则静默跳过
         TryRegisterAllPulseReceiverContexts(services);
     }
 
     /// <summary>
-    /// 尝试注册所有 IPulseReceiver 的 IHubContext
+    /// 尝试注册所有推送接收器（[Channel("CLIENT")] : IPulseHub）的 IHubContext
     /// </summary>
     private static void TryRegisterAllPulseReceiverContexts(IServiceCollection services)
     {

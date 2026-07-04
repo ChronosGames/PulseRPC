@@ -37,6 +37,14 @@ public sealed class MethodModel
     public string? ChannelName { get; set; }
 
     /// <summary>
+    /// 方法实际声明所在接口的完全限定名（对继承自基接口的方法，是基接口而非 <see cref="ServiceModel.InterfaceFullName"/>）。
+    /// 用于协议号哈希输入，必须与客户端生成器（<c>ProtocolIdGenerator.BuildMethodSignature</c> 使用
+    /// <c>method.ContainingType.ToDisplayString()</c>）保持一致，见 §11.2 风险 #1。为 <c>null</c> 时
+    /// 回退为 <see cref="ServiceModel.InterfaceFullName"/>（等价于方法直接声明在当前接口上）。
+    /// </summary>
+    public string? DeclaringInterfaceFullName { get; set; }
+
+    /// <summary>
     /// 协议号 - 用于高性能方法路由
     /// </summary>
     public ushort ProtocolId { get; set; }

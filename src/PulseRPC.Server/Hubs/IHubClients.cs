@@ -5,7 +5,7 @@ namespace PulseRPC.Server;
 /// <summary>
 /// 客户端选择器接口 - 选择推送目标
 /// </summary>
-/// <typeparam name="TReceiver">接收器接口类型，必须继承 <see cref="IPulseReceiver"/></typeparam>
+/// <typeparam name="TReceiver">接收器接口类型，必须继承 <see cref="IPulseHub"/></typeparam>
 /// <remarks>
 /// <para>
 /// 参考 <see href="https://cysharp.github.io/MagicOnion/streaminghub/call-client">MagicOnion</see> 设计，
@@ -34,7 +34,7 @@ namespace PulseRPC.Server;
 /// Clients.Group("room-456").OnEventAsync(data);
 /// </code>
 /// </remarks>
-public interface IHubClients<out TReceiver> where TReceiver : class, IPulseReceiver
+public interface IHubClients<out TReceiver> where TReceiver : class, IPulseHub
 {
     /// <summary>
     /// 获取所有已认证客户端的代理

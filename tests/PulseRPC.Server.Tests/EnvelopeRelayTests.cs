@@ -176,4 +176,65 @@ public class EnvelopeRelayTests
         changedHub.MethodId.Should().Be(0x0009);
         changedHub.Flags.Should().Be(MessageFlags.HighPriority);
     }
+
+    [Fact]
+    public void FromHeader_RoundTripsSourceNodeIdReplyToAndHopLimit_ForGatewayMultiHopRelay()
+    {
+        var header = new MessageHeader(MessageType.Request, "PlayerHub", "MoveAsync")
+        {
+            MessageId = Guid.NewGuid(),
+            ProtocolId = 0x1234,
+            ServiceKey = "player-1",
+            SourceNodeId = "gateway-1",
+            ReplyTo = "client-conn-7",
+            HopLimit = 3,
+        };
+        var frame = BuildFrame(header, new byte[] { 1, 2, 3 });
+
+        EnvelopeRelay.TryReadHeader(frame, out var envelope, out _).Should().BeTrue();
+
+        envelope.SourceNodeId.Should().Be("gateway-1");
+        envelope.ReplyTo.Should().Be("client-conn-7");
+        envelope.HopLimit.Should().Be((byte)3);
+
+        var rebuilt = envelope.ToHeader();
+        rebuilt.SourceNodeId.Should().Be("gateway-1");
+        rebuilt.ReplyTo.Should().Be("client-conn-7");
+        rebuilt.HopLimit.Should().Be((byte)3);
+    }
+
+    [Fact]
+    public void FromHeader_DefaultsSourceNodeIdReplyToHopLimit_WhenAbsentFromLegacyHeader()
+    {
+        // 旧端序列化的头部不含这三个尾部新增字段：反序列化后应退化为空字符串/0，新旧两端互操作。
+        var frame = BuildFrame(NewHeader("Hub", "k", 0x0001, Guid.NewGuid()), new byte[] { 5 });
+
+        EnvelopeRelay.TryReadHeader(frame, out var envelope, out _).Should().BeTrue();
+
+        envelope.SourceNodeId.Should().BeEmpty();
+        envelope.ReplyTo.Should().BeEmpty();
+        envelope.HopLimit.Should().Be((byte)0);
+    }
+
+    [Fact]
+    public void WithSourceNodeId_WithReplyTo_WithHopLimit_AreImmutableProjections()
+    {
+        var original = new ReadOnlyEnvelopeHeader(MessageType.Request, Guid.NewGuid(), "Hub", "k", 0x0001, MessageFlags.None,
+            sourceNodeId: "node-a", replyTo: "conn-a", hopLimit: 4);
+
+        var rewrittenSource = original.WithSourceNodeId("node-b");
+        var rewrittenReply = original.WithReplyTo("conn-b");
+        var rewrittenHop = original.WithHopLimit(3);
+
+        original.SourceNodeId.Should().Be("node-a");
+        original.ReplyTo.Should().Be("conn-a");
+        original.HopLimit.Should().Be((byte)4);
+
+        rewrittenSource.SourceNodeId.Should().Be("node-b");
+        rewrittenSource.ReplyTo.Should().Be("conn-a");
+        rewrittenReply.ReplyTo.Should().Be("conn-b");
+        rewrittenReply.SourceNodeId.Should().Be("node-a");
+        rewrittenHop.HopLimit.Should().Be((byte)3);
+        rewrittenHop.SourceNodeId.Should().Be("node-a");
+    }
 }

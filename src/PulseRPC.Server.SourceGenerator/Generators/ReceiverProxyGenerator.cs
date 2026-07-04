@@ -8,7 +8,7 @@ using PulseRPC.Server.SourceGenerator.Models;
 namespace PulseRPC.Server.SourceGenerator.Generators;
 
 /// <summary>
-/// 接收器代理生成器 - 为 IPulseReceiver 接口生成服务端推送代码
+/// 接收器代理生成器 - 为 [Channel("CLIENT")] : IPulseHub 推送接收器接口生成服务端推送代码
 /// </summary>
 /// <remarks>
 /// 生成内容：
@@ -70,7 +70,6 @@ public static class ReceiverProxyGenerator
     private static void GenerateUsingStatements(StringBuilder sb)
     {
         sb.AppendLine("using System;");
-        sb.AppendLine("using System.Buffers;");
         sb.AppendLine("using System.Collections.Generic;");
         sb.AppendLine("using System.Linq;");
         sb.AppendLine("using System.Threading;");
@@ -78,8 +77,9 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("using MemoryPack;");
         sb.AppendLine("using PulseRPC;");
         sb.AppendLine("using PulseRPC.Server;");
+        sb.AppendLine("using PulseRPC.Server.Extensions;");
         sb.AppendLine("using PulseRPC.Server.Transport;");
-        sb.AppendLine("using PulseRPC.Messaging;");
+        sb.AppendLine("using PulseRPC.Routing;");
         sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
         sb.AppendLine();
     }
@@ -91,37 +91,41 @@ public static class ReceiverProxyGenerator
     {
         sb.AppendLine($"/// <summary>");
         sb.AppendLine($"/// {receiver.InterfaceName} 的服务端代理");
-        sb.AppendLine($"/// 处理序列化和消息发送");
+        sb.AppendLine($"/// 序列化参数后经 <see cref=\"IPulseRouter\"/> 投递（§P3 fanout-via-router），");
+        sb.AppendLine($"/// 单节点默认由 LocalPulseRouter 直投本地连接/组/用户，行为与此前直接遍历 IServerChannel 等价。");
         sb.AppendLine($"/// </summary>");
         sb.AppendLine($"public sealed class {receiver.ProxyClassName} : {receiver.InterfaceFullName}");
         sb.AppendLine("{");
 
-        // 字段 - 使用 IReadOnlyList 避免每次调用 ToList
-        sb.AppendLine("    private readonly IReadOnlyList<IServerChannel> _targets;");
+        // 字段
+        sb.AppendLine("    private readonly IPulseRouter _router;");
+        sb.AppendLine("    private readonly IReadOnlyList<PulseAddress> _addresses;");
         sb.AppendLine();
 
         // 协议号常量
         GenerateProtocolIdConstants(sb, receiver);
 
-        // 构造函数
+        // 构造函数（多地址：All/Only/Users/Groups/Except(list)/GroupExcept 等 Fan-out 场景）
         sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// 创建代理实例");
+        sb.AppendLine($"    /// 创建代理实例（多目标地址）");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public {receiver.ProxyClassName}(IEnumerable<IServerChannel> targets)");
+        sb.AppendLine($"    public {receiver.ProxyClassName}(IPulseRouter router, IEnumerable<PulseAddress> addresses)");
         sb.AppendLine("    {");
-        sb.AppendLine("        if (targets == null) throw new ArgumentNullException(nameof(targets));");
+        sb.AppendLine("        _router = router ?? throw new ArgumentNullException(nameof(router));");
+        sb.AppendLine("        if (addresses == null) throw new ArgumentNullException(nameof(addresses));");
         sb.AppendLine("        // 优化：如果已经是 IReadOnlyList 则直接使用，避免分配");
-        sb.AppendLine("        _targets = targets as IReadOnlyList<IServerChannel> ?? targets.ToArray();");
+        sb.AppendLine("        _addresses = addresses as IReadOnlyList<PulseAddress> ?? addresses.ToArray();");
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // 单连接构造函数
+        // 单地址构造函数（All/Single/Group/User/Except(single) 等可直接映射为单一 PulseAddress 的场景）
         sb.AppendLine($"    /// <summary>");
-        sb.AppendLine($"    /// 创建单连接代理实例");
+        sb.AppendLine($"    /// 创建代理实例（单一目标地址）");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public {receiver.ProxyClassName}(IServerChannel? target)");
+        sb.AppendLine($"    public {receiver.ProxyClassName}(IPulseRouter router, PulseAddress address)");
         sb.AppendLine("    {");
-        sb.AppendLine("        _targets = target != null ? new[] { target } : Array.Empty<IServerChannel>();");
+        sb.AppendLine("        _router = router ?? throw new ArgumentNullException(nameof(router));");
+        sb.AppendLine("        _addresses = new[] { address };");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -189,7 +193,7 @@ public static class ReceiverProxyGenerator
 
         // 快速路径：如果没有目标，直接返回（无分配）
         sb.AppendLine("        // 快速路径检查：避免无意义的序列化和发送");
-        sb.AppendLine("        var count = _targets.Count;");
+        sb.AppendLine("        var count = _addresses.Count;");
         sb.AppendLine("        if (count == 0) return;");
         sb.AppendLine();
 
@@ -197,21 +201,20 @@ public static class ReceiverProxyGenerator
         GenerateSerializationCode(sb, method);
         sb.AppendLine();
 
-        // 构造消息包（使用租借缓冲区，发送后归还）
-        sb.AppendLine($"        // 构造消息包（使用协议号 + 零分配缓冲区）");
-        sb.AppendLine($"        var rentedPacket = BuildEventPacket({constName}, payload);");
-        sb.AppendLine("        try");
+        // 经 IPulseRouter 投递：单地址走快速路径，多地址并行投递
+        sb.AppendLine($"        // 经 IPulseRouter 投递（§P3 fanout-via-router）");
+        sb.AppendLine("        if (count == 1)");
         sb.AppendLine("        {");
-        sb.AppendLine("            var packet = rentedPacket.Memory;");
-
-        // 使用优化的发送逻辑（缩进增加一级）
-        GenerateAsyncSendIndented(sb);
-
+        sb.AppendLine($"            await _router.SendAsync(_addresses[0], {constName}, payload, cancellationToken: CancellationToken.None);");
         sb.AppendLine("        }");
-        sb.AppendLine("        finally");
+        sb.AppendLine("        else");
         sb.AppendLine("        {");
-        sb.AppendLine("            // 归还租借的缓冲区到池");
-        sb.AppendLine("            rentedPacket.Dispose();");
+        sb.AppendLine("            var tasks = new Task[count];");
+        sb.AppendLine("            for (var i = 0; i < count; i++)");
+        sb.AppendLine("            {");
+        sb.AppendLine($"                tasks[i] = SendToAddressAsync(_addresses[i], {constName}, payload);");
+        sb.AppendLine("            }");
+        sb.AppendLine("            await Task.WhenAll(tasks);");
         sb.AppendLine("        }");
 
         sb.AppendLine("    }");
@@ -239,9 +242,9 @@ public static class ReceiverProxyGenerator
         sb.AppendLine(")");
         sb.AppendLine("    {");
 
-        // 反向 Ask 要求恰好 1 个目标连接（多目标语义不明确，禁止）
-        sb.AppendLine("        // [P-4] 反向 Ask：要求恰好 1 个目标连接");
-        sb.AppendLine("        var count = _targets.Count;");
+        // 反向 Ask 要求恰好 1 个目标地址（多目标语义不明确，禁止）
+        sb.AppendLine("        // [P-4] 反向 Ask：要求恰好 1 个目标地址");
+        sb.AppendLine("        var count = _addresses.Count;");
         sb.AppendLine("        if (count != 1)");
         sb.AppendLine("        {");
         sb.AppendLine($"            throw new InvalidOperationException(\"反向 Ask 方法 '{method.MethodName}' 需要恰好 1 个目标连接，当前为 \" + count + \" 个。请使用 Single/Client 指定单一连接。\");");
@@ -252,8 +255,9 @@ public static class ReceiverProxyGenerator
         GenerateSerializationCode(sb, method);
         sb.AppendLine();
 
-        // 发起反向请求并等待应答（超时使用通道默认值；失败由通道抛出 TimeoutException/PulseReverseCallException）
-        sb.AppendLine($"        var __responseBytes__ = await _targets[0].InvokeClientAsync({constName}, payload, System.TimeSpan.Zero, CancellationToken.None);");
+        // 经 IPulseRouter.AskAsync 发起反向请求并等待应答（单节点由 LocalPulseRouter 经目标连接的
+        // InvokeClientAsync 完成；超时/失败由实现抛出 TimeoutException/PulseReverseCallException）
+        sb.AppendLine($"        var __responseBytes__ = await _router.AskAsync(_addresses[0], {constName}, payload, CancellationToken.None);");
         sb.AppendLine($"        return MemoryPackSerializer.Deserialize<{method.ResponseTypeName}>(__responseBytes__.Span)!;");
 
         sb.AppendLine("    }");
@@ -285,141 +289,23 @@ public static class ReceiverProxyGenerator
         }
     }
 
-    /// <summary>
-    /// 生成优化的异步发送逻辑（带额外缩进，用于 try 块内）
-    /// </summary>
-    private static void GenerateAsyncSendIndented(StringBuilder sb)
-    {
-        sb.AppendLine("            // 优化路径：根据目标数量选择发送策略");
-        sb.AppendLine("            if (count == 1)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                // 单目标：直接发送，无需 Task 数组分配");
-        sb.AppendLine("                try");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    await _targets[0].SendAsync(packet, CancellationToken.None);");
-        sb.AppendLine("                }");
-        sb.AppendLine("                catch");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    // 忽略发送失败（连接可能已断开）");
-        sb.AppendLine("                }");
-        sb.AppendLine("            }");
-        sb.AppendLine("            else");
-        sb.AppendLine("            {");
-        sb.AppendLine("                // 多目标：使用索引遍历避免迭代器分配");
-        sb.AppendLine("                var tasks = new Task[count];");
-        sb.AppendLine("                for (var i = 0; i < count; i++)");
-        sb.AppendLine("                {");
-        sb.AppendLine("                    tasks[i] = SendToTargetAsync(_targets[i], packet);");
-        sb.AppendLine("                }");
-        sb.AppendLine("                await Task.WhenAll(tasks);");
-        sb.AppendLine("            }");
-    }
-
     private static void GenerateHelperMethods(StringBuilder sb)
     {
-        // 优化：原子自增消息ID生成器（替代 Guid.NewGuid）
-        sb.AppendLine("    private static long s_messageIdCounter = 0;");
-        sb.AppendLine();
-        sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    private static Guid NextMessageId()");
-        sb.AppendLine("    {");
-        sb.AppendLine("        // 使用原子自增生成唯一ID，转换为 Guid 格式保持兼容");
-        sb.AppendLine("        var id = System.Threading.Interlocked.Increment(ref s_messageIdCounter);");
-        sb.AppendLine("        // 高效转换：将 long 放入 Guid 的前 8 字节");
-        sb.AppendLine("        Span<byte> bytes = stackalloc byte[16];");
-        sb.AppendLine("        System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(bytes, id);");
-        sb.AppendLine("        return new Guid(bytes);");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // 优化：线程本地 MessageHeader 复用
-        sb.AppendLine("    [ThreadStatic]");
-        sb.AppendLine("    private static MessageHeader? t_cachedHeader;");
-        sb.AppendLine();
-        sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    private static MessageHeader GetOrCreateHeader()");
-        sb.AppendLine("    {");
-        sb.AppendLine("        var header = t_cachedHeader;");
-        sb.AppendLine("        if (header == null)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            header = new MessageHeader();");
-        sb.AppendLine("            t_cachedHeader = header;");
-        sb.AppendLine("        }");
-        sb.AppendLine("        return header;");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // 生成 RentedBuffer 结构体（零分配缓冲区管理）
+        // 经 IPulseRouter 投递到单个地址（异常安全：与此前直接遍历 IServerChannel 时对单个失败目标的容错语义一致）
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 租借的缓冲区包装器，支持零分配发送");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    private readonly struct RentedBuffer : IDisposable");
-        sb.AppendLine("    {");
-        sb.AppendLine("        private readonly byte[] _buffer;");
-        sb.AppendLine("        public readonly int Length;");
-        sb.AppendLine();
-        sb.AppendLine("        public RentedBuffer(byte[] buffer, int length)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            _buffer = buffer;");
-        sb.AppendLine("            Length = length;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-        sb.AppendLine("        /// <summary>获取有效数据的内存切片</summary>");
-        sb.AppendLine("        public ReadOnlyMemory<byte> Memory => _buffer.AsMemory(0, Length);");
-        sb.AppendLine();
-        sb.AppendLine("        /// <summary>归还缓冲区到池</summary>");
-        sb.AppendLine("        public void Dispose()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (_buffer != null)");
-        sb.AppendLine("            {");
-        sb.AppendLine("                ArrayPool<byte>.Shared.Return(_buffer);");
-        sb.AppendLine("            }");
-        sb.AppendLine("        }");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // 生成 SendToTargetAsync 方法（使用 ReadOnlyMemory）
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 发送到单个目标（异常安全）");
+        sb.AppendLine("    /// 经 IPulseRouter 投递到单个地址（异常安全）");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    private static async Task SendToTargetAsync(IServerChannel target, ReadOnlyMemory<byte> packet)");
+        sb.AppendLine("    private async Task SendToAddressAsync(PulseAddress address, ushort protocolId, byte[] payload)");
         sb.AppendLine("    {");
         sb.AppendLine("        try");
         sb.AppendLine("        {");
-        sb.AppendLine("            await target.SendAsync(packet, CancellationToken.None);");
+        sb.AppendLine("            await _router.SendAsync(address, protocolId, payload, cancellationToken: CancellationToken.None);");
         sb.AppendLine("        }");
         sb.AppendLine("        catch");
         sb.AppendLine("        {");
-        sb.AppendLine("            // 忽略发送失败（连接可能已断开）");
+        sb.AppendLine("            // 忽略单个目标发送失败（连接可能已断开）");
         sb.AppendLine("        }");
-        sb.AppendLine("    }");
-        sb.AppendLine();
-
-        // 生成 BuildEventPacket 方法
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 构建事件消息包");
-        sb.AppendLine("    /// - 复用 MessageHeader 对象");
-        sb.AppendLine("    /// - 使用原子自增 ID 替代 Guid.NewGuid");
-        sb.AppendLine("    /// 调用方必须在使用完成后调用 Dispose 归还缓冲区");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    private static RentedBuffer BuildEventPacket(ushort protocolId, byte[] payload)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        var header = GetOrCreateHeader();");
-        sb.AppendLine("        header.Type = MessageType.Event;");
-        sb.AppendLine("        header.MessageId = NextMessageId();");
-        sb.AppendLine("        header.ServiceName = string.Empty;");
-        sb.AppendLine("        header.MethodName = string.Empty;");
-        sb.AppendLine("        header.ProtocolId = protocolId;");
-        sb.AppendLine("        header.Flags = MessageFlags.None;");
-        sb.AppendLine("        header.Timestamp = 0;");
-        sb.AppendLine("        header.SequenceNumber = 0;");
-        sb.AppendLine();
-        sb.AppendLine("        var packet = new MessagePacket(header, payload);");
-        sb.AppendLine("        var estimatedSize = packet.EstimateSize();");
-        sb.AppendLine("        var buffer = ArrayPool<byte>.Shared.Rent(estimatedSize);");
-        sb.AppendLine("        var bytesWritten = packet.WriteTo(buffer);");
-        sb.AppendLine("        return new RentedBuffer(buffer, bytesWritten);");
         sb.AppendLine("    }");
     }
 
@@ -428,11 +314,18 @@ public static class ReceiverProxyGenerator
     /// </summary>
     private static void GenerateHubClientsClass(StringBuilder sb, ReceiverModel receiver)
     {
+        var hub = receiver.InterfaceName.TrimStart('I');
+
         sb.AppendLine($"/// <summary>");
-        sb.AppendLine($"/// {receiver.InterfaceName} 的客户端选择器实现（MagicOnion 风格）");
+        sb.AppendLine($"/// {receiver.InterfaceName} 的客户端选择器实现（MagicOnion 风格）。");
+        sb.AppendLine($"/// 单一目标场景（All/Single/Group/User/Except(单个)）直接映射为一个 PulseAddress，");
+        sb.AppendLine($"/// 交给 IPulseRouter 在投递时解析目标（§P3 fanout-via-router）；");
+        sb.AppendLine($"/// 多目标场景（Only/Users/Groups/GroupExcept/Except(多个)）在此处一次性解析为具体连接 ID 列表，");
+        sb.AppendLine($"/// 因为 PulseAddress 尚不支持任意连接 ID 集合的寻址。");
         sb.AppendLine($"/// </summary>");
         sb.AppendLine($"public sealed class {receiver.HubClientsClassName} : IHubClients<{receiver.InterfaceFullName}>");
         sb.AppendLine("{");
+        sb.AppendLine("    private readonly IPulseRouter _router;");
         sb.AppendLine("    private readonly IServerChannelManager _channelManager;");
         sb.AppendLine("    private readonly IUserConnectionMapping _userMapping;");
         sb.AppendLine("    private readonly IGroupManager _groupManager;");
@@ -440,10 +333,12 @@ public static class ReceiverProxyGenerator
 
         // 构造函数
         sb.AppendLine($"    public {receiver.HubClientsClassName}(");
+        sb.AppendLine("        IPulseRouter router,");
         sb.AppendLine("        IServerChannelManager channelManager,");
         sb.AppendLine("        IUserConnectionMapping userMapping,");
         sb.AppendLine("        IGroupManager groupManager)");
         sb.AppendLine("    {");
+        sb.AppendLine("        _router = router;");
         sb.AppendLine("        _channelManager = channelManager;");
         sb.AppendLine("        _userMapping = userMapping;");
         sb.AppendLine("        _groupManager = groupManager;");
@@ -453,7 +348,7 @@ public static class ReceiverProxyGenerator
         // All 属性
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} All =>");
-        sb.AppendLine($"        new {receiver.ProxyClassName}(_channelManager.GetAuthenticatedChannels());");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.AllClients(\"{hub}\"));");
         sb.AppendLine();
 
         // ==================== MagicOnion 风格 API ====================
@@ -461,38 +356,35 @@ public static class ReceiverProxyGenerator
         // Single 方法（MagicOnion 风格）
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} Single(string connectionId) =>");
-        sb.AppendLine($"        new {receiver.ProxyClassName}(_channelManager.GetChannel(connectionId));");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Connection(\"{hub}\", connectionId));");
         sb.AppendLine();
 
         // Only 方法（MagicOnion 风格）
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} Only(IReadOnlyList<string> connectionIds)");
         sb.AppendLine("    {");
-        sb.AppendLine("        var channels = connectionIds");
-        sb.AppendLine("            .Select(id => _channelManager.GetChannel(id))");
-        sb.AppendLine("            .Where(c => c != null)!;");
-        sb.AppendLine($"        return new {receiver.ProxyClassName}(channels);");
+        sb.AppendLine($"        var addresses = connectionIds.Select(id => PulseAddress.Connection(\"{hub}\", id));");
+        sb.AppendLine($"        return new {receiver.ProxyClassName}(_router, addresses);");
         sb.AppendLine("    }");
         sb.AppendLine();
 
         // Except(string) 方法（MagicOnion 风格 - 单个排除）
         sb.AppendLine($"    /// <inheritdoc/>");
-        sb.AppendLine($"    public {receiver.InterfaceFullName} Except(string connectionId)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        var channels = _channelManager.GetAuthenticatedChannels()");
-        sb.AppendLine("            .Where(c => c.ConnectionId != connectionId);");
-        sb.AppendLine($"        return new {receiver.ProxyClassName}(channels);");
-        sb.AppendLine("    }");
+        sb.AppendLine($"    public {receiver.InterfaceFullName} Except(string connectionId) =>");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Except(\"{hub}\", connectionId));");
         sb.AppendLine();
 
         // Except(IReadOnlyList<string>) 方法（MagicOnion 风格 - 多个排除）
+        // PulseAddress.Except 仅支持排除单个连接；多重排除没有对应的单一地址，需要在此一次性
+        // 枚举当前已认证连接集合并过滤，再映射为逐连接的 PulseAddress.Connection 列表。
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} Except(IReadOnlyList<string> connectionIds)");
         sb.AppendLine("    {");
         sb.AppendLine("        var excluded = new HashSet<string>(connectionIds);");
-        sb.AppendLine("        var channels = _channelManager.GetAuthenticatedChannels()");
-        sb.AppendLine("            .Where(c => !excluded.Contains(c.ConnectionId));");
-        sb.AppendLine($"        return new {receiver.ProxyClassName}(channels);");
+        sb.AppendLine("        var addresses = _channelManager.GetAuthenticatedChannels()");
+        sb.AppendLine("            .Where(c => !excluded.Contains(c.ConnectionId))");
+        sb.AppendLine($"            .Select(c => PulseAddress.Connection(\"{hub}\", c.ConnectionId));");
+        sb.AppendLine($"        return new {receiver.ProxyClassName}(_router, addresses);");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -500,14 +392,11 @@ public static class ReceiverProxyGenerator
 
         // User 方法
         sb.AppendLine($"    /// <inheritdoc/>");
-        sb.AppendLine($"    public {receiver.InterfaceFullName} User(string userId)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        var connectionIds = _userMapping.GetConnections(userId);");
-        sb.AppendLine("        return Only(connectionIds.ToArray());");
-        sb.AppendLine("    }");
+        sb.AppendLine($"    public {receiver.InterfaceFullName} User(string userId) =>");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.User(\"{hub}\", userId));");
         sb.AppendLine();
 
-        // Users 方法
+        // Users 方法（多用户：无对应单一地址，一次性解析为连接 ID 列表）
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} Users(IReadOnlyList<string> userIds)");
         sb.AppendLine("    {");
@@ -518,14 +407,11 @@ public static class ReceiverProxyGenerator
 
         // Group 方法
         sb.AppendLine($"    /// <inheritdoc/>");
-        sb.AppendLine($"    public {receiver.InterfaceFullName} Group(string groupName)");
-        sb.AppendLine("    {");
-        sb.AppendLine("        var connectionIds = _groupManager.GetGroupConnections(groupName);");
-        sb.AppendLine("        return Only(connectionIds.ToArray());");
-        sb.AppendLine("    }");
+        sb.AppendLine($"    public {receiver.InterfaceFullName} Group(string groupName) =>");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Group(\"{hub}\", groupName));");
         sb.AppendLine();
 
-        // Groups 方法
+        // Groups 方法（多组：无对应单一地址，一次性解析为连接 ID 列表）
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} Groups(IReadOnlyList<string> groupNames)");
         sb.AppendLine("    {");
@@ -534,7 +420,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // GroupExcept(string, string) 方法（MagicOnion 风格 - 单个排除）
+        // GroupExcept(string, string) 方法（组+单个排除：无对应单一地址，一次性解析为连接 ID 列表）
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} GroupExcept(string groupName, string excludedConnectionId)");
         sb.AppendLine("    {");
@@ -545,7 +431,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
-        // GroupExcept(string, IReadOnlyList<string>) 方法（MagicOnion 风格 - 多个排除）
+        // GroupExcept(string, IReadOnlyList<string>) 方法（组+多个排除）
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} GroupExcept(string groupName, IReadOnlyList<string> excludedConnectionIds)");
         sb.AppendLine("    {");
@@ -581,11 +467,12 @@ public static class ReceiverProxyGenerator
 
         // 构造函数
         sb.AppendLine($"    public {receiver.HubContextClassName}(");
+        sb.AppendLine("        IPulseRouter router,");
         sb.AppendLine("        IServerChannelManager channelManager,");
         sb.AppendLine("        IUserConnectionMapping userMapping,");
         sb.AppendLine("        IGroupManager groupManager)");
         sb.AppendLine("    {");
-        sb.AppendLine($"        Clients = new {receiver.HubClientsClassName}(channelManager, userMapping, groupManager);");
+        sb.AppendLine($"        Clients = new {receiver.HubClientsClassName}(router, channelManager, userMapping, groupManager);");
         sb.AppendLine("        Groups = groupManager;");
         sb.AppendLine("    }");
 
@@ -612,11 +499,13 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"    /// 注册 {receiver.InterfaceName} 的 HubContext");
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine($"    public static IServiceCollection AddPulseReceiverContext<TReceiver>(this IServiceCollection services)");
-        sb.AppendLine($"        where TReceiver : class, IPulseReceiver");
+        sb.AppendLine($"        where TReceiver : class, IPulseHub");
         sb.AppendLine("    {");
         sb.AppendLine($"        // 检查是否为 {receiver.InterfaceName}");
         sb.AppendLine($"        if (typeof(TReceiver) == typeof({receiver.InterfaceFullName}))");
         sb.AppendLine("        {");
+        sb.AppendLine("            // 确保 IPulseRouter（Fan-out 投递依赖，§P3）已注册，与注册顺序无关（幂等）");
+        sb.AppendLine("            services.AddPulseRouting();");
         sb.AppendLine($"            services.AddSingleton<IHubContext<{receiver.InterfaceFullName}>, {receiver.HubContextClassName}>();");
         sb.AppendLine("        }");
         sb.AppendLine("        return services;");
@@ -629,6 +518,8 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine($"    public static IServiceCollection Add{receiver.InterfaceName.TrimStart('I')}HubContext(this IServiceCollection services)");
         sb.AppendLine("    {");
+        sb.AppendLine("        // 确保 IPulseRouter（Fan-out 投递依赖，§P3）已注册，与注册顺序无关（幂等）");
+        sb.AppendLine("        services.AddPulseRouting();");
         sb.AppendLine($"        services.AddSingleton<IHubContext<{receiver.InterfaceFullName}>, {receiver.HubContextClassName}>();");
         sb.AppendLine("        return services;");
         sb.AppendLine("    }");
@@ -645,7 +536,7 @@ public static class ReceiverProxyGenerator
 
         sb.AppendLine("// <auto-generated>");
         sb.AppendLine("// This code was generated by PulseRPC.Server.SourceGenerator");
-        sb.AppendLine("// Unified DI extensions for all IPulseReceiver implementations");
+        sb.AppendLine("// Unified DI extensions for all [Channel(\"CLIENT\")] : IPulseHub receiver implementations");
         sb.AppendLine("// </auto-generated>");
         sb.AppendLine();
         sb.AppendLine("#nullable enable");
@@ -657,6 +548,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine();
 
         // 添加生成的命名空间 using（去重）
+        // 注：本文件已位于 PulseRPC.Server.Extensions 命名空间内，AddPulseRouting 无需额外 using。
         var generatedNamespaces = receivers
             .Select(r => r.Namespace)
             .Where(ns => !string.IsNullOrWhiteSpace(ns))
@@ -679,10 +571,13 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("{");
 
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 注册所有 IPulseReceiver 的 HubContext");
+        sb.AppendLine("    /// 注册所有推送接收器（[Channel(\"CLIENT\")] : IPulseHub）的 HubContext");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    public static IServiceCollection AddAllPulseReceiverContexts(this IServiceCollection services)");
         sb.AppendLine("    {");
+        sb.AppendLine("        // 确保 IPulseRouter（Fan-out 投递依赖，§P3）已注册，与注册顺序无关（幂等）");
+        sb.AppendLine("        services.AddPulseRouting();");
+        sb.AppendLine();
 
         foreach (var receiver in receivers)
         {
@@ -707,7 +602,7 @@ public static class ReceiverProxyGenerator
 
         sb.AppendLine("// <auto-generated>");
         sb.AppendLine("// This code was generated by PulseRPC.Server.SourceGenerator");
-        sb.AppendLine("// Protocol ID constants for IPulseReceiver interfaces");
+        sb.AppendLine("// Protocol ID constants for [Channel(\"CLIENT\")] : IPulseHub receiver interfaces");
         sb.AppendLine("// </auto-generated>");
         sb.AppendLine();
         sb.AppendLine("#nullable enable");
@@ -716,7 +611,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine();
 
         sb.AppendLine("/// <summary>");
-        sb.AppendLine("/// IPulseReceiver 协议号常量");
+        sb.AppendLine("/// 推送接收器（[Channel(\"CLIENT\")] : IPulseHub）协议号常量");
         sb.AppendLine("/// </summary>");
         sb.AppendLine("public static partial class ProtocolIdMapping");
         sb.AppendLine("{");

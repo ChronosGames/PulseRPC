@@ -97,6 +97,20 @@ public interface IServerChannelManager : IDisposable
     bool RemoveChannel(string connectionId);
 
     /// <summary>
+    /// 按 <paramref name="connectionId"/> 获取已注册的通道；若不存在，用 <paramref name="factory"/>
+    /// 构造一个并原子性地注册（幂等：并发/重复调用只会保留一个实例）。
+    /// </summary>
+    /// <remarks>
+    /// 供注册<strong>虚拟通道</strong>使用（如 Gateway 桥接的远程客户端连接，见 <c>GatewayVirtualChannel</c>）：
+    /// 与 <see cref="AddChannel"/> 的区别是调用方直接提供完整的 <see cref="IServerChannel"/> 实例，
+    /// 而非由本管理器基于 <see cref="IServerTransport"/> 构造，因此不要求底层真的存在一个网络传输连接。
+    /// </remarks>
+    /// <param name="connectionId">连接 Id（虚拟通道的 <see cref="IServerChannel.Id"/> 应与此一致）。</param>
+    /// <param name="factory">首次注册时用于构造通道实例的工厂方法。</param>
+    /// <returns>已存在或新注册的通道实例。</returns>
+    IServerChannel GetOrRegisterVirtualChannel(string connectionId, Func<string, IServerChannel> factory);
+
+    /// <summary>
     /// 获取所有传输通道
     /// </summary>
     /// <returns>所有传输通道的集合</returns>

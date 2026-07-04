@@ -6,7 +6,7 @@ using Microsoft.CodeAnalysis;
 namespace PulseRPC.Generator.Generators;
 
 /// <summary>
-/// 接收器调度器生成器 - 为 IPulseReceiver 接口生成客户端反序列化和调度代码
+/// 接收器调度器生成器 - 为 [Channel("CLIENT")] : IPulseHub 推送接收器接口生成客户端反序列化和调度代码
 /// </summary>
 /// <remarks>
 /// 生成内容：

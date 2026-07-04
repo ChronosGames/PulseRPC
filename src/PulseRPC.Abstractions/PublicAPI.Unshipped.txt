@@ -1,8 +1,12 @@
 #nullable enable
+PulseRPC.Clustering.IClusterMembership
+PulseRPC.Clustering.IClusterMembership.LiveNodeIds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+PulseRPC.Clustering.IClusterMembership.Changed -> System.Action?
+PulseRPC.Clustering.IClusterMembership.ReportNodeFailure(string! nodeId) -> void
+PulseRPC.Clustering.IClusterMembership.ReportNodeSuccess(string! nodeId) -> void
 PulseRPC.ClientFacingAttribute
 PulseRPC.ClientFacingAttribute.ClientFacingAttribute(bool enabled = true) -> void
 PulseRPC.ClientFacingAttribute.Enabled.get -> bool
-PulseRPC.IPulseReceiver
 PulseRPC.ReentrantAttribute
 PulseRPC.ReentrantAttribute.ReentrantAttribute() -> void
 PulseRPC.PulseReverseCallException
@@ -10,22 +14,32 @@ PulseRPC.PulseReverseCallException.PulseReverseCallException(string! message) ->
 PulseRPC.PulseReverseCallException.PulseReverseCallException(string! message, string? errorCode) -> void
 PulseRPC.PulseReverseCallException.PulseReverseCallException(string! message, System.Exception! innerException) -> void
 PulseRPC.PulseReverseCallException.ErrorCode.get -> string?
+PulseRPC.PulseRemoteException
+PulseRPC.PulseRemoteException.PulseRemoteException(string! message, string? errorCode = null, string? errorDetails = null) -> void
+PulseRPC.PulseRemoteException.ErrorCode.get -> string?
+PulseRPC.PulseRemoteException.ErrorDetails.get -> string?
 PulseRPC.Client.IClientChannel.RegisterRequestHandler(ushort protocolId, System.Func<System.ReadOnlyMemory<byte>, System.Threading.CancellationToken, System.Threading.Tasks.ValueTask<System.ReadOnlyMemory<byte>>>! handler) -> PulseRPC.ISubscriptionToken!
 PulseRPC.Messaging.MessageType.ReverseRequest = 10 -> PulseRPC.Messaging.MessageType
 PulseRPC.Messaging.MessageHeader.ServiceKey.get -> string!
 PulseRPC.Messaging.MessageHeader.ServiceKey.set -> void
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ReadOnlyEnvelopeHeader() -> void
-PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ReadOnlyEnvelopeHeader(PulseRPC.Messaging.MessageType type, System.Guid messageId, string! hub, string! key, ushort methodId, PulseRPC.Messaging.MessageFlags flags) -> void
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ReadOnlyEnvelopeHeader(PulseRPC.Messaging.MessageType type, System.Guid messageId, string! hub, string! key, ushort methodId, PulseRPC.Messaging.MessageFlags flags, string! sourceNodeId = "", string! replyTo = "", byte hopLimit = 0) -> void
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Type.get -> PulseRPC.Messaging.MessageType
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.MessageId.get -> System.Guid
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Hub.get -> string!
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Key.get -> string!
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.MethodId.get -> ushort
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Flags.get -> PulseRPC.Messaging.MessageFlags
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.SourceNodeId.get -> string!
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ReplyTo.get -> string!
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.HopLimit.get -> byte
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.ToHeader() -> PulseRPC.Messaging.MessageHeader!
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.WithKey(string! key) -> PulseRPC.Messaging.ReadOnlyEnvelopeHeader
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.WithHub(string! hub) -> PulseRPC.Messaging.ReadOnlyEnvelopeHeader
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.WithSourceNodeId(string! sourceNodeId) -> PulseRPC.Messaging.ReadOnlyEnvelopeHeader
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.WithReplyTo(string! replyTo) -> PulseRPC.Messaging.ReadOnlyEnvelopeHeader
+PulseRPC.Messaging.ReadOnlyEnvelopeHeader.WithHopLimit(byte hopLimit) -> PulseRPC.Messaging.ReadOnlyEnvelopeHeader
 PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Equals(PulseRPC.Messaging.ReadOnlyEnvelopeHeader other) -> bool
 override PulseRPC.Messaging.ReadOnlyEnvelopeHeader.Equals(object? obj) -> bool
 override PulseRPC.Messaging.ReadOnlyEnvelopeHeader.GetHashCode() -> int
@@ -38,3 +52,103 @@ static PulseRPC.Messaging.EnvelopeRelay.TryReadHeader(System.ReadOnlyMemory<byte
 static PulseRPC.Messaging.EnvelopeRelay.GetFrameSize(in PulseRPC.Messaging.ReadOnlyEnvelopeHeader header, int bodyLength) -> int
 static PulseRPC.Messaging.EnvelopeRelay.TryWriteFrame(in PulseRPC.Messaging.ReadOnlyEnvelopeHeader header, System.ReadOnlySpan<byte> body, System.Span<byte> destination, out int bytesWritten) -> bool
 static PulseRPC.Messaging.EnvelopeRelay.WriteFrame(in PulseRPC.Messaging.ReadOnlyEnvelopeHeader header, System.ReadOnlySpan<byte> body) -> byte[]!
+PulseRPC.Messaging.MessageHeader.SourceNodeId.get -> string!
+PulseRPC.Messaging.MessageHeader.SourceNodeId.set -> void
+PulseRPC.Messaging.MessageHeader.ReplyTo.get -> string!
+PulseRPC.Messaging.MessageHeader.ReplyTo.set -> void
+PulseRPC.Messaging.MessageHeader.HopLimit.get -> byte
+PulseRPC.Messaging.MessageHeader.HopLimit.set -> void
+PulseRPC.DeliveryMode
+PulseRPC.DeliveryMode.AtMostOnce = 0 -> PulseRPC.DeliveryMode
+PulseRPC.DeliveryMode.AtLeastOnce = 1 -> PulseRPC.DeliveryMode
+PulseRPC.DeliveryMode.ExactlyOnce = 2 -> PulseRPC.DeliveryMode
+PulseRPC.DeliveryAttribute
+PulseRPC.DeliveryAttribute.DeliveryAttribute(PulseRPC.DeliveryMode mode = PulseRPC.DeliveryMode.AtMostOnce) -> void
+PulseRPC.DeliveryAttribute.Mode.get -> PulseRPC.DeliveryMode
+PulseRPC.PulseHubAttribute
+PulseRPC.PulseHubAttribute.PulseHubAttribute() -> void
+PulseRPC.PulseHubAttribute.Provide.get -> bool
+PulseRPC.PulseHubAttribute.Provide.set -> void
+PulseRPC.PulseHubAttribute.Consume.get -> bool
+PulseRPC.PulseHubAttribute.Consume.set -> void
+PulseRPC.Routing.AddressKind
+PulseRPC.Routing.AddressKind.Connection = 0 -> PulseRPC.Routing.AddressKind
+PulseRPC.Routing.AddressKind.AllClients = 1 -> PulseRPC.Routing.AddressKind
+PulseRPC.Routing.AddressKind.Group = 2 -> PulseRPC.Routing.AddressKind
+PulseRPC.Routing.AddressKind.User = 3 -> PulseRPC.Routing.AddressKind
+PulseRPC.Routing.AddressKind.Except = 4 -> PulseRPC.Routing.AddressKind
+PulseRPC.Routing.AddressKind.Actor = 5 -> PulseRPC.Routing.AddressKind
+PulseRPC.Routing.AddressKind.Node = 6 -> PulseRPC.Routing.AddressKind
+PulseRPC.Routing.PulseAddress
+PulseRPC.Routing.PulseAddress.PulseAddress() -> void
+PulseRPC.Routing.PulseAddress.PulseAddress(PulseRPC.Routing.AddressKind kind, string! hub, string! key = "", string? nodeId = null) -> void
+PulseRPC.Routing.PulseAddress.Kind.get -> PulseRPC.Routing.AddressKind
+PulseRPC.Routing.PulseAddress.Hub.get -> string!
+PulseRPC.Routing.PulseAddress.Key.get -> string!
+PulseRPC.Routing.PulseAddress.NodeId.get -> string?
+PulseRPC.Routing.PulseAddress.WithNode(string? nodeId) -> PulseRPC.Routing.PulseAddress
+PulseRPC.Routing.PulseAddress.Equals(PulseRPC.Routing.PulseAddress other) -> bool
+override PulseRPC.Routing.PulseAddress.Equals(object? obj) -> bool
+override PulseRPC.Routing.PulseAddress.GetHashCode() -> int
+override PulseRPC.Routing.PulseAddress.ToString() -> string!
+static PulseRPC.Routing.PulseAddress.Connection(string! hub, string! connectionId) -> PulseRPC.Routing.PulseAddress
+static PulseRPC.Routing.PulseAddress.AllClients(string! hub) -> PulseRPC.Routing.PulseAddress
+static PulseRPC.Routing.PulseAddress.Group(string! hub, string! groupName) -> PulseRPC.Routing.PulseAddress
+static PulseRPC.Routing.PulseAddress.User(string! hub, string! userId) -> PulseRPC.Routing.PulseAddress
+static PulseRPC.Routing.PulseAddress.Except(string! hub, string! excludedConnectionId) -> PulseRPC.Routing.PulseAddress
+static PulseRPC.Routing.PulseAddress.Actor(string! hub, string! key, string? nodeId = null) -> PulseRPC.Routing.PulseAddress
+static PulseRPC.Routing.PulseAddress.Node(string! nodeId, string! hub, string! key = "") -> PulseRPC.Routing.PulseAddress
+PulseRPC.Routing.IPulseRouter
+PulseRPC.Routing.IPulseRouter.SendAsync(in PulseRPC.Routing.PulseAddress address, ushort protocolId, System.ReadOnlyMemory<byte> body, PulseRPC.DeliveryMode delivery = PulseRPC.DeliveryMode.AtMostOnce, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken), System.Guid messageId = default(System.Guid)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Routing.IPulseRouter.AskAsync(in PulseRPC.Routing.PulseAddress address, ushort protocolId, System.ReadOnlyMemory<byte> body, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.ReadOnlyMemory<byte>>
+PulseRPC.Clustering.BackplaneMember
+PulseRPC.Clustering.BackplaneMember.BackplaneMember() -> void
+PulseRPC.Clustering.BackplaneMember.BackplaneMember(string! nodeId, string! connectionId) -> void
+PulseRPC.Clustering.BackplaneMember.NodeId.get -> string!
+PulseRPC.Clustering.BackplaneMember.ConnectionId.get -> string!
+PulseRPC.Clustering.BackplaneMember.Equals(PulseRPC.Clustering.BackplaneMember other) -> bool
+override PulseRPC.Clustering.BackplaneMember.Equals(object? obj) -> bool
+override PulseRPC.Clustering.BackplaneMember.GetHashCode() -> int
+PulseRPC.Clustering.IPulseBackplane
+PulseRPC.Clustering.IPulseBackplane.PublishAsync(PulseRPC.Routing.PulseAddress fanoutAddress, ushort protocolId, System.ReadOnlyMemory<byte> body, string! originNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.IPulseBackplane.Subscribe(PulseRPC.Clustering.BackplaneMessageHandler! handler) -> System.IDisposable!
+PulseRPC.Clustering.IPulseBackplane.AddMemberAsync(string! connectionId, PulseRPC.Routing.PulseAddress membership, string! ownerNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.IPulseBackplane.RemoveMemberAsync(string! connectionId, PulseRPC.Routing.PulseAddress membership, string! ownerNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.IPulseBackplane.ResolveAsync(PulseRPC.Routing.PulseAddress address, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<PulseRPC.Clustering.BackplaneMember>!>
+PulseRPC.Clustering.BackplaneMessageHandler
+PulseRPC.Clustering.InProcessBackplane
+PulseRPC.Clustering.InProcessBackplane.InProcessBackplane() -> void
+PulseRPC.Clustering.InProcessBackplane.PublishAsync(PulseRPC.Routing.PulseAddress fanoutAddress, ushort protocolId, System.ReadOnlyMemory<byte> body, string! originNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.InProcessBackplane.Subscribe(PulseRPC.Clustering.BackplaneMessageHandler! handler) -> System.IDisposable!
+PulseRPC.Clustering.InProcessBackplane.AddMemberAsync(string! connectionId, PulseRPC.Routing.PulseAddress membership, string! ownerNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.InProcessBackplane.RemoveMemberAsync(string! connectionId, PulseRPC.Routing.PulseAddress membership, string! ownerNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.InProcessBackplane.ResolveAsync(PulseRPC.Routing.PulseAddress address, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<PulseRPC.Clustering.BackplaneMember>!>
+PulseRPC.Clustering.ActorPlacement
+PulseRPC.Clustering.ActorPlacement.ActorPlacement() -> void
+PulseRPC.Clustering.ActorPlacement.ActorPlacement(string! nodeId, string! leaseId, long expiresAtUtcTicks) -> void
+PulseRPC.Clustering.ActorPlacement.NodeId.get -> string!
+PulseRPC.Clustering.ActorPlacement.LeaseId.get -> string!
+PulseRPC.Clustering.ActorPlacement.ExpiresAtUtcTicks.get -> long
+PulseRPC.Clustering.ActorPlacement.IsValidAt(System.DateTime utcNow) -> bool
+PulseRPC.Clustering.ActorPlacement.Equals(PulseRPC.Clustering.ActorPlacement other) -> bool
+override PulseRPC.Clustering.ActorPlacement.Equals(object? obj) -> bool
+override PulseRPC.Clustering.ActorPlacement.GetHashCode() -> int
+PulseRPC.Clustering.IActorDirectory
+PulseRPC.Clustering.IActorDirectory.ResolveAsync(string! hub, string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<PulseRPC.Clustering.ActorPlacement?>
+PulseRPC.Clustering.IActorDirectory.ActivateAsync(string! hub, string! key, string! candidateNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<PulseRPC.Clustering.ActorPlacement>
+PulseRPC.Clustering.IActorDirectory.RenewAsync(string! hub, string! key, string! nodeId, string! leaseId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+PulseRPC.Clustering.IActorDirectory.ReleaseAsync(string! hub, string! key, string! nodeId, string! leaseId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.NodeAuthResult
+PulseRPC.Clustering.NodeAuthResult.NodeAuthResult() -> void
+PulseRPC.Clustering.NodeAuthResult.IsAuthenticated.get -> bool
+PulseRPC.Clustering.NodeAuthResult.FailureReason.get -> string?
+static PulseRPC.Clustering.NodeAuthResult.Success() -> PulseRPC.Clustering.NodeAuthResult
+static PulseRPC.Clustering.NodeAuthResult.Failure(string! reason) -> PulseRPC.Clustering.NodeAuthResult
+PulseRPC.Clustering.INodeAuthenticator
+PulseRPC.Clustering.INodeAuthenticator.CreateCredentialAsync(string! localNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.ReadOnlyMemory<byte>>
+PulseRPC.Clustering.INodeAuthenticator.ValidateAsync(string! remoteNodeId, System.ReadOnlyMemory<byte> credential, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<PulseRPC.Clustering.NodeAuthResult>
+PulseRPC.Clustering.INodeLink
+PulseRPC.Clustering.INodeLink.AskActorAsync(string! targetNodeId, string! hub, string! key, ushort protocolId, System.ReadOnlyMemory<byte> body, string! sourceNodeId = "", string! replyTo = "", System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.ReadOnlyMemory<byte>>
+PulseRPC.Clustering.INodeLink.SendActorAsync(string! targetNodeId, string! hub, string! key, ushort protocolId, System.ReadOnlyMemory<byte> body, string! sourceNodeId = "", string! replyTo = "", System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken), System.Guid messageId = default(System.Guid)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.INodeLink.SendToConnectionAsync(string! targetNodeId, string! connectionId, System.ReadOnlyMemory<byte> framedPacket, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.INodeLink.AskConnectionAsync(string! targetNodeId, string! connectionId, ushort protocolId, System.ReadOnlyMemory<byte> payload, System.TimeSpan timeout, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.ReadOnlyMemory<byte>>

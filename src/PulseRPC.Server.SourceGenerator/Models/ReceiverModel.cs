@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis;
 namespace PulseRPC.Server.SourceGenerator.Models;
 
 /// <summary>
-/// 接收器元数据模型 - 用于 IPulseReceiver 接口
+/// 接收器元数据模型 - 用于 <c>[Channel("CLIENT")] : IPulseHub</c> 客户端实现的推送接收器接口
 /// </summary>
 public sealed class ReceiverModel
 {
@@ -80,6 +80,13 @@ public sealed class ReceiverMethodModel
     /// 是否为异步方法
     /// </summary>
     public bool IsAsync { get; set; }
+
+    /// <summary>
+    /// 方法实际声明所在接口的完全限定名（对继承自基接口的方法，是基接口而非
+    /// <see cref="ReceiverModel.InterfaceFullName"/>）。用于协议号哈希输入，必须与客户端生成器保持一致，
+    /// 见 §11.2 风险 #1。为 <c>null</c> 时回退为 <see cref="ReceiverModel.InterfaceFullName"/>。
+    /// </summary>
+    public string? DeclaringInterfaceFullName { get; set; }
 
     /// <summary>
     /// 协议号（独立于 Hub 方法的协议号空间）；0 表示尚未分配，由生成器在 <c>AssignReceiverProtocolIds</c>

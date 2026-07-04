@@ -260,7 +260,7 @@ public static class ProtocolIdGenerator
     /// <remarks>
     /// <para>
     /// 冲突检测聚合到整个传入集合（通常是编译单元内所有 <c>IPulseHub</c> 或所有
-    /// <c>IPulseReceiver</c> 派生接口），而非逐接口独立判定。这与服务端
+    /// <c>[Channel("CLIENT")] : IPulseHub</c> 推送接收器派生接口），而非逐接口独立判定。这与服务端
     /// <c>PulseRPCSourceGenerator.AssignProtocolIdsForIncremental</c> 的聚合范围保持一致，
     /// 避免"客户端只看到当前接口、服务端能看到全部接口"导致双方对同一方法算出不同协议号。
     /// </para>
@@ -364,7 +364,7 @@ public static class ProtocolIdGenerator
         foreach (var baseInterface in interfaceSymbol.AllInterfaces)
         {
             // 跳过 PulseRPC 框架的基础接口
-            if (baseInterface.Name is "IPulseHub" or "IPulseReceiver")
+            if (baseInterface.Name is "IPulseHub")
                 continue;
 
             foreach (var member in baseInterface.GetMembers())

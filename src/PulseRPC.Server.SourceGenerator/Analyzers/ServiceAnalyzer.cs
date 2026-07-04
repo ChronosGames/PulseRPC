@@ -23,6 +23,15 @@ public static class ServiceAnalyzer
         if (!InheritsFromIPulseHub(interfaceSymbol))
             return null;
 
+        // 统一标记模型：[Channel("CLIENT")] 表示客户端实现的推送接收器，不作为服务端可调用服务分析
+        // （其服务端 Fan-out 代理由 ReceiverProxyGenerator 生成）。
+        if (string.Equals(GetChannelName(interfaceSymbol), ClientChannelConstants.ClientChannelName, System.StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // §5.2-C 显式覆盖：[PulseHub(Provide=false)] 表示本编译侧（服务端）不生成被调方骨架
+        if (PulseHubOverrideHelper.TryGetOverride(interfaceSymbol, out var provide, out _) && !provide)
+            return null;
+
         var interfaceName = interfaceSymbol.Name;
         var interfaceFullName = interfaceSymbol.ToDisplayString();
         var namespaceName = interfaceSymbol.ContainingNamespace?.ToDisplayString() ?? string.Empty;
@@ -31,8 +40,8 @@ public static class ServiceAnalyzer
 
         var methods = new List<MethodModel>();
 
-        // 分析接口方法
-        foreach (var member in interfaceSymbol.GetMembers())
+        // 分析接口方法（含直接成员 + 继承接口成员，与客户端生成器方法收集范围对齐，见 §11.2 风险 #1）
+        foreach (var member in ProtocolIdHelper.GetAllPublicMethods(interfaceSymbol))
         {
             if (member is IMethodSymbol methodSymbol && methodSymbol.MethodKind == MethodKind.Ordinary)
             {
@@ -163,6 +172,7 @@ public static class ServiceAnalyzer
             IsAsync = isAsync,
             IsGenericTask = isGenericTask,
             ChannelName = methodChannelName,
+            DeclaringInterfaceFullName = methodSymbol.ContainingType.ToDisplayString(),
             ResponseTypeFullName = responseTypeFullName,
             IsResponseMemoryPackable = responseTypeFullName != null,
             Authorization = authorization,

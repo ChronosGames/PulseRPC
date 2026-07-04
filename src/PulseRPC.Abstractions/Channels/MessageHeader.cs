@@ -184,6 +184,36 @@ public partial class MessageHeader
     [MemoryPackOrder(9)]
     public int TimeoutMs { get; set; }
 
+    /// <summary>
+    /// 发起节点标识（多跳 / 跨节点回执寻径用）。空字符串表示"未跨节点"，退化为单跳、沿原连接返回。
+    /// </summary>
+    /// <remarks>
+    /// 作为 MemoryPack 尾部新增成员：旧版本序列化的头部（不含该字段）反序列化后为空字符串，新旧两端可互操作。
+    /// 参见《统一 IPulseHub 全链路寻址与集群架构设计》§4.1 / §10。
+    /// </remarks>
+    [MemoryPackOrder(10)]
+    public string SourceNodeId { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 显式回执地址（node / connection / actor 的编码形式），覆盖"沿原连接返回"的默认行为。
+    /// 空字符串表示使用默认回执路径。
+    /// </summary>
+    /// <remarks>
+    /// 作为 MemoryPack 尾部新增成员，向后兼容（旧端读为默认空值）。用于 client→gateway→backend actor
+    /// 等多跳请求/响应（含反向 Ask）的响应寻径。
+    /// </remarks>
+    [MemoryPackOrder(11)]
+    public string ReplyTo { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 剩余转发跳数上限（防止多跳转发环路）；<c>0</c> 表示不限制（或由框架应用默认上限）。每转发一跳递减。
+    /// </summary>
+    /// <remarks>
+    /// 作为 MemoryPack 尾部新增成员，向后兼容（旧端读为 <c>0</c>）。
+    /// </remarks>
+    [MemoryPackOrder(12)]
+    public byte HopLimit { get; set; }
+
     [MemoryPackConstructor]
     public MessageHeader()
     {

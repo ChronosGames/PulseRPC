@@ -526,8 +526,11 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 _logger.LogError(dispatchEx, "消息分发失败: MessageId={MessageId}, ConnectionId={ConnectionId}",
                     envelope.MessageId, envelope.ConnectionId);
 
-                // 如果分发失败，返回错误响应
+                // 如果分发失败（例如 Hub 方法抛出业务异常），仍需通知 ResponseProcessor
+                // 把 Error 响应回传给客户端；否则客户端会一直等待直到请求超时（见 §11 回归发现）。
                 envelope.Status = MessageStatus.Failed;
+                TriggerMessageProcessedEvent(envelope, null, dispatchEx);
+
                 return new MessageResponse
                 {
                     MessageId = envelope.MessageId.ToString(),

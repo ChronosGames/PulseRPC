@@ -190,7 +190,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("            T listener,");
         sb.AppendLine("            EventListenerOptions? options = null,");
         sb.AppendLine("            CancellationToken cancellationToken = default)");
-        sb.AppendLine("            where T : class, IPulseReceiver");
+        sb.AppendLine("            where T : class, IPulseHub");
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
@@ -258,7 +258,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("            T listener,");
         sb.AppendLine("            EventListenerOptions? options = null,");
         sb.AppendLine("            CancellationToken cancellationToken = default)");
-        sb.AppendLine("            where T : class, IPulseReceiver");
+        sb.AppendLine("            where T : class, IPulseHub");
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (string.IsNullOrEmpty(connectionId)) throw new ArgumentException(\"连接ID不能为空\", nameof(connectionId));");

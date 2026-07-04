@@ -34,7 +34,7 @@ PulseRPC 定义了两种核心标记接口：
 | 接口 | 方向 | 用途 |
 |------|------|------|
 | `IPulseHub` | 客户端 → 服务端 | 定义客户端可调用的服务端方法（RPC 契约） |
-| `IPulseReceiver` | 服务端 → 客户端 | 定义服务端可推送给客户端的事件 |
+| `[Channel("CLIENT")] : IPulseHub` | 服务端 → 客户端 | 定义服务端可推送给客户端的事件（客户端实现、服务端推送） |
 
 ### 🏛️ 架构概览
 
@@ -478,7 +478,8 @@ using PulseRPC;
 /// <summary>
 /// 游戏事件接收器 - 服务端向客户端推送事件
 /// </summary>
-public interface IGameReceiver : IPulseReceiver
+[Channel("CLIENT")]
+public interface IGameReceiver : IPulseHub
 {
     /// <summary>
     /// 匹配成功通知
@@ -1732,7 +1733,7 @@ spec:
 | 类型 | 约定 | 示例 |
 |------|------|------|
 | Hub 接口 | `I{Name}Hub : IPulseHub` | `IGameHub`, `IChatRoomHub` |
-| Receiver 接口 | `I{Name}Receiver : IPulseReceiver` | `IGameReceiver`, `IChatReceiver` |
+| Receiver 接口 | `[Channel("CLIENT")] I{Name}Receiver : IPulseHub` | `IGameReceiver`, `IChatReceiver` |
 | Hub 实现 | `{Name}Hub` | `GameHub`, `ChatRoomHub` |
 | Service 实现 | `{Name}Service : PulseServiceBase` | `ChatRoomService`, `PlayerService` |
 | 方法命名 | 异步方法以 `Async` 结尾 | `GetPlayerInfoAsync()`, `JoinRoomAsync()` |

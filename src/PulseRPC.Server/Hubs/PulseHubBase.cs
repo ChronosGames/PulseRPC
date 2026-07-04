@@ -163,7 +163,7 @@ public abstract class PulseHubBase
 /// <summary>
 /// 带推送能力的 PulseHub 基类 - 支持向客户端推送消息
 /// </summary>
-/// <typeparam name="TReceiver">客户端接收器接口（需实现 <see cref="IPulseReceiver"/>）</typeparam>
+/// <typeparam name="TReceiver">客户端接收器接口（需实现 <see cref="IPulseHub"/>）</typeparam>
 /// <remarks>
 /// <para>继承自 <see cref="PulseHubBase"/>，添加了服务端推送能力。</para>
 /// <para>
@@ -184,7 +184,7 @@ public abstract class PulseHubBase
 /// </code>
 /// </remarks>
 public abstract class PulseHubBase<TReceiver> : PulseHubBase
-    where TReceiver : class, IPulseReceiver
+    where TReceiver : class, IPulseHub
 {
     /// <summary>
     /// Hub 上下文（由框架注入）

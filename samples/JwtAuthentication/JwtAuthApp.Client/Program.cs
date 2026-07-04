@@ -1,102 +1,104 @@
+using JwtAuthApp.Client;
 using JwtAuthApp.Shared;
-using PulseRPC;
+using Microsoft.Extensions.Logging;
 using PulseRPC.Client;
+using PulseRPC.Client.Configuration;
 
-namespace JwtAuthApp.Client;
+Console.WriteLine("=================================");
+Console.WriteLine("  PulseRPC JWT 认证示例客户端");
+Console.WriteLine("=================================\n");
 
-class Program : ITimerHubReceiver
+var loggerFactory = LoggerFactory.Create(builder =>
 {
-    static Task Main(string[] args)
-    {
-        return new Program().MainCore(args);
-    }
+    builder.AddConsole();
+    builder.SetMinimumLevel(LogLevel.Warning);
+});
 
-    private async Task MainCore(string[] args)
-    {
-        var connection = new PulseTcpConnection("localhost", 5001);
-        await connection.ConnectAsync();
+var client = new PulseClientBuilder()
+    .WithLogging(loggerFactory)
+    .Build();
 
-        // 1. 在没有身份验证令牌的情况下调用API
-        {
-            var accountClient = PulseClientFactory.Create<IAccountService>(connection);
-            var user = await accountClient.GetCurrentUserNameAsync();
-            Console.WriteLine($@"[IAccountService.GetCurrentUserNameAsync] Current User: UserId={user.Value.UserId}; IsAuthenticated={user.Value.IsAuthenticated}; Name={user.Value.Name}");
-            try
-            {
-                var greeterClientAnon = PulseClientFactory.Create<IGreeterService>(connection);
-                var result = await greeterClientAnon.HelloAsync();
-                Console.WriteLine($"[IGreeterService.HelloAsync] {result.Value}");
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"[IGreeterService.HelloAsync] Exception: {e.Message}");
-            }
-        }
+await client.InitializeAsync();
+var channel = await client.ConnectToServerAsync("127.0.0.1", 5001);
+Console.WriteLine("已连接到服务器 127.0.0.1:5001\n");
 
-        // 3. 使用ID和密码登录并接收身份验证令牌
-        var signInId = "kyaru@example.com";
-        var password = "P@ssword2";
+var accountHub = channel.GetHub<IAccountHub>();
+var greeterHub = channel.GetHub<IGreeterHub>();
+var timerHub = channel.GetHub<ITimerHub>();
 
-        // 4. 使用身份验证令牌获取用户信息
-        {
-            var accountClient = PulseClientFactory.Create<IAccountService>(connection);
-            var signInResult = await accountClient.SignInAsync(signInId, password);
-            if (signInResult.IsSuccess)
-            {
-                connection.SetAuthToken(signInResult.Value.Token);
-                var user = await accountClient.GetCurrentUserNameAsync();
-                Console.WriteLine($@"[IAccountService.GetCurrentUserNameAsync] Current User: UserId={user.Value.UserId}; IsAuthenticated={user.Value.IsAuthenticated}; Name={user.Value.Name}");
-
-                // 5. 使用身份验证令牌调用API
-                var greeterClient = PulseClientFactory.Create<IGreeterService>(connection);
-                var result = await greeterClient.HelloAsync();
-                Console.WriteLine($"[IGreeterService.HelloAsync] {result.Value}");
-            }
-        }
-
-        // 5. 使用身份验证调用StreamingHub
-        {
-            var timerHub = PulseClientFactory.ConnectToHub<ITimerHub, ITimerHubReceiver>(connection, this);
-            await timerHub.SetAsync(TimeSpan.FromSeconds(5));
-        }
-
-        // 6. 权限不足（当前用户不在管理员角色中）
-        {
-            var accountClient = PulseClientFactory.Create<IAccountService>(connection);
-            try
-            {
-                var result = await accountClient.DangerousOperationAsync();
-                if (!result.IsSuccess)
-                {
-                    Console.WriteLine($"[IAccountService.DangerousOperationAsync] Error: {result.ErrorMessage}");
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"[IAccountService.DangerousOperationAsync] Exception: {e.Message}");
-            }
-        }
-
-        // 7. 在调用API之前刷新令牌
-        {
-            await Task.Delay(1000 * 6); // 服务器配置的令牌过期时间为5秒
-            var accountClient = PulseClientFactory.Create<IAccountService>(connection);
-            var signInResult = await accountClient.SignInAsync(signInId, password);
-            if (signInResult.IsSuccess)
-            {
-                connection.SetAuthToken(signInResult.Value.Token);
-                var greeterClient = PulseClientFactory.Create<IGreeterService>(connection);
-                var result = await greeterClient.HelloAsync();
-                Console.WriteLine($"[IGreeterService.HelloAsync] {result.Value}");
-            }
-        }
-
-        Console.ReadLine();
-        await connection.DisconnectAsync();
-    }
-
-    void ITimerHubReceiver.OnTick(string message)
-    {
-        Console.WriteLine($"[ITimerHubReceiver.OnTick] {message}");
-    }
+// 1. 未认证状态下调用
+Console.WriteLine("1. 未认证状态下调用 API");
+var anonymousUser = await accountHub.GetCurrentUserNameAsync();
+Console.WriteLine($"   [GetCurrentUserNameAsync] IsAuthenticated={anonymousUser.IsAuthenticated}; Name={anonymousUser.Name}");
+try
+{
+    await greeterHub.HelloAsync();
 }
+catch (Exception ex)
+{
+    Console.WriteLine($"   [HelloAsync] 预期异常: {ex.Message}");
+}
+
+// 2. 登录（连接级认证：登录成功后，同一连接上的后续调用均自动携带身份）
+Console.WriteLine("\n2. 登录 (kyaru@example.com)");
+const string signInId = "kyaru@example.com";
+const string password = "P@ssword2";
+var signInResult = await accountHub.SignInAsync(signInId, password);
+if (!signInResult.Success)
+{
+    Console.WriteLine($"   登录失败: {signInResult.ErrorMessage}");
+    return;
+}
+Console.WriteLine($"   登录成功: UserId={signInResult.UserId}; Name={signInResult.Name}; Token 过期时间={signInResult.Expiration:O}");
+
+// 3. 认证后调用
+Console.WriteLine("\n3. 认证后调用 API（同一连接自动携带身份）");
+var authenticatedUser = await accountHub.GetCurrentUserNameAsync();
+Console.WriteLine($"   [GetCurrentUserNameAsync] IsAuthenticated={authenticatedUser.IsAuthenticated}; Name={authenticatedUser.Name}; Roles=[{string.Join(",", authenticatedUser.Roles)}]");
+var greeting = await greeterHub.HelloAsync();
+Console.WriteLine($"   [HelloAsync] {greeting}");
+
+// 4. 订阅定时器推送并启动
+Console.WriteLine("\n4. 启动定时器（每 1 秒推送一次，持续约 3 秒）");
+var timerReceiver = new TimerReceiver();
+var subscription = channel.RegisterReceiver<ITimerReceiver>(timerReceiver);
+await timerHub.StartAsync(TimeSpan.FromSeconds(1));
+await Task.Delay(TimeSpan.FromSeconds(3.5));
+await timerHub.StopAsync();
+subscription.Dispose();
+
+// 5. 权限不足（当前用户不在 Administrators 角色）
+Console.WriteLine("\n5. 权限不足场景（当前用户没有 Administrators 角色）");
+try
+{
+    var result = await accountHub.DangerousOperationAsync();
+    Console.WriteLine($"   [DangerousOperationAsync] {result}");
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"   [DangerousOperationAsync] 预期异常: {ex.Message}");
+}
+
+// 6. Token 过期后使用旧 Token 重新认证（预期失败），随后重新登录恢复
+Console.WriteLine("\n6. 等待 Token 过期(15秒)后尝试用旧 Token 重新认证");
+await Task.Delay(TimeSpan.FromSeconds(16));
+var reauthenticated = await accountHub.AuthenticateAsync(signInResult.Token);
+Console.WriteLine($"   [AuthenticateAsync(旧Token)] 结果: {reauthenticated} (预期 false，因为 Token 已过期)");
+
+var renewedSignIn = await accountHub.SignInAsync(signInId, password);
+Console.WriteLine($"   [SignInAsync] 重新登录成功: {renewedSignIn.Success}");
+var greetingAfterRenew = await greeterHub.HelloAsync();
+Console.WriteLine($"   [HelloAsync] {greetingAfterRenew}");
+
+if (Console.IsInputRedirected)
+{
+    Console.WriteLine("\n演示完成。");
+}
+else
+{
+    Console.WriteLine("\n演示完成，按任意键退出...");
+    Console.ReadKey();
+}
+
+await channel.DisconnectAsync();
+await client.StopAsync();

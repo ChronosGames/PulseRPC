@@ -42,6 +42,23 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
     public MessageFlags Flags { get; }
 
     /// <summary>
+    /// 发起节点标识（对应 <see cref="MessageHeader.SourceNodeId"/>），供网关/多跳回执寻径。
+    /// 空字符串表示"未跨节点"。
+    /// </summary>
+    public string SourceNodeId { get; }
+
+    /// <summary>
+    /// 显式回执地址（对应 <see cref="MessageHeader.ReplyTo"/>），覆盖"沿原连接返回"默认行为。
+    /// 空字符串表示使用默认回执路径。
+    /// </summary>
+    public string ReplyTo { get; }
+
+    /// <summary>
+    /// 剩余转发跳数上限（对应 <see cref="MessageHeader.HopLimit"/>），防止多跳转发环路。
+    /// </summary>
+    public byte HopLimit { get; }
+
+    /// <summary>
     /// 构造一个只读信封头视图。
     /// </summary>
     public ReadOnlyEnvelopeHeader(
@@ -50,7 +67,10 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
         string hub,
         string key,
         ushort methodId,
-        MessageFlags flags)
+        MessageFlags flags,
+        string sourceNodeId = "",
+        string replyTo = "",
+        byte hopLimit = 0)
     {
         Type = type;
         MessageId = messageId;
@@ -58,6 +78,9 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
         Key = key ?? string.Empty;
         MethodId = methodId;
         Flags = flags;
+        SourceNodeId = sourceNodeId ?? string.Empty;
+        ReplyTo = replyTo ?? string.Empty;
+        HopLimit = hopLimit;
     }
 
     /// <summary>
@@ -77,7 +100,10 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
             header.ServiceName,
             header.ServiceKey,
             header.ProtocolId,
-            header.Flags);
+            header.Flags,
+            header.SourceNodeId,
+            header.ReplyTo,
+            header.HopLimit);
     }
 
     /// <summary>
@@ -98,6 +124,9 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
             ServiceKey = Key,
             ProtocolId = MethodId,
             Flags = Flags,
+            SourceNodeId = SourceNodeId,
+            ReplyTo = ReplyTo,
+            HopLimit = HopLimit,
         };
     }
 
@@ -105,13 +134,31 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
     /// 返回一个替换了实例键（<see cref="Key"/>）的新视图，其余字段不变（供网关改写目标实例）。
     /// </summary>
     public ReadOnlyEnvelopeHeader WithKey(string key)
-        => new(Type, MessageId, Hub, key, MethodId, Flags);
+        => new(Type, MessageId, Hub, key, MethodId, Flags, SourceNodeId, ReplyTo, HopLimit);
 
     /// <summary>
     /// 返回一个替换了 Hub（<see cref="Hub"/>）的新视图，其余字段不变（供网关改写目标 Hub）。
     /// </summary>
     public ReadOnlyEnvelopeHeader WithHub(string hub)
-        => new(Type, MessageId, hub, Key, MethodId, Flags);
+        => new(Type, MessageId, hub, Key, MethodId, Flags, SourceNodeId, ReplyTo, HopLimit);
+
+    /// <summary>
+    /// 返回一个替换了 <see cref="SourceNodeId"/> 的新视图，其余字段不变（供网关标记转发来源节点）。
+    /// </summary>
+    public ReadOnlyEnvelopeHeader WithSourceNodeId(string sourceNodeId)
+        => new(Type, MessageId, Hub, Key, MethodId, Flags, sourceNodeId, ReplyTo, HopLimit);
+
+    /// <summary>
+    /// 返回一个替换了 <see cref="ReplyTo"/> 的新视图，其余字段不变（供网关标记回执地址）。
+    /// </summary>
+    public ReadOnlyEnvelopeHeader WithReplyTo(string replyTo)
+        => new(Type, MessageId, Hub, Key, MethodId, Flags, SourceNodeId, replyTo, HopLimit);
+
+    /// <summary>
+    /// 返回一个替换了 <see cref="HopLimit"/> 的新视图，其余字段不变（供网关递减防环跳数）。
+    /// </summary>
+    public ReadOnlyEnvelopeHeader WithHopLimit(byte hopLimit)
+        => new(Type, MessageId, Hub, Key, MethodId, Flags, SourceNodeId, ReplyTo, hopLimit);
 
     /// <inheritdoc/>
     public bool Equals(ReadOnlyEnvelopeHeader other)
@@ -120,7 +167,10 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
            && string.Equals(Hub, other.Hub, StringComparison.Ordinal)
            && string.Equals(Key, other.Key, StringComparison.Ordinal)
            && MethodId == other.MethodId
-           && Flags == other.Flags;
+           && Flags == other.Flags
+           && string.Equals(SourceNodeId, other.SourceNodeId, StringComparison.Ordinal)
+           && string.Equals(ReplyTo, other.ReplyTo, StringComparison.Ordinal)
+           && HopLimit == other.HopLimit;
 
     /// <inheritdoc/>
     public override bool Equals(object? obj)
@@ -136,6 +186,9 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
         hash.Add(Key, StringComparer.Ordinal);
         hash.Add(MethodId);
         hash.Add(Flags);
+        hash.Add(SourceNodeId, StringComparer.Ordinal);
+        hash.Add(ReplyTo, StringComparer.Ordinal);
+        hash.Add(HopLimit);
         return hash.ToHashCode();
     }
 

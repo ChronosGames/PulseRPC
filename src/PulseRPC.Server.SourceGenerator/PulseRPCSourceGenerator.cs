@@ -130,6 +130,11 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
                 return;
             }
 
+            // facet 组合去重：派生 Hub（如 IBackendHub : IGuildHub）继承自「本编译单元内也独立作为
+            // 顶层 Hub 被扫描」的基接口的方法，不重复计入派生 facet 自己的路由表——它们已由基接口
+            // 自身的 ServiceModel 提供路由项。避免全局路由表（单一 switch）出现重复 case（见 §11.2）。
+            DeduplicateFacadeInheritedMethods(serviceModels);
+
             // 为所有服务方法分配协议号 - 需要适配新的上下文
             AssignProtocolIdsForIncremental(serviceModels, context);
 
@@ -151,11 +156,11 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             // 报告成功信息
             ReportGenerationSuccess(context, serviceModels);
 
-            // ========== IPulseReceiver 代码生成 ==========
-            // 扫描所有 IPulseReceiver 接口并生成服务端推送代理
+            // ========== 推送接收器（[Channel("CLIENT")] : IPulseHub）代码生成 ==========
+            // 扫描所有客户端实现的推送接收器接口并生成服务端 Fan-out 调用方代理
             var receiverModels = new List<ReceiverModel>();
 
-            // 从已扫描的程序集中查找 IPulseReceiver 接口
+            // 从已扫描的程序集中查找 [Channel("CLIENT")] : IPulseHub 推送接收器接口
             foreach (var assembly in scannedAssemblies)
             {
                 var assemblyReceivers = ScanAssemblyForReceivers(assembly);
@@ -165,6 +170,9 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             // 为每个接收器生成代理代码
             if (receiverModels.Count > 0)
             {
+                // facet 组合去重，理由同上（见 DeduplicateFacadeInheritedMethods）
+                DeduplicateFacadeInheritedReceiverMethods(receiverModels);
+
                 // 为接收器分配协议号
                 AssignReceiverProtocolIds(receiverModels, context);
 
@@ -248,6 +256,53 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// 为增量生成器分配协议号
     /// </summary>
+    /// <summary>
+    /// 移除派生 facet Hub 中「继承自本编译单元内也独立作为顶层 Hub 被扫描」的基接口方法。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 扩大方法收集范围以包含继承接口方法（见 §11.2 风险 #1）后，像
+    /// <c>IBackendHub : IPulseHub, IGuildHub</c> 这样"通过继承组合多个 facet"的既有模式
+    /// 会导致 <c>IGuildHub.CreateGuildAsync</c> 同时出现在 <c>IGuildHub</c> 自身的路由表
+    /// 和 <c>IBackendHub</c> 的路由表中——两者协议号相同（因为都基于同一声明接口计算），
+    /// 但生成的全局路由表是单一 switch，无法容纳重复 case。
+    /// </para>
+    /// <para>
+    /// 处理方式：只要方法的声明接口本身也在本次编译中被独立识别为顶层 Hub（有自己的
+    /// <see cref="ServiceModel"/>），就认为该方法的路由已由声明接口自己提供，从派生 facet
+    /// 中移除，避免重复路由项；纯 mixin 基接口（未独立注册为 Hub）的方法则保留，
+    /// 从而仍然修复"客户端能调用、服务端未路由"的静默丢失问题。
+    /// </para>
+    /// </remarks>
+    private static void DeduplicateFacadeInheritedMethods(List<ServiceModel> serviceModels)
+    {
+        var topLevelInterfaces = new HashSet<string>(serviceModels.Select(s => s.InterfaceFullName));
+
+        foreach (var service in serviceModels)
+        {
+            service.Methods.RemoveAll(method =>
+                method.DeclaringInterfaceFullName != null &&
+                method.DeclaringInterfaceFullName != service.InterfaceFullName &&
+                topLevelInterfaces.Contains(method.DeclaringInterfaceFullName));
+        }
+    }
+
+    /// <summary>
+    /// 接收器版本的 <see cref="DeduplicateFacadeInheritedMethods"/>，理由相同。
+    /// </summary>
+    private static void DeduplicateFacadeInheritedReceiverMethods(List<ReceiverModel> receiverModels)
+    {
+        var topLevelInterfaces = new HashSet<string>(receiverModels.Select(r => r.InterfaceFullName));
+
+        foreach (var receiver in receiverModels)
+        {
+            receiver.Methods.RemoveAll(method =>
+                method.DeclaringInterfaceFullName != null &&
+                method.DeclaringInterfaceFullName != receiver.InterfaceFullName &&
+                topLevelInterfaces.Contains(method.DeclaringInterfaceFullName));
+        }
+    }
+
     private static void AssignProtocolIdsForIncremental(List<ServiceModel> serviceModels, SourceProductionContext context)
     {
         var usedIds = new Dictionary<ushort, (string service, string method, Location? location)>();
@@ -306,8 +361,10 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         var parameterTypes = ProtocolIdHelper.FilterCancellationToken(
             method.Parameters.Select(p => p.TypeFullName));
 
+        // 使用方法实际声明所在接口的全名（继承方法为基接口），与客户端 BuildMethodSignature(IMethodSymbol)
+        // 使用 method.ContainingType.ToDisplayString() 的取值口径完全一致（见 §11.2 风险 #1）
         var signature = ProtocolIdHelper.BuildMethodSignature(
-            service.InterfaceFullName,
+            method.DeclaringInterfaceFullName ?? service.InterfaceFullName,
             method.MethodName,
             parameterTypes);
 
@@ -581,29 +638,64 @@ public static partial class ProtocolIdMapping
     }
 
     /// <summary>
-    /// 检查接口是否为服务接口（只识别继承 IPulseHub 的接口）
+    /// 检查接口是否为服务接口（继承 IPulseHub，且非客户端实现的推送接收器）
     /// </summary>
     private static bool IsServiceInterface(INamedTypeSymbol typeSymbol)
     {
-        // 排除 IPulseReceiver 接口（它们有独立的处理逻辑）
-        if (IsReceiverInterface(typeSymbol))
+        // 只处理继承 IPulseHub 的接口
+        if (!typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub"))
             return false;
 
-        // 只检查是否继承 IPulseHub 接口
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub");
+        // 排除客户端实现的推送接收器（[Channel("CLIENT")]，按结构判定），它们有独立的处理逻辑
+        if (HasClientChannel(typeSymbol))
+            return false;
+
+        // §5.2-C 显式覆盖：[PulseHub(Provide=false)] 表示本编译侧（服务端）不生成被调方骨架
+        if (PulseHubOverrideHelper.TryGetOverride(typeSymbol, out var provide, out _) && !provide)
+            return false;
+
+        return true;
     }
 
     /// <summary>
-    /// 检查接口是否为接收器接口（继承 IPulseReceiver）
+    /// 检查接口是否为（客户端实现的）推送接收器接口。
     /// </summary>
+    /// <remarks>
+    /// 统一标记模型：所有远程契约都继承 <c>IPulseHub</c>；方向由 <c>[Channel("CLIENT")]</c> 声明——
+    /// 标注为 CLIENT 表示"客户端实现、服务端推送"，服务端为其生成 Fan-out 调用方代理（HubContext/HubClients）。
+    /// </remarks>
     private static bool IsReceiverInterface(INamedTypeSymbol typeSymbol)
     {
-        // 排除 IPulseReceiver 接口本身
-        if (typeSymbol.Name == "IPulseReceiver")
+        // 必须继承 IPulseHub
+        if (!typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub"))
             return false;
 
-        // 检查是否直接继承 IPulseReceiver
-        return typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseReceiver");
+        // 由 [Channel("CLIENT")] 判定为客户端实现的推送接收器
+        if (!HasClientChannel(typeSymbol))
+            return false;
+
+        // §5.2-C 显式覆盖：[PulseHub(Consume=false)] 表示本编译侧（服务端）不生成 Fan-out 调用方代理
+        if (PulseHubOverrideHelper.TryGetOverride(typeSymbol, out _, out var consume) && !consume)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>
+    /// 判断接口是否标注 <c>[Channel("CLIENT")]</c>（大小写不敏感）。
+    /// </summary>
+    private static bool HasClientChannel(INamedTypeSymbol typeSymbol)
+    {
+        var channelAttr = typeSymbol.GetAttributes()
+            .FirstOrDefault(attr => attr.AttributeClass?.Name is "ChannelAttribute" or "Channel");
+
+        if (channelAttr?.ConstructorArguments.Length > 0)
+        {
+            var channelName = channelAttr.ConstructorArguments[0].Value?.ToString();
+            return string.Equals(channelName, ClientChannelConstants.ClientChannelName, StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -639,7 +731,8 @@ public static partial class ProtocolIdMapping
         {
             var methods = new List<ReceiverMethodModel>();
 
-            foreach (var member in typeSymbol.GetMembers())
+            // 含直接成员 + 继承接口成员，与客户端生成器方法收集范围对齐（见 §11.2 风险 #1）
+            foreach (var member in ProtocolIdHelper.GetAllPublicMethods(typeSymbol))
             {
                 if (member is IMethodSymbol methodSymbol &&
                     methodSymbol.DeclaredAccessibility == Accessibility.Public &&
@@ -663,6 +756,7 @@ public static partial class ProtocolIdMapping
                         MethodName = methodSymbol.Name,
                         ReturnTypeName = returnType,
                         IsAsync = isAsync,
+                        DeclaringInterfaceFullName = methodSymbol.ContainingType.ToDisplayString(),
                         // [P-4] Task<T>/ValueTask<T> => 反向 Ask 的响应类型；非泛型返回 null（保持单向 push）
                         ResponseTypeName = GetResponseTypeFullName(returnType),
                         Parameters = methodSymbol.Parameters.Select(p => new ReceiverParameterModel
@@ -737,8 +831,9 @@ public static partial class ProtocolIdMapping
                 var parameterTypes = ProtocolIdHelper.FilterCancellationToken(
                     method.Parameters.Select(p => p.TypeFullName));
 
+                // 使用方法实际声明所在接口的全名（继承方法为基接口），与客户端保持一致（见 §11.2 风险 #1）
                 var signature = ProtocolIdHelper.BuildMethodSignature(
-                    receiver.InterfaceFullName,
+                    method.DeclaringInterfaceFullName ?? receiver.InterfaceFullName,
                     method.MethodName,
                     parameterTypes);
 
@@ -833,7 +928,8 @@ public static partial class ProtocolIdMapping
             // P-6：facet（接口）级客户端可见性默认值；未标注 [ClientFacing] 时默认不可见（白名单语义）。
             var facetClientFacing = ClientFacingHelper.GetClientFacing(typeSymbol) ?? false;
 
-            foreach (var member in typeSymbol.GetMembers())
+            // 含直接成员 + 继承接口成员，与客户端生成器方法收集范围对齐（见 §11.2 风险 #1）
+            foreach (var member in ProtocolIdHelper.GetAllPublicMethods(typeSymbol))
             {
                 if (member is IMethodSymbol methodSymbol && methodSymbol.DeclaredAccessibility == Accessibility.Public)
                 {
@@ -866,6 +962,7 @@ public static partial class ProtocolIdMapping
                             TypeFullName = p.Type.ToDisplayString(),
                             IsMemoryPackable = false // TODO: 检查是否可序列化
                         }).ToList(),
+                        DeclaringInterfaceFullName = methodSymbol.ContainingType.ToDisplayString(),
                         ResponseTypeFullName = responseTypeFullName,
                         IsResponseMemoryPackable = responseTypeFullName != null,
                         ProtocolId = manualProtocolId ?? 0, // 0 表示需要自动生成

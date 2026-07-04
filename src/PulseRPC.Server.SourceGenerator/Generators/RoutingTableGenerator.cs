@@ -55,6 +55,7 @@ public static class RoutingTableGenerator
         sb.AppendLine("using PulseRPC.Server;");
         sb.AppendLine("using PulseRPC.Server.Transport;");
         sb.AppendLine("using PulseRPC.Server.Services;");
+        sb.AppendLine("using PulseRPC.Server.Services.Management;");
         sb.AppendLine("using Microsoft.Extensions.DependencyInjection;");
 
         // 添加服务命名空间
@@ -155,10 +156,58 @@ public static class RoutingTableGenerator
         sb.AppendLine("    }");
         sb.AppendLine();
 
+        // 生成 (Hub,Key) 入站路由重载：ServiceKey 非空时经 PulseServiceManager 解析 keyed actor
+        GenerateKeyedProtocolIdRouting(sb, services);
+
         // 生成协议号常量
         GenerateProtocolIdConstants(sb, services);
 
         sb.AppendLine("    #endregion");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// 生成 IServiceRoutingTable 的 5 参数（含 serviceKey）重载：
+    /// serviceKey 为空时保持现有 DI 单例语义（转发到 4 参数版本）；非空时经
+    /// <c>PulseServiceManager</c> 以 <c>(HubShortName, serviceKey)</c> 解析/激活 keyed actor 实例并对其调用。
+    /// </summary>
+    private static void GenerateKeyedProtocolIdRouting(StringBuilder sb, List<ServiceModel> services)
+    {
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// (Hub,Key) 入站路由：serviceKey 为空时等价于 4 参数重载（DI 单例语义）；");
+        sb.AppendLine("    /// 非空时经 PulseServiceManager 解析/激活以 (HubShortName, serviceKey) 为地址的 keyed actor 实例执行。");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    public ValueTask<object?> RouteByProtocolIdAsync(IServiceProvider serviceProvider, ushort protocolId, string serviceKey, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (string.IsNullOrEmpty(serviceKey))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return RouteByProtocolIdAsync(serviceProvider, protocolId, data, cancellationToken);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
+        sb.AppendLine("        return RouteByProtocolIdKeyedAsync(serviceProvider, protocolId, serviceKey, data, cancellationToken);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine("    private async ValueTask<object?> RouteByProtocolIdKeyedAsync(IServiceProvider serviceProvider, ushort protocolId, string serviceKey, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (protocolId)");
+        sb.AppendLine("        {");
+
+        foreach (var service in services)
+        {
+            foreach (var method in service.Methods)
+            {
+                var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service.InterfaceName, method)}";
+                var keyedRouterMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method.MethodName) + "_Keyed";
+                sb.AppendLine($"            case {protocolIdConstantName}:");
+                sb.AppendLine($"                return await {keyedRouterMethodName}(serviceProvider, serviceKey, data, cancellationToken);");
+            }
+        }
+
+        sb.AppendLine("            default:");
+        sb.AppendLine("                return await ThrowProtocolIdNotFoundException(protocolId);");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
         sb.AppendLine();
     }
 
@@ -221,6 +270,7 @@ public static class RoutingTableGenerator
             foreach (var method in service.Methods)
             {
                 GenerateProtocolIdMethodRouter(sb, service, method);
+                GenerateKeyedProtocolIdMethodRouter(sb, service, method);
             }
         }
 
@@ -253,6 +303,28 @@ public static class RoutingTableGenerator
         sb.AppendLine();
     }
 
+    /// <summary>
+    /// 生成单个方法的 keyed 协议号路由器：经 PulseServiceManager 解析/激活以
+    /// (HubShortName, serviceKey) 为地址的 keyed actor 实例，再对其调用同一方法。
+    /// </summary>
+    private static void GenerateKeyedProtocolIdMethodRouter(StringBuilder sb, ServiceModel service, MethodModel method)
+    {
+        var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method.MethodName) + "_Keyed";
+        var hubShortName = service.InterfaceName.TrimStart('I');
+
+        sb.AppendLine($"    /// <summary>");
+        sb.AppendLine($"    /// Keyed protocol ID router for {service.InterfaceName}.{method.MethodName} (0x{method.ProtocolId:X4})");
+        sb.AppendLine($"    /// </summary>");
+        sb.AppendLine($"    private async ValueTask<object?> {routerMethodName}(IServiceProvider serviceProvider, string serviceKey, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        PulseRPC.Server.Security.ClientFacingGate.Enforce(isClientFacing: {(method.IsClientFacing ? "true" : "false")}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
+        sb.AppendLine($"        var implementation = await ResolveKeyedHubInstanceAsync<{service.InterfaceFullName}>(serviceProvider, \"{hubShortName}\", serviceKey, cancellationToken);");
+        sb.AppendLine($"        var proxy = GetOrCreate{hubShortName}ProxyForInstance(implementation);");
+        sb.AppendLine($"        return await proxy.Invoke_{method.MethodName}_Async(data, cancellationToken);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
 
     /// <summary>
     /// 生成代理实例获取方法（使用 ConditionalWeakTable 缓存，避免每次请求创建新 Proxy）
@@ -278,6 +350,17 @@ public static class RoutingTableGenerator
         sb.AppendLine("        if (implementation is null)");
         sb.AppendLine($"            throw new InvalidOperationException($\"Service implementation for {service.InterfaceName} not registered in DI container\");");
         sb.AppendLine();
+        sb.AppendLine($"        return GetOrCreate{serviceName}ProxyForInstance(implementation);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine($"    /// <summary>");
+        sb.AppendLine($"    /// Get or create cached proxy for {service.InterfaceName} wrapping an already-resolved implementation instance");
+        sb.AppendLine($"    /// （用于 (Hub,Key) keyed 路由：实例来自 PulseServiceManager 而非 DI 单例）。");
+        sb.AppendLine($"    /// </summary>");
+        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine($"    private {service.Namespace}.Generated.{proxyClassName} GetOrCreate{serviceName}ProxyForInstance({service.InterfaceFullName} implementation)");
+        sb.AppendLine("    {");
         sb.AppendLine($"        return {cacheFieldName}.GetValue(implementation, impl => new {service.Namespace}.Generated.{proxyClassName}(impl));");
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -387,6 +470,27 @@ public static class RoutingTableGenerator
         sb.AppendLine("    /// Service provider access (must be set during application startup)");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    public static IServiceProvider? ServiceProvider { get; set; }");
+        sb.AppendLine();
+
+        // (Hub,Key) keyed 路由辅助方法：经 PulseServiceManager 解析/激活 keyed actor 实例
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// 经 <c>PulseServiceManager</c> 以 (hubShortName, serviceKey) 为地址解析/激活 keyed actor 实例，");
+        sb.AppendLine("    /// 并将其转换为目标 Hub 接口类型。要求该实例已通过 <c>services.AddPulseService&lt;TImpl&gt;()</c>");
+        sb.AppendLine("    /// 注册为 <c>IPulseService</c>，且 TImpl 同时实现 THub。");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine("    private static async ValueTask<THub> ResolveKeyedHubInstanceAsync<THub>(IServiceProvider serviceProvider, string hubShortName, string serviceKey, CancellationToken cancellationToken)");
+        sb.AppendLine("        where THub : class");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var serviceManager = (PulseServiceManager?)serviceProvider?.GetService(typeof(PulseServiceManager));");
+        sb.AppendLine("        if (serviceManager is null)");
+        sb.AppendLine("            throw new InvalidOperationException($\"PulseServiceManager is not registered in DI container. Keyed (Hub,Key) routing for '{hubShortName}' requires calling services.AddPulseServiceManagement() (or services.AddPulseService<TImpl>()) during startup.\");");
+        sb.AppendLine();
+        sb.AppendLine("        var service = await serviceManager.GetOrCreateServiceAsync(hubShortName, serviceKey, cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        if (service is not THub hub)");
+        sb.AppendLine("            throw new InvalidOperationException($\"Service '{hubShortName}' (key='{serviceKey}') resolved via PulseServiceManager does not implement {typeof(THub).FullName}. Ensure the registered IPulseService implementation also implements the hub interface.\");");
+        sb.AppendLine();
+        sb.AppendLine("        return hub;");
+        sb.AppendLine("    }");
         sb.AppendLine();
 
         // 生成 ModuleInitializer

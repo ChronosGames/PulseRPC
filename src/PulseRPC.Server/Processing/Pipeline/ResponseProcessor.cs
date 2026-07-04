@@ -481,27 +481,35 @@ internal sealed class ResponseProcessor : IResponseProcessor
        throw new ArgumentException($"未找到响应序列化器: {identifier}");
    }
 
-     /// <summary>
-     /// 序列化错误响应
-     /// </summary>
-     private Task<ReadOnlyMemory<byte>> SerializeErrorResponseAsync(Exception exception)
-     {
-         // 创建错误响应对象
-         var errorResponse = new ErrorResponse
-         {
-             ErrorCode = GetErrorCode(exception),
-             ErrorMessage = exception.Message,
-             ErrorType = exception.GetType().Name,
-             StackTrace = _options.IncludeStackTrace ? exception.StackTrace : null
-         };
+    /// <summary>
+    /// 序列化错误响应
+    /// </summary>
+    /// <remarks>
+    /// 使用与反向 Ask（服务端→客户端）错误回传路径相同的共享契约 <see cref="PulseRPC.Messaging.ErrorResponse"/>
+    /// （见 <see cref="ServerTransportChannel"/> 与客户端 <c>TransportChannel.ProcessError</c>），
+    /// 确保正向 RPC（客户端→服务端）的 <see cref="MessageType.Error"/> 响应能被客户端正确解析并转换为异常，
+    /// 而不是让等待中的请求一直超时（见 §11 回归发现：两个方向此前各用一套互不兼容的错误负载类型）。
+    /// </remarks>
+    private Task<ReadOnlyMemory<byte>> SerializeErrorResponseAsync(Exception exception)
+    {
+        var errorDetails = exception.GetType().FullName;
+        if (_options.IncludeStackTrace && !string.IsNullOrEmpty(exception.StackTrace))
+        {
+            errorDetails = $"{errorDetails}\n{exception.StackTrace}";
+        }
 
-         // 序列化错误响应
-         var serializer = GetCachedSerializer("__error__");
-         var buffer = new ArrayBufferWriter<byte>();
-         serializer.Serialize(buffer, errorResponse);
+        var errorResponse = PulseRPC.Messaging.ErrorResponse.Create(
+            GetErrorCode(exception),
+            exception.Message,
+            errorDetails);
 
-         return Task.FromResult(buffer.WrittenMemory);
-     }
+        // 序列化错误响应
+        var serializer = GetCachedSerializer("__error__");
+        var buffer = new ArrayBufferWriter<byte>();
+        serializer.Serialize(buffer, errorResponse);
+
+        return Task.FromResult(buffer.WrittenMemory);
+    }
 
      /// <summary>
      /// 获取缓存的序列化器
@@ -587,28 +595,6 @@ internal readonly struct ResponseTask
         Exception = exception;
         ResponseTime = responseTime;
     }
-}
-
-/// <summary>
-/// 错误响应模型
-/// </summary>
-[MemoryPack.MemoryPackable]
-public partial class ErrorResponse
-{
-    [MemoryPack.MemoryPackOrder(0)]
-    public string ErrorCode { get; set; } = string.Empty;
-
-    [MemoryPack.MemoryPackOrder(1)]
-    public string ErrorMessage { get; set; } = string.Empty;
-
-    [MemoryPack.MemoryPackOrder(2)]
-    public string ErrorType { get; set; } = string.Empty;
-
-    [MemoryPack.MemoryPackOrder(3)]
-    public string? StackTrace { get; set; }
-
-    [MemoryPack.MemoryPackOrder(4)]
-    public DateTime Timestamp { get; set; } = DateTime.UtcNow;
 }
 
 /// <summary>

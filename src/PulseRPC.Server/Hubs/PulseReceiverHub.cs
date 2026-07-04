@@ -48,7 +48,7 @@ namespace PulseRPC.Server;
 /// <typeparam name="TReceiver">客户端接收器接口</typeparam>
 [Obsolete("Use PulseHubBase<TReceiver> from PulseRPC.Server.Hubs namespace instead. This class will be removed in a future version.")]
 public abstract class PulseReceiverHub<TReceiver> : IDisposable 
-    where TReceiver : class, IPulseReceiver
+    where TReceiver : class, IPulseHub
 {
     private IHubContext<TReceiver>? _hubContext;
     private IGroupProvider<TReceiver>? _groupProvider;

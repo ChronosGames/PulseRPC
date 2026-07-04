@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using ChatApp.NewArchitecture.Registration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
@@ -29,13 +30,11 @@ internal abstract class Program
             .ConfigureServices(ConfigureServices)
             .Build();
 
-        // 获取服务器实例
-        var server = host.Services.GetRequiredService<IPulseServer>();
-
         try
         {
-            // 启动服务器
-            await server.StartAsync();
+            // 启动 Host（PulseServerHostedService 会自动启动 IPulseServer；
+            // PulseServiceManagerHostedService 会把 AddPulseService<T> 注册的服务类型注册到 PulseServiceManager）
+            await host.StartAsync();
 
             Console.WriteLine("\n高性能服务器已启动，按 ESC 键停止服务器...\n");
 
@@ -80,8 +79,8 @@ internal abstract class Program
         }
         finally
         {
-            // 停止服务器
-            await server.StopAsync();
+            // 停止 Host（同时停止所有 IHostedService，包括 IPulseServer）
+            await host.StopAsync();
 
             Console.WriteLine("\n服务器已停止。");
         }
@@ -133,6 +132,9 @@ internal abstract class Program
         // ========================================
         // Hub 服务注册
         // ========================================
+
+        // 注册聊天服务（ChatRoomService + ChatRoomHub，统一 IPulseHub 模型）
+        services.AddChatServices();
 
         // 添加服务注册
         // services.AddPulseRpcServiceRegistration(context.Configuration);

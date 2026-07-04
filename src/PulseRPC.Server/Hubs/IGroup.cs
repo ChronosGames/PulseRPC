@@ -27,7 +27,7 @@ namespace PulseRPC.Server.Hubs;
 /// </code>
 /// </remarks>
 /// <typeparam name="TReceiver">客户端接收器接口</typeparam>
-public interface IGroup<TReceiver> where TReceiver : IPulseReceiver
+public interface IGroup<TReceiver> where TReceiver : IPulseHub
 {
     /// <summary>
     /// 组名称

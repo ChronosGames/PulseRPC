@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.CodeAnalysis;
 
 namespace PulseRPC.Server.SourceGenerator.Helpers;
 
@@ -63,5 +64,52 @@ internal static class ProtocolIdHelper
         return parameterTypes.Where(p =>
             p != "System.Threading.CancellationToken" &&
             p != "CancellationToken");
+    }
+
+    /// <summary>
+    /// 获取接口的所有公共方法候选（含直接成员 + 继承接口成员，排除 <c>IPulseHub</c> 标记接口本身），
+    /// 按「方法名 + 过滤 CancellationToken 后的参数类型」去重。
+    /// </summary>
+    /// <remarks>
+    /// 与客户端生成器（<c>PulseRPC.Generator</c> 项目中 <c>ServiceProxyGenerator.GetAllInterfaceMethods</c>）
+    /// 保持完全一致的收集范围，避免两侧协议号计算基于不同的方法集合而产生不一致
+    /// （见《统一 IPulseHub 全链路寻址与集群架构设计》§11.2 风险 #1）。
+    /// 调用方仍需自行应用各自的额外过滤条件（如 <c>MethodKind.Ordinary</c>、异步返回类型检查等）。
+    /// </remarks>
+    public static IEnumerable<IMethodSymbol> GetAllPublicMethods(INamedTypeSymbol typeSymbol)
+    {
+        var seen = new HashSet<string>();
+
+        foreach (var member in typeSymbol.GetMembers())
+        {
+            if (member is IMethodSymbol method &&
+                method.DeclaredAccessibility == Accessibility.Public &&
+                seen.Add(GetMethodSignatureKey(method)))
+            {
+                yield return method;
+            }
+        }
+
+        foreach (var baseInterface in typeSymbol.AllInterfaces)
+        {
+            if (baseInterface.Name is "IPulseHub")
+                continue;
+
+            foreach (var member in baseInterface.GetMembers())
+            {
+                if (member is IMethodSymbol method &&
+                    method.DeclaredAccessibility == Accessibility.Public &&
+                    seen.Add(GetMethodSignatureKey(method)))
+                {
+                    yield return method;
+                }
+            }
+        }
+    }
+
+    private static string GetMethodSignatureKey(IMethodSymbol method)
+    {
+        var paramTypes = FilterCancellationToken(method.Parameters.Select(p => p.Type.ToDisplayString()));
+        return $"{method.Name}({string.Join(",", paramTypes)})";
     }
 }

@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using ChatApp.NewArchitecture.Contracts;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Contexts;
+using PulseRPC.Server.Security;
 using PulseRPC.Server.Services;
+using PulseRPC.Server.Transport;
 
 namespace ChatApp.NewArchitecture.Services;
 
@@ -36,6 +39,7 @@ namespace ChatApp.NewArchitecture.Services;
 public class ChatRoomHub : IChatRoomHub
 {
     private readonly IServiceAccessor<ChatRoomService> _roomService;
+    private readonly IServerChannelManager _channelManager;
     private readonly ILogger<ChatRoomHub> _logger;
 
     // ════════════════════════════════════════════════════════════════════════
@@ -49,18 +53,22 @@ public class ChatRoomHub : IChatRoomHub
     private string? CurrentUserId => PulseContext.CurrentUserId;
 
     /// <summary>
-    /// 获取当前用户所在的房间 ID（从 Connection 属性）
+    /// 获取当前用户所在的房间 ID。
     /// </summary>
-    private string? CurrentRoomId => PulseContext.Current != null && PulseContext.Current.Properties.TryGetValue("RoomId", out var roomId)
+    /// <remarks>
+    /// 注意：<see cref="PulseContext.Current"/> 是"每请求"新建的（见 <c>MessageEngine.ProcessSingleMessage</c>），
+    /// 因此不能用它的 <c>Properties</c> 跨请求保存会话状态。这里改为存放在
+    /// <see cref="IAuthenticationContext.Properties"/> 中——该对象与连接的生命周期绑定
+    /// （<c>IServerChannel.AuthenticationContext</c>），能在同一连接的多次请求间持久化。
+    /// </remarks>
+    private string? CurrentRoomId => PulseContext.Current?.AuthenticationContext?.Properties.TryGetValue("RoomId", out var roomId) == true
         ? roomId as string
         : null;
 
     /// <summary>
-    /// 获取当前用户名（从 Connection 属性）
+    /// 获取当前用户名（登录时写入的 ClaimTypes.Name 声明）
     /// </summary>
-    private string? CurrentUserName => PulseContext.Current != null && PulseContext.Current.Properties.TryGetValue("UserName", out var name)
-        ? name as string
-        : null;
+    private string? CurrentUserName => PulseContext.Current?.User?.FindFirst(ClaimTypes.Name)?.Value;
 
     // ════════════════════════════════════════════════════════════════════════
     // 构造函数
@@ -68,9 +76,11 @@ public class ChatRoomHub : IChatRoomHub
 
     public ChatRoomHub(
         IServiceAccessor<ChatRoomService> roomService,
+        IServerChannelManager channelManager,
         ILogger<ChatRoomHub> logger)
     {
         _roomService = roomService ?? throw new ArgumentNullException(nameof(roomService));
+        _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -103,15 +113,9 @@ public class ChatRoomHub : IChatRoomHub
             return Task.FromResult(ChatLoginResult.Failed("Invalid token"));
         }
 
-        // 2. 将认证信息存入连接上下文
-        //    框架会在后续请求中自动设置 PulseContext.CurrentUserId
-        var context = PulseContext.Current;
-        if (context != null)
-        {
-            context.Properties["UserId"] = userId;
-            context.Properties["UserName"] = userName;
-            // 注意：实际项目中应该调用 connection.SetAuthentication(...)
-        }
+        // 2. 建立连接级认证：把身份信息写入当前连接的 AuthenticationContext，
+        //    使后续同一连接上的所有调用都自动携带该身份（PulseContext.Current.UserId/User）。
+        AuthenticateCurrentConnection(userId, userName!);
 
         _logger.LogInformation("User {UserId} ({UserName}) logged in", userId, userName);
 
@@ -132,13 +136,11 @@ public class ChatRoomHub : IChatRoomHub
             await LeaveRoomAsync();
         }
 
-        // 清除认证信息
-        var context = PulseContext.Current;
-        if (context != null)
+        // 清除连接级认证信息（同时清空其 Properties，包括 RoomId）
+        var connectionId = PulseContext.CurrentConnectionId;
+        if (!string.IsNullOrEmpty(connectionId))
         {
-            context.Properties.Remove("UserId");
-            context.Properties.Remove("UserName");
-            context.Properties.Remove("RoomId");
+            _channelManager.GetChannel(connectionId)?.ClearAuthentication();
         }
 
         _logger.LogInformation("User {UserId} logged out", userId);
@@ -188,10 +190,10 @@ public class ChatRoomHub : IChatRoomHub
             var result = await service.EnqueueAsync(
                 () => service.JoinAsync(userId, userName ?? userId));
 
-            // 7. 如果成功，记录当前房间
+            // 7. 如果成功，记录当前房间（存放在连接级 AuthenticationContext.Properties 中）
             if (result.Success)
             {
-                PulseContext.Current?.Properties.TryAdd("RoomId", roomId);
+                PulseContext.Current?.AuthenticationContext?.Properties.TryAdd("RoomId", roomId);
             }
 
             return result;
@@ -302,7 +304,7 @@ public class ChatRoomHub : IChatRoomHub
 
             if (result)
             {
-                PulseContext.Current?.Properties.Remove("RoomId");
+                PulseContext.Current?.AuthenticationContext?.Properties.Remove("RoomId");
             }
 
             return result;
@@ -317,6 +319,34 @@ public class ChatRoomHub : IChatRoomHub
     // ════════════════════════════════════════════════════════════════════════
     // 辅助方法
     // ════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// 把身份信息写入当前连接的 <see cref="IServerChannel.AuthenticationContext"/>，使后续同一连接上的所有
+    /// 调用都自动携带该身份（<c>PulseContext.Current.UserId</c>），无需每次请求单独传递 Token。
+    /// </summary>
+    private void AuthenticateCurrentConnection(string userId, string userName)
+    {
+        var connectionId = PulseContext.CurrentConnectionId;
+        if (string.IsNullOrEmpty(connectionId))
+        {
+            throw new InvalidOperationException("No active connection to authenticate.");
+        }
+
+        var channel = _channelManager.GetChannel(connectionId)
+            ?? throw new InvalidOperationException($"Connection '{connectionId}' not found.");
+
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, userId),
+            new Claim(ClaimTypes.Name, userName),
+        };
+        var principal = new ClaimsPrincipal(new ClaimsIdentity(claims, "chatapp"));
+
+        var authContext = new AuthenticationContext(connectionId);
+        authContext.SetClientAuthentication(userId, userName, token: string.Empty, principal);
+
+        channel.SetAuthentication(authContext);
+    }
 
     /// <summary>
     /// 验证 token（简化实现）

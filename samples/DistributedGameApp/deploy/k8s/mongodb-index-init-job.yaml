@@ -1,0 +1,127 @@
+# MongoDB 索引初始化 Job - 在应用部署前运行
+# 适用于 Kubernetes 环境，确保索引在应用启动前创建完成
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-index-init
+  namespace: pulserpc
+  labels:
+    app: mongodb-index-init
+    version: v1
+spec:
+  # 完成后保留 Job（用于查看日志）
+  ttlSecondsAfterFinished: 3600  # 1 小时后自动删除
+
+  template:
+    metadata:
+      labels:
+        app: mongodb-index-init
+    spec:
+      restartPolicy: OnFailure
+
+      # 使用应用镜像（包含索引初始化代码）
+      containers:
+      - name: init-indexes
+        image: pulserpc/backend-server:latest
+        imagePullPolicy: IfNotPresent
+
+        # 运行索引初始化命令
+        command:
+        - "dotnet"
+        - "DistributedGameApp.BackendServer.dll"
+        - "--init-indexes-only"  # 自定义参数，只初始化索引
+
+        env:
+        # MongoDB 连接
+        - name: MongoDB__ConnectionString
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-secret
+              key: connection-string
+
+        # Consul 连接（用于分布式锁）
+        - name: Consul__Address
+          value: "http://consul:8500"
+
+        # 日志级别
+        - name: Logging__LogLevel__Default
+          value: "Information"
+
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+        # 超时时间（10 分钟）
+        # 大集合创建索引可能需要较长时间
+        # activeDeadlineSeconds: 600
+
+---
+# 使用 InitContainer 的部署示例
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-server
+  namespace: pulserpc
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: backend-server
+  template:
+    metadata:
+      labels:
+        app: backend-server
+    spec:
+      # InitContainer - 在主容器启动前运行
+      initContainers:
+      - name: wait-for-indexes
+        image: pulserpc/backend-server:latest
+        command:
+        - "sh"
+        - "-c"
+        - |
+          echo "等待 MongoDB 索引初始化完成..."
+          # 检查索引是否已存在（通过查询 Consul KV）
+          until curl -f http://consul:8500/v1/kv/pulserpc/indexes/initialized; do
+            echo "索引尚未初始化，等待中..."
+            sleep 5
+          done
+          echo "✓ 索引已就绪"
+
+        env:
+        - name: Consul__Address
+          value: "http://consul:8500"
+
+      # 主容器
+      containers:
+      - name: backend-server
+        image: pulserpc/backend-server:latest
+        ports:
+        - containerPort: 8080
+
+        env:
+        - name: MongoDB__ConnectionString
+          valueFrom:
+            secretKeyRef:
+              name: mongodb-secret
+              key: connection-string
+
+        - name: Consul__Address
+          value: "http://consul:8500"
+
+        # 禁用应用启动时的索引初始化
+        - name: IndexInitializer__Enabled
+          value: "false"
+
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"

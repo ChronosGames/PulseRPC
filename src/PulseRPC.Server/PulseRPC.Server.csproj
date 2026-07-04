@@ -11,6 +11,16 @@
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
     <ProjectReference Include="..\PulseRPC.Shared\PulseRPC.Shared.csproj" />
     <ProjectReference Include="..\PulseRPC.Server.SourceGenerator\PulseRPC.Server.SourceGenerator.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <!--
+      节点↔节点集群传输（P4）：本节点在充当"出站连接方"时复用 PulseRPC.Client 作为节点间全双工连接层。
+      注意：不引用 PulseRPC.Client.SourceGenerator 分析器 —— 该生成器会在每个引用它的编译单元中
+      各自生成一份全局聚合类型（PulseClientFactoryExtensions/ServiceExtensions/ClientChannelGenericExtensions），
+      PulseRPC.Server 作为被广泛引用的库，若也触发该生成器，会与下游同样使用该生成器的应用
+      （如 samples/*、perf/BenchmarkApp）产生同签名扩展方法二义性（CS0121）。
+      因此 IClusterInternalHub 的客户端调用桩改为手写（见 Clustering/ClusterInternalHubClientStub.cs），
+      并通过 [Protocol] 显式固定协议号，与服务端生成的骨架保持一致，无需生成器参与。
+    -->
+    <ProjectReference Include="..\PulseRPC.Client\PulseRPC.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>

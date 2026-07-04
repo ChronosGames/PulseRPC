@@ -1,76 +1,86 @@
-using System;
-using System.Net;
-using System.Threading.Tasks;
-using JwtAuthApp.Server.Authentication;
 using JwtAuthApp.Server.Services;
-using JwtAuthApp.Server.Hubs;
 using JwtAuthApp.Shared;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.IdentityModel.Tokens;
 using PulseRPC.Server;
-using System.Security.Claims;
+using PulseRPC.Server.Extensions;
+using PulseRPC.Shared;
+using JwtTokenService = JwtAuthApp.Server.Authentication.JwtTokenService;
+using JwtTokenServiceOptions = JwtAuthApp.Server.Authentication.JwtTokenServiceOptions;
 
-var builder = WebApplication.CreateBuilder(args);
+Console.WriteLine("=================================");
+Console.WriteLine("  PulseRPC JWT 认证示例服务器");
+Console.WriteLine("=================================");
 
-// 将日志服务添加到容器
-builder.Services.AddLogging();
-
-// 注册服务
-builder.Services.AddSingleton<JwtTokenService>();
-builder.Services.Configure<JwtTokenServiceOptions>(builder.Configuration.GetSection("JwtAuthApp.Server:JwtTokenService"));
-
-// 配置身份验证
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
+var host = Host.CreateDefaultBuilder(args)
+    // 显式以程序集所在目录为基准加载 appsettings.json，避免 `dotnet run` 的工作目录
+    // 与输出目录不一致导致配置（例如 JwtTokenService:Secret）绑定为空。
+    .ConfigureAppConfiguration((_, configuration) =>
     {
-        options.TokenValidationParameters = new TokenValidationParameters
+        configuration.SetBasePath(AppContext.BaseDirectory);
+        configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+    })
+    .ConfigureLogging(logging =>
+    {
+        logging.ClearProviders();
+        logging.AddConsole();
+        logging.SetMinimumLevel(LogLevel.Information);
+    })
+    .ConfigureServices((context, services) =>
+    {
+        services.AddPulseServer(options =>
         {
-            IssuerSigningKey = new SymmetricSecurityKey(Convert.FromBase64String(builder.Configuration.GetSection("JwtAuthApp.Server:JwtTokenService:Secret").Value!)),
-            RequireExpirationTime = true,
-            RequireSignedTokens = true,
-            ClockSkew = TimeSpan.FromSeconds(10),
+            options.Transports = new()
+            {
+                new TransportChannelConfiguration
+                {
+                    Name = "TCP",
+                    Type = TransportType.TCP,
+                    Port = 5001,
+                    IsDefault = true,
+                },
+            };
+        });
 
-            ValidateIssuer = false,
-            ValidateAudience = false,
-            ValidateLifetime = true,
-            ValidateIssuerSigningKey = true,
-        };
-#if DEBUG
-        options.RequireHttpsMetadata = false;
-#endif
-    });
-builder.Services.AddAuthorization();
+        services.Configure<JwtTokenServiceOptions>(
+            context.Configuration.GetSection("JwtAuthApp.Server:JwtTokenService"));
+        services.AddSingleton<JwtTokenService>();
 
-var app = builder.Build();
+        // Hub 实现注册（无状态/连接安全，单例即可；TimerHub 内部按 connectionId 隔离状态）
+        services.AddSingleton<IAccountHub, AccountHub>();
+        services.AddSingleton<IGreeterHub, GreeterHub>();
+        services.AddSingleton<ITimerHub, TimerHub>();
 
-// 获取服务提供程序
-var serviceProvider = app.Services;
+        // 注册所有 [Channel("CLIENT")] : IPulseHub 推送接收器的 IHubContext<T>（源生成，含 ITimerReceiver）
+        services.AddAllPulseReceiverContexts();
+    })
+    .Build();
 
-// 配置PulseRPC服务器
-var logger = serviceProvider.GetRequiredService<ILogger<PulseServer>>();
-var pulseServer = new PulseServer(new IPEndPoint(IPAddress.Any, 5001), logger);
+var server = host.Services.GetRequiredService<IPulseServer>();
 
-// 添加请求拦截器设置当前用户
-// pulseServer.OnBeforeRequest += (request, user) =>
-// {
-//     // 在每个请求处理前设置当前用户
-//     AccountService.CurrentUser.Value = user;
-//     return Task.CompletedTask;
-// };
+try
+{
+    await server.StartAsync();
 
-// 注册PulseRPC服务
-pulseServer.RegisterService(new AccountService(serviceProvider.GetRequiredService<JwtTokenService>()));
-pulseServer.RegisterService(new GreeterService());
-pulseServer.RegisterHub<ITimerHub, ITimerHubReceiver>(typeof(TimerHub));
+    Console.WriteLine("\nJWT 认证示例服务器已启动 (TCP :5001)，按 Ctrl+C 停止...\n");
 
-// 启动PulseRPC服务器
-_ = Task.Run(() => pulseServer.StartAsync());
+    using var cts = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        cts.Cancel();
+    };
 
-app.UseAuthentication();
-app.UseAuthorization();
-
-await app.RunAsync();
+    await Task.Delay(Timeout.Infinite, cts.Token);
+}
+catch (OperationCanceledException)
+{
+    // 正常停止
+}
+finally
+{
+    await server.StopAsync();
+    Console.WriteLine("\n服务器已停止。");
+}

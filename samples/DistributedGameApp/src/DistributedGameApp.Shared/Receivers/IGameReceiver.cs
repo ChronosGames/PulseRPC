@@ -11,11 +11,13 @@ namespace DistributedGameApp.Shared.Receivers;
 /// 这个接口定义了服务器可以向客户端推送的所有游戏事件。
 /// 客户端需要实现这个接口来接收服务器推送的通知。
 /// <para>
-/// 继承 <see cref="IPulseReceiver"/> 表示这是客户端实现的接口。
+/// 标注 <see cref="ChannelAttribute"/>("CLIENT") 并继承 <see cref="IPulseHub"/> 表示这是客户端实现的接口
+/// （统一 IPulseHub 架构，原 IPulseReceiver 已硬移除）。
 /// 服务端使用 <c>IHubContext&lt;IGameReceiver&gt;</c> 推送消息。
 /// </para>
 /// </remarks>
-public interface IGameReceiver : IPulseReceiver
+[Channel("CLIENT")]
+public interface IGameReceiver : IPulseHub
 {
     /// <summary>
     /// 匹配成功通知

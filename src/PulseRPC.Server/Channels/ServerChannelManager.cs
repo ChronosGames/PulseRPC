@@ -108,6 +108,33 @@ internal class ServerChannelManager : IServerChannelManager
         }
     }
 
+    /// <inheritdoc/>
+    public IServerChannel GetOrRegisterVirtualChannel(string connectionId, Func<string, IServerChannel> factory)
+    {
+        if (string.IsNullOrEmpty(connectionId)) throw new ArgumentException("连接 Id 不能为空。", nameof(connectionId));
+        ArgumentNullException.ThrowIfNull(factory);
+        ObjectDisposedException.ThrowIf(_disposed, nameof(ServerChannelManager));
+
+        var didCreate = false;
+        var channel = _channels.GetOrAdd(connectionId, id =>
+        {
+            didCreate = true;
+            return factory(id);
+        });
+
+        if (didCreate)
+        {
+            Interlocked.Increment(ref _totalChannelsCreated);
+            channel.StateChanged += OnChannelStateChanged;
+            channel.MessageParsed += OnChannelMessageParsed;
+
+            _logger.LogInformation("已注册虚拟通道: {ConnectionId}, 总数: {TotalCount}", connectionId, _channels.Count);
+            ChannelConnected?.Invoke(this, new ChannelEventArgs(channel));
+        }
+
+        return channel;
+    }
+
     /// <summary>
     /// 获取指定的传输通道
     /// </summary>

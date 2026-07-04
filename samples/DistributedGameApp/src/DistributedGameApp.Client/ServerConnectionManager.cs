@@ -249,24 +249,25 @@ public class ServerConnectionManager : IDisposable
     }
 
     /// <summary>
-    /// 自动注册对象实现的所有 IPulseReceiver 接口
+    /// 自动注册对象实现的所有 [Channel("CLIENT")] 推送接收接口（统一 IPulseHub 架构）
     /// </summary>
-    /// <typeparam name="T">实现了一个或多个 IPulseReceiver 接口的类型</typeparam>
+    /// <typeparam name="T">实现了一个或多个 [Channel("CLIENT")] 推送接收接口的类型</typeparam>
     /// <param name="serverId">服务器ID</param>
     /// <param name="receiver">接收器实现对象</param>
     /// <remarks>
     /// <para>
-    /// 自动检测并注册 receiver 实现的所有 IPulseReceiver 接口（无反射，编译时生成）。
+    /// 自动检测并注册 receiver 实现的所有推送接收接口（无反射，编译时生成）。原 IPulseReceiver
+    /// 已在统一 IPulseHub 架构中硬移除，推送接收接口现以 <c>[Channel("CLIENT")] : IPulseHub</c> 标注。
     /// </para>
     /// <code>
     /// // GameEventHandler 实现了 IPlayerReceiver, IChatRoomReceiver 等多个接口
     /// var handler = new GameEventHandler(this, logger);
     ///
-    /// // 一行代码自动注册所有实现的 IPulseReceiver 接口
+    /// // 一行代码自动注册所有实现的推送接收接口
     /// _connectionManager.RegisterReceivers(serverId, handler);
     /// </code>
     /// </remarks>
-    public void RegisterReceivers<T>(string serverId, T receiver) where T : class, IPulseReceiver
+    public void RegisterReceivers<T>(string serverId, T receiver) where T : class, IPulseHub
     {
         if (!_connections.TryGetValue(serverId, out var connection))
         {
@@ -274,7 +275,7 @@ public class ServerConnectionManager : IDisposable
         }
 
         // 调用源代码生成的 RegisterAllReceivers 扩展方法
-        // 自动注册 receiver 实现的所有 IPulseReceiver 接口
+        // 自动注册 receiver 实现的所有推送接收接口
         var tokens = connection.Channel.RegisterReceiver(receiver);
         connection.EventSubscriptions.AddRange(tokens);
 
@@ -361,7 +362,7 @@ public class ServerConnection
     public bool IsConnected { get; set; }
 
     /// <summary>
-    /// 事件订阅令牌列表（支持多个 IPulseReceiver 接口）
+    /// 事件订阅令牌列表（支持多个 [Channel("CLIENT")] 推送接收接口）
     /// </summary>
     public List<ISubscriptionToken> EventSubscriptions { get; } = new();
 

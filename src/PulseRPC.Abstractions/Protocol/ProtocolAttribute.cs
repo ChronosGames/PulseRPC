@@ -41,8 +41,9 @@ namespace PulseRPC.Protocol;
 ///     ValueTask JoinRoomAsync(string roomId);
 /// }
 ///
-/// // IPulseReceiver（服务端推送）方法同样支持该特性，协议号空间与 Hub 方法相互独立
-/// public interface IChatReceiver : IPulseReceiver
+/// // 服务端推送接收器（客户端实现）同样支持该特性，协议号空间与其它 Hub 方法相互独立
+/// [Channel("CLIENT")]
+/// public interface IChatReceiver : IPulseHub
 /// {
 ///     [Protocol(0x2001)]
 ///     ValueTask OnMessageReceivedAsync(string message);

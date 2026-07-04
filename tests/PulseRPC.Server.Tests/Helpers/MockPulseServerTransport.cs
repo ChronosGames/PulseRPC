@@ -107,14 +107,26 @@ public class MockServerTransport : IServerTransport
     /// <summary>Value returned by <see cref="SendAsync"/> (test helper).</summary>
     public bool SendResult { get; set; } = true;
 
+    private int _remainingFailedSendAttempts;
+
     public event EventHandler<TransportStateEventArgs>? StateChanged;
     public event EventHandler<TransportDataEventArgs>? DataReceived;
 
     public Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
+        if (_remainingFailedSendAttempts > 0)
+        {
+            _remainingFailedSendAttempts--;
+            return Task.FromResult(false);
+        }
+
         SentFrames.Add(data.ToArray());
         return Task.FromResult(SendResult);
     }
+
+    /// <summary>Test helper: makes the next <paramref name="count"/> calls to <see cref="SendAsync"/> return
+    /// <c>false</c> (without recording a sent frame), simulating a transient delivery failure for retry tests.</summary>
+    public void FailNextSendAttempts(int count) => _remainingFailedSendAttempts = count;
 
     public Task CloseAsync(CancellationToken cancellationToken = default)
     {

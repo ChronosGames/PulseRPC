@@ -52,7 +52,7 @@
    - 定义了客户端可以远程调用的所有方法
    - 每个方法通过协议号进行标识
 
-3. **IPulseReceiver** - 服务器推送的事件
+3. **`[Channel("CLIENT")] : IPulseHub`** - 服务器推送的事件
    - 定义了服务器可以向客户端推送的所有事件
    - 实现实时通知和状态同步
 
@@ -290,8 +290,9 @@ public interface IPlayerHub : IPulseHub
     Task<PlayerInfo?> GetPlayerInfoAsync();
 }
 
-// 3. 定义Receiver接口（服务器推送）
-public interface IPlayerReceiver : IPulseReceiver
+// 3. 定义Receiver接口（服务器推送，标注 [Channel("CLIENT")] 表示由客户端实现）
+[Channel("CLIENT")]
+public interface IPlayerReceiver : IPulseHub
 {
     Task OnPlayerLevelUpAsync(PlayerInfo playerInfo);
 }
@@ -330,7 +331,8 @@ public interface IPlayerReceiver : IPulseReceiver
    }
 
    // Receivers/IBattleReceiver.cs
-   public interface IBattleReceiver : IPulseReceiver
+   [Channel("CLIENT")]
+   public interface IBattleReceiver : IPulseHub
    {
        Task OnBattleStartedAsync(BattleInfo info);
    }

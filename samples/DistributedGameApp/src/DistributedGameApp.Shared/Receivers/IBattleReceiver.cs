@@ -11,11 +11,13 @@ namespace DistributedGameApp.Shared.Receivers;
 /// 这个接口定义了服务器可以向客户端推送的所有战斗事件。
 /// 用于实时同步战斗状态，确保所有玩家看到一致的战斗画面。
 /// <para>
-/// 继承 <see cref="IPulseReceiver"/> 表示这是客户端实现的接口。
+/// 标注 <see cref="ChannelAttribute"/>("CLIENT") 并继承 <see cref="IPulseHub"/> 表示这是客户端实现的接口
+/// （统一 IPulseHub 架构，原 IPulseReceiver 已硬移除）。
 /// 服务端使用 <c>IHubContext&lt;IBattleReceiver&gt;</c> 推送消息。
 /// </para>
 /// </remarks>
-public interface IBattleReceiver : IPulseReceiver
+[Channel("CLIENT")]
+public interface IBattleReceiver : IPulseHub
 {
     /// <summary>
     /// 战斗开始通知

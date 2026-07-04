@@ -12,7 +12,7 @@ namespace PulseRPC.Server.Services;
 /// <strong>接口层次</strong>：
 /// </para>
 /// <code>
-/// IPulseHub / IPulseReceiver  ← 通信契约（定义 RPC 方法签名）
+/// IPulseHub（含 [Channel("CLIENT")] 推送接收器）  ← 通信契约（定义 RPC 方法签名）
 ///         ↓
 /// IPulseService        ← 服务实例（提供标识和生命周期）
 ///         ↓

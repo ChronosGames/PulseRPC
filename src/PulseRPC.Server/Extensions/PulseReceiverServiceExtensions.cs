@@ -9,7 +9,7 @@ namespace PulseRPC.Server.Extensions;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 提供注册 IPulseReceiver 相关服务的扩展方法。
+/// 提供注册推送接收器（<c>[Channel("CLIENT")] : IPulseHub</c>）相关服务的扩展方法。
 /// </para>
 /// <para>
 /// <strong>使用示例</strong>：
