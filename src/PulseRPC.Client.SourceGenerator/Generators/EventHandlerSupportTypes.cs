@@ -19,9 +19,9 @@ public static class EventHandlerSupportTypes
         GenerateFileHeader(sb);
 
         // 生成支持类型
-        GenerateSmartSubscriptionOptions(sb);
+        GenerateSubscriptionOptions(sb);
         GenerateSubscriptionContext(sb);
-        GenerateSmartSubscriptionToken(sb);
+        GenerateSubscriptionToken(sb);
         GenerateEventMetrics(sb);
         GenerateEventHandlerMetrics(sb);
         GenerateBatchEventItem(sb);
@@ -55,23 +55,23 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("{");
     }
 
-    private static void GenerateSmartSubscriptionOptions(StringBuilder sb)
+    private static void GenerateSubscriptionOptions(StringBuilder sb)
     {
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 智能订阅选项 - 配置高级事件处理特性");
+        sb.AppendLine("    /// 订阅选项 - 配置高级事件处理特性");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    public sealed class SmartSubscriptionOptions");
+        sb.AppendLine("    public sealed class SubscriptionOptions");
         sb.AppendLine("    {");
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 默认配置 - 适用于大多数场景");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static SmartSubscriptionOptions Default { get; } = new();");
+        sb.AppendLine("        public static SubscriptionOptions Default { get; } = new();");
         sb.AppendLine();
 
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 游戏优化配置 - 低延迟、高频处理");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static SmartSubscriptionOptions Game { get; } = new()");
+        sb.AppendLine("        public static SubscriptionOptions Game { get; } = new()");
         sb.AppendLine("        {");
         sb.AppendLine("            EnableBatchProcessing = true,");
         sb.AppendLine("            BatchSize = 100,");
@@ -85,7 +85,7 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 关键业务配置 - 高可靠性、强一致性");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static SmartSubscriptionOptions Critical { get; } = new()");
+        sb.AppendLine("        public static SubscriptionOptions Critical { get; } = new()");
         sb.AppendLine("        {");
         sb.AppendLine("            EnableBatchProcessing = false,");
         sb.AppendLine("            EnablePerformanceMonitoring = true,");
@@ -151,13 +151,13 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("    internal sealed class SubscriptionContext : IDisposable");
         sb.AppendLine("    {");
         sb.AppendLine("        public object Subscriber { get; }");
-        sb.AppendLine("        public SmartSubscriptionOptions Options { get; }");
+        sb.AppendLine("        public SubscriptionOptions Options { get; }");
         sb.AppendLine("        public EventMetrics Metrics { get; }");
         sb.AppendLine("        public DateTime CreatedAt { get; }");
         sb.AppendLine("        public CircuitBreakerState? CircuitBreaker { get; }");
         sb.AppendLine();
 
-        sb.AppendLine("        public SubscriptionContext(object subscriber, SmartSubscriptionOptions options, EventMetrics metrics)");
+        sb.AppendLine("        public SubscriptionContext(object subscriber, SubscriptionOptions options, EventMetrics metrics)");
         sb.AppendLine("        {");
         sb.AppendLine("            Subscriber = subscriber;");
         sb.AppendLine("            Options = options;");
@@ -179,12 +179,12 @@ public static class EventHandlerSupportTypes
         sb.AppendLine();
     }
 
-    private static void GenerateSmartSubscriptionToken(StringBuilder sb)
+    private static void GenerateSubscriptionToken(StringBuilder sb)
     {
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 智能订阅令牌 - 增强的订阅管理");
+        sb.AppendLine("    /// 订阅令牌 - 增强的订阅管理");
         sb.AppendLine("    /// </summary>");
-        sb.AppendLine("    internal sealed class SmartSubscriptionToken : ISubscriptionToken");
+        sb.AppendLine("    internal sealed class SubscriptionToken : ISubscriptionToken");
         sb.AppendLine("    {");
         sb.AppendLine("        private readonly ISubscriptionToken _innerToken;");
         sb.AppendLine("        private readonly SubscriptionContext _context;");
@@ -197,7 +197,7 @@ public static class EventHandlerSupportTypes
         sb.AppendLine("        public bool IsUnsubscribed => _disposed || _innerToken.IsUnsubscribed;");
         sb.AppendLine();
 
-        sb.AppendLine("        public SmartSubscriptionToken(ISubscriptionToken innerToken, SubscriptionContext context, Action onDispose)");
+        sb.AppendLine("        public SubscriptionToken(ISubscriptionToken innerToken, SubscriptionContext context, Action onDispose)");
         sb.AppendLine("        {");
         sb.AppendLine("            _innerToken = innerToken;");
         sb.AppendLine("            _context = context;");

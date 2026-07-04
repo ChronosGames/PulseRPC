@@ -162,8 +162,8 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             var eventTypes = combined.Left;
             var configOptions = combined.Right;
 
-            // 读取 SmartHandler 生成配置
-            var generateSmartHandlers = ShouldGenerateSmartHandlers(configOptions);
+            // 读取 EventHandler 生成配置
+            var generateEventHandlers = ShouldGenerateEventHandlers(configOptions);
 
             // 去重事件类型（同一个接口可能被多个类的 PulseClientGeneration 特性引用）
             var uniqueEventTypes = eventTypes
@@ -186,18 +186,18 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             {
                 if (eventTypeInfo.Type is INamedTypeSymbol namedType)
                 {
-                    // 检查接口是否有 [GenerateSmartHandler] 特性
-                    var hasSmartHandlerAttribute = HasGenerateSmartHandlerAttribute(namedType);
+                    // 检查接口是否有 [GenerateEventHandler] 特性
+                    var hasEventHandlerAttribute = HasGenerateEventHandlerAttribute(namedType);
 
-                    // 根据接口特性或全局配置决定是否生成智能事件处理器
+                    // 根据接口特性或全局配置决定是否生成事件处理器
                     // 优先级：接口特性 > 全局配置
-                    // 默认不生成 SmartHandler（改变原有行为）
-                    // 格式: {Namespace}_{TypeNameWithoutI}.SmartHandler.g.cs
-                    if (hasSmartHandlerAttribute || generateSmartHandlers)
+                    // 默认不生成 EventHandler（改变原有行为）
+                    // 格式: {Namespace}_{TypeNameWithoutI}.EventHandler.g.cs
+                    if (hasEventHandlerAttribute || generateEventHandlers)
                     {
-                        var smartHandlerCode = EventHandlerGenerator.GenerateEventHandler(namedType, spc, receiverProtocolIds);
-                        var smartHandlerFileName = $"{GetSafeFileName(namedType)}.SmartHandler.g.cs";
-                        spc.AddSource(smartHandlerFileName, SourceText.From(smartHandlerCode, Encoding.UTF8));
+                        var eventHandlerCode = EventHandlerGenerator.GenerateEventHandler(namedType, spc, receiverProtocolIds);
+                        var eventHandlerFileName = $"{GetSafeFileName(namedType)}.EventHandler.g.cs";
+                        spc.AddSource(eventHandlerFileName, SourceText.From(eventHandlerCode, Encoding.UTF8));
                     }
 
                     // 始终生成接收器调度器（轻量级，推荐使用）
@@ -636,13 +636,13 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             }
         }
 
-        // 注意：SmartHandler 工厂方法已移除（SmartHandler 现在是可选生成的）
+        // 注意：EventHandler 工厂方法已移除（EventHandler 现在是可选生成的）
         // 用户可以通过以下方式使用：
-        // 1. 直接 new SmartHandler（如果接口标记了 [GenerateSmartHandler]）
+        // 1. 直接 new EventHandler（如果接口标记了 [GenerateEventHandler]）
         // 2. 使用轻量级的 Dispatcher（始终生成）
         // 3. 使用 IClientChannel.RegisterReceiver<T>() 扩展方法
 
-        // 生成事件监听器扩展方法（使用 Dispatcher，不依赖 SmartHandler）
+        // 生成事件监听器扩展方法（使用 Dispatcher，不依赖 EventHandler）
         if (eventTypes.Length > 0)
         {
             foreach (var interfaceSymbol in eventTypes)
@@ -1149,14 +1149,13 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     }
 
     /// <summary>
-    /// 从 MSBuild 配置中读取是否生成 SmartHandler
+    /// 从 MSBuild 配置中读取是否生成 EventHandler
     /// </summary>
     /// <param name="configOptions">配置选项提供器</param>
-    /// <returns>是否生成 SmartHandler，默认为 false（减少生成代码量）</returns>
-    private static bool ShouldGenerateSmartHandlers(AnalyzerConfigOptionsProvider configOptions)
+    /// <returns>是否生成 EventHandler，默认为 false（减少生成代码量）</returns>
+    private static bool ShouldGenerateEventHandlers(AnalyzerConfigOptionsProvider configOptions)
     {
-        // 尝试读取全局配置: PulseRPC_GenerateSmartHandlers
-        if (configOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_GenerateSmartHandlers", out var value))
+        if (configOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_GenerateEventHandlers", out var value))
         {
             if (bool.TryParse(value, out var result))
             {
@@ -1164,18 +1163,17 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             }
         }
 
-        // 默认不生成（减少代码量，用户可通过 [GenerateSmartHandler] 特性或项目配置启用）
         return false;
     }
 
     /// <summary>
-    /// 检查接口是否标记了 [GenerateSmartHandler] 特性
+    /// 检查接口是否标记了 [GenerateEventHandler] 特性
     /// </summary>
     /// <param name="interfaceSymbol">接口符号</param>
-    /// <returns>是否有 GenerateSmartHandler 特性</returns>
-    private static bool HasGenerateSmartHandlerAttribute(INamedTypeSymbol interfaceSymbol)
+    /// <returns>是否有 GenerateEventHandler 特性</returns>
+    private static bool HasGenerateEventHandlerAttribute(INamedTypeSymbol interfaceSymbol)
     {
         return interfaceSymbol.GetAttributes()
-            .Any(attr => attr.AttributeClass?.Name is "GenerateSmartHandlerAttribute" or "GenerateSmartHandler");
+            .Any(attr => attr.AttributeClass?.Name is "GenerateEventHandlerAttribute" or "GenerateEventHandler");
     }
 }

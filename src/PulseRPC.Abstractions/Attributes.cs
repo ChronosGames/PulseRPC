@@ -263,18 +263,18 @@ public sealed class ClientFacingAttribute : Attribute
 }
 
 /// <summary>
-/// 标记接口需要生成 SmartHandler（高级事件处理器）
+/// 标记接口需要生成 EventHandler（高级事件处理器）
 /// </summary>
 /// <remarks>
 /// 默认情况下，SourceGenerator 仅生成轻量级的 Dispatcher。
-/// 添加此特性后，将额外生成 SmartHandler，提供以下高级功能：
+/// 添加此特性后，将额外生成 EventHandler，提供以下高级功能：
 /// - 批量事件处理
 /// - 性能监控指标
 /// - 断路器模式
-/// - 智能订阅管理
+/// - 订阅管理
 /// </remarks>
 [AttributeUsage(AttributeTargets.Interface, AllowMultiple = false)]
-public sealed class GenerateSmartHandlerAttribute : Attribute
+public sealed class GenerateEventHandlerAttribute : Attribute
 {
     /// <summary>
     /// 是否启用批量处理，默认为 false
