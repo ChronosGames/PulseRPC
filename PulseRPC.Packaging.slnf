@@ -5,7 +5,11 @@
       "src\\PulseRPC.Abstractions\\PulseRPC.Abstractions.csproj",
       "src\\PulseRPC.Shared\\PulseRPC.Shared.csproj",
       "src\\PulseRPC.Client\\PulseRPC.Client.csproj",
-      "src\\PulseRPC.Server\\PulseRPC.Server.csproj"
+      "src\\PulseRPC.Server\\PulseRPC.Server.csproj",
+      "src\\PulseRPC.Infrastructure\\PulseRPC.Infrastructure.csproj",
+      "src\\PulseRPC.Infrastructure.Consul\\PulseRPC.Infrastructure.Consul.csproj",
+      "src\\PulseRPC.Infrastructure.Etcd\\PulseRPC.Infrastructure.Etcd.csproj",
+      "src\\PulseRPC.Infrastructure.Kubernetes\\PulseRPC.Infrastructure.Kubernetes.csproj"
     ]
   }
 }
