@@ -42,6 +42,7 @@ public interface IPulseClient : IDisposable
     /// <summary>
     /// 停止客户端
     /// </summary>
+    /// <exception cref="NotSupportedException">当 <paramref name="graceful"/> 为 <c>false</c> 时抛出，当前客户端尚未实现 abortive stop。</exception>
     Task StopAsync(bool graceful = true, TimeSpan? timeout = null, CancellationToken cancellationToken = default);
 
     /// <summary>
@@ -64,11 +65,13 @@ public interface IPulseClient : IDisposable
     /// <summary>
     /// 断开连接
     /// </summary>
+    /// <exception cref="NotSupportedException">当 <paramref name="graceful"/> 为 <c>false</c> 时抛出，当前客户端尚未实现 abortive disconnect。</exception>
     Task DisconnectAsync(string connectionId, bool graceful = true, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// 批量断开连接
     /// </summary>
+    /// <exception cref="NotSupportedException">当 <paramref name="graceful"/> 为 <c>false</c> 时抛出，当前客户端尚未实现 abortive disconnect。</exception>
     Task<int> DisconnectAsync(Func<IClientChannel, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default);
 
     /// <summary>

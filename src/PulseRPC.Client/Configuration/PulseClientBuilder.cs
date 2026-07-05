@@ -166,6 +166,30 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
         {
             throw new InvalidOperationException("最大并发连接数必须大于 0");
         }
+
+        if (_authenticationProvider != null)
+        {
+            throw new NotSupportedException(
+                "WithAuthentication 当前尚未接入客户端传输握手，不能保证认证令牌会发送到服务端。");
+        }
+
+        if (_connectionPoolOptions != null)
+        {
+            throw new NotSupportedException(
+                "WithConnectionPooling 当前尚未接入 ConnectionManager，不能保证连接池配置生效。");
+        }
+
+        if (_retryPolicy != null)
+        {
+            throw new NotSupportedException(
+                "WithRetryPolicy 当前尚未接入客户端请求/连接主路径，不能保证重试策略生效。");
+        }
+
+        if (_loadBalancingOptions.Count > 0)
+        {
+            throw new NotSupportedException(
+                "WithLoadBalancing 的 options 参数当前尚未被负载均衡器消费；仅 strategy 参数会生效。");
+        }
     }
 
     /// <summary>

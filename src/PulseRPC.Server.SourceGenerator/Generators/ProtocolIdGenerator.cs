@@ -560,7 +560,7 @@ public static class ProtocolIdGenerator
             return true;
 
         // 检查是否是元组类型（元组是值类型）
-        if (trimmed.StartsWith('(') && trimmed.EndsWith(')'))
+        if (trimmed.StartsWith("(", StringComparison.Ordinal) && trimmed.EndsWith(")", StringComparison.Ordinal))
             return true;
 
         // 对于其他类型，假设是引用类型

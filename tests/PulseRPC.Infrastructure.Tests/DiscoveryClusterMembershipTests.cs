@@ -124,9 +124,10 @@ public class DiscoveryClusterMembershipTests
             provider.SetNodes(Node(A, 5001), Node(B, 5002));
             provider.RaiseChanged(); // 模拟后端 watch 触发
 
-            var converged = await SpinAsync(() => membership.LiveNodeIds.Contains(B), TimeSpan.FromSeconds(3));
+            var converged = await SpinAsync(
+                () => membership.LiveNodeIds.Contains(B) && Volatile.Read(ref changedFired) >= 1,
+                TimeSpan.FromSeconds(3));
             converged.Should().BeTrue("watch 触发后应立即拉取并纳入新节点 B");
-            changedFired.Should().BeGreaterThanOrEqualTo(1);
         }
         finally
         {
@@ -210,7 +211,9 @@ public class DiscoveryClusterMembershipTests
             provider.SetNodes(Node(B, 5002));
             provider.RaiseChanged();
 
-            var converged = await SpinAsync(() => !membership.LiveNodeIds.Contains(A) && membership.LiveNodeIds.Contains(B), TimeSpan.FromSeconds(3));
+            var converged = await SpinAsync(
+                () => !membership.TryResolve(A, out _) && !membership.LiveNodeIds.Contains(A) && membership.LiveNodeIds.Contains(B),
+                TimeSpan.FromSeconds(3));
             converged.Should().BeTrue();
 
             // A 重新出现在后端后应恢复存活（此前的可疑标记已被清理，不会残留把它挡在门外）。

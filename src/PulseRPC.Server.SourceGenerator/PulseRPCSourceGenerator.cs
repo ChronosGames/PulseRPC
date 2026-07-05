@@ -1051,22 +1051,22 @@ public static partial class ProtocolIdMapping
 
         if (returnType.StartsWith("Task<") && returnType.EndsWith(">"))
         {
-            return returnType[5..^1].Trim();
+            return returnType.Substring(5, returnType.Length - 6).Trim();
         }
 
         if (returnType.StartsWith("ValueTask<") && returnType.EndsWith(">"))
         {
-            return returnType[10..^1].Trim();
+            return returnType.Substring(10, returnType.Length - 11).Trim();
         }
 
         if (returnType.StartsWith("System.Threading.Tasks.Task<") && returnType.EndsWith(">"))
         {
-            return returnType[28..^1].Trim();
+            return returnType.Substring(28, returnType.Length - 29).Trim();
         }
 
         if (returnType.StartsWith("System.Threading.Tasks.ValueTask<") && returnType.EndsWith(">"))
         {
-            return returnType[33..^1].Trim();
+            return returnType.Substring(33, returnType.Length - 34).Trim();
         }
 
         throw new InvalidOperationException($"{returnType} is not a valid response type");

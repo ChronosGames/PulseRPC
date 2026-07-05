@@ -152,7 +152,12 @@ internal sealed class PulseClient : IPulseClient
     public async Task StopAsync(bool graceful = true, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
+        if (!graceful)
+        {
+            throw new NotSupportedException("客户端 abortive StopAsync 尚未实现；当前仅支持 graceful=true 的传输关闭。");
+        }
 
+        ClientState previousState;
         lock (_stateLock)
         {
             if (_state == ClientState.Stopped || _state == ClientState.Stopping)
@@ -160,10 +165,10 @@ internal sealed class PulseClient : IPulseClient
                 return;
             }
 
+            previousState = _state;
             _state = ClientState.Stopping;
         }
 
-        var previousState = _state;
         OnStateChanged(previousState, ClientState.Stopping);
 
         try
@@ -259,6 +264,10 @@ internal sealed class PulseClient : IPulseClient
     public async Task DisconnectAsync(string connectionId, bool graceful = true, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
+        if (!graceful)
+        {
+            throw new NotSupportedException("客户端 abortive DisconnectAsync 尚未实现；当前仅支持 graceful=true 的传输关闭。");
+        }
 
         await _connectionManager.DisconnectAsync(connectionId, cancellationToken);
     }
@@ -269,6 +278,10 @@ internal sealed class PulseClient : IPulseClient
     public async Task<int> DisconnectAsync(Func<IClientChannel, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
+        if (!graceful)
+        {
+            throw new NotSupportedException("客户端 abortive DisconnectAsync 尚未实现；当前仅支持 graceful=true 的传输关闭。");
+        }
 
         var connectionsToDisconnect = _connectionManager.GetAllConnections().Where(predicate).ToList();
 

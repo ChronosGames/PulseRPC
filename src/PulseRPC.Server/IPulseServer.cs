@@ -96,6 +96,7 @@ public interface IPulseServer : IAsyncDisposable, IDisposable
     /// <summary>
     /// 获取已注册的服务列表
     /// </summary>
+    /// <exception cref="NotSupportedException">当前运行时未提供服务元数据清单。</exception>
     IReadOnlyList<ServiceInfo> GetRegisteredServices();
 
     // === 性能监控 ===

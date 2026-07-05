@@ -262,13 +262,15 @@ public static class ResponseSerializerGenerator
             sb.AppendLine("                }");
             sb.AppendLine();
 
+            var responseTypeName = info.ResponseTypeName!;
+
             // 检测是否为元组类型，元组类型不能使用模式匹配
-            if (IsTupleType(info.ResponseTypeName))
+            if (IsTupleType(responseTypeName))
             {
                 // 对于元组类型，使用类型检查和转换
-                sb.AppendLine($"                if (response.GetType() == typeof({info.ResponseTypeName}))");
+                sb.AppendLine($"                if (response.GetType() == typeof({responseTypeName}))");
                 sb.AppendLine("                {");
-                sb.AppendLine($"                    var typed = ({info.ResponseTypeName})response;");
+                sb.AppendLine($"                    var typed = ({responseTypeName})response;");
                 sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typed);");
                 sb.AppendLine("                    return;");
                 sb.AppendLine("                }");
@@ -276,7 +278,7 @@ public static class ResponseSerializerGenerator
             else
             {
                 // 对于非元组类型，使用模式匹配
-                sb.AppendLine($"                if (response is {info.ResponseTypeName} typed)");
+                sb.AppendLine($"                if (response is {responseTypeName} typed)");
                 sb.AppendLine("                {");
                 sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typed);");
                 sb.AppendLine("                    return;");
@@ -284,7 +286,7 @@ public static class ResponseSerializerGenerator
             }
 
             sb.AppendLine();
-            sb.AppendLine($"                throw new InvalidCastException($\"期待类型 {{typeof({info.ResponseTypeName})}} 但接收到 {{response.GetType()}}\");");
+            sb.AppendLine($"                throw new InvalidCastException($\"期待类型 {{typeof({responseTypeName})}} 但接收到 {{response.GetType()}}\");");
             sb.AppendLine("            }");
             sb.AppendLine();
 
@@ -297,11 +299,11 @@ public static class ResponseSerializerGenerator
 
             sb.AppendLine("            public bool TryGetTypedSerializer<T>(out Action<T, IBufferWriter<byte>> serializer)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                if (typeof(T) == typeof({info.ResponseTypeName}))");
+            sb.AppendLine($"                if (typeof(T) == typeof({responseTypeName}))");
             sb.AppendLine("                {");
             sb.AppendLine("                    serializer = static (value, bufferWriter) =>");
             sb.AppendLine("                    {");
-            sb.AppendLine($"                        MemoryPackSerializer.Serialize(bufferWriter, Unsafe.As<T, {info.ResponseTypeName}>(ref value));");
+            sb.AppendLine($"                        MemoryPackSerializer.Serialize(bufferWriter, Unsafe.As<T, {responseTypeName}>(ref value));");
             sb.AppendLine("                    };");
             sb.AppendLine("                    return true;");
             sb.AppendLine("                }");
@@ -359,17 +361,24 @@ public static class ResponseSerializerGenerator
                 // responseType 为 null 表示 void 返回，否则为 MemoryPackable 类型
                 var responseType = string.IsNullOrWhiteSpace(method.ResponseTypeFullName) ? null : method.ResponseTypeFullName;
 
-                // 移除末尾的可空标记
-                if (!string.IsNullOrEmpty(responseType) && responseType.EndsWith('?'))
+                if (responseType != null && responseType.Length > 0)
                 {
-                    responseType = responseType[..^1];
-                }
+                    var normalizedResponseType = responseType;
 
-                // 对于元组类型，移除元素名称（如 guild, member 等）
-                // 例如：(GuildEntity? guild, GuildMember? member) -> (GuildEntity?, GuildMember?)
-                if (!string.IsNullOrEmpty(responseType) && IsTupleType(responseType))
-                {
-                    responseType = StripTupleElementNames(responseType);
+                    // 移除末尾的可空标记
+                    if (normalizedResponseType.EndsWith("?", StringComparison.Ordinal))
+                    {
+                        normalizedResponseType = normalizedResponseType.Substring(0, normalizedResponseType.Length - 1);
+                    }
+
+                    // 对于元组类型，移除元素名称（如 guild, member 等）
+                    // 例如：(GuildEntity? guild, GuildMember? member) -> (GuildEntity?, GuildMember?)
+                    if (IsTupleType(normalizedResponseType))
+                    {
+                        normalizedResponseType = StripTupleElementNames(normalizedResponseType);
+                    }
+
+                    responseType = normalizedResponseType;
                 }
 
                 list.Add(new ResponseSerializerInfo(
@@ -423,7 +432,7 @@ public static class ResponseSerializerGenerator
             return false;
 
         // Each part of the namespace should be a valid identifier
-        var parts = ns.Split('.');
+        var parts = ns.Split(new[] { '.' });
         foreach (var part in parts)
         {
             if (string.IsNullOrEmpty(part))
@@ -455,9 +464,9 @@ public static class ResponseSerializerGenerator
         var trimmed = typeFullName.Trim();
 
         // 移除可能的可空标记
-        if (trimmed.EndsWith('?'))
+        if (trimmed.EndsWith("?", StringComparison.Ordinal))
         {
-            trimmed = trimmed[..^1].Trim();
+            trimmed = trimmed.Substring(0, trimmed.Length - 1).Trim();
         }
 
         // 移除参数名（如果类型名包含参数名，如 "Guild? guild" -> "Guild?"）
@@ -466,7 +475,7 @@ public static class ResponseSerializerGenerator
         trimmed = RemoveParameterName(trimmed);
 
         // 检查是否是元组类型
-        if (trimmed.StartsWith('(') && trimmed.EndsWith(')'))
+        if (trimmed.StartsWith("(", StringComparison.Ordinal) && trimmed.EndsWith(")", StringComparison.Ordinal))
         {
             // 提取元组元素（移除外层的括号）
             var tupleContent = trimmed.Substring(1, trimmed.Length - 2).Trim();
@@ -488,11 +497,11 @@ public static class ResponseSerializerGenerator
         if (genericStart > 0)
         {
             // 提取泛型定义的命名空间（如 System.Collections.Generic.List<T> 中的 System.Collections.Generic）
-            var genericDefinition = trimmed[..genericStart];
+            var genericDefinition = trimmed.Substring(0, genericStart);
             var lastDot = genericDefinition.LastIndexOf('.');
             if (lastDot > 0)
             {
-                var ns = genericDefinition[..lastDot];
+                var ns = genericDefinition.Substring(0, lastDot);
                 if (!string.IsNullOrWhiteSpace(ns) && IsValidNamespace(ns))
                 {
                     namespaces.Add(ns);
@@ -524,7 +533,7 @@ public static class ResponseSerializerGenerator
             var lastDot = trimmed.LastIndexOf('.');
             if (lastDot > 0)
             {
-                var ns = trimmed[..lastDot];
+                var ns = trimmed.Substring(0, lastDot);
                 if (!string.IsNullOrWhiteSpace(ns) && IsValidNamespace(ns))
                 {
                     namespaces.Add(ns);
@@ -583,7 +592,7 @@ public static class ResponseSerializerGenerator
                     // 但需要确保这不是类型名的一部分（如 "System.Collections.Generic"）
                     // 检查空格前的部分是否以点结尾，如果是，则可能是命名空间的一部分
                     var beforeSpace = trimmed.Substring(0, lastSpace).Trim();
-                    if (!beforeSpace.EndsWith('.'))
+                    if (!beforeSpace.EndsWith(".", StringComparison.Ordinal))
                     {
                         return beforeSpace;
                     }
@@ -734,7 +743,7 @@ public static class ResponseSerializerGenerator
 
         // 元组类型通常以 '(' 开头并以 ')' 结尾
         var trimmed = typeName.Trim();
-        return trimmed.StartsWith('(') && trimmed.EndsWith(')');
+        return trimmed.StartsWith("(", StringComparison.Ordinal) && trimmed.EndsWith(")", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -749,7 +758,7 @@ public static class ResponseSerializerGenerator
         var trimmed = typeName.Trim();
 
         // 如果不是元组类型，直接返回
-        if (!trimmed.StartsWith('(') || !trimmed.EndsWith(')'))
+        if (!trimmed.StartsWith("(", StringComparison.Ordinal) || !trimmed.EndsWith(")", StringComparison.Ordinal))
             return trimmed;
 
         // 提取元组内容（移除外层括号）
@@ -778,7 +787,7 @@ public static class ResponseSerializerGenerator
         var trimmed = element.Trim();
 
         // 如果是嵌套元组，递归处理
-        if (trimmed.StartsWith('(') && trimmed.EndsWith(')'))
+        if (trimmed.StartsWith("(", StringComparison.Ordinal) && trimmed.EndsWith(")", StringComparison.Ordinal))
         {
             return StripTupleElementNames(trimmed);
         }
@@ -807,7 +816,7 @@ public static class ResponseSerializerGenerator
 
             // 如果空格后是有效标识符（元素名），移除它
             // 但要确保 beforeSpace 不以点结尾（不是命名空间的一部分）
-            if (IsValidIdentifier(afterSpace) && !beforeSpace.EndsWith('.'))
+            if (IsValidIdentifier(afterSpace) && !beforeSpace.EndsWith(".", StringComparison.Ordinal))
             {
                 return beforeSpace;
             }
@@ -844,4 +853,3 @@ public static class ResponseSerializerGenerator
         }
     }
 }
-

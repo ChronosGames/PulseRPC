@@ -3,16 +3,10 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Messaging;
-using PulseRPC.Server.Services.Scheduling;
 using PulseRPC.Server.Processing.Serialization;
-using PulseRPC.Server.Processing.Engine;
-using PulseRPC.Server.Services;
-using MemoryPack;
 
 namespace PulseRPC.Server.Processing.Engine;
 
@@ -43,28 +37,26 @@ public interface IMessageDispatcher : IDisposable
 }
 
 /// <summary>
-/// 高性能消息调度器实现
-/// 支持优先级调度、负载均衡和背压控制
+/// 基于源生成路由表的直接消息调度器。
 /// </summary>
 internal sealed class MessageDispatcher : IMessageDispatcher
 {
+    private const int Stopped = 0;
+    private const int Running = 1;
+    private const int Stopping = 2;
+    private const int Disposed = 3;
+
     private readonly ILogger<MessageDispatcher> _logger;
-    private readonly DispatcherOptions _options;
     private readonly IServiceRoutingTable _serviceRoutingTable;
+    private readonly ConcurrentDictionary<string, ServiceStatistics> _serviceStats = new();
+    private readonly object _lifecycleLock = new();
 
-    // 多优先级调度通道
-    private readonly Channel<ServiceInvocationTask>[] _priorityChannels;
-    private readonly ChannelWriter<ServiceInvocationTask>[] _priorityWriters;
-    private readonly ChannelReader<ServiceInvocationTask>[] _priorityReaders;
-
-    // 调度器线程池
-    private Task[]? _dispatcherTasks;
-    private readonly CancellationTokenSource _shutdownCts = new();
-
-    // 负载均衡和统计
     private long _totalMessagesDispatched;
     private long _totalProcessingTime;
-    private readonly ConcurrentDictionary<string, ServiceStatistics> _serviceStats = new();
+    private long _inFlight;
+    private int _state;
+    private TaskCompletionSource<object?> _drained =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
 
@@ -72,73 +64,80 @@ internal sealed class MessageDispatcher : IMessageDispatcher
         DispatcherOptions? options = null,
         ILogger<MessageDispatcher>? logger = null)
     {
-        _options = options ?? new DispatcherOptions();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<MessageDispatcher>.Instance;
-        _serviceRoutingTable = ServiceRoutingTableRegistry.Instance ?? throw new ArgumentNullException(nameof(ServiceRoutingTableRegistry.Instance));
-
-        // 创建多优先级通道
-        var priorityCount = Enum.GetValues<MessagePriority>().Length;
-        _priorityChannels = new Channel<ServiceInvocationTask>[priorityCount];
-        _priorityWriters = new ChannelWriter<ServiceInvocationTask>[priorityCount];
-        _priorityReaders = new ChannelReader<ServiceInvocationTask>[priorityCount];
-
-        for (int i = 0; i < priorityCount; i++)
-        {
-            var channelOptions = new BoundedChannelOptions(_options.ChannelCapacity)
-            {
-                SingleReader = false,
-                SingleWriter = false,
-                AllowSynchronousContinuations = false,
-                FullMode = BoundedChannelFullMode.Wait
-            };
-
-            _priorityChannels[i] = Channel.CreateBounded<ServiceInvocationTask>(channelOptions);
-            _priorityWriters[i] = _priorityChannels[i].Writer;
-            _priorityReaders[i] = _priorityChannels[i].Reader;
-        }
+        _serviceRoutingTable = ServiceRoutingTableRegistry.Instance
+            ?? throw new ArgumentNullException(nameof(ServiceRoutingTableRegistry.Instance));
     }
 
     public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("启动高性能消息调度器，调度器线程数: {DispatcherCount}", _options.DispatcherThreadCount);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        // 启动多个调度器线程
-        _dispatcherTasks = new Task[_options.DispatcherThreadCount];
-
-        for (var i = 0; i < _options.DispatcherThreadCount; i++)
+        lock (_lifecycleLock)
         {
-            var dispatcherId = i;
-            _dispatcherTasks[i] = Task.Run(async () => await RunDispatcherAsync(dispatcherId, _shutdownCts.Token), cancellationToken);
+            if (_state == Disposed)
+            {
+                throw new ObjectDisposedException(nameof(MessageDispatcher));
+            }
+
+            if (_state == Running)
+            {
+                return Task.CompletedTask;
+            }
+
+            if (_state == Stopping)
+            {
+                throw new InvalidOperationException("消息调度器正在停止，不能启动。");
+            }
+
+            _drained = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _state = Running;
         }
 
-        _logger.LogInformation("消息调度器启动完成");
-
+        _logger.LogInformation("消息调度器启动完成（直接协议号路由模式）");
         return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("停止消息调度器");
+        Task? waitForDrain = null;
 
-        // 标记所有通道写入完成
-        foreach (var writer in _priorityWriters)
+        lock (_lifecycleLock)
         {
-            writer.Complete();
+            if (_state == Disposed || _state == Stopped)
+            {
+                return;
+            }
+
+            if (_state == Running)
+            {
+                _state = Stopping;
+            }
+
+            if (Interlocked.Read(ref _inFlight) == 0)
+            {
+                _state = Stopped;
+                _drained.TrySetResult(null);
+                return;
+            }
+
+            waitForDrain = _drained.Task;
         }
 
-        // 取消所有调度任务
-        await _shutdownCts.CancelAsync();
-
-        // 等待所有调度任务完成
-        if (_dispatcherTasks != null)
+        try
         {
-            try
+            await waitForDrain.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("消息调度器停止超时，仍有在途调用未完成");
+        }
+
+        lock (_lifecycleLock)
+        {
+            if (_state == Stopping)
             {
-                await Task.WhenAll(_dispatcherTasks).WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
-            }
-            catch (TimeoutException)
-            {
-                _logger.LogWarning("消息调度器停止超时");
+                _state = Stopped;
             }
         }
 
@@ -146,282 +145,139 @@ internal sealed class MessageDispatcher : IMessageDispatcher
     }
 
     /// <summary>
-    /// 分发消息 - 高性能入口点
+    /// 分发消息 - 直接进入源生成路由表。
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public async ValueTask<object?> DispatchAsync(MessageEnvelope message, IServiceProvider serviceProvider, CancellationToken cancellationToken = default)
+    public async ValueTask<object?> DispatchAsync(
+        MessageEnvelope message,
+        IServiceProvider serviceProvider,
+        CancellationToken cancellationToken = default)
     {
-        var header = message.Header;
-        Debug.Assert(header != null, "消息头不能为空");
+        if (Volatile.Read(ref _state) != Running)
+        {
+            throw new InvalidOperationException("消息调度器未运行。");
+        }
 
-        // 使用协议号路由（零字符串分配 - 唯一路由方式）
+        ArgumentNullException.ThrowIfNull(serviceProvider);
+        var header = message.Header ?? throw new ArgumentException("消息头不能为空。", nameof(message));
+
         if (header.ProtocolId == 0)
         {
             _logger.LogError("消息缺少 ProtocolId，无法分发。所有消息必须包含 Protocol ID。");
             throw new ArgumentException("消息缺少 ProtocolId。Protocol ID 是唯一支持的路由方式，字符串方法名路由已被移除。", nameof(message));
         }
 
+        Interlocked.Increment(ref _inFlight);
+        if (Volatile.Read(ref _state) != Running)
+        {
+            CompleteDispatch();
+            throw new InvalidOperationException("消息调度器正在停止，不能接收新消息。");
+        }
+
+        var startTimestamp = Stopwatch.GetTimestamp();
+        var callContext = CreateCallContext(message, header);
+
         try
         {
-            // (Hub,Key) 入站路由：ServiceKey 非空时交由路由表解析/激活 keyed actor 执行；
-            // 为空时路由表的 5 参数重载等价于原有 DI 单例语义（见 IServiceRoutingTable 默认实现）。
             var serviceKey = header.ServiceKey ?? string.Empty;
-            _logger.LogTrace("使用协议号路由: ProtocolId=0x{ProtocolId:X4} ({ProtocolId}), ServiceKey='{ServiceKey}'", header.ProtocolId, header.ProtocolId, serviceKey);
-            return await _serviceRoutingTable.RouteByProtocolIdAsync(serviceProvider, header.ProtocolId, serviceKey, message.Payload, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "协议号路由失败: ProtocolId=0x{ProtocolId:X4}", header.ProtocolId);
-            throw;
-        }
-    }
+            _logger.LogTrace(
+                "使用协议号路由: ProtocolId=0x{ProtocolId:X4} ({ProtocolId}), ServiceKey='{ServiceKey}'",
+                header.ProtocolId,
+                header.ProtocolId,
+                serviceKey);
 
-    /// <summary>
-    /// 运行调度器主循环 - 支持优先级调度
-    /// </summary>
-    private async Task RunDispatcherAsync(int dispatcherId, CancellationToken cancellationToken)
-    {
-        _logger.LogDebug("消息调度器 #{DispatcherId} 启动", dispatcherId);
+            var result = await _serviceRoutingTable.RouteByProtocolIdAsync(
+                serviceProvider,
+                header.ProtocolId,
+                serviceKey,
+                message.Payload,
+                cancellationToken).ConfigureAwait(false);
 
-        // 预分配等待任务数组，避免每次循环创建新数组
-        var waitTasks = new Task<bool>[_priorityReaders.Length];
-
-        try
-        {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                // 按优先级顺序检查通道
-                var taskHandled = false;
-
-                for (var priority = (int)MessagePriority.Critical; priority <= (int)MessagePriority.Low; priority++)
-                {
-                    var reader = _priorityReaders[priority];
-
-                    if (reader.TryRead(out var invocationTask))
-                    {
-                        await ProcessInvocationTaskAsync(invocationTask, dispatcherId, cancellationToken);
-                        taskHandled = true;
-                        break; // 处理一个任务后重新检查高优先级
-                    }
-                }
-
-                // 如果没有任务，等待任意通道有数据
-                if (!taskHandled)
-                {
-                    try
-                    {
-                        // 复用数组，仅更新任务引用
-                        for (int i = 0; i < _priorityReaders.Length; i++)
-                        {
-                            waitTasks[i] = _priorityReaders[i].WaitToReadAsync(cancellationToken).AsTask();
-                        }
-                        await Task.WhenAny(waitTasks).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        break;
-                    }
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // 正常关闭
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "消息调度器 #{DispatcherId} 发生异常", dispatcherId);
-        }
-
-        _logger.LogDebug("消息调度器 #{DispatcherId} 停止", dispatcherId);
-    }
-
-    /// <summary>
-    /// 处理服务调用任务
-    /// </summary>
-    private async Task ProcessInvocationTaskAsync(ServiceInvocationTask invocationTask, int dispatcherId, CancellationToken cancellationToken)
-    {
-        var callContext = invocationTask.CallContext;
-
-        try
-        {
-            var result = await ProcessServiceCallAsync(callContext, invocationTask.ServiceHandler, dispatcherId, cancellationToken).ConfigureAwait(false);
-            invocationTask.CompletionSource?.TrySetResult(result);
-        }
-        catch (Exception ex)
-        {
-            invocationTask.CompletionSource?.TrySetException(ex);
-        }
-    }
-
-    /// <summary>
-    /// 执行服务调用并触发事件
-    /// </summary>
-    private async Task<object?> ProcessServiceCallAsync(ServiceCallContext callContext, IServiceHandler serviceHandler, int dispatcherId, CancellationToken cancellationToken)
-    {
-        var startTime = DateTime.UtcNow;
-
-        try
-        {
-            _logger.LogTrace("开始处理服务调用: 服务={ServiceName}, 方法={MethodName}, 消息ID={MessageId}, 调度器={DispatcherId}",
-                callContext.ServiceName, callContext.MethodName, callContext.MessageId, dispatcherId);
-
-            var result = await serviceHandler.HandleAsync(callContext).ConfigureAwait(false);
-
-            var processingTime = DateTime.UtcNow - startTime;
-            UpdateServiceStatistics(callContext.ServiceName, processingTime, true);
+            var processingTime = Stopwatch.GetElapsedTime(startTimestamp);
+            UpdateServiceStatistics(callContext.ServiceName, processingTime, success: true);
             Interlocked.Increment(ref _totalMessagesDispatched);
 
             MessageProcessed?.Invoke(this, new MessageProcessedEventArgs(
                 callContext,
                 result,
                 processingTime,
-                dispatcherId,
-                true));
-
-            _logger.LogTrace("服务调用完成: 服务={ServiceName}, 方法={MethodName}, 耗时={ProcessingTime}ms",
-                callContext.ServiceName, callContext.MethodName, processingTime.TotalMilliseconds);
+                dispatcherId: callContext.ProcessorId,
+                success: true));
 
             return result;
         }
         catch (Exception ex)
         {
-            var processingTime = DateTime.UtcNow - startTime;
-            UpdateServiceStatistics(callContext.ServiceName, processingTime, false);
+            var processingTime = Stopwatch.GetElapsedTime(startTimestamp);
+            UpdateServiceStatistics(callContext.ServiceName, processingTime, success: false);
 
-            _logger.LogError(ex, "服务调用失败: 服务={ServiceName}, 方法={MethodName}, 消息ID={MessageId}",
-                callContext.ServiceName, callContext.MethodName, callContext.MessageId);
+            _logger.LogError(ex, "协议号路由失败: ProtocolId=0x{ProtocolId:X4}", header.ProtocolId);
 
             MessageProcessed?.Invoke(this, new MessageProcessedEventArgs(
                 callContext,
                 null,
                 processingTime,
-                dispatcherId,
-                false,
-                ex));
+                dispatcherId: callContext.ProcessorId,
+                success: false,
+                exception: ex));
 
             throw;
         }
-    }
-
-    /// <summary>
-    /// 确定消息优先级
-    /// </summary>
-    private MessagePriority DeterminePriority(ServiceCallContext callContext)
-    {
-        // 检查消息标志
-        if (callContext.Flags.HasFlag(MessageFlags.HighPriority))
-            return MessagePriority.Critical;
-
-        // 根据服务名称确定优先级
-        return callContext.ServiceName.ToLower() switch
+        finally
         {
-            var name when name.Contains("auth") => MessagePriority.High,
-            var name when name.Contains("health") => MessagePriority.High,
-            var name when name.Contains("metrics") => MessagePriority.Low,
-            var name when name.Contains("log") => MessagePriority.Low,
-            _ => MessagePriority.Normal
-        };
+            CompleteDispatch();
+        }
     }
 
-    /// <summary>
-    /// 更新服务统计信息
-    /// </summary>
+    private static ServiceCallContext CreateCallContext(MessageEnvelope message, MessageHeader header)
+    {
+        return new ServiceCallContext(
+            connectionId: message.ConnectionId ?? string.Empty,
+            messageId: message.MessageId,
+            serviceName: header.ServiceName ?? "Unknown",
+            methodName: header.MethodName ?? "Unknown",
+            protocolId: header.ProtocolId,
+            requestData: null,
+            messageType: header.Type,
+            receivedTime: message.ReceivedTime,
+            processorId: message.ProcessorId,
+            flags: header.Flags);
+    }
+
+    private void CompleteDispatch()
+    {
+        if (Interlocked.Decrement(ref _inFlight) == 0 && Volatile.Read(ref _state) == Stopping)
+        {
+            _drained.TrySetResult(null);
+        }
+    }
+
     private void UpdateServiceStatistics(string serviceName, TimeSpan processingTime, bool success)
     {
-        _serviceStats.AddOrUpdate(serviceName,
+        _serviceStats.AddOrUpdate(
+            serviceName,
             new ServiceStatistics(serviceName, processingTime, success),
             (_, existing) => existing.Update(processingTime, success));
 
-        // 更新全局统计
-        var totalTime = Interlocked.Read(ref _totalProcessingTime);
-        Interlocked.Exchange(ref _totalProcessingTime, totalTime + (long)processingTime.TotalMilliseconds);
-    }
-
-    private async ValueTask<bool> RouteInvocationAsync(
-        ServiceCallContext callContext,
-        IServiceHandler serviceHandler,
-        MessagePriority priority,
-        TaskCompletionSource<object?>? completionSource,
-        CancellationToken cancellationToken)
-    {
-        var invocationTask = new ServiceInvocationTask(
-            callContext,
-            serviceHandler,
-            priority,
-            DateTime.UtcNow,
-            completionSource);
-
-        var priorityIndex = (int)priority;
-        var writer = _priorityWriters[priorityIndex];
-
-        if (!await writer.WaitToWriteAsync(cancellationToken).ConfigureAwait(false))
-        {
-            completionSource?.TrySetException(new InvalidOperationException("Dispatcher queue unavailable"));
-            return false;
-        }
-
-        if (!writer.TryWrite(invocationTask))
-        {
-            completionSource?.TrySetException(new InvalidOperationException("Dispatcher queue full"));
-            return false;
-        }
-
-        return true;
-    }
-
-    private async ValueTask<bool> EnqueueInvocationAsync(ServiceInvocationTask invocationTask, CancellationToken cancellationToken)
-    {
-        var priorityIndex = (int)invocationTask.Priority;
-        var writer = _priorityWriters[priorityIndex];
-
-        if (!await writer.WaitToWriteAsync(cancellationToken).ConfigureAwait(false))
-        {
-            return false;
-        }
-
-        return writer.TryWrite(invocationTask);
+        Interlocked.Add(ref _totalProcessingTime, (long)processingTime.TotalMilliseconds);
     }
 
     public void Dispose()
     {
-        if (!_shutdownCts.IsCancellationRequested)
+        if (Volatile.Read(ref _state) == Disposed)
+        {
+            return;
+        }
+
+        try
         {
             StopAsync().GetAwaiter().GetResult();
         }
-
-        _shutdownCts.Dispose();
-
-        foreach (var channel in _priorityChannels)
+        finally
         {
-            channel.Writer.Complete();
+            Volatile.Write(ref _state, Disposed);
+            _drained.TrySetResult(null);
         }
-    }
-}
-
-/// <summary>
-/// 服务调用任务
-/// </summary>
-internal readonly struct ServiceInvocationTask
-{
-    public readonly ServiceCallContext CallContext;
-    public readonly IServiceHandler ServiceHandler;
-    public readonly MessagePriority Priority;
-    public readonly DateTime DispatchTime;
-    public readonly TaskCompletionSource<object?>? CompletionSource;
-
-    public ServiceInvocationTask(
-        ServiceCallContext callContext,
-        IServiceHandler serviceHandler,
-        MessagePriority priority,
-        DateTime dispatchTime,
-        TaskCompletionSource<object?>? completionSource = null)
-    {
-        CallContext = callContext;
-        ServiceHandler = serviceHandler;
-        Priority = priority;
-        DispatchTime = dispatchTime;
-        CompletionSource = completionSource;
     }
 }
 
@@ -497,9 +353,7 @@ internal sealed class ServiceStatistics
             Interlocked.Increment(ref _successfulCalls);
         }
 
-        var currentTotal = Interlocked.Read(ref _totalProcessingTimeMs);
-        Interlocked.Exchange(ref _totalProcessingTimeMs, currentTotal + (long)processingTime.TotalMilliseconds);
-
+        Interlocked.Add(ref _totalProcessingTimeMs, (long)processingTime.TotalMilliseconds);
         return this;
     }
 }

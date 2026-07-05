@@ -188,6 +188,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         {
             _metrics.EngineStartTime = DateTime.UtcNow;
 
+            await _messageDispatcher.StartAsync(cancellationToken);
             await _responseProcessor.StartAsync(cancellationToken);
 
             _logger.LogInformation("MessageEngine启动成功");
@@ -712,6 +713,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
 
         await _cancellationTokenSource.CancelAsync();
 
+        await _messageDispatcher.StopAsync();
         await _responseProcessor.StopAsync();
 
         _logger.LogInformation("MessageEngine已停止");

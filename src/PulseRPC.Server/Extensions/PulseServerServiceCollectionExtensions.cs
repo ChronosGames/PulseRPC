@@ -289,26 +289,11 @@ internal class PulseServerBuilder : IPulseServerBuilder
     {
         Services.AddPulseServer(options =>
         {
+            options.Transports.AddRange(_transports);
+
             // 应用用户自定义配置
             _optionsConfigurator?.Invoke(options);
         });
-
-        // 配置选项
-        // Services.Configure<PulseServerOptions>(options =>
-        // {
-        //     // 添加传输配置
-        //     options.Transports.AddRange(_transports);
-        //
-        //     // 应用用户自定义配置
-        //     _optionsConfigurator?.Invoke(options);
-        // });
-        //
-        // // 注册 PulseServer
-        // Services.AddSingleton<PulseServer>();
-        // Services.AddSingleton<IPulseServer>(sp => sp.GetRequiredService<PulseServer>());
-        //
-        // // 注册托管服务
-        // Services.AddHostedService<PulseServerHostedService>();
 
         return Services;
     }
