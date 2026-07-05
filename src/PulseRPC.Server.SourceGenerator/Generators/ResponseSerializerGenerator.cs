@@ -92,9 +92,6 @@ public static class ResponseSerializerGenerator
         sb.AppendLine("        };");
         sb.AppendLine();
 
-        sb.AppendLine("        private static readonly Dictionary<string, Dictionary<string, IResponseSerializer>> s_map = BuildMap();");
-        sb.AppendLine();
-
         // P3 优化：使用数组索引替代字典查找
         // 计算协议号范围以优化数组大小
         if (serializerInfos.Count > 0)
@@ -169,47 +166,6 @@ public static class ResponseSerializerGenerator
         }
         sb.AppendLine();
 
-        // 生成 BuildMap 方法（向后兼容）
-        sb.AppendLine("        private static Dictionary<string, Dictionary<string, IResponseSerializer>> BuildMap()");
-        sb.AppendLine("        {");
-        sb.AppendLine("            var services = new Dictionary<string, Dictionary<string, IResponseSerializer>>(StringComparer.Ordinal);");
-
-        foreach (var service in services)
-        {
-            sb.AppendLine($"            var methods_{GetSafeIdentifier(service.InterfaceName)} = new Dictionary<string, IResponseSerializer>(StringComparer.Ordinal)");
-            sb.AppendLine("            {");
-            var methods = service.Methods;
-            var includedMethods = methods.Select(m => serializerInfos.FirstOrDefault(si => si.ServiceName == service.ServiceName && si.MethodName == m.MethodName)).Where(si => si != null).ToList();
-            for (var i = 0; i < includedMethods.Count; i++)
-            {
-                var info = includedMethods[i]!;
-                var comma = i == includedMethods.Count - 1 ? string.Empty : ",";
-                sb.AppendLine($"                [\"{info.MethodName}\"] = Serializers.{info.ClassName}.Instance{comma}");
-            }
-            sb.AppendLine("            };");
-            sb.AppendLine($"            services[\"{service.ServiceName}\"] = methods_{GetSafeIdentifier(service.InterfaceName)};");
-
-            if (service.ServiceName != service.InterfaceFullName)
-            {
-                sb.AppendLine($"            services[\"{service.InterfaceFullName}\"] = methods_{GetSafeIdentifier(service.InterfaceName)};");
-            }
-        }
-
-        sb.AppendLine("            return services;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
-
-        sb.AppendLine("        public bool TryGetSerializer(string serviceName, string methodName, [NotNullWhen(true)] out IResponseSerializer? serializer)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            if (s_map.TryGetValue(serviceName, out var methods) && methods.TryGetValue(methodName, out serializer))");
-        sb.AppendLine("            {");
-        sb.AppendLine("                return true;");
-        sb.AppendLine("            }");
-        sb.AppendLine();
-        sb.AppendLine("            serializer = default!;");
-        sb.AppendLine("            return false;");
-        sb.AppendLine("        }");
-        sb.AppendLine();
         sb.AppendLine("        public ReadOnlySpan<IResponseSerializer> EnumerateSerializers() => s_serializers;");
         sb.AppendLine("    }");
     }
@@ -245,10 +201,8 @@ public static class ResponseSerializerGenerator
         sb.AppendLine();
         sb.AppendLine($"            private {info.ClassName}() {{ }}");
         sb.AppendLine();
-        sb.AppendLine($"            public string ServiceName => \"{info.ServiceName}\";");
-        sb.AppendLine($"            public string MethodName => \"{info.MethodName}\";");
-        sb.AppendLine($"            public ushort ProtocolId => 0x{info.ProtocolId:X4}; // {info.ProtocolId}");
-        sb.AppendLine();
+            sb.AppendLine($"            public ushort ProtocolId => 0x{info.ProtocolId:X4}; // {info.ProtocolId}");
+            sb.AppendLine();
 
         sb.AppendLine($"            // A {info.ResponseTypeName}");
 
@@ -321,7 +275,7 @@ public static class ResponseSerializerGenerator
             sb.AppendLine("                    return;");
             sb.AppendLine("                }");
             sb.AppendLine();
-            sb.AppendLine($"                throw new InvalidOperationException($\"方法 {{ServiceName}}.{{MethodName}} 不期望返回值\");");
+            sb.AppendLine($"                throw new InvalidOperationException(\"协议号 0x{info.ProtocolId:X4} 不期望返回值\");");
             sb.AppendLine("            }");
             sb.AppendLine();
             sb.AppendLine("            public ValueTask SerializeAsync(object response, IBufferWriter<byte> writer, CancellationToken cancellationToken = default)");
@@ -348,12 +302,10 @@ public static class ResponseSerializerGenerator
         {
             foreach (var method in service.Methods)
             {
-                // 跳过非 MemoryPackable 类型（让它们使用反射路径）
-                // 但为 void 返回和 MemoryPackable 类型生成序列化器
                 if (!string.IsNullOrWhiteSpace(method.ResponseTypeFullName) && !method.IsResponseMemoryPackable)
                 {
-                    // 有返回值但不是 MemoryPackable，跳过生成，使用反射降级路径
-                    continue;
+                    throw new InvalidOperationException(
+                        $"Response type '{method.ResponseTypeFullName}' for {service.InterfaceName}.{method.MethodName} is not MemoryPack serializable.");
                 }
 
                 var className = $"{GetSafeIdentifier(service.ServiceName ?? service.InterfaceName)}_{GetSafeIdentifier(method.MethodName)}_ResponseSerializer";
@@ -383,8 +335,6 @@ public static class ResponseSerializerGenerator
 
                 list.Add(new ResponseSerializerInfo(
                     className,
-                    service.ServiceName ?? service.InterfaceName,
-                    method.MethodName,
                     method.ProtocolId,
                     responseType));
             }
@@ -838,16 +788,12 @@ public static class ResponseSerializerGenerator
     private sealed class ResponseSerializerInfo
     {
         public string ClassName { get; }
-        public string ServiceName { get; }
-        public string MethodName { get; }
         public ushort ProtocolId { get; }
         public string? ResponseTypeName { get; }
 
-        public ResponseSerializerInfo(string className, string serviceName, string methodName, ushort protocolId, string? responseTypeName)
+        public ResponseSerializerInfo(string className, ushort protocolId, string? responseTypeName)
         {
             ClassName = className;
-            ServiceName = serviceName;
-            MethodName = methodName;
             ProtocolId = protocolId;
             ResponseTypeName = responseTypeName;
         }

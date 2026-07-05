@@ -232,13 +232,34 @@ public class TransportStateEventArgs : EventArgs
 public class TransportDataEventArgs : EventArgs
 {
     /// <summary>
-    /// 接收到的数据
+    /// 接收到的数据。该内存由事件参数独占，事件发布后不会被传输层复用或修改。
     /// </summary>
     public ReadOnlyMemory<byte> Data { get; }
 
+    /// <summary>
+    /// 使用外部内存创建事件参数。输入内存会被复制，避免传输层缓冲区复用导致数据被覆盖。
+    /// </summary>
     public TransportDataEventArgs(ReadOnlyMemory<byte> data)
     {
-        Data = data;
+        Data = data.IsEmpty ? ReadOnlyMemory<byte>.Empty : data.ToArray();
+    }
+
+    /// <summary>
+    /// 使用已独占的缓冲区创建事件参数。调用方传入后不得再修改该缓冲区。
+    /// </summary>
+    public TransportDataEventArgs(byte[] ownedBuffer, int length)
+    {
+        if (ownedBuffer == null)
+        {
+            throw new ArgumentNullException(nameof(ownedBuffer));
+        }
+
+        if (length < 0 || length > ownedBuffer.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(length));
+        }
+
+        Data = length == 0 ? ReadOnlyMemory<byte>.Empty : new ReadOnlyMemory<byte>(ownedBuffer, 0, length);
     }
 }
 
@@ -257,4 +278,3 @@ public class ServerConnectionEventArgs : EventArgs
         Transport = transport;
     }
 }
-

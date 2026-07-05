@@ -10,10 +10,8 @@ namespace PulseRPC.Clustering;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 复用现有客户端/服务端全双工连接层：每个节点同时是「服务端」（接受其它节点的入站连接）与
-/// 「客户端」（按需向其它节点发起出站连接）。首版实现按需建立并缓存到各节点的连接，
-/// 经共享密钥（<see cref="INodeAuthenticator"/>）互信鉴权后，把 <c>(Hub, Key, ProtocolId, Body)</c>
-/// 转发给对端节点在本地路由表中执行，语义与本地 <c>IServiceRoutingTable.RouteByProtocolIdAsync</c> 一致。
+/// 本接口只表达节点间转发语义，不绑定具体传输实现。PulseRPC.Server 不内置客户端运行时；
+/// 部署集群时应由独立模块注册 <see cref="INodeLink"/> 实现，建立节点间出站连接并完成互信鉴权。
 /// </para>
 /// <para>
 /// <see cref="SourceNodeId"/>/<see cref="ReplyTo"/> 语义对应《统一 IPulseHub 全链路寻址与集群架构设计》

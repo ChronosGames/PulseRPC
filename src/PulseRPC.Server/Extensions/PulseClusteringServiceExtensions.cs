@@ -11,7 +11,7 @@ using PulseRPC.Server.Routing;
 namespace PulseRPC.Server.Extensions;
 
 /// <summary>
-/// 节点↔节点集群能力（P4）的 DI 装配：<see cref="INodeLink"/> + 静态成员拓扑 + 一致性哈希 +
+/// 节点↔节点集群能力（P4）的 DI 装配：静态成员拓扑 + 一致性哈希 +
 /// L2 租约 <see cref="IActorDirectory"/> + 共享密钥 <see cref="INodeAuthenticator"/>，
 /// 并把 <see cref="IPulseRouter"/> 从单节点 <see cref="LocalPulseRouter"/> 升级为
 /// 集群感知的 <see cref="ClusterPulseRouter"/>。
@@ -68,7 +68,7 @@ public static class PulseClusteringServiceExtensions
         services.TryAddSingleton<INodeAuthenticator, SharedSecretNodeAuthenticator>();
         services.TryAddSingleton<INodeEndpointResolver, StaticNodeEndpointResolver>();
         services.TryAddSingleton<IActorDirectory, LeaseActorDirectory>();
-        services.TryAddSingleton<INodeLink, PulseNodeLink>();
+        services.TryAddSingleton<INodeLink, UnsupportedNodeLink>();
         services.TryAddSingleton<IClusterInternalHub, ClusterInternalHub>();
 
         // ClusterPulseRouter 内部持有 LocalPulseRouter 做本地投递；覆盖 IPulseRouter 的默认单节点注册。

@@ -12,13 +12,7 @@ namespace PulseRPC.Serialization;
 /// </summary>
 public interface IResponseSerializer
 {
-    /// <summary>所属服务名称。</summary>
-    string ServiceName { get; }
-
-    /// <summary>所属方法名称。</summary>
-    string MethodName { get; }
-
-    /// <summary>协议号（0 表示未设置）。</summary>
+    /// <summary>协议号。</summary>
     ushort ProtocolId { get; }
 
     /// <summary>
@@ -50,15 +44,6 @@ public interface IResponseSerializerRegistry
     /// [推荐] 根据协议号获取对应的响应序列化器（零字符串分配）。
     /// </summary>
     bool TryGetSerializer(ushort protocolId, [NotNullWhen(true)] out IResponseSerializer? serializer);
-
-    #endregion
-
-    #region 基于方法名的查找 (向后兼容)
-
-    /// <summary>
-    /// [向后兼容] 根据服务与方法名称获取对应的响应序列化器。
-    /// </summary>
-    bool TryGetSerializer(string serviceName, string methodName, [NotNullWhen(true)] out IResponseSerializer? serializer);
 
     #endregion
 

@@ -309,12 +309,10 @@ public static class ServiceProxyGenerator
     }
 
     /// <summary>
-    /// 生成多参数反序列化方法（已废弃 - 现在使用元组序列化）
+    /// 保留空实现：多参数现在直接使用元组反序列化。
     /// </summary>
     private static void GenerateMultiParameterDeserializer(StringBuilder sb, ServiceModel serviceModel)
     {
-        // 不再需要此方法，多参数现在直接使用元组反序列化
-        // 保留方法签名以保持向后兼容，但不生成任何代码
     }
 
     /// <summary>

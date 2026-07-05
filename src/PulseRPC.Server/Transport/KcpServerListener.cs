@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -220,33 +221,39 @@ public class KcpServerTransport : IServerTransport
         try
         {
             const int BufferSize = 4096;
-            byte[] buffer = new byte[BufferSize];
+            var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
 
-            int receiveAttempts = 0;
-            const int maxReceiveAttempts = 10; // 防止无限循环
-
-            while (receiveAttempts < maxReceiveAttempts)
+            try
             {
-                receiveAttempts++;
+                int receiveAttempts = 0;
+                const int maxReceiveAttempts = 10; // 防止无限循环
 
-                int size = _kcp.Recv(buffer);
-
-                if (size <= 0)
+                while (receiveAttempts < maxReceiveAttempts)
                 {
-                    break;
+                    receiveAttempts++;
+
+                    int size = _kcp.Recv(buffer);
+
+                    if (size <= 0)
+                    {
+                        break;
+                    }
+
+                    var receivedData = new byte[size];
+                    Buffer.BlockCopy(buffer, 0, receivedData, 0, size);
+
+                    _lastActivityAt = DateTime.UtcNow; // 更新活动时间
+                    DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData, size));
                 }
 
-                // 触发数据接收事件
-                var receivedData = new byte[size];
-                Array.Copy(buffer, 0, receivedData, 0, size);
-
-                _lastActivityAt = DateTime.UtcNow; // 更新活动时间
-                DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData));
+                if (receiveAttempts >= maxReceiveAttempts)
+                {
+                    _logger.LogWarning("[KCP应用层] {ConnectionId} 达到最大接收尝试次数限制: {MaxAttempts}", _id, maxReceiveAttempts);
+                }
             }
-
-            if (receiveAttempts >= maxReceiveAttempts)
+            finally
             {
-                _logger.LogWarning("[KCP应用层] {ConnectionId} 达到最大接收尝试次数限制: {MaxAttempts}", _id, maxReceiveAttempts);
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
         catch (Exception ex)

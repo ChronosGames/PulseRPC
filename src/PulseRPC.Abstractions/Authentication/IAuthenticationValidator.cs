@@ -13,13 +13,13 @@ public interface IAuthenticationValidator
     /// </summary>
     /// <param name="token">认证令牌</param>
     /// <returns>验证结果，包含用户身份信息</returns>
-    Task<ValidationResult> ValidateAsync(string token);
+    Task<AuthenticationValidationResult> ValidateAsync(string token);
 }
 
 /// <summary>
 /// 认证验证结果
 /// </summary>
-public class ValidationResult
+public class AuthenticationValidationResult
 {
     /// <summary>
     /// 验证是否成功
@@ -39,12 +39,12 @@ public class ValidationResult
     /// <summary>
     /// 创建成功的验证结果
     /// </summary>
-    public static ValidationResult Success(ClaimsPrincipal principal) =>
-        new ValidationResult { IsValid = true, Principal = principal };
+    public static AuthenticationValidationResult Success(ClaimsPrincipal principal) =>
+        new AuthenticationValidationResult { IsValid = true, Principal = principal };
 
     /// <summary>
     /// 创建失败的验证结果
     /// </summary>
-    public static ValidationResult Failure(string errorMessage) =>
-        new ValidationResult { IsValid = false, ErrorMessage = errorMessage };
+    public static AuthenticationValidationResult Failure(string errorMessage) =>
+        new AuthenticationValidationResult { IsValid = false, ErrorMessage = errorMessage };
 }

@@ -241,8 +241,7 @@ public readonly ref struct MessagePacket
     /// </summary>
     public bool IsValid()
     {
-        return !string.IsNullOrEmpty(Header.ServiceName) &&
-               !string.IsNullOrEmpty(Header.MethodName);
+        return Header.ProtocolId != 0;
     }
 }
 

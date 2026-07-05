@@ -192,6 +192,11 @@ public static class PulseServerServiceCollectionExtensions
         {
             services.TryAddSingleton<IServiceRoutingTable>(ServiceRoutingTableRegistry.Instance);
         }
+
+        if (ServiceManifestRegistry.Instance != null)
+        {
+            services.TryAddSingleton<IServiceManifest>(ServiceManifestRegistry.Instance);
+        }
     }
 
     /// <summary>
@@ -337,6 +342,11 @@ public static class NamedPulseServerServiceCollectionExtensions
         if (ResponseSerializerRegistry.Instance != null)
         {
             services.TryAddSingleton(ResponseSerializerRegistry.Instance);
+        }
+
+        if (ServiceManifestRegistry.Instance != null)
+        {
+            services.TryAddSingleton<IServiceManifest>(ServiceManifestRegistry.Instance);
         }
 
         // 为每个命名服务器注册独立的依赖（使用 Keyed Services）

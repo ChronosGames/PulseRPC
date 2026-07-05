@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Net;
@@ -263,19 +264,24 @@ public class KcpTransport : ITransport
     {
         try
         {
-            var buffer = new byte[_options.RecvBufferSize];
-
-            while (true)
+            var buffer = ArrayPool<byte>.Shared.Rent(_options.RecvBufferSize);
+            try
             {
-                var size = _kcp.Recv(buffer);
-                if (size <= 0)
-                    break;
+                while (true)
+                {
+                    var size = _kcp.Recv(buffer);
+                    if (size <= 0)
+                        break;
 
-                // 触发数据接收事件
-                var receivedData = new byte[size];
-                Array.Copy(buffer, 0, receivedData, 0, size);
+                    var receivedData = new byte[size];
+                    Buffer.BlockCopy(buffer, 0, receivedData, 0, size);
 
-                DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData));
+                    DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData, size));
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
         catch (Exception ex)

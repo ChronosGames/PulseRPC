@@ -58,18 +58,18 @@ public interface ITransportChannel : IDisposable
     // 不在接口中定义，以便通过代码生成器支持
 
     /// <summary>
-    /// 注册服务处理器（底层API，由代码生成器调用）
+    /// 注册传输请求处理器（底层API，由代码生成器调用）
     /// </summary>
     /// <param name="serviceName">服务名称</param>
-    /// <param name="handler">服务处理器</param>
+    /// <param name="handler">传输请求处理器</param>
     /// <returns>注册令牌</returns>
-    IDisposable RegisterServiceHandler(string serviceName, IServiceHandler handler);
+    IDisposable RegisterTransportRequestHandler(string serviceName, ITransportRequestHandler handler);
 }
 
 /// <summary>
-/// 服务处理器接口 - 处理远程调用请求
+/// 传输请求处理器接口 - 处理远程调用请求
 /// </summary>
-public interface IServiceHandler
+public interface ITransportRequestHandler
 {
     /// <summary>
     /// 处理远程方法调用请求

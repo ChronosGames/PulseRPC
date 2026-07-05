@@ -96,7 +96,6 @@ public interface IPulseServer : IAsyncDisposable, IDisposable
     /// <summary>
     /// 获取已注册的服务列表
     /// </summary>
-    /// <exception cref="NotSupportedException">当前运行时未提供服务元数据清单。</exception>
     IReadOnlyList<ServiceInfo> GetRegisteredServices();
 
     // === 性能监控 ===
@@ -182,10 +181,34 @@ public sealed class ConnectionInfo
 public sealed class ServiceInfo
 {
     public required string ServiceName { get; init; }
-    public required Type ServiceType { get; init; }
-    public required Type ImplementationType { get; init; }
-    public Microsoft.Extensions.DependencyInjection.ServiceLifetime Lifetime { get; init; }
-    public IReadOnlyDictionary<string, string> Tags { get; init; } = new Dictionary<string, string>();
+    public required Type HubType { get; init; }
+    public required string ChannelName { get; init; }
+    public IReadOnlyList<ServiceMethodInfo> Methods { get; init; } = Array.Empty<ServiceMethodInfo>();
+}
+
+/// <summary>
+/// 服务方法信息
+/// </summary>
+public sealed class ServiceMethodInfo
+{
+    public required string MethodName { get; init; }
+    public required string DeclaringHubTypeName { get; init; }
+    public ushort ProtocolId { get; init; }
+    public required string ReturnTypeName { get; init; }
+    public string? ResponseTypeName { get; init; }
+    public bool IsAsync { get; init; }
+    public bool IsClientFacing { get; init; }
+    public bool IsReentrant { get; init; }
+    public IReadOnlyList<ServiceParameterInfo> Parameters { get; init; } = Array.Empty<ServiceParameterInfo>();
+}
+
+/// <summary>
+/// 服务方法参数信息
+/// </summary>
+public sealed class ServiceParameterInfo
+{
+    public required string Name { get; init; }
+    public required string TypeName { get; init; }
 }
 
 /// <summary>

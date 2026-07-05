@@ -41,7 +41,7 @@ public sealed class EndpointAddress
     /// <summary>
     /// 验证端点地址的有效性
     /// </summary>
-    public ValidationResult Validate()
+    public ConnectionValidationResult Validate()
     {
         var errors = new List<string>();
 
@@ -51,7 +51,7 @@ public sealed class EndpointAddress
         if (Port <= 0 || Port > 65535)
             errors.Add("端口号必须在 1-65535 范围内");
 
-        return new ValidationResult
+        return new ConnectionValidationResult
         {
             IsValid = errors.Count == 0,
             Errors = errors
@@ -138,7 +138,7 @@ public sealed class EndpointAddress
 /// <summary>
 /// 验证结果
 /// </summary>
-public sealed class ValidationResult
+public sealed class ConnectionValidationResult
 {
     /// <summary>
     /// 是否验证通过
@@ -262,7 +262,7 @@ public sealed class ConnectionDescriptor
     /// <summary>
     /// 验证连接描述符的有效性
     /// </summary>
-    public ValidationResult Validate()
+    public ConnectionValidationResult Validate()
     {
         var errors = new List<string>();
 
@@ -293,7 +293,7 @@ public sealed class ConnectionDescriptor
         if (ReconnectInterval <= TimeSpan.Zero)
             errors.Add("重连间隔必须大于 0");
 
-        return new ValidationResult
+        return new ConnectionValidationResult
         {
             IsValid = errors.Count == 0,
             Errors = errors

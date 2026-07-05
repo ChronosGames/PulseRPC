@@ -160,8 +160,38 @@ public class PulseServerLifecycleTests
     }
 
     [Fact]
-    public void GetRegisteredServices_MustFailExplicitlyUntilMetadataManifestExists()
+    public void GetRegisteredServices_MustReturnGeneratedManifestServices()
     {
+        ServiceManifestRegistry.Clear();
+
+        var expected = new ServiceInfo
+        {
+            ServiceName = "RoomHub",
+            HubType = typeof(ITestHub),
+            ChannelName = "main",
+            Methods = new[]
+            {
+                new ServiceMethodInfo
+                {
+                    MethodName = "JoinAsync",
+                    DeclaringHubTypeName = typeof(ITestHub).FullName!,
+                    ProtocolId = 0x1234,
+                    ReturnTypeName = "System.Threading.Tasks.Task",
+                    IsAsync = true,
+                    Parameters = new[]
+                    {
+                        new ServiceParameterInfo
+                        {
+                            Name = "roomId",
+                            TypeName = "System.String"
+                        }
+                    }
+                }
+            }
+        };
+
+        ServiceManifestRegistry.Register(new TestServiceManifest(new[] { expected }));
+
         var channelManager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
         var server = new PulseServer(
             new TestMessageEngine(),
@@ -172,14 +202,15 @@ public class PulseServerLifecycleTests
 
         try
         {
-            var act = () => server.GetRegisteredServices();
-            act.Should().Throw<NotSupportedException>()
-                .WithMessage("*服务元数据*");
+            var services = server.GetRegisteredServices();
+
+            services.Should().ContainSingle().Which.Should().BeSameAs(expected);
         }
         finally
         {
             server.Dispose();
             channelManager.Dispose();
+            ServiceManifestRegistry.Clear();
         }
     }
 
@@ -279,6 +310,15 @@ public class PulseServerLifecycleTests
         {
             IsListening = false;
         }
+    }
+
+    private interface ITestHub
+    {
+    }
+
+    private sealed class TestServiceManifest(IReadOnlyList<ServiceInfo> services) : IServiceManifest
+    {
+        public IReadOnlyList<ServiceInfo> Services { get; } = services;
     }
 
     private sealed class TestMessageEngine(EngineStatistics? statistics = null) : ITieredMessageEngine

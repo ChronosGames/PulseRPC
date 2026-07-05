@@ -4,7 +4,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using MemoryPack;
-using PulseRPC.Client;
 using PulseRPC.Shared;
 
 namespace PulseRPC.Messaging;
@@ -133,8 +132,8 @@ public partial class MessageHeader
     [MemoryPackOrder(3)] public string MethodName { get; set; } = string.Empty;
 
     /// <summary>
-    /// 协议号 - 用于高性能方法路由（替代 ServiceName+MethodName）
-    /// 值为 0 表示使用传统的 ServiceName+MethodName 路由
+    /// 协议号 - 服务端方法路由的唯一依据。
+    /// 值为 0 表示未设置，RPC 请求会被服务端拒绝。
     /// </summary>
     [MemoryPackOrder(4)]
     public ushort ProtocolId { get; set; }
@@ -248,16 +247,9 @@ public enum MessageType : byte
     /// 取消请求（客户端→服务端，携带待取消请求的 MessageId）。
     /// </summary>
     /// <remarks>
-    /// 已知限制（截至当前版本，端到端取消尚未打通）：
-    /// <list type="bullet">
-    /// <item>客户端调用侧的 <see cref="System.Threading.CancellationToken"/> 触发时，仅在<strong>本地</strong>
-    /// 结束等待（将挂起的响应任务置为已取消），<strong>不会</strong>向服务端发送本消息。</item>
-    /// <item>服务端目前<strong>不处理</strong> <c>Cancel</c> 帧，因此不会中止已在执行的服务方法；
-    /// 服务端仍会照常执行并回送响应（该响应将被客户端丢弃）。</item>
-    /// </list>
-    /// 端到端取消（客户端发送 Cancel + 服务端按 MessageId 取消在途请求的 CTS 并将 token 注入 handler）
-    /// 计划与「服务端 Deadline 强制 / 管道收敛」一并实现，参见 P2-13。
-    /// 保留本枚举值以固定线格式（wire）取值，便于后续前向兼容。
+    /// 客户端调用侧的 <see cref="System.Threading.CancellationToken"/> 触发时会先取消本地等待，
+    /// 再发送本帧。服务端按同连接的 <see cref="MessageHeader.MessageId"/> 定位在途请求并取消传入
+    /// handler 的 token；若请求已完成或不属于该连接，取消帧被忽略。
     /// </remarks>
     Cancel = 9,
 

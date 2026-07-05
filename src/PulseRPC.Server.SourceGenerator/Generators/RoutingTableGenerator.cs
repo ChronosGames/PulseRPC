@@ -94,6 +94,8 @@ public static class RoutingTableGenerator
         sb.AppendLine("    private ServiceRoutingTable() { }");
         sb.AppendLine();
 
+        GenerateProtocolIdEnumeration(sb, services);
+
         // 生成路由方法
         GenerateRouteMethod(sb, services);
 
@@ -110,6 +112,25 @@ public static class RoutingTableGenerator
         GenerateHelperMethods(sb, services);
 
         sb.AppendLine("}");
+    }
+
+    private static void GenerateProtocolIdEnumeration(StringBuilder sb, List<ServiceModel> services)
+    {
+        sb.AppendLine("    private static readonly ushort[] s_protocolIds = new ushort[]");
+        sb.AppendLine("    {");
+
+        foreach (var service in services)
+        {
+            foreach (var method in service.Methods)
+            {
+                sb.AppendLine($"        0x{method.ProtocolId:X4}, // {service.InterfaceName}.{method.MethodName}");
+            }
+        }
+
+        sb.AppendLine("    };");
+        sb.AppendLine();
+        sb.AppendLine("    public ReadOnlySpan<ushort> EnumerateProtocolIds() => s_protocolIds;");
+        sb.AppendLine();
     }
 
 
@@ -516,18 +537,6 @@ public static class RoutingTableGenerator
         sb.AppendLine("        System.Diagnostics.Debug.WriteLine(\"[PulseRPC] ServiceRoutingTable registered to global registry\");");
         sb.AppendLine("    }");
         sb.AppendLine();
-    }
-
-
-    /// <summary>
-    /// 获取协议号常量名（旧版本 - 向后兼容）
-    /// </summary>
-    [Obsolete("Use GetProtocolIdConstantName(string, MethodModel) instead to support method overloading")]
-    private static string GetProtocolIdConstantName(string interfaceName, string methodName)
-    {
-        var serviceName = interfaceName.TrimStart('I').ToUpperInvariant();
-        var method = methodName.ToUpperInvariant();
-        return $"{serviceName}_{method}";
     }
 
     /// <summary>

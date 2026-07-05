@@ -152,6 +152,90 @@ public class ProtocolIdConsistencyTests
             "生成的路由表必须包含按协议号分发到 keyed 路由器的内部方法");
     }
 
+    [Fact]
+    public void GeneratedServiceManifest_MustListServicesMethodsAndProtocolIds()
+    {
+        var compilation = CreateCompilation(TestSource);
+
+        var serverGeneratedText = RunServerGenerator(compilation);
+
+        serverGeneratedText.Should().Contain(
+            "public static partial class ServiceManifest",
+            "服务端生成器必须输出管理面可查询的服务元数据清单");
+
+        serverGeneratedText.Should().Contain(
+            "ServiceManifestRegistry.Register(Instance)",
+            "生成的清单必须在程序集加载时注册到运行时");
+
+        serverGeneratedText.Should().Contain("ServiceName = \"ISampleHub\"");
+        serverGeneratedText.Should().Contain("HubType = typeof(global::ProtocolIdConsistencyTestNs.ISampleHub)");
+        serverGeneratedText.Should().Contain("ChannelName = \"TestServer\"");
+        serverGeneratedText.Should().Contain("MethodName = \"AddAsync\"");
+        serverGeneratedText.Should().Contain("MethodName = \"GreetAsync\"");
+        serverGeneratedText.Should().Contain("DeclaringHubTypeName = \"ProtocolIdConsistencyTestNs.IGreetingMixin\"");
+        serverGeneratedText.Should().MatchRegex(@"ProtocolId = 0x[0-9A-Fa-f]{4}");
+    }
+
+    [Fact]
+    public void NonMemoryPackableCustomResponse_MustReportGeneratorError()
+    {
+        const string source = """
+            #nullable enable
+            using System.Threading.Tasks;
+            using PulseRPC;
+
+            namespace ResponseValidationTestNs;
+
+            public sealed class BadResponse
+            {
+                public string Value { get; set; } = "";
+            }
+
+            [Channel("TestServer")]
+            public interface IResponseHub : IPulseHub
+            {
+                Task<BadResponse> GetAsync();
+            }
+            """;
+
+        var result = RunServerGeneratorRaw(CreateCompilation(source));
+
+        result.Diagnostics.Should().Contain(d =>
+            d.Id == "PULSE004" &&
+            d.Severity == DiagnosticSeverity.Error &&
+            d.GetMessage().Contains("BadResponse"));
+    }
+
+    [Fact]
+    public void MemoryPackableCustomResponse_MustGenerateWithoutResponseValidationError()
+    {
+        const string source = """
+            #nullable enable
+            using System.Threading.Tasks;
+            using MemoryPack;
+            using PulseRPC;
+
+            namespace ResponseValidationTestNs;
+
+            [MemoryPackable]
+            public partial class GoodResponse
+            {
+                public string Value { get; set; } = "";
+            }
+
+            [Channel("TestServer")]
+            public interface IResponseHub : IPulseHub
+            {
+                Task<GoodResponse> GetAsync();
+            }
+            """;
+
+        var result = RunServerGeneratorRaw(CreateCompilation(source));
+
+        result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("MemoryPackable custom response types must be accepted");
+    }
+
     private static ushort? ExtractServerProtocolId(string generatedText, string interfaceNameWithoutI, string methodName)
     {
         // 服务端常量名格式：{InterfaceNameWithoutI}_{MethodName} = 0xXXXX;（见 ProtocolIdGenerator.GenerateProtocolIdConstants）
@@ -168,14 +252,19 @@ public class ProtocolIdConsistencyTests
 
     private static string RunServerGenerator(CSharpCompilation compilation)
     {
-        var generator = new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator();
-        var driver = CSharpGeneratorDriver.Create(generator).RunGenerators(compilation);
-        var result = driver.GetRunResult();
+        var result = RunServerGeneratorRaw(compilation);
 
         result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .Should().BeEmpty("服务端生成器不应报告编译错误诊断");
 
         return string.Join("\n\n", result.Results.SelectMany(r => r.GeneratedSources).Select(s => s.SourceText.ToString()));
+    }
+
+    private static GeneratorDriverRunResult RunServerGeneratorRaw(CSharpCompilation compilation)
+    {
+        var generator = new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator();
+        var driver = CSharpGeneratorDriver.Create(generator).RunGenerators(compilation);
+        return driver.GetRunResult();
     }
 
     private static string RunClientGenerator(CSharpCompilation compilation)
@@ -214,6 +303,7 @@ public class ProtocolIdConsistencyTests
 
         // PulseRPC.Abstractions：提供 IPulseHub / ChannelAttribute / PulseClientGenerationAttribute。
         references.Add(MetadataReference.CreateFromFile(typeof(global::PulseRPC.IPulseHub).Assembly.Location));
+        references.Add(MetadataReference.CreateFromFile(typeof(global::MemoryPack.MemoryPackableAttribute).Assembly.Location));
 
         return references.ToArray();
     }

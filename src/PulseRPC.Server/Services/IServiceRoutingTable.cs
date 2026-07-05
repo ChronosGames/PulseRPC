@@ -11,6 +11,11 @@ namespace PulseRPC.Server;
 public interface IServiceRoutingTable
 {
     /// <summary>
+    /// 获取此路由表支持的全部协议号。
+    /// </summary>
+    ReadOnlySpan<ushort> EnumerateProtocolIds();
+
+    /// <summary>
     /// 基于协议号的超快速路由 - 零字符串分配
     /// 通过编译时生成的协议号直接定位到方法处理器
     /// </summary>
@@ -38,15 +43,10 @@ public interface IServiceRoutingTable
     /// <param name="data">已序列化的请求数据</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>方法执行结果</returns>
-    /// <remarks>
-    /// 默认实现直接忽略 <paramref name="serviceKey"/> 并转发到 4 参数重载，
-    /// 保证在未重新生成路由表的旧编译产物上仍可正常实现本接口（源生成器新版本会重写本方法以真正支持 keyed 路由）。
-    /// </remarks>
     ValueTask<object?> RouteByProtocolIdAsync(
         IServiceProvider serviceProvider,
         ushort protocolId,
         string serviceKey,
         ReadOnlyMemory<byte> data,
-        CancellationToken cancellationToken = default)
-        => RouteByProtocolIdAsync(serviceProvider, protocolId, data, cancellationToken);
+        CancellationToken cancellationToken = default);
 }

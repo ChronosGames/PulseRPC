@@ -45,11 +45,11 @@ public class JwtAuthenticationProvider : IAuthenticationValidator
     /// </summary>
     /// <param name="token">JWT令牌</param>
     /// <returns>验证结果</returns>
-    public async Task<ValidationResult> ValidateAsync(string token)
+    public async Task<AuthenticationValidationResult> ValidateAsync(string token)
     {
         if (string.IsNullOrEmpty(token))
         {
-            return ValidationResult.Failure("未提供认证令牌");
+            return AuthenticationValidationResult.Failure("未提供认证令牌");
         }
 
         try
@@ -59,22 +59,22 @@ public class JwtAuthenticationProvider : IAuthenticationValidator
             var principal = await Task.Run(() =>
                 _tokenHandler.ValidateToken(token, _validationParameters, out var validatedToken));
 
-            return ValidationResult.Success(principal);
+            return AuthenticationValidationResult.Success(principal);
         }
         catch (SecurityTokenExpiredException)
         {
             _logger.LogWarning("令牌已过期");
-            return ValidationResult.Failure("认证令牌已过期");
+            return AuthenticationValidationResult.Failure("认证令牌已过期");
         }
         catch (SecurityTokenInvalidSignatureException)
         {
             _logger.LogWarning("令牌签名无效");
-            return ValidationResult.Failure("认证令牌签名无效");
+            return AuthenticationValidationResult.Failure("认证令牌签名无效");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "验证令牌时发生错误");
-            return ValidationResult.Failure($"认证失败: {ex.Message}");
+            return AuthenticationValidationResult.Failure($"认证失败: {ex.Message}");
         }
     }
 }

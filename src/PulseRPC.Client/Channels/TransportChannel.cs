@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Threading.Channels;
@@ -377,8 +378,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             var bodyStartIndex = 4 + headerLength;
             var bodyLength = data.Length - bodyStartIndex;
 
-            // 注意: 必须拷贝数据，因为底层传输缓冲区会被复用
-            // TODO: 未来可考虑使用 ArrayPool 池化分配
+            // NetworkMessage 会异步排队处理，body 必须独立于当前事件参数生命周期。
             var bodyBytes = bodyLength > 0 ? data.Slice(bodyStartIndex, bodyLength).ToArray() : Array.Empty<byte>();
             var message = new NetworkMessage(header, bodyBytes);
 
@@ -422,8 +422,10 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             };
             LegacyConnectionStateChanged?.Invoke(this, legacyEventArgs);
 
-            // 注意：断开连接时，ResponseContextManager 会通过超时机制处理待处理请求
-            // 如需立即处理，可调用 _responseManager.Dispose() 并重新创建
+            if (e.CurrentState == ConnectionState.Disconnected)
+            {
+                _responseManager.FailAll(new IOException("连接已断开，挂起请求被中止。"));
+            }
         }
         catch (Exception ex)
         {
@@ -611,6 +613,8 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         ReadOnlyMemory<byte> serializedRequest,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+
         var messageId = Guid.NewGuid();
 
         // Step 1: 创建响应上下文
@@ -622,16 +626,13 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
             EnqueueTimestamp = Stopwatch.GetTimestamp()
         };
 
-        // 注册取消处理。
-        // 已知限制：此处仅本地取消（结束等待并抛 OperationCanceledException），
-        // 不会向服务端发送 MessageType.Cancel 帧，服务端不会中止已在执行的方法。
-        // 端到端取消见 MessageType.Cancel 说明与优化计划 P2-13。
+        _responseManager.Register(context);
+
         context.CancellationRegistration = cancellationToken.Register(() =>
         {
-            _responseManager.TryCancel(messageId, new OperationCanceledException(cancellationToken));
+            _responseManager.TryCancel(messageId, new OperationCanceledException(cancellationToken), disposeRegistration: false);
+            _ = SendCancelAsync(messageId);
         });
-
-        _responseManager.Register(context);
 
         try
         {
@@ -680,6 +681,47 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
         {
             _responseManager.TrySetException(messageId, new InvalidOperationException("Request failed"));
             throw;
+        }
+    }
+
+    private async Task SendCancelAsync(Guid messageId)
+    {
+        if (_disposed || !_transport.IsConnected)
+        {
+            return;
+        }
+
+        var header = _messageHeaderPool.Get();
+        try
+        {
+            header.Type = MessageType.Cancel;
+            header.MessageId = messageId;
+            header.ServiceName = string.Empty;
+            header.MethodName = string.Empty;
+            header.ProtocolId = 0;
+            header.Flags = MessageFlags.None;
+            header.Timestamp = DateTimeOffset.UtcNow.Ticks;
+
+            var bufferWriter = _bufferWriterPool.Get();
+            try
+            {
+                bufferWriter.Clear();
+                SerializeMessage<object>(bufferWriter, header, null);
+                var data = bufferWriter.WrittenMemory.ToArray();
+                await _transport.SendAsync(data, CancellationToken.None);
+            }
+            finally
+            {
+                _bufferWriterPool.Return(bufferWriter);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "发送取消帧失败: MessageId={MessageId}", messageId);
+        }
+        finally
+        {
+            _messageHeaderPool.Return(header);
         }
     }
 
@@ -1052,4 +1094,3 @@ public class UnityCompatibleObjectPool<T> where T : class
         }
     }
 }
-

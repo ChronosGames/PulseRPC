@@ -36,4 +36,9 @@
     <PackageReference Include="MongoDB.Driver" />
     <PackageReference Include="StackExchange.Redis" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- MongoDB.Driver 3.4.0 brings these transitive packages into this sample; the advisories currently list no patched NuGet version. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-6c8g-7p36-r338" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-pggp-6c3x-2xmx" />
+  </ItemGroup>
 </Project>

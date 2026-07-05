@@ -1,5 +1,7 @@
 ﻿using PulseRPC.Shared;
 
+using PulseRPC.Client;
+
 namespace PulseRPC.Client.Configuration;
 
 /// <summary>
@@ -161,7 +163,7 @@ public sealed class ConnectionConfig
     /// <summary>
     /// 验证配置的有效性
     /// </summary>
-    public ValidationResult Validate()
+    public ConnectionValidationResult Validate()
     {
         var errors = new List<string>();
 
@@ -181,7 +183,7 @@ public sealed class ConnectionConfig
                 errors.Add("端口号必须在 1-65535 范围内");
         }
 
-        return new ValidationResult
+        return new ConnectionValidationResult
         {
             IsValid = errors.Count == 0,
             Errors = errors

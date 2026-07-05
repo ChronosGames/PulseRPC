@@ -355,9 +355,7 @@ public sealed class PulseServer : IPulseServer
 
     public IReadOnlyList<ServiceInfo> GetRegisteredServices()
     {
-        throw new NotSupportedException(
-            "运行时服务元数据尚不可用。当前服务路由由源生成器生成的 IServiceRoutingTable 承载；" +
-            "需要源生成器输出服务元数据清单后才能实现 GetRegisteredServices。");
+        return ServiceManifestRegistry.Instance?.Services ?? Array.Empty<ServiceInfo>();
     }
 
     // === Performance Metrics ===

@@ -65,6 +65,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     private readonly IServerChannelManager _channelManager;
     private readonly IResponseProcessor _responseProcessor;
     private readonly TieredMessageProcessorOptions _messageProcessorOptions;
+    private readonly ConcurrentDictionary<Guid, RequestCancellation> _requestCancellations = new();
 
     // 三级缓冲架构核心组件 - 使用TieredMessageProcessor实现
     private ConcurrentDictionary<string, TieredMessageProcessor> _tieredProcessors;
@@ -157,7 +158,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 };
 
                 // 使用现有的消息处理逻辑
-                var response = await ProcessSingleMessage(envelope);
+                var response = await ProcessSingleMessage(envelope, cancellationToken);
 
                 var processingTime = Stopwatch.GetElapsedTime(startTime);
                 _metrics.MessagesProcessed.Add(1);
@@ -221,6 +222,27 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
 
             // 构造包含完整元数据的 MessageSlot
             // P1-8：载荷所有权（池化缓冲）随 slot.PayloadOwner 流转，必须在终结点归还。
+            if (messagePacket.Header.Type == MessageType.Cancel)
+            {
+                HandleCancelMessage(connectionId, messagePacket.Header.MessageId);
+                messagePacket.Dispose();
+                return true;
+            }
+
+            RequestCancellation? requestCancellation = null;
+            if (messagePacket.Header.Type == MessageType.Request)
+            {
+                requestCancellation = new RequestCancellation(
+                    connectionId,
+                    CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token));
+
+                if (!_requestCancellations.TryAdd(messagePacket.Header.MessageId, requestCancellation))
+                {
+                    requestCancellation.Dispose();
+                    return RejectSlot(messagePacket);
+                }
+            }
+
             var slot = new MessageSlot
             {
                 MessageId = messagePacket.Header.MessageId,
@@ -236,6 +258,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
             // 传递给 TieredMessageProcessor
             if (!_tieredProcessors.TryGetValue(connectionId, out var processor))
             {
+                RemoveRequestCancellation(messagePacket.Header.MessageId);
                 return RejectSlot(slot.PayloadOwner);
             }
 
@@ -244,7 +267,13 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
             {
                 _metrics.BackpressureEvents.Add(1);
                 // 背压处理：根据优先级决定策略（内部各丢弃分支负责归还）
-                return HandleBackpressure(slot);
+                var handled = HandleBackpressure(slot);
+                if (!handled)
+                {
+                    RemoveRequestCancellation(messagePacket.Header.MessageId);
+                }
+
+                return handled;
             }
 
             _metrics.L1MessagesEnqueued.Add(1);
@@ -254,6 +283,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         }
         catch (Exception ex)
         {
+            RemoveRequestCancellation(messagePacket.Header.MessageId);
             _metrics.EnqueueErrors.Add(1);
             _logger.LogWarning(ex, "消息入队失败: ConnectionId={ConnectionId}", connectionId);
             return RejectSlot(messagePacket);
@@ -369,6 +399,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
 
     private void OnChannelDisconnected(object? sender, ChannelEventArgs e)
     {
+        CancelConnectionRequests(e.Channel.ConnectionId);
         UnregisterConnection(e.Channel.ConnectionId);
     }
 
@@ -421,11 +452,26 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     /// <summary>
     /// 处理单个消息
     /// </summary>
-    private async Task<MessageResponse?> ProcessSingleMessage(MessageEnvelope envelope)
+    private async Task<MessageResponse?> ProcessSingleMessage(MessageEnvelope envelope, CancellationToken cancellationToken)
     {
+        RequestCancellation? requestCancellation = null;
+        CancellationTokenSource? linkedRequestCts = null;
+
         try
         {
             envelope.Status = MessageStatus.Processing;
+            var dispatchToken = cancellationToken;
+
+            if (envelope.Header.Type == MessageType.Request &&
+                _requestCancellations.TryGetValue(envelope.MessageId, out requestCancellation))
+            {
+                linkedRequestCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    requestCancellation.CancellationToken);
+                dispatchToken = linkedRequestCts.Token;
+            }
+
+            dispatchToken.ThrowIfCancellationRequested();
 
             // 使用消息分发器处理消息
             object? result = null;
@@ -499,16 +545,16 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                                 dispatchResult = await _messageDispatcher.DispatchAsync(
                                     envelope,
                                     _serviceProvider,
-                                    CancellationToken.None);
+                                    dispatchToken);
                             },
-                            CancellationToken.None);
+                            dispatchToken);
                     }
                     else
                     {
                         dispatchResult = await _messageDispatcher.DispatchAsync(
                             envelope,
                             _serviceProvider,
-                            CancellationToken.None);
+                            dispatchToken);
                     }
                 }
                 finally
@@ -521,6 +567,10 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 }
 
                 result = dispatchResult;
+            }
+            catch (OperationCanceledException) when (dispatchToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception dispatchEx)
             {
@@ -558,6 +608,23 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
 
             return response;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested ||
+                                                requestCancellation?.IsCancellationRequested == true)
+        {
+            envelope.Status = MessageStatus.Failed;
+            _metrics.MessagesDropped.Add(1);
+            _logger.LogDebug("消息处理被取消: MessageId={MessageId}, ConnectionId={ConnectionId}",
+                envelope.MessageId, envelope.ConnectionId);
+
+            return new MessageResponse
+            {
+                MessageId = envelope.MessageId.ToString(),
+                ConnectionId = envelope.ConnectionId,
+                Success = false,
+                ErrorMessage = "消息处理被取消。",
+                ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)
+            };
+        }
         catch (Exception ex)
         {
             envelope.Status = MessageStatus.Failed;
@@ -579,6 +646,51 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
             TriggerMessageProcessedEvent(envelope, null, ex);
 
             return response;
+        }
+        finally
+        {
+            linkedRequestCts?.Dispose();
+            if (envelope.Header.Type == MessageType.Request)
+            {
+                RemoveRequestCancellation(envelope.MessageId);
+            }
+        }
+    }
+
+    private void HandleCancelMessage(string connectionId, Guid messageId)
+    {
+        if (!_requestCancellations.TryGetValue(messageId, out var requestCancellation))
+        {
+            _logger.LogDebug("收到未匹配的取消帧: ConnectionId={ConnectionId}, MessageId={MessageId}", connectionId, messageId);
+            return;
+        }
+
+        if (!string.Equals(requestCancellation.ConnectionId, connectionId, StringComparison.Ordinal))
+        {
+            _logger.LogWarning("拒绝跨连接取消请求: SourceConnectionId={SourceConnectionId}, OwnerConnectionId={OwnerConnectionId}, MessageId={MessageId}",
+                connectionId, requestCancellation.ConnectionId, messageId);
+            return;
+        }
+
+        requestCancellation.Cancel();
+    }
+
+    private void CancelConnectionRequests(string connectionId)
+    {
+        foreach (var kvp in _requestCancellations)
+        {
+            if (string.Equals(kvp.Value.ConnectionId, connectionId, StringComparison.Ordinal))
+            {
+                kvp.Value.Cancel();
+            }
+        }
+    }
+
+    private void RemoveRequestCancellation(Guid messageId)
+    {
+        if (_requestCancellations.TryRemove(messageId, out var requestCancellation))
+        {
+            requestCancellation.Dispose();
         }
     }
 
@@ -733,6 +845,14 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         // 释放TieredMessageProcessor
         await Task.WhenAll(_tieredProcessors.Values.Select(x => x.DisposeAsync().AsTask()));
 
+        foreach (var kvp in _requestCancellations)
+        {
+            if (_requestCancellations.TryRemove(kvp.Key, out var requestCancellation))
+            {
+                requestCancellation.Dispose();
+            }
+        }
+
         _cancellationTokenSource.Dispose();
 
         _isDisposed = true;
@@ -759,6 +879,39 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     private static string GenerateMessageId()
     {
         return Guid.NewGuid().ToString("N")[..16]; // 16字符短ID
+    }
+
+    private sealed class RequestCancellation : IDisposable
+    {
+        private readonly CancellationTokenSource _cts;
+
+        public RequestCancellation(string connectionId, CancellationTokenSource cts)
+        {
+            ConnectionId = connectionId;
+            _cts = cts;
+        }
+
+        public string ConnectionId { get; }
+
+        public CancellationToken CancellationToken => _cts.Token;
+
+        public bool IsCancellationRequested => _cts.IsCancellationRequested;
+
+        public void Cancel()
+        {
+            try
+            {
+                _cts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+
+        public void Dispose()
+        {
+            _cts.Dispose();
+        }
     }
 
     #endregion

@@ -9,10 +9,8 @@ namespace PulseRPC.Server.Gateway;
 /// 调用，把一次推送/反向 Ask 转发给该网关上持有的真实客户端连接（虚拟连接的「最后一跳」，见 §6.2/§6.3）。
 /// </summary>
 /// <remarks>
-/// 与 <see cref="PulseRPC.Server.Clustering.IClusterInternalHub"/> 同样的原因（避免在被广泛引用的
-/// <c>PulseRPC.Server</c> 库中启用客户端源生成器造成下游二义性），本接口方法以
-/// <see cref="ProtocolAttribute"/> 显式固定协议号，手写客户端桩 <see cref="GatewayRelayHubClientStub"/>
-/// 与服务端生成骨架天然一致。不面向业务代码。
+/// 本接口方法以 <see cref="ProtocolAttribute"/> 显式固定协议号，供外部 <see cref="PulseRPC.Clustering.INodeLink"/>
+/// 实现按同一协议稳定调用。不面向业务代码。
 /// </remarks>
 public interface IGatewayRelayHub : IPulseHub
 {

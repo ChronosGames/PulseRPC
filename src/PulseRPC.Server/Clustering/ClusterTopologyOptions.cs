@@ -3,7 +3,7 @@ using System.Collections.Generic;
 namespace PulseRPC.Server.Clustering;
 
 /// <summary>
-/// 集群静态成员端点：节点标识 + 供 <see cref="PulseNodeLink"/> 建立出站连接的地址。
+/// 集群静态成员端点：节点标识 + 供 <see cref="PulseRPC.Clustering.INodeLink"/> 建立出站连接的地址。
 /// </summary>
 public sealed class ClusterNodeEndpoint
 {

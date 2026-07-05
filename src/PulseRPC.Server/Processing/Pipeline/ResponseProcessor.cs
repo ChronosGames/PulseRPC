@@ -1,7 +1,9 @@
 using System;
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Channels;
@@ -66,6 +68,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
 
     // 生成的响应序列化器注册表（优先使用，零拷贝路径）
     private readonly IResponseSerializerRegistry? _responseSerializerRegistry;
+    private readonly IServiceRoutingTable? _routingTable;
 
     // 处理任务
     private Task[]? _processingTasks;
@@ -91,13 +94,15 @@ internal sealed class ResponseProcessor : IResponseProcessor
         ISerializerProvider? serializerProvider = null,
         ResponseProcessorOptions? options = null,
         ILogger<ResponseProcessor>? logger = null,
-        IResponseSerializerRegistry? responseSerializerRegistry = null)
+        IResponseSerializerRegistry? responseSerializerRegistry = null,
+        IServiceRoutingTable? routingTable = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
         _options = options ?? new ResponseProcessorOptions();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ResponseProcessor>.Instance;
         _responseSerializerRegistry = responseSerializerRegistry;
+        _routingTable = routingTable ?? ServiceRoutingTableRegistry.Instance;
 
          // 创建有界响应通道
          var channelOptions = new BoundedChannelOptions(_options.ChannelCapacity)
@@ -117,6 +122,8 @@ internal sealed class ResponseProcessor : IResponseProcessor
      {
          _logger.LogInformation("启动高性能响应处理器，处理器线程数: {ProcessorCount}", _options.ProcessorThreadCount);
 
+         ValidateResponseSerializers();
+
          // 预热响应序列化器（减少运行时查找开销）
          if (_responseSerializerRegistry != null)
          {
@@ -135,6 +142,41 @@ internal sealed class ResponseProcessor : IResponseProcessor
 
          _logger.LogInformation("响应处理器启动完成");
          return Task.CompletedTask;
+     }
+
+     private void ValidateResponseSerializers()
+     {
+         if (_routingTable is null)
+         {
+             return;
+         }
+
+         var protocolIds = _routingTable.EnumerateProtocolIds();
+         if (protocolIds.IsEmpty)
+         {
+             return;
+         }
+
+         if (_responseSerializerRegistry is null)
+         {
+             throw new InvalidOperationException("IResponseSerializerRegistry 未注册，无法启动响应处理器。");
+         }
+
+         List<ushort>? missingProtocolIds = null;
+         foreach (var protocolId in protocolIds)
+         {
+             if (!_responseSerializerRegistry.TryGetSerializer(protocolId, out _))
+             {
+                 missingProtocolIds ??= new List<ushort>();
+                 missingProtocolIds.Add(protocolId);
+             }
+         }
+
+         if (missingProtocolIds is { Count: > 0 })
+         {
+             var missing = string.Join(", ", missingProtocolIds.Select(id => $"0x{id:X4}"));
+             throw new InvalidOperationException($"响应序列化器注册表不完整，缺少协议号: {missing}");
+         }
      }
 
      public async Task StopAsync(CancellationToken cancellationToken = default)
@@ -327,6 +369,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
              var responseHeader = new MessageHeader(MessageType.Response, string.Empty, string.Empty)
              {
                  MessageId = responseTask.MessageId,
+                 ProtocolId = responseTask.ProtocolId,
                  // Timestamp = responseTask.ResponseTime,
                  Flags = MessageFlags.None
              };
@@ -335,17 +378,25 @@ internal sealed class ResponseProcessor : IResponseProcessor
 
             if (responseTask.Success && responseTask.Result != null)
             {
-                // 序列化成功响应（普通业务消息）
-                responsePayload = await SerializeResponseAsync(
-                    responseTask.Result, 
-                    responseTask.ServiceName, 
-                    responseTask.MethodName,
-                    responseTask.ProtocolId);
+                try
+                {
+                    responsePayload = await SerializeResponseAsync(responseTask.Result, responseTask.ProtocolId);
+                }
+                catch (Exception ex)
+                {
+                    responseHeader.Type = MessageType.Error;
+                    responseHeader.Flags = MessageFlags.Error;
+                    responsePayload = await SerializeErrorResponseAsync(
+                        new InvalidOperationException(
+                            $"响应序列化失败: ProtocolId=0x{responseTask.ProtocolId:X4}",
+                            ex));
+                }
             }
              else if (!responseTask.Success && responseTask.Exception != null)
              {
                  // 序列化错误响应
                  responseHeader.Type = MessageType.Error;
+                 responseHeader.Flags = MessageFlags.Error;
                  responsePayload = await SerializeErrorResponseAsync(responseTask.Exception);
              }
              else
@@ -428,57 +479,27 @@ internal sealed class ResponseProcessor : IResponseProcessor
    /// <summary>
    /// 序列化成功响应
    /// </summary>
-   private Task<ReadOnlyMemory<byte>> SerializeResponseAsync(
-       object? result, 
-       string serviceName, 
-       string methodName, 
-       ushort protocolId)
+   private Task<ReadOnlyMemory<byte>> SerializeResponseAsync(object? result, ushort protocolId)
    {
        if (result == null)
        {
            return Task.FromResult(ReadOnlyMemory<byte>.Empty);
        }
 
-       // 优先尝试使用协议号查找序列化器（最快路径）
-       if (protocolId != 0 && _responseSerializerRegistry != null)
+       if (protocolId == 0)
        {
-           if (_responseSerializerRegistry.TryGetSerializer(protocolId, out var protocolSerializer))
-           {
-               try
-               {
-                   var buffer = new ArrayBufferWriter<byte>();
-                   protocolSerializer.Serialize(result, buffer);
-                   return Task.FromResult(buffer.WrittenMemory);
-               }
-               catch (Exception ex)
-               {
-                   _logger.LogWarning(ex, "协议号响应序列化器失败: ProtocolId=0x{ProtocolId:X4}", protocolId);
-               }
-           }
+           throw new ArgumentException("响应消息缺少 ProtocolId。");
        }
 
-       // 回退：尝试使用方法名查找序列化器（向后兼容）
-       if (!string.IsNullOrEmpty(serviceName) && !string.IsNullOrEmpty(methodName) &&
-           _responseSerializerRegistry != null &&
-           _responseSerializerRegistry.TryGetSerializer(serviceName, methodName, out var responseSerializer))
+       if (_responseSerializerRegistry is null ||
+           !_responseSerializerRegistry.TryGetSerializer(protocolId, out var protocolSerializer))
        {
-           try
-           {
-               var buffer = new ArrayBufferWriter<byte>();
-               responseSerializer.Serialize(result, buffer);
-               return Task.FromResult(buffer.WrittenMemory);
-           }
-           catch (Exception ex)
-           {
-               _logger.LogWarning(ex, "生成的响应序列化器失败: {ServiceName}.{MethodName}",  serviceName, methodName);
-           }
+           throw new ArgumentException($"未找到响应序列化器: ProtocolId=0x{protocolId:X4}");
        }
 
-       // 降级：记录错误日志
-       var identifier = protocolId != 0 
-           ? $"ProtocolId=0x{protocolId:X4}" 
-           : $"{serviceName}.{methodName}";
-       throw new ArgumentException($"未找到响应序列化器: {identifier}");
+       var buffer = new ArrayBufferWriter<byte>();
+       protocolSerializer.Serialize(result, buffer);
+       return Task.FromResult(buffer.WrittenMemory);
    }
 
     /// <summary>
@@ -568,7 +589,7 @@ internal readonly struct ResponseTask
     public readonly Guid MessageId;
     public readonly string ServiceName;
     public readonly string MethodName;
-    public readonly ushort ProtocolId; // 协议号（0 表示使用方法名路径）
+    public readonly ushort ProtocolId;
     public readonly object? Result;
     public readonly bool Success;
     public readonly Exception? Exception;

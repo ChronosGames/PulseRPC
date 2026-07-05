@@ -393,6 +393,7 @@ public abstract class TcpTransport : ITransport
                 // 读取消息内容
                 var messageBuffer = header.Length <= _receiveBuffer.Length
                     ? _receiveBuffer : new byte[header.Length];
+                var ownsMessageBuffer = messageBuffer.Length == header.Length;
 
                 if (!await ReadExactBytesAsync(messageBuffer, 0, header.Length))
                 {
@@ -422,8 +423,10 @@ public abstract class TcpTransport : ITransport
                 }
                 else
                 {
-                    // 直接触发数据接收事件
-                    DataReceived?.Invoke(this, new TransportDataEventArgs(new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length)));
+                    var eventArgs = ownsMessageBuffer
+                        ? new TransportDataEventArgs(messageBuffer, header.Length)
+                        : new TransportDataEventArgs(new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length));
+                    DataReceived?.Invoke(this, eventArgs);
                 }
             }
         }

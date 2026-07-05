@@ -150,6 +150,8 @@ public class MessageDispatcherTests
         public Func<IServiceProvider, ushort, string, ReadOnlyMemory<byte>, CancellationToken, ValueTask<object?>> OnRoute { get; set; }
             = (_, _, _, _, _) => new ValueTask<object?>((object?)null);
 
+        public ReadOnlySpan<ushort> EnumerateProtocolIds() => Array.Empty<ushort>();
+
         public ValueTask<object?> RouteByProtocolIdAsync(
             IServiceProvider serviceProvider,
             ushort protocolId,

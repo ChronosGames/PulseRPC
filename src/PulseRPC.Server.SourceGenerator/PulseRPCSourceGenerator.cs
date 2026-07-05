@@ -138,6 +138,11 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             // 为所有服务方法分配协议号 - 需要适配新的上下文
             AssignProtocolIdsForIncremental(serviceModels, context);
 
+            if (!ValidateResponseTypes(context, serviceModels))
+            {
+                return;
+            }
+
             // 生成协议号映射表
             GenerateProtocolIdMapping(context, serviceModels);
 
@@ -152,6 +157,9 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
 
             // 生成响应序列化器注册表
             GenerateResponseSerializers(context, serviceModels);
+
+            // 生成服务元数据清单
+            GenerateServiceManifest(context, serviceModels);
 
             // 报告成功信息
             ReportGenerationSuccess(context, serviceModels);
@@ -460,6 +468,15 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     {
         var sourceText = ResponseSerializerGenerator.GenerateSourceText(serviceModels);
         context.AddSource("ResponseSerializers.g.cs", sourceText);
+    }
+
+    /// <summary>
+    /// 生成服务元数据清单
+    /// </summary>
+    private static void GenerateServiceManifest(SourceProductionContext context, List<ServiceModel> serviceModels)
+    {
+        var sourceText = ServiceManifestGenerator.GenerateSourceText(serviceModels);
+        context.AddSource("ServiceManifest.g.cs", sourceText);
     }
 
     /// <summary>
@@ -964,7 +981,7 @@ public static partial class ProtocolIdMapping
                         }).ToList(),
                         DeclaringInterfaceFullName = methodSymbol.ContainingType.ToDisplayString(),
                         ResponseTypeFullName = responseTypeFullName,
-                        IsResponseMemoryPackable = responseTypeFullName != null,
+                        IsResponseMemoryPackable = responseTypeFullName is null || IsMemoryPackSerializableResponse(methodSymbol.ReturnType),
                         ProtocolId = manualProtocolId ?? 0, // 0 表示需要自动生成
                         Authorization = methodAuthorization,
                         IsReentrant = isReentrant,
@@ -1070,6 +1087,113 @@ public static partial class ProtocolIdMapping
         }
 
         throw new InvalidOperationException($"{returnType} is not a valid response type");
+    }
+
+    private static bool ValidateResponseTypes(SourceProductionContext context, List<ServiceModel> serviceModels)
+    {
+        var valid = true;
+        var descriptor = new DiagnosticDescriptor(
+            "PULSE004",
+            "Response type is not MemoryPack serializable",
+            "Method '{0}.{1}' returns '{2}', which is not MemoryPack serializable. Mark the custom response type with [MemoryPackable] or return a MemoryPack-supported primitive/collection type.",
+            "PulseRPC.Server.SourceGenerator",
+            DiagnosticSeverity.Error,
+            true);
+
+        foreach (var service in serviceModels)
+        {
+            foreach (var method in service.Methods)
+            {
+                if (!string.IsNullOrWhiteSpace(method.ResponseTypeFullName) && !method.IsResponseMemoryPackable)
+                {
+                    valid = false;
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        descriptor,
+                        method.Location ?? Location.None,
+                        service.InterfaceFullName,
+                        method.MethodName,
+                        method.ResponseTypeFullName));
+                }
+            }
+        }
+
+        return valid;
+    }
+
+    private static bool IsMemoryPackSerializableResponse(ITypeSymbol returnType)
+    {
+        if (returnType is INamedTypeSymbol namedType && namedType.IsGenericType && namedType.TypeArguments.Length > 0)
+        {
+            return IsMemoryPackSerializable(namedType.TypeArguments[0]);
+        }
+
+        return IsMemoryPackSerializable(returnType);
+    }
+
+    private static bool IsMemoryPackSerializable(ITypeSymbol typeSymbol)
+    {
+        if (typeSymbol.TypeKind == TypeKind.Enum)
+        {
+            return true;
+        }
+
+        if (typeSymbol is IArrayTypeSymbol arrayType)
+        {
+            return IsMemoryPackSerializable(arrayType.ElementType);
+        }
+
+        if (typeSymbol is INamedTypeSymbol namedType)
+        {
+            if (namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
+                namedType.TypeArguments.Length == 1)
+            {
+                return IsMemoryPackSerializable(namedType.TypeArguments[0]);
+            }
+
+            if (namedType.IsTupleType)
+            {
+                return namedType.TupleElements.All(e => IsMemoryPackSerializable(e.Type));
+            }
+
+            if (IsMemoryPackable(namedType))
+            {
+                return true;
+            }
+
+            var fullName = namedType.ToDisplayString();
+            if (fullName is "System.Guid" or "System.DateTime" or "System.DateTimeOffset" or "System.TimeSpan")
+            {
+                return true;
+            }
+
+            if (fullName.StartsWith("System.Collections.Generic.", StringComparison.Ordinal) &&
+                namedType.TypeArguments.All(IsMemoryPackSerializable))
+            {
+                return true;
+            }
+        }
+
+        return typeSymbol.SpecialType
+            is SpecialType.System_Boolean
+            or SpecialType.System_Byte
+            or SpecialType.System_SByte
+            or SpecialType.System_Int16
+            or SpecialType.System_UInt16
+            or SpecialType.System_Int32
+            or SpecialType.System_UInt32
+            or SpecialType.System_Int64
+            or SpecialType.System_UInt64
+            or SpecialType.System_Single
+            or SpecialType.System_Double
+            or SpecialType.System_Decimal
+            or SpecialType.System_Char
+            or SpecialType.System_String;
+    }
+
+    private static bool IsMemoryPackable(ITypeSymbol typeSymbol)
+    {
+        return typeSymbol.GetAttributes()
+            .Any(attr => attr.AttributeClass?.Name is "MemoryPackableAttribute" or "MemoryPackable");
     }
 
     /// <summary>

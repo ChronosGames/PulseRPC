@@ -13,7 +13,7 @@ namespace PulseRPC.Server.Services;
 /// - Serializing the return value or capturing exceptions
 /// - Providing method discovery for clients
 /// </summary>
-public interface IServiceHandler
+public interface IServiceMethodInvoker
 {
     /// <summary>
     /// Invokes a service method with the provided parameters and context.

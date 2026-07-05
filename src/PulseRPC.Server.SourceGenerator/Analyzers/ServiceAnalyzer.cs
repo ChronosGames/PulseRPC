@@ -143,8 +143,9 @@ public static class ServiceAnalyzer
             return null;
         }
 
-        var isGenericTask = IsGenericTaskType(returnType);
         var responseTypeFullName = GetResponseTypeFullName(returnType);
+        var isGenericTask = IsGenericTaskType(returnType);
+        var isResponseMemoryPackable = responseTypeFullName is null || IsMemoryPackSerializableResponse(returnType);
 
         var parameters = new List<ParameterModel>();
 
@@ -174,7 +175,7 @@ public static class ServiceAnalyzer
             ChannelName = methodChannelName,
             DeclaringInterfaceFullName = methodSymbol.ContainingType.ToDisplayString(),
             ResponseTypeFullName = responseTypeFullName,
-            IsResponseMemoryPackable = responseTypeFullName != null,
+            IsResponseMemoryPackable = isResponseMemoryPackable,
             Authorization = authorization,
             Location = methodSymbol.Locations.FirstOrDefault()
         };
@@ -252,20 +253,74 @@ public static class ServiceAnalyzer
             .Any(attr => attr.AttributeClass?.Name is "MemoryPackableAttribute" or "MemoryPackable");
     }
 
-    private static bool IsMemoryPackable(ITypeSymbol returnType, string responseTypeFullName)
+    private static bool IsMemoryPackSerializableResponse(ITypeSymbol returnType)
     {
         if (returnType is INamedTypeSymbol namedType && namedType.IsGenericType && namedType.TypeArguments.Length > 0)
         {
-            var typeArg = namedType.TypeArguments[0];
-            return IsMemoryPackable(typeArg);
+            return IsMemoryPackSerializable(namedType.TypeArguments[0]);
         }
 
-        if (returnType.ToDisplayString() == responseTypeFullName)
+        return IsMemoryPackSerializable(returnType);
+    }
+
+    private static bool IsMemoryPackSerializable(ITypeSymbol typeSymbol)
+    {
+        if (typeSymbol.TypeKind == TypeKind.Enum)
         {
-            return IsMemoryPackable(returnType);
+            return true;
         }
 
-        return false;
+        if (typeSymbol is IArrayTypeSymbol arrayType)
+        {
+            return IsMemoryPackSerializable(arrayType.ElementType);
+        }
+
+        if (typeSymbol is INamedTypeSymbol namedType)
+        {
+            if (namedType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T &&
+                namedType.TypeArguments.Length == 1)
+            {
+                return IsMemoryPackSerializable(namedType.TypeArguments[0]);
+            }
+
+            if (namedType.IsTupleType)
+            {
+                return namedType.TupleElements.All(e => IsMemoryPackSerializable(e.Type));
+            }
+
+            if (IsMemoryPackable(namedType))
+            {
+                return true;
+            }
+
+            var fullName = namedType.ToDisplayString();
+            if (fullName is "System.Guid" or "System.DateTime" or "System.DateTimeOffset" or "System.TimeSpan")
+            {
+                return true;
+            }
+
+            if (fullName.StartsWith("System.Collections.Generic.", StringComparison.Ordinal) &&
+                namedType.TypeArguments.All(IsMemoryPackSerializable))
+            {
+                return true;
+            }
+        }
+
+        return typeSymbol.SpecialType
+            is SpecialType.System_Boolean
+            or SpecialType.System_Byte
+            or SpecialType.System_SByte
+            or SpecialType.System_Int16
+            or SpecialType.System_UInt16
+            or SpecialType.System_Int32
+            or SpecialType.System_UInt32
+            or SpecialType.System_Int64
+            or SpecialType.System_UInt64
+            or SpecialType.System_Single
+            or SpecialType.System_Double
+            or SpecialType.System_Decimal
+            or SpecialType.System_Char
+            or SpecialType.System_String;
     }
 
     private static string? GetResponseTypeFullName(ITypeSymbol returnType)

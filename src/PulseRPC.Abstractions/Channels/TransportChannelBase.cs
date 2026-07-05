@@ -19,7 +19,7 @@ namespace PulseRPC.Channels;
 /// </remarks>
 public abstract class TransportChannelBase : ITransportChannel
 {
-    private readonly ConcurrentDictionary<string, IServiceHandler> _serviceHandlers = new();
+    private readonly ConcurrentDictionary<string, ITransportRequestHandler> _requestHandlers = new();
     private readonly ConcurrentDictionary<string, IHubRegistrationToken> _hubRegistrations = new();
     private bool _disposed;
 
@@ -49,7 +49,7 @@ public abstract class TransportChannelBase : ITransportChannel
     // === 双向 RPC 实现（所有子类共享）===
 
     /// <inheritdoc />
-    public virtual IDisposable RegisterServiceHandler(string serviceName, IServiceHandler handler)
+    public virtual IDisposable RegisterTransportRequestHandler(string serviceName, ITransportRequestHandler handler)
     {
         if (string.IsNullOrWhiteSpace(serviceName))
             throw new ArgumentException("Service name cannot be null or empty", nameof(serviceName));
@@ -57,8 +57,7 @@ public abstract class TransportChannelBase : ITransportChannel
         if (handler == null)
             throw new ArgumentNullException(nameof(handler));
 
-        // 注册服务处理器
-        _serviceHandlers[serviceName] = handler;
+        _requestHandlers[serviceName] = handler;
 
         // 创建注册令牌
         var token = new HubRegistrationToken(
@@ -66,7 +65,7 @@ public abstract class TransportChannelBase : ITransportChannel
             serviceName,
             () =>
             {
-                _serviceHandlers.TryRemove(serviceName, out _);
+                _requestHandlers.TryRemove(serviceName, out _);
                 _hubRegistrations.TryRemove(serviceName, out _);
             });
 
@@ -90,7 +89,7 @@ public abstract class TransportChannelBase : ITransportChannel
         ReadOnlyMemory<byte> parameters,
         IRequestContext context)
     {
-        if (_serviceHandlers.TryGetValue(serviceName, out var handler))
+        if (_requestHandlers.TryGetValue(serviceName, out var handler))
         {
             return await handler.HandleRequestAsync(methodName, parameters, context);
         }
@@ -101,12 +100,12 @@ public abstract class TransportChannelBase : ITransportChannel
     /// <summary>
     /// 获取已注册的服务数量
     /// </summary>
-    protected int RegisteredServiceCount => _serviceHandlers.Count;
+    protected int RegisteredServiceCount => _requestHandlers.Count;
 
     /// <summary>
     /// 检查服务是否已注册
     /// </summary>
-    protected bool IsServiceRegistered(string serviceName) => _serviceHandlers.ContainsKey(serviceName);
+    protected bool IsServiceRegistered(string serviceName) => _requestHandlers.ContainsKey(serviceName);
 
     // === 生命周期管理 ===
 
@@ -135,7 +134,7 @@ public abstract class TransportChannelBase : ITransportChannel
             }
 
             _hubRegistrations.Clear();
-            _serviceHandlers.Clear();
+            _requestHandlers.Clear();
         }
 
         _disposed = true;

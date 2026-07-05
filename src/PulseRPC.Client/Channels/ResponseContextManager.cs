@@ -96,7 +96,7 @@ public sealed class ResponseContextManager : IDisposable
     /// <summary>
     /// 尝试取消响应
     /// </summary>
-    public void TryCancel(Guid messageId, OperationCanceledException exception)
+    public void TryCancel(Guid messageId, OperationCanceledException exception, bool disposeRegistration = true)
     {
         var shard = GetShard(messageId);
         if (!shard.TryRemove(messageId, out var context))
@@ -106,7 +106,11 @@ public sealed class ResponseContextManager : IDisposable
 
         try
         {
-            context.CancellationRegistration.Dispose();
+            if (disposeRegistration)
+            {
+                context.CancellationRegistration.Dispose();
+            }
+
             context.Tcs.TrySetCanceled(exception.CancellationToken);
         }
         catch
@@ -137,6 +141,45 @@ public sealed class ResponseContextManager : IDisposable
             // 忽略设置异常失败
             return false;
         }
+    }
+
+    /// <summary>
+    /// 将所有挂起响应立即置为异常。
+    /// </summary>
+    internal int FailAll(Exception exception)
+    {
+        if (exception == null)
+        {
+            throw new ArgumentNullException(nameof(exception));
+        }
+
+        var failed = 0;
+
+        foreach (var shard in _shards)
+        {
+            foreach (var kvp in shard)
+            {
+                if (!shard.TryRemove(kvp.Key, out var context))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    context.CancellationRegistration.Dispose();
+                    if (context.Tcs.TrySetException(exception))
+                    {
+                        failed++;
+                    }
+                }
+                catch
+                {
+                    // 忽略设置异常失败
+                }
+            }
+        }
+
+        return failed;
     }
 
     /// <summary>

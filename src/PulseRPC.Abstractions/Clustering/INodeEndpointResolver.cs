@@ -49,7 +49,7 @@ public readonly struct NodeEndpoint : IEquatable<NodeEndpoint>
 /// <list type="bullet">
 /// <item><description>静态部署：默认实现从 <c>ClusterTopologyOptions.Members</c> 的固定端点解析；</description></item>
 /// <item><description>动态部署：服务发现后端（Consul/Etcd/K8s）在注册/监听节点时同时提供端点，实现本接口，
-/// 使 <c>PulseNodeLink</c> 无需静态配置即可连接任意被发现的节点。</description></item>
+/// 使 <c>INodeLink</c> 无需静态配置即可连接任意被发现的节点。</description></item>
 /// </list>
 /// <para>
 /// 解析为同步（端点在动态实现中已由后台监听缓存到本地），命中返回 <c>true</c>；未知节点返回 <c>false</c>。

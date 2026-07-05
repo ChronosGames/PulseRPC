@@ -5,16 +5,13 @@ using PulseRPC.Protocol;
 namespace PulseRPC.Server.Clustering;
 
 /// <summary>
-/// 节点↔节点内部 RPC 契约 —— 由每个 PulseRPC 服务端节点提供，供其它节点经 <see cref="PulseNodeLink"/> 调用。
+/// 节点↔节点内部 RPC 契约 —— 由每个 PulseRPC 服务端节点提供，供其它节点经 <see cref="PulseRPC.Clustering.INodeLink"/> 调用。
 /// </summary>
 /// <remarks>
 /// <para>
-/// 服务端一侧复用现有服务端源生成管线生成骨架（<see cref="ClusterInternalHub"/> 为业务实现）；
-/// 客户端一侧（<see cref="PulseNodeLink"/> 内部持有的 <see cref="PulseRPC.Client.IPulseClient"/>）
-/// 由 <see cref="ClusterInternalHubClientStub"/> 手写调用桩，不经过
-/// <c>PulseRPC.Client.SourceGenerator</c>（该生成器按编译单元生成全局聚合扩展方法，
-/// 若在被广泛引用的 <c>PulseRPC.Server</c> 库中启用，会与下游同样使用该生成器的应用产生同签名扩展方法二义性）。
-/// 因此本接口方法全部以 <see cref="ProtocolAttribute"/> 显式固定协议号，使手写客户端桩与服务端生成骨架天然一致。
+/// 服务端一侧复用现有服务端源生成管线生成骨架（<see cref="ClusterInternalHub"/> 为业务实现）。
+/// 方法以 <see cref="ProtocolAttribute"/> 显式固定协议号，供外部 <see cref="PulseRPC.Clustering.INodeLink"/>
+/// 实现按同一协议稳定调用。
 /// </para>
 /// <para>
 /// 不面向业务代码；业务侧应通过 <see cref="PulseRPC.Routing.IPulseRouter"/>（Actor 地址）间接触发跨节点调用。
