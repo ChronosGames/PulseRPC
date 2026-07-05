@@ -5,11 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <TargetFramework>net10.0</TargetFramework>
-    <Description>Redis-backed IPulseBackplane（模型 X pub/sub 广播 + 模型 Y 全局成员目录），用于 PulseRPC 多节点集群部署（§P6）。</Description>
+    <Description>PulseRPC 集群服务发现共享基础设施：IDiscoveryProvider 抽象 + DiscoveryClusterMembership（同时实现 IClusterMembership 与 INodeEndpointResolver 的注册/监听/变更检测），供 Consul/Etcd/Kubernetes 等后端复用（§P8）。</Description>
 
     <!-- 包配置 -->
     <IsPackable>true</IsPackable>
-    <PackageId>PulseRPC.Backplane.Redis</PackageId>
+    <PackageId>PulseRPC.Infrastructure</PackageId>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
@@ -20,11 +20,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="MemoryPack.Core" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
     <PackageReference Include="Microsoft.Extensions.Options" />
-    <PackageReference Include="StackExchange.Redis" />
   </ItemGroup>
 
 </Project>

@@ -66,6 +66,7 @@ public static class PulseClusteringServiceExtensions
         });
 
         services.TryAddSingleton<INodeAuthenticator, SharedSecretNodeAuthenticator>();
+        services.TryAddSingleton<INodeEndpointResolver, StaticNodeEndpointResolver>();
         services.TryAddSingleton<IActorDirectory, LeaseActorDirectory>();
         services.TryAddSingleton<INodeLink, PulseNodeLink>();
         services.TryAddSingleton<IClusterInternalHub, ClusterInternalHub>();
@@ -83,6 +84,25 @@ public static class PulseClusteringServiceExtensions
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ClusterPulseRouter>>(),
             sp.GetService<DeliveryRetryOptions>(),
             sp.GetRequiredService<IClusterMembership>()));
+
+        return services;
+    }
+
+    /// <summary>
+    /// 切换节点互信鉴权为基于 X.509 证书的生产级实现（<see cref="CertificateNodeAuthenticator"/>），
+    /// 覆盖 <see cref="AddPulseClustering"/> 默认注册的共享密钥鉴权（§P8）。
+    /// </summary>
+    /// <remarks>应在 <see cref="AddPulseClustering"/> 之后调用。</remarks>
+    public static IServiceCollection UseCertificateNodeAuthentication(
+        this IServiceCollection services,
+        Action<CertificateNodeAuthenticatorOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configure);
+
+        services.Configure(configure);
+        services.RemoveAll<INodeAuthenticator>();
+        services.AddSingleton<INodeAuthenticator, CertificateNodeAuthenticator>();
 
         return services;
     }

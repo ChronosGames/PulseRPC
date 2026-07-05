@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Concurrent;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -32,6 +31,7 @@ namespace PulseRPC.Server.Clustering;
 public sealed class PulseNodeLink : INodeLink, IDisposable
 {
     private readonly ClusterTopologyOptions _topology;
+    private readonly INodeEndpointResolver _endpointResolver;
     private readonly INodeAuthenticator _authenticator;
     private readonly ILogger<PulseNodeLink> _logger;
     private readonly IPulseClient _client;
@@ -44,6 +44,7 @@ public sealed class PulseNodeLink : INodeLink, IDisposable
     /// <summary>创建节点间链路。</summary>
     public PulseNodeLink(
         IOptions<ClusterTopologyOptions> topologyOptions,
+        INodeEndpointResolver endpointResolver,
         INodeAuthenticator authenticator,
         ILoggerFactory loggerFactory)
     {
@@ -51,6 +52,7 @@ public sealed class PulseNodeLink : INodeLink, IDisposable
         ArgumentNullException.ThrowIfNull(loggerFactory);
 
         _topology = topologyOptions.Value ?? throw new ArgumentNullException(nameof(topologyOptions));
+        _endpointResolver = endpointResolver ?? throw new ArgumentNullException(nameof(endpointResolver));
         _authenticator = authenticator ?? throw new ArgumentNullException(nameof(authenticator));
         _logger = loggerFactory.CreateLogger<PulseNodeLink>();
         _client = new PulseClientBuilder().WithLogging(loggerFactory).Build();
@@ -117,9 +119,12 @@ public sealed class PulseNodeLink : INodeLink, IDisposable
 
     private async Task<IClientChannel> ConnectAndAuthenticateAsync(string targetNodeId, CancellationToken cancellationToken)
     {
-        var endpoint = _topology.Members.FirstOrDefault(m => string.Equals(m.NodeId, targetNodeId, StringComparison.Ordinal))
-            ?? throw new InvalidOperationException(
-                $"集群拓扑中未找到节点 '{targetNodeId}' 的端点配置（ClusterTopologyOptions.Members），无法建立节点间链路。");
+        if (!_endpointResolver.TryResolve(targetNodeId, out var endpoint) || !endpoint.IsValid)
+        {
+            throw new InvalidOperationException(
+                $"无法解析节点 '{targetNodeId}' 的端点（INodeEndpointResolver 未命中或端点无效）——" +
+                "静态部署需在 ClusterTopologyOptions.Members 中登记；动态部署需确保该节点已被服务发现后端发现，无法建立节点间链路。");
+        }
 
         var channel = await _client.ConnectToServerAsync(
             endpoint.Host,

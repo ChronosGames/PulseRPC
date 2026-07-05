@@ -254,6 +254,24 @@ public interface IChatRoomHub : IPulseHub
 
 > **明确否决**：不用"返回类型编码方向"（`Task<T>`=请求响应、`Task`=推送）。因为框架已用返回类型区分"反向 Ask(`Task<T>`)"与"单向命令(`Task`)"，两者正交于通信方向。
 
+### 5.2.1 注解正交性与"死注解"守卫（`[Channel("CLIENT")]` vs `[Internal]`/`[ClientFacing]`）
+
+四个注解维度<strong>正交、互不冲突</strong>，各由一个注解独占：
+
+| 维度 | 注解 | 生效点 | 作用对象 |
+|---|---|---|---|
+| 方向（谁实现/流向）| `[Channel("CLIENT")]` | 编译期驱动代码生成 | 所有 `IPulseHub` |
+| 外部可见性白名单 | `[ClientFacing]` | 运行时 `ClientFacingGate`（协议号路由唯一入口，opt-in）| **服务端实现的入站 Hub** |
+| 调用来源限制 | `[Internal]`/`[ExternalOnly]` | 运行时 `PermissionValidator` | **服务端实现的入站 Hub** |
+| 业务鉴权 | `[Authorize]`/`[RequireRole]`/`[RequirePermission]`/`[AllowAnonymous]` | 运行时鉴权 | **服务端实现的入站 Hub** |
+
+不冲突的机理：`[Channel("CLIENT")]` 接口被 `ServiceAnalyzer` 排除出"服务"分析（不进 `ServiceRoutingTable`、不经 `PermissionValidator`），其方法只由服务端<strong>出站 Fan-out 代理</strong>调用——因此后三类"入站"注解在推送接收器上永远不会被触达强制点，不可能与方向注解产生运行时矛盾。
+
+<strong>唯一风险 = 死注解</strong>：把 `[ClientFacing]`/`[Internal]`/`[ExternalOnly]`/`[Authorize]`/`[AllowAnonymous]`/`[RequireRole]`/`[RequirePermission]` 误标在 `[Channel("CLIENT")]` 推送接收器上会被<strong>静默忽略</strong>（"以为加了防护其实没有"）。已实现守卫分析器
+<c>ClientReceiverAccessAttributeAnalyzer</c>（诊断 <c>PULSE_CLIENT_RECEIVER_INEFFECTIVE_ATTRIBUTE</c>，Warning）在编译期暴露该误用。
+
+<strong>推荐配方</strong>：访问控制/可见性注解只贴服务端入站 Hub；推送接收器只写 `[Channel("CLIENT")]`（别的都不加）；"外部不可达"以 `[ClientFacing]` 缺省 + 开启门闸为权威，`[Internal]` 作运行时来源双保险。
+
 ### 5.3 消歧规则决策表（生成器实现依据）
 
 | 契约标注 | 编译侧 | 生成物 |
@@ -542,8 +560,8 @@ public interface IPulseBackplane
 | **P4 节点间传输 + 目录(L2 租约)** | `INodeLink`(复用全双工连接层) + 静态成员 + 一致性哈希 + **租约目录(single-activation)**；节点鉴权=共享密钥；跨节点 Actor↔Actor 打通（无 backplane 广播）| 双节点 Actor↔Actor 集成测试；租约抢占/续租/失效测试 |
 | **P5 Gateway + 虚拟连接** | Gateway 组件 + `EnvelopeRelay` 转发 + 虚拟连接 + 多跳回执(§10) | 客户端经 Gateway 调 backend Actor，反向 Ask 回执 |
 | **P6 分布式 Backplane（X+Y）+ 可靠投递** | Redis/NATS 后端**同时实现 X(pub/sub) 与 Y(全局目录)** 覆盖 `All/Group/User/Except/Single`；实现至少一次(ACK+重试) 与 精确一次(Actor 侧去重) | 多节点+Gateway 广播语义矩阵(§9.3)全绿；投递保证测试 |
-| **P7 故障接管增强（L3 不纳入本轮）** ✅ 已实现（首版）| 属主变更时的重投/接管（`ClusterPulseRouter` 链路失败→上报健康→按存活集重建环→重解析属主重试）；`StaticClusterMembership` 失败累计下线 + 隔离半开恢复；去重桶空桶回收（`MessageDeduplicationCache.Sweep`）| ✅ 失败接管/健康下线恢复/去重回收单测通过（`ClusterPulseRouterFailoverTests`/`StaticClusterMembershipTests`/`MessageDeduplicationCacheTests`）；L3 迁移+在途接管留待后续 |
-| **P8 服务发现落地** ◐ 部分（成员抽象已就位）| `IClusterMembership` 成员抽象（存活集 + Changed + 健康提示）作为 Consul/Etcd/K8s 插拔点；`StaticClusterMembership` 默认实现；环随存活集重建。**剩余**：填充空壳 `Infrastructure.Consul/.Etcd/.Kubernetes` 动态发现 + 生产级 mTLS `INodeAuthenticator` | 静态成员 + 健康驱动存活集单测通过；动态发现/ mTLS 待后续 |
+| **P7 故障接管增强** ✅ 已实现（含 L3 迁移首版）| L2 故障接管：`ClusterPulseRouter` 链路失败→上报健康→按存活集重建环→重解析属主重试；`StaticClusterMembership` 失败累计下线 + 隔离半开恢复；去重桶空桶回收。**L3 状态迁移**：`IActorStateSnapshot`(opt-in 可迁移状态) + `ActorMigrationCoordinator`（静默排空`StopAsync`→捕获快照→跨节点搬运`IActorStateTransport`→目标恢复+激活→释放租约），实现跨激活状态保留；在途接管由"排空后捕获 + 路由器新到达重路由 + 至少一次/去重"协同保证 | ✅ 单测通过：`ClusterPulseRouterFailoverTests`/`StaticClusterMembershipTests`/`MessageDeduplicationCacheTests`/`ActorMigrationCoordinatorTests`。**剩余**：把 `IActorStateTransport` 绑定到 `INodeLink`（新增集群内部 Hub 收快照）完成端到端跨节点自动迁移 |
+| **P8 服务发现落地** ✅ 已实现 | `IClusterMembership` + `INodeEndpointResolver` 抽象；共享基础 `PulseRPC.Infrastructure`（`IDiscoveryProvider` + `DiscoveryClusterMembership` 自注册/轮询/watch/变更检测/端点缓存）；三后端 `Infrastructure.Consul`(服务注册+TCP 健康检查+阻塞查询 watch) / `.Etcd`(租约 keepalive+前缀 watch) / `.Kubernetes`(Pod list+watch)；生产级 mTLS `CertificateNodeAuthenticator`(X.509 签名/验签+指纹白名单+CA 链式信任+fail-closed) | ✅ 单测通过：`DiscoveryClusterMembershipTests`(18)/`CertificateNodeAuthenticatorTests`/`StaticNodeEndpointResolverTests`/`EtcdEndpointParseTests`；后端与真实 Consul/etcd/K8s 的集成测试待环境（Testcontainers）|
 | **P9 文档与迁移收尾** | 更新 README/两份既有设计文档/CHANGELOG；迁移指南；大版本号跃迁 | 发布评审 |
 
 ---

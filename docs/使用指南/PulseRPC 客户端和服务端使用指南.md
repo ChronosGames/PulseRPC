@@ -1,1145 +1,747 @@
-﻿# PulseRPC 客户端和服务端使用指南
+# PulseRPC 客户端和服务端使用指南
 
-本指南提供了 PulseRPC 框架的完整使用说明，包含客户端和服务端的配置、API 使用、最佳实践等内容。
+本文面向当前实现，说明如何按统一 `IPulseHub` 架构编写服务端、客户端、客户端推送接收器，以及如何启用单节点路由、动态服务发现集群与 L3 Actor 状态迁移。
+
+当前事实边界：
+
+- 远程可调用契约统一继承 `IPulseHub`。
+- 客户端调用服务端 Hub：通过 `PulseClientBuilder` 创建 `IPulseClient`，连接后使用 Source Generator 生成的 `IClientChannel.GetHub<T>()`。
+- 服务端推送客户端：客户端接收契约写成 `[Channel("CLIENT")] : IPulseHub`，客户端用 `RegisterReceiver<T>()` 注册实现，服务端用 `IHubContext<TReceiver>` 推送。
+- 服务端入站路由依赖 `PulseRPC.Server.SourceGenerator` 生成的 `IServiceRoutingTable`，业务 Hub 实现按普通 DI 注册。
+- 单节点默认注册 `IPulseRouter` + `InProcessBackplane`；调用 `AddPulseClustering()` 后升级为集群路由。
+- 集群成员可以使用静态 `Members`，也可以在 `AddPulseClustering()` 后接入 Consul、etcd 或 Kubernetes 动态发现。
+- 节点互信默认使用共享密钥，也可以用 `UseCertificateNodeAuthentication()` 切换为证书鉴权。
+- L3 Actor 状态迁移已提供 `IActorStateSnapshot` 与 `ActorMigrationCoordinator`；业务需要实现快照并注册 `IActorStateTransport` 后主动触发迁移。
 
 ## 目录
 
-1. [项目概述](#项目概述)
-2. [核心概念](#核心概念)
+1. [核心模型](#核心模型)
+2. [契约定义](#契约定义)
 3. [服务端开发](#服务端开发)
 4. [客户端开发](#客户端开发)
-5. [传输层配置](#传输层配置)
-6. [认证和中间件](#认证和中间件)
-7. [序列化配置](#序列化配置)
-8. [性能优化](#性能优化)
+5. [服务端推送客户端](#服务端推送客户端)
+6. [统一寻址与集群](#统一寻址与集群)
+7. [认证与客户端可见性](#认证与客户端可见性)
+8. [序列化与协议号](#序列化与协议号)
 9. [最佳实践](#最佳实践)
-10. [示例代码](#示例代码)
+10. [故障排查](#故障排查)
 
-## 项目概述
+## 核心模型
 
-PulseRPC 是一个基于 .NET 的高性能 RPC 框架，专为 Unity 和服务端应用设计。主要特性包括：
+### 一切契约都是 IPulseHub
 
-- **多传输协议支持**：TCP 和 KCP 传输协议
-- **高性能架构**：基于 System.IO.Pipelines 的零拷贝设计
-- **灵活的序列化**：基于 MemoryPack 的高效序列化
-- **服务发现**：支持 Consul、Etcd、Kubernetes
-- **负载均衡**：多种负载均衡策略
-- **Unity 支持**：专为 Unity 客户端优化
-
-### 核心项目结构
-
-```
-src/
-├── PulseRPC.Abstractions/     # 核心抽象接口和基础类型
-├── PulseRPC.Client/           # 客户端实现
-├── PulseRPC.Server/           # 服务端实现
-├── PulseRPC.Client.Unity/     # Unity 客户端支持
-├── PulseRPC.Infrastructure/   # 基础设施（服务发现、负载均衡）
-└── PulseRPC.Shared/          # 共享组件
-```
-
-## 核心概念
-
-### 服务接口定义
-
-所有 RPC 服务必须继承 `IPulseHub` 接口：
+`IPulseHub` 是唯一的远程契约标记接口。服务端提供的 RPC、服务端之间的内部调用契约、客户端实现的推送接收契约，都使用它。
 
 ```csharp
-/// <summary>
-/// 用户服务接口
-/// </summary>
-public interface IUserService : IPulseHub
+public interface IChatRoomHub : IPulseHub
 {
-    Task<User> GetUserAsync(int userId);
-    Task<bool> CreateUserAsync(string username, string email);
-    Task<List<User>> GetUsersAsync(int pageSize, int pageIndex);
+    Task<ChatLoginResult> LoginAsync(string token);
+    Task<JoinRoomResult> JoinRoomAsync(string roomId);
+    Task<SendMessageResult> SendMessageAsync(string message);
 }
 ```
 
-### 消息类型定义
-
-使用 MemoryPack 进行序列化，需要标记 `[MemoryPackable]`：
+客户端接收服务端推送时，不再使用 `IPulseReceiver`。接收契约标注 `[Channel("CLIENT")]`：
 
 ```csharp
+[Channel("CLIENT")]
+public interface IChatReceiver : IPulseHub
+{
+    Task OnMessageAsync(ChatMessage message);
+}
+```
+
+### 线上地址三元组
+
+一次调用由三部分定位：
+
+| 字段 | 含义 |
+|---|---|
+| `ServiceName` | Hub 名称，通常对应接口名 |
+| `ServiceKey` | Actor/Service 实例键、组名、用户 ID 或连接 ID |
+| `ProtocolId` | 方法协议号，由 Source Generator 按方法签名生成 |
+
+运行时统一用 `PulseAddress` 描述投递目标，再由 `IPulseRouter` 解析为本地连接、本地 Actor、Fan-out 或远程节点。
+
+## 契约定义
+
+### 请求和响应模型
+
+消息类型优先使用 MemoryPack：
+
+```csharp
+using MemoryPack;
+
 [MemoryPackable]
-public partial struct User
+public partial class ChatMessage
 {
-    [MemoryPackOrder(0)]
-    public int Id { get; set; }
+    public long Id { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
+    public string Content { get; set; } = string.Empty;
+    public DateTime Timestamp { get; set; }
+}
 
-    [MemoryPackOrder(1)]
-    public string Username { get; set; }
-
-    [MemoryPackOrder(2)]
-    public string Email { get; set; }
+[MemoryPackable]
+public partial class SendMessageResult
+{
+    public bool Success { get; set; }
+    public long MessageId { get; set; }
+    public string? ErrorMessage { get; set; }
 }
 ```
 
-### 事件处理接口
+### 方向和可见性标注
 
-客户端接收服务端推送事件需要实现 `IPulseEventHandler`：
+常用标注：
 
-```csharp
-public interface IChatEventHandler : IPulseEventHandler
-{
-    void OnUserJoined(string username);
-    void OnMessageReceived(ChatMessage message);
-    Task<string> OnPingAsync(string message);
-}
-```
+| 标注 | 用途 |
+|---|---|
+| `[Channel("CLIENT")]` | 表示该 Hub 由客户端实现，服务端可向它推送 |
+| `[Channel("GameServer")]` | 表示该 Hub 由指定服务端角色提供，可用于跨服契约消歧 |
+| `[PulseHub(Provide = true, Consume = true)]` | 少数歧义场景下覆盖生成器默认推断 |
+| `[Authorize]` / `[Authorize(Role = RoleTypes.Internal)]` | 方法或接口鉴权 |
+| `[ClientFacing]` | 开启 `EnableClientFacingGate` 后，白名单式允许外部客户端调用 |
+| `[Delivery(DeliveryMode.AtMostOnce)]` | 声明投递保证；默认是至多一次 |
 
 ## 服务端开发
 
-### 基本服务端设置
+### 1. 注册并启动 PulseServer
 
-1. **配置服务端**
-
-```csharp
-// Program.cs
-var builder = Host.CreateApplicationBuilder(args);
-
-// 配置 PulseRPC 服务端
-builder.Services.AddPulseRpcServer(serverBuilder =>
-{
-    serverBuilder
-        // 基本配置
-        .ConfigureServer(options =>
-        {
-            options.AppName = "MyGameServer";
-            options.AppVersion = "1.0.0";
-            options.MaxConnections = 1000;
-            options.HeartbeatInterval = TimeSpan.FromSeconds(30);
-        })
-
-        // 添加传输层
-        .AddTcp("TcpChannel", 7000, options =>
-        {
-            options.NoDelay = true;
-            options.KeepAlive = true;
-        }, isDefault: true)
-
-        .AddKcp("KcpChannel", 7001, options =>
-        {
-            options.NoDelay = true;
-            options.Interval = 10;
-            options.Resend = 2;
-        })
-
-        // 性能优化
-        .UseHighPerformanceEngine()
-        .UseTieredMessageProcessor()
-        .UsePriorityScheduler()
-
-        // 注册服务
-        .AddService<IUserService, UserService>()
-        .AddService<IChatHub, ChatHub>();
-});
-
-var host = builder.Build();
-var server = host.Services.GetRequiredService<IPulseRPCServer>();
-
-// 启动服务器
-await server.StartAsync();
-Console.WriteLine("服务器已启动，按任意键停止...");
-Console.ReadKey();
-await server.StopAsync();
-```
-
-2. **实现服务接口**
+`AddPulseServer` 会注册服务端运行时、传输监听、消息处理管线、单节点 `IPulseRouter` 和托管服务。使用 Host 时，推荐让 `IHostedService` 随 `host.RunAsync()` 自动启动。
 
 ```csharp
-public class UserService : IUserService
-{
-    private readonly ILogger<UserService> _logger;
-    private readonly IUserRepository _userRepository;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using PulseRPC.Server.Extensions;
+using PulseRPC.Shared;
 
-    public UserService(ILogger<UserService> logger, IUserRepository userRepository)
-    {
-        _logger = logger;
-        _userRepository = userRepository;
-    }
-
-    public async Task<User> GetUserAsync(int userId)
-    {
-        _logger.LogInformation("获取用户信息: {UserId}", userId);
-        return await _userRepository.GetByIdAsync(userId);
-    }
-
-    public async Task<bool> CreateUserAsync(string username, string email)
-    {
-        _logger.LogInformation("创建用户: {Username}, {Email}", username, email);
-        var user = new User { Username = username, Email = email };
-        return await _userRepository.CreateAsync(user);
-    }
-
-    public async Task<List<User>> GetUsersAsync(int pageSize, int pageIndex)
-    {
-        return await _userRepository.GetPagedAsync(pageSize, pageIndex);
-    }
-}
-```
-
-### 高级服务端配置
-
-1. **启用认证**
-
-```csharp
-builder.Services.AddPulseRpcServer(serverBuilder =>
-{
-    serverBuilder
-        .UseAuthentication(options =>
-        {
-            options.Enabled = true;
-            options.JwtSecretKey = "your-secret-key";
-            options.JwtExpiration = TimeSpan.FromHours(24);
-        })
-        .UseAuthorization(options =>
-        {
-            options.Enabled = true;
-            options.SupportedRoles.AddRange(new[] { "Admin", "User", "Guest" });
-        });
-});
-
-// 自定义认证提供者
-builder.Services.AddSingleton<IAuthenticationProvider, CustomAuthenticationProvider>();
-```
-
-2. **添加中间件和拦截器**
-
-```csharp
-public class LoggingMiddleware : IPulseRpcMiddleware
-{
-    private readonly ILogger<LoggingMiddleware> _logger;
-
-    public LoggingMiddleware(ILogger<LoggingMiddleware> logger)
-    {
-        _logger = logger;
-    }
-
-    public async Task InvokeAsync(IPulseRpcContext context, Func<Task> next)
-    {
-        _logger.LogInformation("请求开始: {Service}.{Method}",
-            context.ServiceName, context.MethodName);
-
-        var stopwatch = Stopwatch.StartNew();
-        await next();
-        stopwatch.Stop();
-
-        _logger.LogInformation("请求完成: {Service}.{Method}, 耗时: {ElapsedMs}ms",
-            context.ServiceName, context.MethodName, stopwatch.ElapsedMilliseconds);
-    }
-}
-
-// 注册中间件
-serverBuilder.UseMiddleware<LoggingMiddleware>();
-```
-
-3. **性能监控**
-
-```csharp
-// 获取服务器统计信息
-var metrics = server.GetPerformanceMetrics();
-Console.WriteLine($"活动连接数: {metrics.ActiveConnections}");
-Console.WriteLine($"处理消息总数: {metrics.TotalMessagesProcessed}");
-Console.WriteLine($"平均延迟: {metrics.AverageLatencyMs}ms");
-Console.WriteLine($"吞吐量: {metrics.ThroughputMsgsPerSec} msg/s");
-```
-
-## 客户端开发
-
-### 基本客户端设置
-
-1. **创建客户端**
-
-```csharp
-// 创建客户端构建器
-var clientBuilder = new PulseRPCClientBuilder();
-
-// 配置连接
-var client = clientBuilder
-    .AddTcpConnection("main", "MainServer", "localhost", 7000)
-    .AddKcpConnection("battle", "BattleServer", "localhost", 7001)
-    .WithLoadBalancing(LoadBalancingStrategy.RoundRobin)
-    .WithLogging(loggerFactory)
-    .Build();
-
-// 初始化客户端
-await client.InitializeAsync();
-```
-
-2. **使用服务代理**
-
-```csharp
-// 获取服务代理
-var userService = await client.GetServiceAsync<IUserService>();
-
-// 调用远程方法
-var user = await userService.GetUserAsync(123);
-var users = await userService.GetUsersAsync(10, 0);
-var created = await userService.CreateUserAsync("alice", "alice@example.com");
-```
-
-3. **连接管理**
-
-```csharp
-// 连接到特定服务
-var connectionConfig = new ConnectionConfig
-{
-    Name = "game-server",
-    Host = "localhost",
-    Port = 8000,
-    Transport = TransportType.Tcp,
-    Lifetime = ConnectionLifetime.Session,
-    AutoReconnect = true,
-    Tags = { ["type"] = "game", ["region"] = "us-west" }
-};
-
-var connection = await client.Connections.ConnectAsync(connectionConfig);
-
-// 获取特定连接的服务代理
-var gameService = await client.GetServiceAsync<IGameService>(connection.Id);
-```
-
-### 游戏客户端特殊用法
-
-PulseRPC 为游戏开发提供了便捷的扩展方法：
-
-```csharp
-// 连接到核心游戏服务器
-var coreConnection = await client.ConnectToCoreServerAsync("game-world-service");
-
-// 连接到战斗服务器
-var battleConnection = await client.ConnectToBattleServerAsync(
-    battleId: "battle_123",
-    host: "battle-server.example.com",
-    port: 9000);
-
-// 连接到副本服务器
-var instanceConnection = await client.ConnectToInstanceServerAsync(
-    instanceId: "dungeon_456",
-    host: "instance-server.example.com",
-    port: 9100);
-
-// 切换地图服务器
-var newMapConnection = await client.SwitchMapAsync(
-    oldMapId: "map_1",
-    newMapId: "map_2",
-    serviceName: "map-server-2");
-
-// 使用临时连接执行操作
-await client.WithTemporaryConnectionAsync(tempConfig, async connection =>
-{
-    var tempService = await client.GetServiceAsync<ITempService>(connection.Id);
-    await tempService.DoSomethingAsync();
-});
-```
-
-### 事件处理
-
-1. **注册事件监听器**
-
-```csharp
-public class ChatEventHandler : IChatEventHandler
-{
-    public void OnUserJoined(string username)
-    {
-        Console.WriteLine($"用户 {username} 加入了聊天室");
-    }
-
-    public void OnMessageReceived(ChatMessage message)
-    {
-        Console.WriteLine($"{message.Username}: {message.Content}");
-    }
-
-    public async Task<string> OnPingAsync(string message)
-    {
-        return $"Pong: {message}";
-    }
-}
-
-// 注册事件监听器
-var eventHandler = new ChatEventHandler();
-var subscription = await client.RegisterEventListenerAsync(eventHandler);
-
-// 取消订阅
-await subscription.DisposeAsync();
-```
-
-### 高级客户端配置
-
-1. **服务发现客户端**
-
-```csharp
-var clientBuilder = new PulseRPCClientBuilder()
-    .WithServiceDiscovery(new ConsulServiceDiscovery(consulOptions))
-    .AddServiceConnection("user-service", "UserService", TransportType.Tcp)
-    .AddServiceConnection("game-service", "GameService", TransportType.Kcp);
-
-var client = clientBuilder.Build();
-await client.InitializeAsync();
-
-// 通过服务发现连接
-var connection = await client.ConnectToServiceAsync("UserService");
-```
-
-2. **连接池配置**
-
-```csharp
-var poolOptions = new ConnectionPoolOptions
-{
-    MaxConnections = 100,
-    MinConnections = 5,
-    IdleTimeout = TimeSpan.FromMinutes(5),
-    EnableHealthCheck = true,
-    HealthCheckInterval = TimeSpan.FromSeconds(30)
-};
-
-var client = clientBuilder
-    .WithConnectionPooling(poolOptions)
-    .Build();
-```
-
-3. **重试策略**
-
-```csharp
-var retryPolicy = new RetryPolicy
-{
-    MaxAttempts = 3,
-    InitialDelay = TimeSpan.FromMilliseconds(100),
-    MaxDelay = TimeSpan.FromSeconds(5),
-    BackoffStrategy = BackoffStrategy.Exponential
-};
-
-var client = clientBuilder
-    .WithRetryPolicy(retryPolicy)
-    .Build();
-```
-
-## 传输层配置
-
-### TCP 传输配置
-
-```csharp
-serverBuilder.AddTcp("TcpChannel", 7000, options =>
-{
-    options.NoDelay = true;              // 禁用 Nagle 算法
-    options.KeepAlive = true;            // 启用保活
-    options.KeepAliveInterval = 30000;   // 保活间隔 30 秒
-    options.ConnectTimeout = TimeSpan.FromSeconds(10);
-    options.RecvBufferSize = 8192;       // 接收缓冲区大小
-    options.SendBufferSize = 8192;       // 发送缓冲区大小
-    options.EnableLinger = false;        // 禁用 Linger
-});
-```
-
-### KCP 传输配置
-
-```csharp
-serverBuilder.AddKcp("KcpChannel", 7001, options =>
-{
-    options.NoDelay = true;              // 无延迟模式
-    options.Interval = 10;               // 内部更新间隔 10ms
-    options.Resend = 2;                  // 快速重传门限
-    options.DisableFlowControl = true;   // 关闭拥塞控制
-    options.SendWindow = 32;             // 发送窗口大小
-    options.RecvWindow = 128;            // 接收窗口大小
-    options.ConversationId = 1;          // 会话ID
-});
-```
-
-### 传输选项比较
-
-| 特性 | TCP | KCP |
-|------|-----|-----|
-| 可靠性 | 高 | 高 |
-| 延迟 | 中等 | 低 |
-| 带宽利用率 | 高 | 中等 |
-| CPU 消耗 | 低 | 中等 |
-| 适用场景 | 一般游戏通信 | 实时对战、FPS |
-
-## 认证和中间件
-
-### 自定义认证提供者
-
-```csharp
-public class JwtAuthenticationProvider : IAuthenticationProvider
-{
-    private readonly IJwtService _jwtService;
-    private readonly IUserService _userService;
-
-    public JwtAuthenticationProvider(IJwtService jwtService, IUserService userService)
-    {
-        _jwtService = jwtService;
-        _userService = userService;
-    }
-
-    public async Task<AuthenticationResult> AuthenticateAsync(string credentials)
-    {
-        try
-        {
-            // 解析 JWT Token
-            var principal = _jwtService.ValidateToken(credentials);
-            if (principal == null)
-            {
-                return AuthenticationResult.Fail("无效的访问令牌");
-            }
-
-            // 获取用户信息
-            var userId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            var user = await _userService.GetUserByIdAsync(userId);
-
-            if (user == null)
-            {
-                return AuthenticationResult.Fail("用户不存在");
-            }
-
-            return AuthenticationResult.Success(principal);
-        }
-        catch (Exception ex)
-        {
-            return AuthenticationResult.Fail($"认证失败: {ex.Message}");
-        }
-    }
-}
-```
-
-### 性能监控中间件
-
-```csharp
-public class PerformanceMiddleware : IPulseRpcMiddleware
-{
-    private readonly IMetricsCollector _metrics;
-
-    public PerformanceMiddleware(IMetricsCollector metrics)
-    {
-        _metrics = metrics;
-    }
-
-    public async Task InvokeAsync(IPulseRpcContext context, Func<Task> next)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        var requestSize = GetRequestSize(context.RequestData);
-
-        try
-        {
-            await next();
-            stopwatch.Stop();
-
-            var responseSize = GetResponseSize(context.ResponseData);
-
-            _metrics.RecordRequest(new RequestMetrics
-            {
-                ServiceName = context.ServiceName,
-                MethodName = context.MethodName,
-                Duration = stopwatch.Elapsed,
-                RequestSize = requestSize,
-                ResponseSize = responseSize,
-                Success = true
-            });
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            _metrics.RecordRequest(new RequestMetrics
-            {
-                ServiceName = context.ServiceName,
-                MethodName = context.MethodName,
-                Duration = stopwatch.Elapsed,
-                RequestSize = requestSize,
-                Success = false,
-                Error = ex.Message
-            });
-            throw;
-        }
-    }
-}
-```
-
-### 请求拦截器
-
-```csharp
-public class SecurityInterceptor : IPulseRpcInterceptor
-{
-    public async Task OnRequestAsync(IPulseRpcContext context)
-    {
-        // 请求前安全检查
-        if (IsRateLimited(context))
-        {
-            throw new RateLimitExceededException("请求频率超限");
-        }
-
-        // 记录请求
-        context.Items["RequestStartTime"] = DateTime.UtcNow;
-    }
-
-    public async Task OnResponseAsync(IPulseRpcContext context)
-    {
-        // 响应后清理
-        var startTime = (DateTime)context.Items["RequestStartTime"];
-        var duration = DateTime.UtcNow - startTime;
-
-        // 记录慢查询
-        if (duration > TimeSpan.FromSeconds(1))
-        {
-            LogSlowRequest(context, duration);
-        }
-    }
-
-    public async Task OnExceptionAsync(IPulseRpcContext context, Exception exception)
-    {
-        // 异常处理和记录
-        LogException(context, exception);
-    }
-}
-```
-
-## 序列化配置
-
-### 默认 MemoryPack 序列化器
-
-```csharp
-// 服务端配置
-serverBuilder.WithSerializer(PulseRPCSerializerProvider.Instance);
-
-// 客户端配置
-var client = clientBuilder
-    .WithSerializer(PulseRPCSerializerProvider.Instance)
-    .Build();
-```
-
-### 自定义序列化器选项
-
-```csharp
-var serializerOptions = MemoryPackSerializerOptions.Default with
-{
-    StringEncoding = StringEncoding.Utf8,
-    UseCompression = true
-};
-
-var customSerializer = PulseRPCSerializerProvider.Instance.WithOptions(serializerOptions);
-
-// 使用自定义序列化器
-serverBuilder.WithSerializer(customSerializer);
-```
-
-### 自定义序列化器实现
-
-```csharp
-public class JsonSerializerProvider : ISerializerProvider
-{
-    private readonly JsonSerializerOptions _options;
-
-    public JsonSerializerProvider(JsonSerializerOptions options)
-    {
-        _options = options;
-    }
-
-    public ISerializer Create(MethodType methodType, MethodInfo? methodInfo)
-    {
-        return new JsonSerializer(_options);
-    }
-}
-
-public class JsonSerializer : ISerializer
-{
-    private readonly JsonSerializerOptions _options;
-
-    public JsonSerializer(JsonSerializerOptions options)
-    {
-        _options = options;
-    }
-
-    public void Serialize<T>(IBufferWriter<byte> writer, in T value)
-    {
-        JsonSerializer.Serialize(writer, value, _options);
-    }
-
-    public T Deserialize<T>(in ReadOnlySequence<byte> bytes)
-    {
-        return JsonSerializer.Deserialize<T>(bytes, _options)!;
-    }
-}
-```
-
-## 性能优化
-
-### 服务端性能优化
-
-1. **启用高性能引擎**
-
-```csharp
-serverBuilder
-    .UseHighPerformanceEngine(options =>
-    {
-        options.L1BufferSize = 8192;      // L1 循环缓冲区
-        options.L2QueueCapacity = 512;    // L2 批处理队列
-        options.L3QueueCapacity = 256;    // L3 响应队列
-    })
-    .UseTieredMessageProcessor(options =>
-    {
-        options.FastPath.MessageSizeThreshold = 1024;
-        options.FastPath.DedicatedThreads = 4;
-        options.BatchPath.BatchSize = 32;
-    })
-    .UsePriorityScheduler(options =>
-    {
-        options.CriticalWeight = 60;      // 关键消息权重
-        options.NormalWeight = 30;        // 普通消息权重
-        options.BulkWeight = 10;          // 批量消息权重
-    });
-```
-
-2. **内存池配置**
-
-```csharp
-// 配置网络缓冲池
-serverBuilder.ConfigureServer(options =>
-{
-    options.MaxConnections = 10000;
-    options.BufferPoolSize = 1024 * 1024 * 100; // 100MB 缓冲池
-    options.MaxMessageSize = 64 * 1024;          // 最大消息 64KB
-});
-```
-
-### 客户端性能优化
-
-1. **连接复用**
-
-```csharp
-var client = clientBuilder
-    .WithConnectionPooling(new ConnectionPoolOptions
-    {
-        MaxConnections = 20,
-        MinConnections = 2,
-        IdleTimeout = TimeSpan.FromMinutes(5),
-        EnableHealthCheck = true
-    })
-    .Build();
-```
-
-2. **批量操作**
-
-```csharp
-// 批量获取用户信息
-var userIds = Enumerable.Range(1, 100).ToList();
-var users = await userService.GetUsersBatchAsync(userIds);
-
-// 并发调用（注意控制并发数量）
-var tasks = userIds.Select(id => userService.GetUserAsync(id));
-var results = await Task.WhenAll(tasks);
-```
-
-## 最佳实践
-
-### 1. 服务接口设计
-
-- **保持接口简洁**：每个服务专注于单一职责
-- **使用异步方法**：所有服务方法都应该是异步的
-- **合理的参数设计**：避免过多参数，使用复合对象
-- **返回值设计**：统一错误处理和响应格式
-
-```csharp
-// ✅ 好的设计
-public interface IUserService : IPulseHub
-{
-    Task<ApiResponse<User>> GetUserAsync(int userId);
-    Task<ApiResponse<PagedList<User>>> GetUsersAsync(GetUsersRequest request);
-    Task<ApiResponse<bool>> UpdateUserAsync(UpdateUserRequest request);
-}
-
-// ❌ 避免的设计
-public interface IUserService : IPulseHub
-{
-    User GetUser(int id); // 非异步
-    Task<List<User>> GetAllUsers(); // 可能返回大量数据
-    Task<bool> UpdateUser(int id, string name, string email, int age, ...); // 参数过多
-}
-```
-
-### 2. 错误处理
-
-```csharp
-public class ApiResponse<T>
-{
-    public bool Success { get; set; }
-    public T? Data { get; set; }
-    public string? Error { get; set; }
-    public string? Code { get; set; }
-
-    public static ApiResponse<T> Ok(T data) => new() { Success = true, Data = data };
-    public static ApiResponse<T> Fail(string error, string? code = null) =>
-        new() { Success = false, Error = error, Code = code };
-}
-
-// 服务实现中的错误处理
-public async Task<ApiResponse<User>> GetUserAsync(int userId)
-{
-    try
-    {
-        if (userId <= 0)
-            return ApiResponse<User>.Fail("无效的用户ID", "INVALID_USER_ID");
-
-        var user = await _repository.GetByIdAsync(userId);
-        if (user == null)
-            return ApiResponse<User>.Fail("用户不存在", "USER_NOT_FOUND");
-
-        return ApiResponse<User>.Ok(user);
-    }
-    catch (Exception ex)
-    {
-        _logger.LogError(ex, "获取用户信息时发生错误: {UserId}", userId);
-        return ApiResponse<User>.Fail("服务器内部错误", "INTERNAL_ERROR");
-    }
-}
-```
-
-### 3. 连接管理
-
-```csharp
-// 使用 using 语句确保资源释放
-public async Task UseServiceAsync()
-{
-    using var client = clientBuilder.Build();
-    await client.InitializeAsync();
-
-    var userService = await client.GetServiceAsync<IUserService>();
-    var result = await userService.GetUserAsync(123);
-
-    // 客户端会在 using 语句结束时自动释放
-}
-
-// 长期运行的应用中，重用客户端实例
-public class GameClient
-{
-    private readonly IPulseRPCClient _client;
-
-    public GameClient(IPulseRPCClient client)
-    {
-        _client = client;
-    }
-
-    public async Task InitializeAsync()
-    {
-        await _client.InitializeAsync();
-    }
-
-    public async Task DisposeAsync()
-    {
-        await _client.DisposeAsync();
-    }
-}
-```
-
-### 4. 配置管理
-
-```csharp
-// 使用配置文件
-public class GameServerOptions
-{
-    public string AppName { get; set; } = "GameServer";
-    public int TcpPort { get; set; } = 7000;
-    public int KcpPort { get; set; } = 7001;
-    public int MaxConnections { get; set; } = 1000;
-    public bool EnablePerformanceOptimization { get; set; } = true;
-}
-
-// 从配置绑定
-var options = new GameServerOptions();
-configuration.GetSection("GameServer").Bind(options);
-
-serverBuilder.ConfigureServer(serverOptions =>
-{
-    serverOptions.AppName = options.AppName;
-    serverOptions.MaxConnections = options.MaxConnections;
-});
-```
-
-## 示例代码
-
-### 完整的聊天应用示例
-
-1. **共享接口定义**
-
-```csharp
-// IChatHub.cs
-public interface IChatHub : IPulseHub
-{
-    Task<bool> JoinRoomAsync(JoinRoomRequest request);
-    Task<bool> LeaveRoomAsync();
-    Task<bool> SendMessageAsync(string message);
-}
-
-public interface IChatEventHandler : IPulseEventHandler
-{
-    void OnUserJoined(string username);
-    void OnUserLeft(string username);
-    void OnMessageReceived(ChatMessage message);
-}
-
-[MemoryPackable]
-public partial struct JoinRoomRequest
-{
-    [MemoryPackOrder(0)]
-    public string RoomName { get; set; }
-
-    [MemoryPackOrder(1)]
-    public string Username { get; set; }
-}
-
-[MemoryPackable]
-public partial struct ChatMessage
-{
-    [MemoryPackOrder(0)]
-    public string Username { get; set; }
-
-    [MemoryPackOrder(1)]
-    public string Message { get; set; }
-
-    [MemoryPackOrder(2)]
-    public DateTime Timestamp { get; set; }
-}
-```
-
-2. **服务端实现**
-
-```csharp
-// ChatHub.cs
-public class ChatHub : IChatHub
-{
-    private readonly IChatRoomManager _roomManager;
-    private readonly ILogger<ChatHub> _logger;
-
-    public ChatHub(IChatRoomManager roomManager, ILogger<ChatHub> logger)
-    {
-        _roomManager = roomManager;
-        _logger = logger;
-    }
-
-    public async Task<bool> JoinRoomAsync(JoinRoomRequest request)
-    {
-        try
-        {
-            await _roomManager.JoinRoomAsync(request.RoomName, request.Username);
-            _logger.LogInformation("用户 {Username} 加入房间 {RoomName}",
-                request.Username, request.RoomName);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "用户加入房间失败");
-            return false;
-        }
-    }
-
-    public async Task<bool> LeaveRoomAsync()
-    {
-        // 实现离开房间逻辑
-        return true;
-    }
-
-    public async Task<bool> SendMessageAsync(string message)
-    {
-        // 实现发送消息逻辑
-        return true;
-    }
-}
-
-// 服务端启动
 var host = Host.CreateDefaultBuilder(args)
-    .ConfigureServices((context, services) =>
+    .ConfigureServices(services =>
     {
-        services.AddPulseRpcServer(builder =>
+        services.AddPulseServer(options =>
         {
-            builder
-                .ConfigureServer(options =>
+            options
+                .AddTcp("tcp", 7000, isDefault: true, tcp =>
                 {
-                    options.AppName = "ChatServer";
-                    options.MaxConnections = 1000;
+                    tcp.NoDelay = true;
+                    tcp.KeepAlive = true;
                 })
-                .AddTcp("TcpChannel", 7000, isDefault: true)
-                .AddService<IChatHub, ChatHub>()
-                .UseAuthentication()
-                .UseMiddleware<LoggingMiddleware>();
+                .AddKcp("kcp", 7001, isDefault: false, kcp =>
+                {
+                    kcp.NoDelay = true;
+                    kcp.Interval = 10;
+                });
+
+            // 开启后，只有 [ClientFacing] 标注的方法允许外部客户端调用。
+            options.EnableClientFacingGate = true;
         });
 
-        services.AddSingleton<IChatRoomManager, ChatRoomManager>();
+        services.AddSingleton<IChatRoomHub, ChatRoomHub>();
     })
     .Build();
 
 await host.RunAsync();
 ```
 
-3. **客户端实现**
+如果不启动 Host，只想手动控制 `IPulseServer` 生命周期，可以像示例项目一样从 DI 取出 `IPulseServer` 后调用 `StartAsync()` / `StopAsync()`。
+
+### 2. 实现无状态 Hub
+
+当前推荐把 Hub 作为无状态入口，注册为 Singleton；真正有状态的房间、玩家、战斗等对象放到 `PulseService` 或业务服务里。
 
 ```csharp
-// ChatClient.cs
-public class ChatClient : IChatEventHandler, IAsyncDisposable
+using PulseRPC.Server.Contexts;
+using PulseRPC.Server.Services;
+
+public sealed class ChatRoomHub : IChatRoomHub
 {
-    private readonly IPulseRPCClient _client;
-    private IChatHub? _chatService;
-    private ISubscriptionToken? _subscription;
+    private readonly IServiceAccessor<ChatRoomService> _rooms;
 
-    public ChatClient()
+    public ChatRoomHub(IServiceAccessor<ChatRoomService> rooms)
     {
-        var builder = new PulseRPCClientBuilder();
-        _client = builder
-            .AddTcpConnection("chat", "ChatServer", "localhost", 7000)
-            .WithLogging(CreateLoggerFactory())
-            .Build();
+        _rooms = rooms;
     }
 
-    public async Task ConnectAsync()
+    public Task<ChatLoginResult> LoginAsync(string token)
     {
-        await _client.InitializeAsync();
-        _chatService = await _client.GetServiceAsync<IChatHub>();
-        _subscription = await _client.RegisterEventListenerAsync<IChatEventHandler>(this);
+        // 示例项目中把登录后的身份写入当前连接的 AuthenticationContext。
+        // 实际项目可接入 JWT 或自定义认证服务。
+        return Task.FromResult(ChatLoginResult.Ok("user-1", "Alice"));
     }
 
-    public async Task JoinRoomAsync(string roomName, string username)
+    public async Task<JoinRoomResult> JoinRoomAsync(string roomId)
     {
-        if (_chatService == null) throw new InvalidOperationException("未连接到服务器");
-
-        var request = new JoinRoomRequest { RoomName = roomName, Username = username };
-        var result = await _chatService.JoinRoomAsync(request);
-
-        if (result)
-            Console.WriteLine($"成功加入房间: {roomName}");
-        else
-            Console.WriteLine("加入房间失败");
-    }
-
-    public async Task SendMessageAsync(string message)
-    {
-        if (_chatService == null) throw new InvalidOperationException("未连接到服务器");
-
-        await _chatService.SendMessageAsync(message);
-    }
-
-    // 事件处理
-    public void OnUserJoined(string username)
-    {
-        Console.WriteLine($"🟢 {username} 加入了聊天室");
-    }
-
-    public void OnUserLeft(string username)
-    {
-        Console.WriteLine($"🔴 {username} 离开了聊天室");
-    }
-
-    public void OnMessageReceived(ChatMessage message)
-    {
-        Console.WriteLine($"[{message.Timestamp:HH:mm:ss}] {message.Username}: {message.Message}");
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_subscription != null)
-            await _subscription.DisposeAsync();
-
-        if (_client != null)
-            await _client.DisposeAsync();
-    }
-}
-
-// 客户端使用
-class Program
-{
-    static async Task Main(string[] args)
-    {
-        var client = new ChatClient();
-
-        try
+        var service = await _rooms.GetAsync(roomId);
+        if (service.State == ServiceLifecycleState.Created)
         {
-            await client.ConnectAsync();
-            await client.JoinRoomAsync("general", "Alice");
-
-            // 发送消息
-            await client.SendMessageAsync("Hello, everyone!");
-
-            // 保持连接
-            Console.WriteLine("按任意键退出...");
-            Console.ReadKey();
+            await service.StartAsync();
         }
-        finally
+
+        var userId = PulseContext.CurrentUserId ?? "anonymous";
+        return await service.EnqueueAsync(() => service.JoinAsync(userId));
+    }
+
+    public async Task<SendMessageResult> SendMessageAsync(string message)
+    {
+        var roomId = PulseContext.Current?.AuthenticationContext?.Properties.TryGetValue("RoomId", out var value) == true
+            ? value as string
+            : null;
+
+        if (string.IsNullOrEmpty(roomId))
         {
-            await client.DisposeAsync();
+            return new SendMessageResult { Success = false, ErrorMessage = "Not in room" };
         }
+
+        var service = await _rooms.GetAsync(roomId);
+        return await service.EnqueueAsync(() => service.SendMessageAsync(message));
     }
 }
 ```
 
-### Unity 客户端示例
+### 3. 注册有状态 PulseService
+
+`AddPulseService<TService>()` 用于注册按 key 创建和缓存的服务实例。Hub 通过 `IServiceAccessor<TService>` 获取对应实例，并用 `EnqueueAsync` 进入实例队列，保证同一 key 内顺序执行。
 
 ```csharp
-// Unity 中的使用
-public class GameNetworkManager : MonoBehaviour
+services.AddPulseService<ChatRoomService>((sp, roomId) =>
 {
-    private IPulseRPCClient _client;
-    private IGameService _gameService;
+    var logger = sp.GetRequiredService<ILogger<ChatRoomService>>();
+    return new ChatRoomService(roomId, logger);
+});
 
-    async void Start()
+services.AddSingleton<IChatRoomHub, ChatRoomHub>();
+```
+
+### 4. Source Generator 要求
+
+服务端项目需要引用 `PulseRPC.Server.SourceGenerator`。生成器会生成协议号路由、响应序列化器和推送代理相关代码。业务代码只需要：
+
+- 契约接口继承 `IPulseHub`。
+- Hub 实现注册进 DI，如 `services.AddSingleton<IChatRoomHub, ChatRoomHub>()`。
+- 对客户端推送契约，调用生成的 `services.AddAllPulseReceiverContexts()` 或对应的单个注册扩展。
+
+## 客户端开发
+
+### 1. 标记需要生成的代理
+
+客户端项目需要引用 `PulseRPC.Client.SourceGenerator`，并放置一个标记类：
+
+```csharp
+using PulseRPC;
+
+[PulseClientGeneration(typeof(IChatRoomHub))]
+[PulseClientGeneration(typeof(IChatReceiver))]
+public static class HubClientGeneration
+{
+}
+```
+
+生成器会为普通 Hub 生成 `IClientChannel.GetHub<T>()` 支持，为 `[Channel("CLIENT")]` 接收契约生成 `RegisterReceiver<T>()` 支持。
+
+### 2. 创建客户端并连接
+
+```csharp
+using Microsoft.Extensions.Logging;
+using PulseRPC.Client;
+using PulseRPC.Client.Configuration;
+using PulseRPC.Shared;
+
+var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+
+var client = new PulseClientBuilder()
+    .WithLogging(loggerFactory)
+    .WithLoadBalancing(LoadBalancingStrategy.RoundRobin)
+    .Build();
+
+await client.InitializeAsync();
+
+var channel = await client.ConnectToServerAsync(
+    host: "127.0.0.1",
+    port: 7000,
+    serverId: "chat-1",
+    transport: TransportType.TCP);
+
+var chatHub = channel.GetHub<IChatRoomHub>();
+
+var login = await chatHub.LoginAsync("token");
+var joined = await chatHub.JoinRoomAsync("lobby");
+var sent = await chatHub.SendMessageAsync("hello");
+
+await channel.DisconnectAsync();
+await client.StopAsync();
+client.Dispose();
+```
+
+也可以在构建器里预先添加连接：
+
+```csharp
+var client = new PulseClientBuilder()
+    .AddTcpConnection("chat-1", "ChatServer", "127.0.0.1", 7000)
+    .Build();
+
+await client.InitializeAsync();
+```
+
+### 3. 运行时连接管理
+
+`IPulseClient.Connections` 提供连接查询、路由和生命周期管理：
+
+```csharp
+var all = client.Connections.GetAllConnections();
+var connection = client.Connections.GetConnection("chat-1");
+var routed = await client.Connections.RouteAsync(nameof(IChatRoomHub));
+var health = await client.CheckHealthAsync();
+```
+
+## 服务端推送客户端
+
+### 1. 定义客户端接收契约
+
+```csharp
+[Channel("CLIENT")]
+public interface ITimerReceiver : IPulseHub
+{
+    Task OnTickAsync(string message);
+}
+```
+
+### 2. 客户端实现并注册
+
+```csharp
+public sealed class TimerReceiver : ITimerReceiver
+{
+    public Task OnTickAsync(string message)
     {
-        var builder = new PulseRPCClientBuilder();
-        _client = builder
-            .AddGameServerSet("production")
-            .WithBattleOptimizations()
-            .WithConnectionPooling(maxConnections: 10)
-            .Build();
+        Console.WriteLine(message);
+        return Task.CompletedTask;
+    }
+}
 
-        await _client.InitializeAsync();
-        _gameService = await _client.GetServiceAsync<IGameService>();
+var receiver = new TimerReceiver();
+var subscription = channel.RegisterReceiver<ITimerReceiver>(receiver);
 
-        Debug.Log("Connected to game server");
+// 不再接收时取消注册。
+subscription.Dispose();
+```
+
+### 3. 服务端注入 IHubContext
+
+`IHubContext<TReceiver>` 是当前服务端推送 API，泛型约束已经统一为 `where TReceiver : class, IPulseHub`。底层由生成的 Fan-out 代理和 `IPulseRouter` 完成投递。
+
+```csharp
+public sealed class TimerHub : ITimerHub
+{
+    private readonly IHubContext<ITimerReceiver> _timerReceiver;
+
+    public TimerHub(IHubContext<ITimerReceiver> timerReceiver)
+    {
+        _timerReceiver = timerReceiver;
     }
 
-    public async Task<Player> GetPlayerDataAsync(string playerId)
+    public async Task StartAsync(TimeSpan interval)
     {
-        try
-        {
-            var response = await _gameService.GetPlayerAsync(playerId);
-            return response.Data;
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"Failed to get player data: {ex.Message}");
-            return null;
-        }
-    }
+        var connectionId = PulseContext.CurrentConnectionId
+            ?? throw new InvalidOperationException("No connection");
 
-    async void OnDestroy()
-    {
-        if (_client != null)
-        {
-            await _client.DisposeAsync();
-        }
+        await _timerReceiver.Clients.Single(connectionId)
+            .OnTickAsync($"tick: {DateTimeOffset.UtcNow:O}");
     }
 }
 ```
 
-## 故障排除
+可用目标选择器：
 
-### 常见问题和解决方案
+| API | 目标 |
+|---|---|
+| `Clients.All` | 所有已认证客户端 |
+| `Clients.Single(connectionId)` | 单个连接 |
+| `Clients.Only(connectionIds)` | 指定连接集合 |
+| `Clients.Except(connectionId)` | 除某连接外的全部连接 |
+| `Clients.User(userId)` / `Clients.Users(userIds)` | 指定用户 |
+| `Clients.Group(groupName)` / `Clients.Groups(groupNames)` | 指定组 |
+| `Clients.GroupExcept(groupName, connectionId)` | 组内排除某连接 |
 
-1. **连接超时**
-   - 检查网络连通性
-   - 确认服务端端口正确监听
-   - 调整连接超时时间
+服务端需要注册生成的 HubContext：
 
-2. **序列化错误**
-   - 确保消息类型标记了 `[MemoryPackable]`
-   - 检查字段的 `[MemoryPackOrder]` 标记
-   - 验证客户端和服务端使用相同的消息定义
+```csharp
+services.AddAllPulseReceiverContexts();
+```
 
-3. **性能问题**
-   - 启用高性能引擎配置
-   - 检查是否有内存泄漏
-   - 监控连接数和消息处理速度
+## 统一寻址与集群
 
-4. **认证失败**
-   - 验证认证提供者配置
-   - 检查 JWT 密钥和过期时间
-   - 确认客户端发送正确的认证信息
+### 单节点默认路由
+
+`AddPulseServer()` 内部会注册：
+
+- `IPulseBackplane`：默认 `InProcessBackplane`。
+- `IPulseRouter`：默认 `LocalPulseRouter`。
+- `IUserConnectionMapping` / `IGroupManager`：用于 `User` / `Group` Fan-out。
+
+业务通常不需要直接调用 `IPulseRouter`，生成代理会构造 `PulseAddress` 并转交路由器。需要自定义投递时可以直接注入：
+
+```csharp
+public sealed class NotifyService
+{
+    private readonly IPulseRouter _router;
+
+    public NotifyService(IPulseRouter router)
+    {
+        _router = router;
+    }
+
+    public ValueTask SendRawAsync(ReadOnlyMemory<byte> body, ushort protocolId)
+    {
+        var address = PulseAddress.User(nameof(IChatReceiver), "user-1");
+        return _router.SendAsync(address, protocolId, body);
+    }
+}
+```
+
+### 集群基础与静态成员
+
+集群基础入口是 `AddPulseClustering()`。它注册集群拓扑、一致性哈希、租约 Actor 目录、共享密钥节点鉴权、节点间链路，并用 `ClusterPulseRouter` 覆盖默认 `IPulseRouter`。不接入发现后端时，节点列表来自静态 `Members`。
+
+```csharp
+using PulseRPC.Server.Clustering;
+using PulseRPC.Server.Extensions;
+
+services.AddPulseServer(options =>
+{
+    options.AddTcp("tcp", 7000, isDefault: true);
+});
+
+services.AddPulseClustering(
+    topology =>
+    {
+        topology.LocalNodeId = "game-a";
+        topology.Members.Add(new ClusterNodeEndpoint
+        {
+            NodeId = "game-a",
+            Host = "10.0.0.1",
+            Port = 7000,
+        });
+        topology.Members.Add(new ClusterNodeEndpoint
+        {
+            NodeId = "game-b",
+            Host = "10.0.0.2",
+            Port = 7000,
+        });
+    },
+    auth =>
+    {
+        auth.SharedSecret = "replace-with-a-real-shared-secret";
+    },
+    lease =>
+    {
+        lease.LeaseDuration = TimeSpan.FromSeconds(30);
+    });
+```
+
+### 动态服务发现
+
+动态发现后端应在 `AddPulseClustering()` 之后调用。发现层会用 `DiscoveryClusterMembership` 覆盖静态 `IClusterMembership` 与 `INodeEndpointResolver`，并作为 `IHostedService` 完成本节点注册、后台刷新、watch 触发和优雅下线。
+
+#### Consul
+
+```csharp
+using PulseRPC.Infrastructure.Consul;
+
+services.AddPulseClustering(
+    topology =>
+    {
+        topology.LocalNodeId = "game-a";
+        // 动态发现下 Members 可留空，端点由 Consul 提供。
+    },
+    auth => auth.SharedSecret = "replace-with-a-real-shared-secret");
+
+services.AddConsulDiscovery(
+    localNodeId: "game-a",
+    advertiseHost: "10.0.0.1",
+    advertisePort: 7000,
+    configure: options =>
+    {
+        options.Address = "http://consul:8500";
+        options.ServiceName = "pulserpc-game";
+        options.EnableWatch = true;
+    });
+```
+
+#### etcd
+
+```csharp
+using PulseRPC.Infrastructure.Etcd;
+
+services.AddEtcdDiscovery(
+    localNodeId: "game-a",
+    advertiseHost: "10.0.0.1",
+    advertisePort: 7000,
+    configure: options =>
+    {
+        options.ConnectionString = "http://etcd:2379";
+        options.KeyPrefix = "/pulserpc/game/nodes/";
+        options.LeaseTtlSeconds = 15;
+        options.EnableWatch = true;
+    });
+```
+
+#### Kubernetes
+
+```csharp
+using PulseRPC.Infrastructure.Kubernetes;
+
+services.AddKubernetesDiscovery(
+    localNodeId: Environment.GetEnvironmentVariable("HOSTNAME")!,
+    advertiseHost: Environment.GetEnvironmentVariable("POD_IP")!,
+    advertisePort: 7000,
+    configure: options =>
+    {
+        options.Namespace = "game";
+        options.LabelSelector = "app=game-server";
+        options.NodePort = 7000;
+        options.UseInClusterConfig = true;
+        options.EnableWatch = true;
+    });
+```
+
+动态发现使用要点：
+
+- `localNodeId` 必须与 `ClusterTopologyOptions.LocalNodeId` 一致。
+- Consul/etcd 由后端注册记录和 watch/轮询驱动成员变化。
+- Kubernetes 通过 Pod 列表和 Pod watch 发现成员，通常用 Pod 名作为 `NodeId`，Pod IP 作为端点。
+- `DiscoveryOptions.PollInterval` 是 watch 的兜底轮询周期；后端 watch 失效时仍会按周期刷新。
+
+### 证书节点鉴权
+
+共享密钥是默认实现。生产环境可以在 `AddPulseClustering()` 之后用证书鉴权覆盖默认 `INodeAuthenticator`：
+
+```csharp
+using System.Security.Cryptography.X509Certificates;
+
+services.UseCertificateNodeAuthentication(options =>
+{
+    options.LocalCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+        "certs/game-a.pfx",
+        "pfx-password");
+
+    options.TrustedCertificateAuthorities.Add(
+        X509CertificateLoader.LoadCertificateFromFile("certs/cluster-ca.cer"));
+
+    options.RequireNodeIdMatchesCertificate = true;
+});
+```
+
+`CertificateNodeAuthenticator` 是应用层节点凭据校验：凭据包含本节点证书、时间戳和签名；对端校验证书信任、签名、时效和可选的 `nodeId`/证书主体匹配。它可与真实 TLS 传输一起使用，但本身不是传输层 TLS 配置。
+
+### L3 Actor 状态迁移
+
+L2 租约保证同一 `(Hub, Key)` 在同一时刻只有一个属主，但属主变化时未实现快照的 Actor 会按空状态重新激活。需要跨节点保留状态时，让 Actor 实现 `IActorStateSnapshot`，并用 `ActorMigrationCoordinator` 编排迁出/迁入。
+
+```csharp
+using MemoryPack;
+using PulseRPC.Clustering;
+
+public sealed class RoomService : PulseServiceBase, IActorStateSnapshot
+{
+    private readonly List<string> _members = new();
+
+    public RoomService(string roomId, ILogger<RoomService> logger)
+        : base("Room", roomId, logger)
+    {
+    }
+
+    public ValueTask<byte[]> CaptureStateAsync(CancellationToken cancellationToken = default)
+    {
+        return new ValueTask<byte[]>(MemoryPackSerializer.Serialize(_members));
+    }
+
+    public ValueTask RestoreStateAsync(byte[] state, CancellationToken cancellationToken = default)
+    {
+        var restored = MemoryPackSerializer.Deserialize<List<string>>(state) ?? new List<string>();
+        _members.Clear();
+        _members.AddRange(restored);
+        return default;
+    }
+}
+```
+
+迁移协调器使用方式：
+
+```csharp
+services.AddSingleton<ActorMigrationCoordinator>();
+services.AddSingleton<IActorStateTransport, MyActorStateTransport>();
+
+var actor = await roomAccessor.GetAsync("room-42");
+await migrationCoordinator.MigrateOutAsync(
+    hub: nameof(IRoomHub),
+    key: "room-42",
+    targetNodeId: "game-b",
+    localActor: actor,
+    cancellationToken);
+```
+
+边界说明：
+
+- `MigrateOutAsync` 会先 `StopAsync` 静默 Actor，等待队列在途消息排空，再捕获快照。
+- 只有实现 `IActorStateSnapshot` 的 Actor 会迁移状态；未实现时迁入后等价于 L2 空状态重新激活。
+- `IActorStateTransport` 是快照搬运抽象，当前需要业务或基础设施层注册具体实现。
+- 迁移应由运维、再均衡或业务管理流程主动触发，不是 `AddPulseClustering()` 后自动对所有 Actor 迁移。
+- Gateway/虚拟连接相关类型已存在，使用时应结合当前样例和集成测试验证实际链路。
+
+## 认证与客户端可见性
+
+### 方法鉴权
+
+```csharp
+public interface IAccountHub : IPulseHub
+{
+    Task<SignInResult> SignInAsync(string signInId, string password);
+
+    [Authorize]
+    Task<UserInfo> GetCurrentUserNameAsync();
+
+    [Authorize(Role = "Administrators")]
+    Task<string> DangerousOperationAsync();
+}
+```
+
+服务端可以在登录方法中把身份写入当前连接的 `AuthenticationContext`，后续同一连接请求会通过 `PulseContext.CurrentUserId` / `PulseContext.Current.User` 读取身份。
+
+### ClientFacing 门闸
+
+`ClientFacingAttribute` 是协议层白名单。默认 `EnableClientFacingGate = false`，升级旧项目时行为不变；开启后，外部客户端只能调用 `[ClientFacing]` 标注的方法。
+
+```csharp
+[ClientFacing]
+public interface IGameHub : IPulseHub
+{
+    Task<PlayerInfo> GetPlayerAsync(string playerId);
+
+    [ClientFacing(false)]
+    [Authorize(Role = RoleTypes.Internal)]
+    Task RebuildIndexAsync();
+}
+```
+
+```csharp
+services.AddPulseServer(options =>
+{
+    options.AddTcp(7000);
+    options.EnableClientFacingGate = true;
+});
+```
+
+## 序列化与协议号
+
+- 默认序列化提供程序是 `PulseRPCSerializerProvider.Instance`。
+- 请求/响应类型建议标注 `[MemoryPackable]`。
+- 协议号按 Hub 接口隔离，同一 Hub 内方法协议号必须唯一。
+- 如生成器报告协议号冲突，使用 `[Protocol(0x1234)]` 手动指定。
+- 客户端和服务端必须引用同一份契约程序集，避免签名不一致导致协议号不同。
+
+## 最佳实践
+
+### Hub 保持无状态
+
+Hub 作为协议入口，只做参数验证、身份检查、路由和调用业务服务。连接状态放在 `AuthenticationContext.Properties` 或专门的连接映射中；业务状态放在 `PulseService` 或外部存储中。
+
+### Actor/Service 通过 key 隔离
+
+房间、玩家、战斗等天然有实例键的对象，使用 `AddPulseService<TService>()` 和 `IServiceAccessor<TService>.GetAsync(key)`。同一个 key 内用队列串行处理，不同 key 可以并发。
+
+### 可迁移 Actor 显式实现快照
+
+需要动态迁移并保留内存状态的 Actor 实现 `IActorStateSnapshot`。快照内容应只包含业务状态，不包含连接对象、logger、DI 服务等进程内资源；恢复后这些运行时依赖由新节点 DI 重新提供。
+
+### 明确外部和内部契约
+
+外部客户端能调用的方法尽量用 `[ClientFacing]` 白名单；跨服务器内部方法使用 `[Authorize(Role = RoleTypes.Internal)]`，并避免在客户端项目生成或暴露不必要的 Stub。
+
+### 推送契约统一写成 CLIENT Hub
+
+旧写法：
+
+```csharp
+public interface IGameReceiver : IPulseReceiver
+{
+}
+```
+
+新写法：
+
+```csharp
+[Channel("CLIENT")]
+public interface IGameReceiver : IPulseHub
+{
+}
+```
+
+仓库中已包含迁移分析器和 CodeFix，用于提示 `IPulseReceiver` 到统一 `IPulseHub` 的迁移。
+
+## 故障排查
+
+### `GetHub<T>()` 抛出“不支持的 Hub 类型”
+
+检查客户端项目是否添加了：
+
+```csharp
+[PulseClientGeneration(typeof(IYourHub))]
+public static class HubClientGeneration
+{
+}
+```
+
+并确认项目引用了 `PulseRPC.Client.SourceGenerator`。
+
+### 服务端收不到请求
+
+检查：
+
+- 服务端项目是否引用 `PulseRPC.Server.SourceGenerator`。
+- Hub 实现是否注册到 DI，例如 `services.AddSingleton<IChatRoomHub, ChatRoomHub>()`。
+- 客户端和服务端是否引用同一份契约程序集。
+- 服务端传输是否启动，端口和协议是否一致。
+
+### 客户端收不到推送
+
+检查：
+
+- 接收接口是否标注 `[Channel("CLIENT")]` 并继承 `IPulseHub`。
+- 客户端是否对该接口添加 `[PulseClientGeneration(typeof(IReceiver))]`。
+- 客户端是否调用 `channel.RegisterReceiver<IReceiver>(receiver)`。
+- 服务端是否注册生成的 `services.AddAllPulseReceiverContexts()`。
+- 目标连接是否已认证或已加入对应用户/组映射。
+
+### 集群路由不符合预期
+
+检查：
+
+- 所有节点 `Members` 是否完全一致。
+- `LocalNodeId` 是否与 `Members` 中的节点 ID 匹配。
+- 所有节点的共享密钥是否一致。
+- 目标 `(Hub, Key)` 是否在各节点上一致计算。
+
+动态发现部署还应检查：
+
+- 是否在 `AddPulseClustering()` 之后调用 `AddConsulDiscovery()` / `AddEtcdDiscovery()` / `AddKubernetesDiscovery()`。
+- `localNodeId` 是否与 `ClusterTopologyOptions.LocalNodeId` 一致。
+- Consul/etcd/Kubernetes 后端是否能看到本节点注册记录。
+- `advertiseHost` / `advertisePort` 是否能被其它节点访问。
+
+### Actor 迁移后状态丢失
+
+检查：
+
+- Actor 是否实现 `IActorStateSnapshot`。
+- 是否注册了 `IActorStateTransport` 和 `ActorMigrationCoordinator`。
+- `MigrateOutAsync` 是否实际执行成功并把快照发送到目标节点。
+- `MigrateInAsync` 是否在目标节点激活前调用了 `RestoreStateAsync`。
 
 ---
 
-这份指南涵盖了 PulseRPC 框架的主要使用场景和最佳实践。如需更多详细信息，请参考项目源码和示例。
+更多可运行代码可参考：
+
+- `samples/ChatApp`
+- `samples/JwtAuthentication`
+- `samples/DistributedGameApp`
+- `docs/架构设计与分析/统一 IPulseHub 全链路寻址与集群架构设计.md`

@@ -1,4 +1,21 @@
 #nullable enable
+PulseRPC.Clustering.IActorStateSnapshot
+PulseRPC.Clustering.IActorStateSnapshot.CaptureStateAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<byte[]!>
+PulseRPC.Clustering.IActorStateSnapshot.RestoreStateAsync(byte[]! state, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.IActorStateTransport
+PulseRPC.Clustering.IActorStateTransport.SendSnapshotAsync(string! targetNodeId, string! hub, string! key, byte[]! snapshot, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.NodeEndpoint
+PulseRPC.Clustering.NodeEndpoint.NodeEndpoint() -> void
+PulseRPC.Clustering.NodeEndpoint.NodeEndpoint(string! host, int port) -> void
+PulseRPC.Clustering.NodeEndpoint.Host.get -> string!
+PulseRPC.Clustering.NodeEndpoint.Port.get -> int
+PulseRPC.Clustering.NodeEndpoint.IsValid.get -> bool
+PulseRPC.Clustering.NodeEndpoint.Equals(PulseRPC.Clustering.NodeEndpoint other) -> bool
+override PulseRPC.Clustering.NodeEndpoint.Equals(object? obj) -> bool
+override PulseRPC.Clustering.NodeEndpoint.GetHashCode() -> int
+override PulseRPC.Clustering.NodeEndpoint.ToString() -> string!
+PulseRPC.Clustering.INodeEndpointResolver
+PulseRPC.Clustering.INodeEndpointResolver.TryResolve(string! nodeId, out PulseRPC.Clustering.NodeEndpoint endpoint) -> bool
 PulseRPC.Clustering.IClusterMembership
 PulseRPC.Clustering.IClusterMembership.LiveNodeIds.get -> System.Collections.Generic.IReadOnlyList<string!>!
 PulseRPC.Clustering.IClusterMembership.Changed -> System.Action?
