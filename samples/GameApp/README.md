@@ -210,12 +210,12 @@ GameApp/
 
 ### 🎓 培训资料
 - [开发者培训](docs/training/developer-training.md) - 5天完整培训课程
-- [最佳实践](docs/training/best-practices.md) - 开发和运维最佳实践
+- 最佳实践 - 当前仓库未提供独立文档
 
 ### 📊 监控和运维
 - [监控 API](docs/api/monitoring-api.md) - 监控系统 API 文档
-- [故障排除](docs/troubleshooting.md) - 常见问题和解决方案
-- [性能优化](docs/performance.md) - 系统性能优化指南
+- 故障排除 - 当前仓库未提供独立文档
+- 性能优化 - 当前仓库未提供独立文档
 
 ## 🧪 测试体系
 
@@ -358,26 +358,26 @@ curl -X POST http://localhost:5000/api/performance/benchmark
 5. 创建 Pull Request
 
 ### 开发规范
-- 遵循 [编码规范](docs/development/coding-standards.md)
+- 遵循项目现有编码规范
 - 编写单元测试
 - 更新相关文档
 - 通过 CI/CD 检查
 
 ## 📄 许可证
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+本项目采用 MIT 许可证 - 查看 [LICENSE](../../LICENSE) 文件了解详情。
 
 ## 🆘 支持和帮助
 
 ### 📖 文档和资源
 - [完整文档](docs/README.md)
 - [API 参考](docs/api/README.md)
-- [常见问题](docs/FAQ.md)
-- [故障排除](docs/troubleshooting.md)
+- 常见问题 - 当前仓库未提供独立文档
+- 故障排除 - 当前仓库未提供独立文档
 
 ### 💬 社区支持
-- [GitHub Issues](../../issues) - 问题反馈和功能请求
-- [GitHub Discussions](../../discussions) - 技术讨论和交流
+- GitHub Issues - 问题反馈和功能请求
+- GitHub Discussions - 技术讨论和交流
 
 ### 📧 联系我们
 - **技术支持**: support@gameapp.com

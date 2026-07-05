@@ -1,5 +1,7 @@
 ﻿# PulseRPC.Server 架构设计深度分析
 
+> 文档状态：历史架构分析。当前源码已使用 `PulseServiceBase` 与 `ServiceExecutionOptions`，本文中的 `BaseService`/`ConcurrentServiceBase` 分类是早期命名。
+
 ## 执行摘要
 
 本报告深入分析 PulseRPC.Server 项目的核心架构设计，重点关注 **IPulseService** 和 **IPulseHub** 两个关键接口。
@@ -221,4 +223,3 @@ Healthy → (3次失败) → Isolated → (冷却期) → CoolingDown
 
 **报告日期**：2025-11-10
 **分析深度**：Very Thorough（非常深入）
-

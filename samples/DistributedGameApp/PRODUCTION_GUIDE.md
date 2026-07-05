@@ -1,5 +1,7 @@
 # 生产级实施指南
 
+> 文档状态：历史实施指南。当前 DistributedGameApp 源码已使用 `PulseServiceBase`；本文中的 `BaseService`/`ConcurrentServiceBase` 示例属于旧命名，请按当前服务基类映射理解。
+
 本指南提供完整的生产级实现示例和最佳实践。
 
 ## 🎯 完整实现示例

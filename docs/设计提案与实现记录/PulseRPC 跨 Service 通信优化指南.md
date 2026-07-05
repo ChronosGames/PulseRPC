@@ -1,5 +1,7 @@
 ﻿# PulseRPC 跨 Service 通信优化指南
 
+> 文档状态：历史优化指南。当前服务实现基类已迁移到 `PulseServiceBase`，本文中的 `BaseService` 术语按旧设计记录保留。
+
 ## 文档信息
 
 - **版本**: 1.0
@@ -482,10 +484,10 @@ public bool IsLocalService(PID targetPID)
 
 ## 参考
 
-- [Service 方法级别优先级指南](./Service-Method-Priority-Usage-Guide.md)
-- [并发服务安全指南](./Concurrent-Service-Safety-Guide.md)
-- [动态服务生命周期管理指南](./Dynamic-Service-Lifecycle-Guide.md)
-- [背压策略使用指南](./Backpressure-Strategy-Guide.md)
+- [并发服务安全指南](./并发服务安全指南.md)
+- Service 方法级别优先级指南 - 旧独立文档当前仓库未提供
+- 动态服务生命周期管理指南 - 旧独立文档当前仓库未提供
+- 背压策略使用指南 - 旧独立文档当前仓库未提供
 
 ---
 

@@ -1,40 +1,20 @@
-# PulseRPC Unity客户端
+# PulseRPC Unity 客户端辅助包
 
-这是PulseRPC的Unity客户端实现，提供了在Unity环境中使用PulseRPC框架的能力，而不依赖于gRPC。
+> 文档状态：当前实现说明。本文按当前 `PulseRPC.Client.Unity` 辅助包源码编写；旧 WebSocket 客户端 API 未在当前仓库实现。
 
-## 特性
+该包目前提供 Unity/IL2CPP 兼容辅助，而不是独立的 Unity RPC 客户端 API。
 
-- 纯C#实现，无需原生插件
-- 完全兼容IL2CPP平台
-- 支持iOS、Android、Windows、macOS等所有Unity支持的平台
-- 基于TCP协议的直接实现，无需gRPC
-- 支持二进制序列化，使用MemoryPack
-- 支持请求/响应和实时事件通知
+## 包含内容
 
-## 基本用法
+- `AOTSupport`：注册 PulseRPC、MemoryPack、TCP/KCP 相关类型，降低 IL2CPP 裁剪风险。
+- `TaskExtensions`：Unity 环境下的任务辅助扩展。
+- `PulseRPC.Client.Unity.asmdef` 与 `package.json`：Unity 包元数据。
 
-```csharp
-// 创建连接
-var connection = new PulseWebSocketConnection("ws://your-server:5000/pulse");
-await connection.ConnectAsync();
+## 使用建议
 
-// 创建服务客户端
-var client = PulseClientFactory.Create<IMyService>(connection);
+实际连接和 Hub 调用请使用 `PulseRPC.Client` 与 Source Generator 生成的代理。可参考：
 
-// 调用服务方法
-var result = await client.MyMethodAsync(parameter);
+- `samples/ChatApp/ChatApp.Unity`
+- `docs/使用指南/Unity Source Generator 集成指南.md`
 
-// 连接到Hub
-var hub = PulseClientFactory.ConnectToHub<IMyHub, IMyReceiver>(connection, myReceiver);
-
-// 调用Hub方法
-await hub.SendMessageAsync("Hello from Unity!");
-
-// 断开连接
-await connection.DisconnectAsync();
-```
-
-## 注意事项
-
-- 对于iOS和WebGL平台，请使用WebSocket连接
-- 在Unity中使用异步方法时，请确保正确处理上下文切换
+当前源码未实现 `PulseWebSocketConnection`；请勿按旧 WebSocket 示例编写代码。

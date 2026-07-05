@@ -1,5 +1,7 @@
 # Service 队列让出机制设计方案
 
+> 文档状态：历史设计方案。当前服务执行模型以 `PulseServiceBase`、`ServiceExecutionOptions` 和 `Processing/Engine` 为准；本文中的 `BaseService`/`YieldingService` 对比保留为早期设计讨论。
+
 ## 🎯 核心理念
 
 **让 Service 在 await 时自动让出队列执行权，IO 完成后自动重新获得执行权**

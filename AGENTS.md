@@ -59,7 +59,7 @@ dotnet build -bl:msbuild.binlog
 
 ### 配置管理
 - **Directory.Packages.props** - 集中化包版本管理
-- **Directory.Build.props** - 全局构建配置，包含 NuGet 包装信息（当前版本 1.0.33）
+- **Directory.Build.props** - 全局构建配置，包含 NuGet 包装信息（当前版本 1.1.5）
 - **global.json** - 指定 .NET SDK 版本 10.0.100（如本地版本不匹配，更新此文件）
 
 ### 序列化约定
@@ -73,9 +73,9 @@ dotnet build -bl:msbuild.binlog
 - **ITransportChannel** - 通道抽象，包含消息头和类型定义
 
 ### 集群功能
-- **服务发现** - `IServiceDiscovery` 接口，支持 Consul、Etcd、Kubernetes
+- **集群发现** - `IDiscoveryProvider` / `IClusterMembership` 抽象，支持静态成员以及 Consul、Etcd、Kubernetes 后端
 - **负载均衡** - 支持随机、轮询、最少连接、加权轮询、一致性哈希策略
-- **健康检查** - `IHealthChecker` 接口，支持自定义健康检查逻辑
+- **健康检查** - 客户端连接健康检查与服务端 `IPulseServiceHealthCheck`，支持自定义健康检查逻辑
 
 ### 测试约定
 - 单元测试位于 `tests/` 目录
@@ -106,6 +106,6 @@ dotnet build -bl:msbuild.binlog
 ## 参考文档
 
 - [README](README.md) - 完整项目说明和使用示例
-- [Unity 集成指南](Unity-SourceGenerator-Integration.md) - Unity 客户端集成详解
+- [Unity 集成指南](docs/使用指南/Unity%20Source%20Generator%20集成指南.md) - Unity 客户端集成详解
 - [Source Generator 调试](docs/Debug-SourceGenerator-README.md) - 代码生成器调试资源
-- [性能优化总结](docs/热路径优化总结.md) - 性能调优建议
+- [网络库评估与优化计划](docs/待办计划/260703%20-%20PulseRPC%20网络库评估与优化计划.md) - 当前传输层优化记录

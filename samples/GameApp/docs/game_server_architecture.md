@@ -1,5 +1,7 @@
 # 游戏服务器节点架构详解
 
+> 文档状态：GameApp 架构蓝图，部分章节保留早期设计选项。当前 `samples/GameApp/src` 中服务端项目目标框架为 `net9.0`，共享库为 `net9.0;netstandard2.1`；AuthServer 使用 ASP.NET Core HTTP API，GameServer/BattleServer 使用 PulseRPC + MemoryPack。下文提到 SignalR、DotNetty、MessagePack 的位置属于历史备选方案，不代表当前 GameApp 源码依赖。
+
 ## 整体架构概览
 
 ```
@@ -23,7 +25,7 @@ Unity客户端 ──→ 负载均衡器 ──→ 各服务节点
 
 **技术栈：**
 ```csharp
-// 框架：ASP.NET Core 8.0 Web API
+// 框架：ASP.NET Core 9.0 Web API
 // 协议：HTTP/HTTPS + JSON
 // 主要库：
 - Microsoft.AspNetCore.Authentication.JwtBearer
@@ -142,9 +144,9 @@ GET  /api/auth/server-list        // 获取授权服务器列表
 
 **技术栈：**
 ```csharp
-// 框架：ASP.NET Core 8.0 + SignalR
+// 框架：ASP.NET Core 9.0 + HTTP API（SignalR 为历史备选）
 // 主要库：
-- Microsoft.AspNetCore.SignalR (实时通信)
+- Microsoft.AspNetCore.SignalR (历史备选，当前源码未接入)
 - Quartz.NET (定时任务)
 - Microsoft.Extensions.Hosting (后台服务)
 
@@ -175,7 +177,7 @@ public class ZoneManagementService : BackgroundService
 
 **技术栈：**
 ```csharp
-// 框架：ASP.NET Core 8.0
+// 框架：ASP.NET Core 9.0
 // 主要库：
 - System.IO.Compression (资源压缩)
 - System.Security.Cryptography (文件校验)
@@ -209,10 +211,10 @@ public class ResourceController : ControllerBase
 
 **技术栈：**
 ```csharp
-// 框架：ASP.NET Core 8.0
+// 框架：ASP.NET Core 9.0
 // 主要库：
 - Microsoft.Extensions.Configuration
-- Microsoft.AspNetCore.SignalR
+- Microsoft.AspNetCore.SignalR (历史备选，当前源码未接入)
 - System.Text.Json (配置序列化)
 
 // 核心组件
@@ -241,10 +243,10 @@ public class ConfigurationService : IConfigurationService
 
 **技术栈：**
 ```csharp
-// 框架：.NET 8.0 Console Application
+// 框架：历史网关方案；当前 GameServer/BattleServer 直接使用 PulseRPC TCP/KCP
 // 主要库：
-- DotNetty (高性能网络通信)
-- MessagePack (序列化)
+- PulseRPC TCP/KCP (当前样例服务端)
+- MemoryPack (序列化)
 - Microsoft.Extensions.DependencyInjection
 - Microsoft.Extensions.Logging
 
@@ -282,11 +284,11 @@ public class GameChannelHandler : ChannelHandlerAdapter
 
 **技术栈：**
 ```csharp
-// 框架：.NET 8.0 Console Application
+// 框架：.NET 9.0 Console Application
 // 主要库：
-- DotNetty (网络通信)
+- PulseRPC TCP/KCP (网络通信)
 - Microsoft.Extensions.Hosting (服务生命周期)
-- MessagePack (高效序列化)
+- MemoryPack (高效序列化)
 - System.Collections.Concurrent (线程安全集合)
 - Timer (定时持久化)
 
@@ -340,9 +342,9 @@ public class PlayerStateManager : IPlayerStateManager
 
 **技术栈：**
 ```csharp
-// 框架：.NET 8.0 Console Application
+// 框架：.NET 9.0 Console Application
 // 主要库：
-- DotNetty (低延迟网络通信)
+- PulseRPC KCP/TCP (低延迟网络通信)
 - System.Numerics (向量计算)
 - Microsoft.Extensions.ObjectPool (对象池)
 - System.Threading.Channels (高性能队列)
@@ -409,10 +411,9 @@ public class BattleLogicEngine : IBattleLogicEngine
 
 **技术栈：**
 ```csharp
-// 框架：.NET 8.0 Console Application + SignalR
+// 框架：社交服务历史方案，当前 GameApp 源码未实现独立 SocialServer
 // 主要库：
-- Microsoft.AspNetCore.SignalR (实时通信)
-- DotNetty (游戏协议通信)
+- PulseRPC TCP/KCP (游戏协议通信)
 - System.Collections.Concurrent (线程安全集合)
 - Microsoft.Extensions.Caching.Memory (内存缓存)
 
@@ -469,7 +470,7 @@ public class ChatChannelManager : IChatChannelManager
 ```
 
 **社交功能特色：**
-- 实时聊天: SignalR支持WebSocket实时通信
+- 实时聊天: 当前源码未接入独立 SignalR/WebSocket 社交服务
 - 好友状态: 实时更新在线状态
 - 公会活动: 支持大型公会活动组织
 - 跨服社交: 支持跨服务器好友和公会
@@ -642,7 +643,7 @@ services.AddSingleton<IEtcdClient>(provider =>
 
 ### 容器化部署 (Docker)
 ```dockerfile
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 COPY . .
 EXPOSE 80

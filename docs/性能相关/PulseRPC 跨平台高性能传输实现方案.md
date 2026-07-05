@@ -1,5 +1,7 @@
 ﻿# PulseRPC 跨平台高性能传输实现方案
 
+> 文档状态：历史方案草案，不代表当前源码已全部实现。当前 `src/` 中没有 `PulseRPC.Core` 项目，也没有 RIO / io_uring / `IHighPerformanceTransport` 实现；已落地的核心传输为 TCP、KCP，以及 `PulseRPC.Shared` 中的通用批处理/缓冲相关组件。本文中的文件路径和性能数据用于方案背景参考。
+
 ## 目标平台矩阵
 
 ### 客户端平台

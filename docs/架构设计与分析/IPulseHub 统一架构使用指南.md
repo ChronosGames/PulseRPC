@@ -288,7 +288,7 @@ public interface IPlayerHub : IPulseHub
 **用途**：
 - 相同 `ServiceName` 的服务实例会在同一线程内按序执行
 - 用于保证线程安全和状态一致性
-- 详见 [ServiceName 线程调度文档](./specs/001-channelattribute-servicename-ipulsehub/spec.md)
+- ServiceName 线程调度规范曾记录在 `specs/001-channelattribute-servicename-ipulsehub/spec.md`，该旧 spec 当前仓库未提供。
 
 ## 最佳实践
 
@@ -345,8 +345,8 @@ public static class GameRoles
 ## 示例项目
 
 完整的示例代码请参考：
-- [DistributedGameApp](../samples/DistributedGameApp/)
-- [ChatApp](../samples/ChatApp/)
+- [DistributedGameApp](../../samples/DistributedGameApp/)
+- [ChatApp](../../samples/ChatApp/)
 
 ## 总结
 
@@ -361,6 +361,6 @@ public static class GameRoles
 ---
 
 **相关文档**：
-- [ChannelAttribute ServiceName 规范](../specs/001-channelattribute-servicename-ipulsehub/spec.md)
-- [认证与授权指南](./Authentication-Authorization-Guide.md) *(待创建)*
-- [服务间通信指南](./Cross-Service-Communication-Optimization-Guide.md)
+- ChannelAttribute ServiceName 规范 - 旧 spec 当前仓库未提供
+- [认证与授权指南](../AuthorizeAttribute-Authentication-System.md)
+- [服务间通信指南](../设计提案与实现记录/PulseRPC 跨 Service 通信优化指南.md)

@@ -1,11 +1,13 @@
 # DistributedGameApp - 生产级分布式游戏服务器示例
 
+> 文档状态：样例总览。部分“设计理念/扩展指南”代码块是架构伪代码；当前可运行入口以 `src/DistributedGameApp.*` 下的 `Program.cs`、`Infrastructure/Hosting/ServerBootstrapper.cs` 和项目内文档为准。
+
 > **🎉 架构升级 V2.0**
 > 这是一个基于 **PulseRPC** 框架的完整分布式游戏服务器架构，包含完整的基础设施集成（MongoDB + Consul + Sentry）和多服务器类型（LoginServer + GameServer + BattleServer + BackendServer）。
 >
 > 📖 **快速开始**：查看 [QUICKSTART.md](./QUICKSTART.md)
 > 🏗️ **完整架构**：查看 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
-> 📋 **实施总结**：查看 [docs/IMPLEMENTATION_SUMMARY.md](./docs/IMPLEMENTATION_SUMMARY.md)
+> 📋 **项目状态**：查看 [PROJECT_STATUS.md](./PROJECT_STATUS.md)
 
 ## 🌟 V2.0 新特性
 
@@ -33,13 +35,13 @@
 ### 📚 完善的文档
 - [QUICKSTART.md](./QUICKSTART.md) - 5分钟快速开始
 - [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) - 完整架构设计
-- [docs/IMPLEMENTATION_SUMMARY.md](./docs/IMPLEMENTATION_SUMMARY.md) - 实施总结
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - 原架构设计文档（保留）
+- [PROJECT_STATUS.md](./PROJECT_STATUS.md) - 项目状态
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) - 原架构设计文档（保留）
 - [PRODUCTION_GUIDE.md](./PRODUCTION_GUIDE.md) - 生产级实施指南（保留）
 
 ## 📖 设计理念
 
-本示例基于文档 `docs/PulseRPC分布式游戏服务器框架.md` 中描述的架构理念：
+本示例基于项目内 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) 中描述的架构理念：
 
 ### 核心概念
 
@@ -419,13 +421,13 @@ GameServer:5000    BattleServer:5100    ChatServer:5200
 ## 📖 相关文档
 
 ### 本项目文档
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - 完整架构设计文档
+- [ARCHITECTURE.md](./docs/ARCHITECTURE.md) - 完整架构设计文档
 - [PRODUCTION_GUIDE.md](./PRODUCTION_GUIDE.md) - 生产级实施指南
 
 ### PulseRPC 核心文档
-- [Service Message Queue Design](../../docs/Service-Message-Queue-Design.md) - Actor 模型设计
+- [Service-Based-Messaging-Architecture](../../docs/architecture/Service-Based-Messaging-Architecture.md) - Actor 模型设计
 - [PulseRPC.Server README](../../src/PulseRPC.Server/README.md) - 服务器架构
-- [PulseRPC 分布式游戏服务器框架](../../docs/PulseRPC分布式游戏服务器框架.md) - 框架理念
+- [统一 IPulseHub 集群架构设计](../../docs/架构设计与分析/统一 IPulseHub 全链路寻址与集群架构设计.md) - 框架理念
 
 ## 💡 设计亮点
 

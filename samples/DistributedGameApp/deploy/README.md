@@ -348,9 +348,8 @@ services:
 
 ## 相关文档
 
-- [MongoDB 索引策略](../docs/MongoDB-Index-Strategy.md)
-- [init.js 使用指南](../docs/MongoDB-Init-Script-Guide.md)
 - [索引初始化指南](../docs/MongoDB-Index-Initialization-Guide.md)
+- [init.js 使用指南](../docs/MongoDB-Init-Script-Guide.md)
 
 ---
 

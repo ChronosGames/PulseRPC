@@ -1,5 +1,7 @@
 # ExecuteIOAsync 显式执行控制 - 实施总结
 
+> 文档状态：历史实施总结。当前源码中服务基类为 `PulseServiceBase`，本文中的 `BaseService.cs` 路径和 `ExecuteIOAsync` 说明保留为当时实验记录。
+
 ## ✅ 已完成实现
 
 ### 1. 核心 API（BaseService.cs）

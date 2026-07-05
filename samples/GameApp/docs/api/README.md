@@ -97,28 +97,28 @@ var playerInfo = await gameClient.PlayerService.GetPlayerInfoAsync();
 
 ### AuthServer API
 - [认证 API](auth-api.md) - 用户注册、登录、令牌管理
-- [区服 API](zone-api.md) - 区服列表、选择、状态
+- 区服 API - 当前仓库未提供独立文档
 - [性能监控 API](monitoring-api.md) - 系统监控、告警管理
 
 ### GameServer API
-- [玩家服务 API](player-service-api.md) - 玩家信息、等级、装备
-- [世界服务 API](world-service-api.md) - 世界交互、聊天、组队
-- [事件推送 API](game-events-api.md) - 服务器推送事件
+- 玩家服务 API - 当前仓库未提供独立文档
+- 世界服务 API - 当前仓库未提供独立文档
+- 事件推送 API - 当前仓库未提供独立文档
 
 ### BattleServer API
-- [战斗服务 API](battle-service-api.md) - 战斗匹配、房间管理
-- [技能服务 API](skill-service-api.md) - 技能释放、冷却管理
-- [战斗事件 API](battle-events-api.md) - 实时战斗事件
+- 战斗服务 API - 当前仓库未提供独立文档
+- 技能服务 API - 当前仓库未提供独立文档
+- 战斗事件 API - 当前仓库未提供独立文档
 
 ## 错误码参考
-- [通用错误码](error-codes.md) - 系统级错误码定义
-- [业务错误码](business-errors.md) - 业务逻辑错误码
+- 通用错误码 - 当前仓库未提供独立文档
+- 业务错误码 - 当前仓库未提供独立文档
 
 ## SDK 和工具
-- [Unity SDK](../client/unity-sdk.md) - Unity客户端SDK使用指南
-- [测试工具](../tools/testing-tools.md) - API测试工具和脚本
-- [性能测试](../tools/performance-testing.md) - 压力测试和性能监控
+- Unity SDK - 当前仓库未提供独立文档
+- 测试工具 - 当前仓库未提供独立文档
+- 性能测试 - 当前仓库未提供独立文档
 
 ## 变更日志
-- [API变更日志](changelog.md) - API版本变更记录
-- [升级指南](migration-guide.md) - API升级和迁移指南
+- API变更日志 - 当前仓库未提供独立文档
+- 升级指南 - 当前仓库未提供独立文档

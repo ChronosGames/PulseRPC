@@ -300,22 +300,22 @@ public class DistributedGameClient
 ## 使用场景
 
 ### 场景1：多个 GameServer 负载均衡
-详见：[Scenarios/SCENARIO1_MultipleGameServers.md](Scenarios/SCENARIO1_MultipleGameServers.md)
+场景脚本文档当前仓库未提供。
 
 演示如何连接到多个 GameServer 并在它们之间切换，实现客户端侧的负载均衡。
 
 ### 场景2：完整的匹配和战斗流程
-详见：[Scenarios/SCENARIO2_MatchingAndBattle.md](Scenarios/SCENARIO2_MatchingAndBattle.md)
+场景脚本文档当前仓库未提供。
 
 演示从 GameServer 发起匹配，连接到 BattleServer 进行战斗，战斗结束后返回 GameServer 的完整流程。
 
 ### 场景3：压力测试
-详见：[Scenarios/SCENARIO3_StressTest.md](Scenarios/SCENARIO3_StressTest.md)
+场景脚本文档当前仓库未提供。
 
 提供压力测试脚本和方法，测试系统在高并发情况下的表现。
 
 ### 🆕 场景4：完整战斗流程自动化
-详见：[Scenarios/SCENARIO4_FullBattleFlow.md](Scenarios/SCENARIO4_FullBattleFlow.md)
+场景脚本文档当前仓库未提供。
 
 **自动化场景**，从登录到战斗结束的完整流程，无需手动输入命令。适用于：
 - 功能验证和端到端测试

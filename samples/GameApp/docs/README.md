@@ -191,4 +191,4 @@ dotnet run
 
 ---
 
-**注意**：本项目基于 [ChatApp 示例](../ChatApp/README.md) 进行扩展开发，继承了 PulseRPC 框架的设计理念和最佳实践。
+**注意**：本项目基于 [ChatApp 示例](../../ChatApp/README.md) 进行扩展开发，继承了 PulseRPC 框架的设计理念和最佳实践。
