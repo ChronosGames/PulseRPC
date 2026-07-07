@@ -68,7 +68,7 @@ Hub 中通过 `IServiceAccessor<TService>` 获取实例，并使用 `EnqueueAsyn
 
 ## 相关文档
 
-- `docs/使用指南/PulseRPC 客户端和服务端使用指南.md`
-- `docs/使用指南/PulseRPC 快速开始指南.md`
-- `docs/架构设计与分析/统一 IPulseHub 全链路寻址与集群架构设计.md`
+- `docs/guides/client-server.md`
+- `docs/getting-started/quickstart.md`
+- `docs/concepts/architecture.md`
 - `samples/ChatApp/ChatApp.Server`

@@ -1,4 +1,4 @@
-﻿# PulseRPC
+# PulseRPC
 
 [![NuGet](https://img.shields.io/nuget/v/PulseRPC.Client.svg)](https://www.nuget.org/packages/PulseRPC.Client/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -6,7 +6,7 @@
 
 基于现代 .NET 平台的高性能 RPC 框架，支持 TCP 和 KCP 传输协议，面向 Unity 游戏和微服务架构设计。
 
-> 项目仍在积极开发中，部分接口可能发生变化。完整、可运行的用法优先参考 [`docs/使用指南/PulseRPC 客户端和服务端使用指南.md`](docs/使用指南/PulseRPC%20客户端和服务端使用指南.md)、[`samples/ChatApp`](samples/ChatApp/)、[`samples/JwtAuthentication`](samples/JwtAuthentication/) 与 [`samples/JsonTranscoding`](samples/JsonTranscoding/)。
+> 项目仍在积极开发中，部分接口可能发生变化。完整、可运行的用法优先参考 [`docs/index.md`](docs/index.md)、[`samples/ChatApp`](samples/ChatApp/)、[`samples/JwtAuthentication`](samples/JwtAuthentication/) 与 [`samples/JsonTranscoding`](samples/JsonTranscoding/)。
 
 ## 🚀 核心特性
 
@@ -123,7 +123,7 @@ await client.InitializeAsync();
 await client.StopAsync();
 ```
 
-> 更完整的端到端示例（服务契约定义、代理调用、认证、Unity 集成等）请参阅 [`docs/使用指南`](docs/使用指南/) 与 [`samples/`](samples/) 目录。
+> 更完整的端到端示例（服务契约定义、代理调用、认证、Unity 集成等）请参阅 [`docs/index.md`](docs/index.md) 与 [`samples/`](samples/) 目录。
 
 ## 📊 性能基准测试
 
@@ -131,24 +131,19 @@ await client.StopAsync();
 
 ## 📖 文档
 
-所有文档均位于 [`docs/`](docs/) 目录：
+所有面向用户的文档均位于 [`docs/`](docs/) 目录，入口见 [文档索引](docs/index.md)：
 
-### 使用指南
-- [PulseRPC 快速开始指南](docs/使用指南/PulseRPC%20快速开始指南.md)
-- [PulseRPC 客户端和服务端使用指南](docs/使用指南/PulseRPC%20客户端和服务端使用指南.md)
-- [PulseRPC 最佳实践指南](docs/使用指南/PulseRPC%20最佳实践指南.md)
-- [Unity Source Generator 集成指南](docs/使用指南/Unity%20Source%20Generator%20集成指南.md)
-- [命名服务器（Named Server）使用指南](docs/使用指南/命名服务器（Named%20Server）使用指南.md)
+- [快速开始](docs/getting-started/quickstart.md)
+- [客户端和服务端使用指南](docs/guides/client-server.md)
+- [Unity 客户端教程](docs/getting-started/unity-client-tutorial.md)
+- [架构总览](docs/concepts/architecture.md)
+- [Actor 模型](docs/concepts/actor-model.md)
+- [集群与路由](docs/concepts/clustering-and-routing.md)
+- [参考手册](docs/reference/index.md)
+- [示例项目](docs/samples.md)
+- [变更日志](docs/changelog.md)
 
-### 架构设计与分析
-- [IPulseHub 统一架构使用指南](docs/架构设计与分析/IPulseHub%20统一架构使用指南.md)
-- [PulseRPC 传输层架构说明](docs/架构设计与分析/PulseRPC%20传输层架构说明.md)
-- [PulseRPC.Server 架构设计深度分析](docs/架构设计与分析/PulseRPC.Server%20架构设计深度分析.md)
-
-### 其他
-- [产品需求文档](docs/产品需求文档.md)
-- [变更日志](docs/变更日志.md)
-- [跨平台高性能传输实现方案](docs/性能相关/PulseRPC%20跨平台高性能传输实现方案.md)
+历史设计、阶段总结和旧路线图已归档到 [`docs/archive/`](docs/archive/)。
 
 ## 🧪 示例项目
 

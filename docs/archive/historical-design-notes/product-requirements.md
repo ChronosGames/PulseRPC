@@ -1,10 +1,10 @@
-﻿# PulseRPC 框架产品需求文档 (PRD)
+# PulseRPC 框架产品需求文档 (PRD)
 
 **版本**: 1.0.0
 **最后更新**: 2025-12-31
 **状态**: 历史 PRD / 设计分析
 
-> 当前实现已与本文部分早期接口设计不同。现行使用说明请以 `docs/使用指南/PulseRPC 客户端和服务端使用指南.md`、`README.md` 和源码为准；本文保留产品设计背景，不再作为 API 参考。
+> 当前实现已与本文部分早期接口设计不同。现行使用说明请以 `docs/guides/client-server.md`、`README.md` 和源码为准；本文保留产品设计背景，不再作为 API 参考。
 
 ---
 
@@ -908,7 +908,7 @@ public partial class LoginResponse
 
 ### 8.2 客户端使用示例
 
-> 当前客户端示例请参考 `docs/使用指南/PulseRPC 客户端和服务端使用指南.md`。以下示例中的 `WithEndPoint`、`WithTransport<TcpTransport>()`、`client.GetHub<T>()` 等写法是早期目标 API。
+> 当前客户端示例请参考 `docs/guides/client-server.md`。以下示例中的 `WithEndPoint`、`WithTransport<TcpTransport>()`、`client.GetHub<T>()` 等写法是早期目标 API。
 
 ```csharp
 // 1. 定义客户端生成标记

@@ -348,8 +348,10 @@ services:
 
 ## 相关文档
 
-- [索引初始化指南](../docs/MongoDB-Index-Initialization-Guide.md)
-- [init.js 使用指南](../docs/MongoDB-Init-Script-Guide.md)
+- [MongoDB 初始化脚本](mongodb/init.js)
+- [MongoDB 索引验证脚本](mongodb/verify-indexes.js)
+- [PowerShell 初始化脚本](scripts/mongodb-init.ps1)
+- [Shell 初始化脚本](scripts/mongodb-init.sh)
 
 ---
 

@@ -1,0 +1,25 @@
+# 示例项目
+
+示例按“当前可运行入口”和“历史探索代码”区分。运行前优先执行仓库根目录的 `dotnet build PulseRPC.sln`，确认当前 SDK 和项目引用可用。
+
+## 推荐示例
+
+| 示例 | 用途 | 阅读入口 |
+| --- | --- | --- |
+| ChatApp | 实时聊天/游戏房间、服务隔离、控制台与 Unity 客户端 | [samples/ChatApp/README.md](../samples/ChatApp/README.md) |
+| JwtAuthentication | 连接级 JWT 登录、连接身份写入、后续 RPC 鉴权示例 | [samples/JwtAuthentication](../samples/JwtAuthentication/) |
+| JsonTranscoding | JSON 转码样例 | [samples/JsonTranscoding](../samples/JsonTranscoding/) |
+| ServiceFactoryExample | `AddPulseServiceFactory` 用法 | [samples/ServiceFactoryExample](../samples/ServiceFactoryExample/) |
+| HubFactoryExample | Hub 工厂用法 | [samples/HubFactoryExample](../samples/HubFactoryExample/) |
+
+## 游戏后端样例
+
+| 示例 | 状态 | 说明 |
+| --- | --- | --- |
+| GameApp | 综合样例 | 包含 Auth/Game/Battle 等模块，文档较多，部分内容是历史蓝图。 |
+| DistributedGameApp | 分布式游戏后端样例 | 展示多服务器类型、基础设施集成和启动编排，部分设计文档是历史记录。 |
+
+## 历史探索示例
+
+`samples/README.md` 中列出的 BasicUsage、DnsExample、EtcdExample、MonitoringExample、TracingExample、ServiceRegistrationExample 等示例保留为历史探索代码。它们可能引用旧包名或旧接口，不应作为当前新项目模板。
+

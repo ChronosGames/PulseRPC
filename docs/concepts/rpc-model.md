@@ -362,5 +362,5 @@ public static class GameRoles
 
 **相关文档**：
 - ChannelAttribute ServiceName 规范 - 旧 spec 当前仓库未提供
-- [认证与授权指南](../AuthorizeAttribute-Authentication-System.md)
-- [服务间通信指南](../设计提案与实现记录/PulseRPC 跨 Service 通信优化指南.md)
+- [认证与授权指南](../guides/authentication.md)
+- [服务间通信指南](../archive/historical-design-notes/cross-service-communication-guide.md)

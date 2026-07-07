@@ -484,7 +484,7 @@ public bool IsLocalService(PID targetPID)
 
 ## 参考
 
-- [并发服务安全指南](./并发服务安全指南.md)
+- [并发服务安全指南](concurrent-service-safety-guide.md)
 - Service 方法级别优先级指南 - 旧独立文档当前仓库未提供
 - 动态服务生命周期管理指南 - 旧独立文档当前仓库未提供
 - 背压策略使用指南 - 旧独立文档当前仓库未提供

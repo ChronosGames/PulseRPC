@@ -17,8 +17,8 @@ Unity 客户端应复用 `PulseRPC.Client` 的 `netstandard2.1` 目标和 `Pulse
 示例集成请优先参考：
 
 - `samples/ChatApp/ChatApp.Unity`
-- `docs/使用指南/Unity Source Generator 集成指南.md`
-- `docs/使用指南/PulseRPC 客户端和服务端使用指南.md`
+- `docs/getting-started/unity-client-tutorial.md`
+- `docs/guides/client-server.md`
 
 ## 重要边界
 

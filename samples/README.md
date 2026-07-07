@@ -52,9 +52,9 @@ PulseRPC 适用于以下场景：
 
 完整的中文文档位于仓库的 [`docs/`](../docs/) 目录，推荐先阅读：
 
-- [PulseRPC 快速开始指南](../docs/使用指南/PulseRPC%20快速开始指南.md)
-- [PulseRPC 客户端和服务端使用指南](../docs/使用指南/PulseRPC%20客户端和服务端使用指南.md)
-- [PulseRPC 最佳实践指南](../docs/使用指南/PulseRPC%20最佳实践指南.md)
+- [PulseRPC 快速开始指南](../docs/getting-started/quickstart.md)
+- [PulseRPC 客户端和服务端使用指南](../docs/guides/client-server.md)
+- [示例项目说明](../docs/samples.md)
 
 ## 🤝 贡献指南
 

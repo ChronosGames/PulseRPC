@@ -3,9 +3,9 @@
 > 文档状态：**设计定稿（Decisions Locked，2026-07-04）**。本文档只做设计，不涉及任何代码改动；§15.2 的 8 项关键决策已拍板（见 §0）。文中对 SignalR backplane 的提法是类比说明，不表示当前源码依赖 SignalR。
 > 目标读者：架构评审、核心维护者。
 > 关联文档：
-> - [IPulseHub 统一架构使用指南](./IPulseHub%20统一架构使用指南.md)（愿景态使用指南）
-> - [服务器间通信设计文档 - 全双工对等架构](./服务器间通信设计文档%20-%20全双工对等架构.md)（全双工对等 RPC 愿景）
-> - [PulseRPC.Server 架构设计深度分析](./PulseRPC.Server%20架构设计深度分析.md)
+> - [IPulseHub 统一架构使用指南](rpc-model.md)（愿景态使用指南）
+> - [服务器间通信设计文档 - 全双工对等架构](../archive/historical-design-notes/peer-server-communication-design.md)（全双工对等 RPC 愿景）
+> - [PulseRPC.Server 架构设计深度分析](server-runtime.md)
 
 ---
 
@@ -633,7 +633,7 @@ public interface IPulseBackplane
 
 ### 16.6 文档
 - 更新《IPulseHub 统一架构使用指南》《服务器间通信设计文档 - 全双工对等架构》与本文档保持一致
-- README、`docs/变更日志.md`、迁移指南
+- README、`docs/changelog.md`、迁移指南
 
 ---
 

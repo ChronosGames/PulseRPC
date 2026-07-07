@@ -1473,6 +1473,6 @@ internal class GameHubServiceHandler : IServiceHandler
 ---
 
 **相关文档**：
-- [IPulseHub 统一架构指南](./IPulseHub 统一架构使用指南.md)
-- [事件监听器重构总结](../EventListenerRefactoringSummary.md)
+- [IPulseHub 统一架构指南](../../concepts/rpc-model.md)
+- 事件监听器重构总结 - 旧独立文档当前仓库未提供
 - ChannelAttribute 使用指南 - `specs/001-channelattribute-servicename-ipulsehub/spec.md` 当前仓库未提供

@@ -744,4 +744,4 @@ public static class HubClientGeneration
 - `samples/ChatApp`
 - `samples/JwtAuthentication`
 - `samples/DistributedGameApp`
-- `docs/架构设计与分析/统一 IPulseHub 全链路寻址与集群架构设计.md`
+- `docs/concepts/architecture.md`

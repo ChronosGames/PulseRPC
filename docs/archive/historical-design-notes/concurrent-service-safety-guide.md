@@ -1,4 +1,4 @@
-﻿# 并发服务安全指南
+# 并发服务安全指南
 
 > 文档状态：历史安全指南。当前源码中不再保留独立 `ConcurrentServiceBase`/`BaseService` 公共基类，服务执行配置已收敛到 `PulseServiceBase` 与 `ServiceExecutionOptions`。本文保留并发安全原则，类型名称请按当前实现映射理解。
 
@@ -7,7 +7,7 @@
 - **版本**: 1.0
 - **日期**: 2025-11-06
 - **状态**: ✅ 已实现
-- **相关**: [Service-Based-Messaging-Architecture.md](../architecture/Service-Based-Messaging-Architecture.md)
+- **相关**: [PulseRPC.Server 架构设计深度分析](../../concepts/server-runtime.md)
 
 ## 概述
 
@@ -534,7 +534,7 @@ public async Task ConcurrentService_ShouldBe_ThreadSafe()
 
 ## 相关文档
 
-- [Service 消息队列架构](../architecture/Service-Based-Messaging-Architecture.md)
+- [PulseRPC.Server 架构设计深度分析](../../concepts/server-runtime.md)
 - Service 方法优先级使用指南 - 旧独立文档当前仓库未提供
 
 ## 参考资料

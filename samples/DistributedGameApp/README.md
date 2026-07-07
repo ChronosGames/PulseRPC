@@ -425,9 +425,9 @@ GameServer:5000    BattleServer:5100    ChatServer:5200
 - [PRODUCTION_GUIDE.md](./PRODUCTION_GUIDE.md) - 生产级实施指南
 
 ### PulseRPC 核心文档
-- [Service-Based-Messaging-Architecture](../../docs/architecture/Service-Based-Messaging-Architecture.md) - Actor 模型设计
+- [PulseRPC.Server 架构设计深度分析](../../docs/concepts/server-runtime.md) - 服务端架构设计
 - [PulseRPC.Server README](../../src/PulseRPC.Server/README.md) - 服务器架构
-- [统一 IPulseHub 集群架构设计](../../docs/架构设计与分析/统一 IPulseHub 全链路寻址与集群架构设计.md) - 框架理念
+- [统一 IPulseHub 集群架构设计](../../docs/concepts/architecture.md) - 框架理念
 
 ## 💡 设计亮点
 

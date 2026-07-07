@@ -49,4 +49,4 @@ var chatHub = channel.GetHub<IChatRoomHub>();
 
 - `ChatApp.Client.Console`：控制台客户端示例。
 - `ChatApp.Unity`：Unity 工程示例。
-- `docs/使用指南/PulseRPC 客户端和服务端使用指南.md`：更完整的当前 API 说明。
+- `docs/guides/client-server.md`：更完整的当前 API 说明。

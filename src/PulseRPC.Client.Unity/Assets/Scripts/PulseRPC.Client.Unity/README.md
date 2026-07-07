@@ -15,6 +15,6 @@
 实际连接和 Hub 调用请使用 `PulseRPC.Client` 与 Source Generator 生成的代理。可参考：
 
 - `samples/ChatApp/ChatApp.Unity`
-- `docs/使用指南/Unity Source Generator 集成指南.md`
+- `docs/getting-started/unity-client-tutorial.md`
 
 当前源码未实现 `PulseWebSocketConnection`；请勿按旧 WebSocket 示例编写代码。

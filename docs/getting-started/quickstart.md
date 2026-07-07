@@ -91,7 +91,7 @@ var host = Host.CreateDefaultBuilder(args)
 await host.RunAsync();
 ```
 
-有状态对象建议使用 `PulseServiceBase` 与 `AddPulseService<TService>()`，无状态 Hub 只负责参数校验、认证和路由。完整写法见 `docs/使用指南/PulseRPC 客户端和服务端使用指南.md`。
+有状态对象建议使用 `PulseServiceBase` 与 `AddPulseService<TService>()`，无状态 Hub 只负责参数校验、认证和路由。完整写法见 [客户端和服务端使用指南](../guides/client-server.md)。
 
 ## 配置客户端
 
@@ -137,7 +137,7 @@ client.Dispose();
 - `PulseRPC.Infrastructure.Etcd`：`AddEtcdDiscovery(...)`
 - `PulseRPC.Infrastructure.Kubernetes`：`AddKubernetesDiscovery(...)`
 
-这些扩展应在 `AddPulseClustering(...)` 之后调用，用于覆盖静态成员列表。详见 `docs/使用指南/PulseRPC 客户端和服务端使用指南.md` 的“统一寻址与集群”章节。
+这些扩展应在 `AddPulseClustering(...)` 之后调用，用于覆盖静态成员列表。详见 [客户端和服务端使用指南](../guides/client-server.md) 的“统一寻址与集群”章节。
 
 ## 可运行示例
 
@@ -155,6 +155,6 @@ dotnet run
 
 ## 下一步
 
-- `docs/使用指南/PulseRPC 客户端和服务端使用指南.md`
-- `docs/使用指南/PulseRPC 最佳实践指南.md`
-- `docs/架构设计与分析/统一 IPulseHub 全链路寻址与集群架构设计.md`
+- [客户端和服务端使用指南](../guides/client-server.md)
+- [最佳实践](../guides/best-practices.md)
+- [架构总览](../concepts/architecture.md)

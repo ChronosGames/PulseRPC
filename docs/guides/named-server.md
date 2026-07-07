@@ -1,4 +1,4 @@
-﻿# 命名服务器（Named Server）使用指南
+# 命名服务器（Named Server）使用指南
 
 ## 概述
 
@@ -328,6 +328,6 @@ services.AddNamedPulseServer("Server3", options => { ... });
 ## 更多资源
 
 - [PulseRPC 文档](../../README.md)
-- [客户端和服务端使用指南](./PulseRPC 客户端和服务端使用指南.md)
-- [传输层架构说明](../架构设计与分析/PulseRPC 传输层架构说明.md)
+- [客户端和服务端使用指南](client-server.md)
+- [传输层架构说明](../concepts/transport-model.md)
 - [DistributedGameApp 示例](../../samples/DistributedGameApp/)
