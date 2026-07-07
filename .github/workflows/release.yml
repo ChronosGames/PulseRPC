@@ -39,7 +39,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - run: echo ${{ needs.update-packagejson.outputs.sha }}
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
@@ -62,7 +62,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - run: echo ${{ needs.update-packagejson.outputs.sha }}
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
