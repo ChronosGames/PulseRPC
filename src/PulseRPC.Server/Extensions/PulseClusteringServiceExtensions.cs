@@ -44,6 +44,7 @@ public static class PulseClusteringServiceExtensions
         services.Configure(configureTopology);
         services.Configure(configureAuthenticator);
         services.Configure<LeaseActorDirectoryOptions>(configureLeaseDirectory ?? (_ => { }));
+        services.Configure<ActorLeaseHeartbeatOptions>(_ => { });
 
         // P8：集群成员视图（静态成员 + P7 故障接管所需的存活集健康管理）。
         // 作为 IClusterMembership 的默认实现；动态发现（Consul/Etcd/K8s）可通过替换本注册接入。
@@ -68,7 +69,11 @@ public static class PulseClusteringServiceExtensions
         services.TryAddSingleton<IActorPlacementStrategy>(sp => new HashPlacementStrategy(sp.GetRequiredService<NodeConsistentHashRing>()));
         services.TryAddSingleton<INodeAuthenticator, SharedSecretNodeAuthenticator>();
         services.TryAddSingleton<INodeEndpointResolver, StaticNodeEndpointResolver>();
+        services.TryAddSingleton<IActorLeaseStore, InMemoryActorLeaseStore>();
         services.TryAddSingleton<IActorDirectory, LeaseActorDirectory>();
+        services.TryAddSingleton<IActorLeaseHeartbeat>(sp => new ActorLeaseHeartbeat(
+            sp.GetRequiredService<IActorDirectory>(),
+            sp.GetRequiredService<IOptions<ActorLeaseHeartbeatOptions>>().Value));
         services.TryAddSingleton<IConnectionDirectory, BackplaneConnectionDirectory>();
         services.TryAddSingleton<INodeLink>(sp =>
         {
@@ -89,7 +94,8 @@ public static class PulseClusteringServiceExtensions
             sp.GetRequiredService<IOptions<ClusterTopologyOptions>>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ClusterPulseRouter>>(),
             sp.GetService<DeliveryRetryOptions>(),
-            sp.GetRequiredService<IClusterMembership>()));
+            sp.GetRequiredService<IClusterMembership>(),
+            leaseHeartbeat: sp.GetRequiredService<IActorLeaseHeartbeat>()));
 
         return services;
     }

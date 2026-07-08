@@ -251,6 +251,8 @@ public interface IConnectionDirectory
 
 ### Phase D：Lease directory 与故障恢复
 
+> 落地备注（2026-07-08）：仓库已补齐 Phase D 的最小租约恢复边界：`IActorLeaseStore` 明确 CAS + TTL 后端契约，默认 `InMemoryActorLeaseStore` 保持单进程验证路径，`ActorLeaseHeartbeat` 对本节点 owner 做周期续租，`ClusterPulseRouter` 在本地激活后登记心跳；重复激活、重试和幂等 token 语义由租约 + `MessageId` 去重共同约束。
+
 - Redis/Etcd/数据库 CAS + TTL lease。
 - owner 心跳续租，节点失效后重激活。
 - 明确重复激活、消息重试、幂等 token 的语义。

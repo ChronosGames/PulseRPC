@@ -40,6 +40,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
     private readonly ILogger<ClusterPulseRouter> _logger;
     private readonly IDisposable _backplaneSubscription;
     private readonly DeliveryRetryOptions _retryOptions;
+    private readonly IActorLeaseHeartbeat? _leaseHeartbeat;
 
     // P7 故障接管：当注入 IClusterMembership 时，属主解析基于「存活成员」动态重建的环，
     // 且跨节点调用失败会上报健康、把故障节点移出存活集并重新映射属主。未注入时 _currentRing 恒为构造时
@@ -60,7 +61,8 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         ILogger<ClusterPulseRouter> logger,
         DeliveryRetryOptions? retryOptions = null,
         IClusterMembership? membership = null,
-        IActorPlacementStrategy? placementStrategy = null)
+        IActorPlacementStrategy? placementStrategy = null,
+        IActorLeaseHeartbeat? leaseHeartbeat = null)
     {
         _local = local ?? throw new ArgumentNullException(nameof(local));
         _currentRing = hashRing ?? throw new ArgumentNullException(nameof(hashRing));
@@ -71,6 +73,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         _backplane = backplane ?? throw new ArgumentNullException(nameof(backplane));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _retryOptions = retryOptions ?? new DeliveryRetryOptions();
+        _leaseHeartbeat = leaseHeartbeat;
 
         ArgumentNullException.ThrowIfNull(topologyOptions);
         _localNodeId = topologyOptions.Value?.LocalNodeId ?? string.Empty;
@@ -358,6 +361,11 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         // 候选属主是本节点：经目录取得/续租放置信息。当前静态成员拓扑下 hash 环在所有节点上结果一致，
         // 正常情况下目录返回的属主必然也是本节点；仍以目录结果为准，便于未来引入动态成员/抢占（P7）时无需改动调用方。
         var placement = await _actorDirectory.ActivateAsync(address.Hub, address.Key, _localNodeId, cancellationToken).ConfigureAwait(false);
+        if (string.Equals(placement.NodeId, _localNodeId, StringComparison.Ordinal))
+        {
+            _leaseHeartbeat?.Track(address.Hub, address.Key, placement);
+        }
+
         if (!string.Equals(placement.NodeId, _localNodeId, StringComparison.Ordinal))
         {
             _logger.LogWarning(
