@@ -65,10 +65,15 @@ public static class PulseClusteringServiceExtensions
             return new NodeConsistentHashRing(topology.Members.Select(m => m.NodeId));
         });
 
+        services.TryAddSingleton<IActorPlacementStrategy>(sp => new HashPlacementStrategy(sp.GetRequiredService<NodeConsistentHashRing>()));
         services.TryAddSingleton<INodeAuthenticator, SharedSecretNodeAuthenticator>();
         services.TryAddSingleton<INodeEndpointResolver, StaticNodeEndpointResolver>();
         services.TryAddSingleton<IActorDirectory, LeaseActorDirectory>();
-        services.TryAddSingleton<INodeLink, UnsupportedNodeLink>();
+        services.TryAddSingleton<INodeLink>(sp =>
+        {
+            var transport = sp.GetService<INodeTransport>();
+            return transport is null ? new UnsupportedNodeLink() : new TransportBackedNodeLink(transport);
+        });
         services.TryAddSingleton<IClusterInternalHub, ClusterInternalHub>();
 
         // ClusterPulseRouter 内部持有 LocalPulseRouter 做本地投递；覆盖 IPulseRouter 的默认单节点注册。

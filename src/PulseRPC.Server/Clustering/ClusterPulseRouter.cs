@@ -46,6 +46,8 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
     // 传入的静态环，行为与单节点/静态环完全一致（向后兼容）。
     private readonly IClusterMembership? _membership;
     private volatile NodeConsistentHashRing _currentRing;
+    private volatile IActorPlacementStrategy _placementStrategy;
+    private readonly bool _rebuildPlacementStrategyOnMembershipChanged;
 
     /// <summary>创建集群路由器。</summary>
     public ClusterPulseRouter(
@@ -57,10 +59,13 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         IOptions<ClusterTopologyOptions> topologyOptions,
         ILogger<ClusterPulseRouter> logger,
         DeliveryRetryOptions? retryOptions = null,
-        IClusterMembership? membership = null)
+        IClusterMembership? membership = null,
+        IActorPlacementStrategy? placementStrategy = null)
     {
         _local = local ?? throw new ArgumentNullException(nameof(local));
         _currentRing = hashRing ?? throw new ArgumentNullException(nameof(hashRing));
+        _rebuildPlacementStrategyOnMembershipChanged = placementStrategy is null;
+        _placementStrategy = placementStrategy ?? new HashPlacementStrategy(_currentRing);
         _actorDirectory = actorDirectory ?? throw new ArgumentNullException(nameof(actorDirectory));
         _nodeLink = nodeLink ?? throw new ArgumentNullException(nameof(nodeLink));
         _backplane = backplane ?? throw new ArgumentNullException(nameof(backplane));
@@ -100,6 +105,10 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         try
         {
             _currentRing = new NodeConsistentHashRing(live);
+            if (_rebuildPlacementStrategyOnMembershipChanged)
+            {
+                _placementStrategy = new HashPlacementStrategy(_currentRing);
+            }
         }
         catch (ArgumentException)
         {
@@ -308,7 +317,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         (triedOwners ??= new HashSet<string>(StringComparer.Ordinal)).Add(failedOwnerNodeId);
 
         // 失败上报可能已把故障节点移出存活集并重建了环；重新解析候选属主。
-        var next = !string.IsNullOrEmpty(address.NodeId) ? address.NodeId! : _currentRing.GetOwner(address.Key);
+        var next = !string.IsNullOrEmpty(address.NodeId) ? address.NodeId! : _placementStrategy.SelectOwner(address.Hub, address.Key);
 
         if (string.Equals(next, failedOwnerNodeId, StringComparison.Ordinal) || triedOwners.Contains(next))
         {
@@ -339,7 +348,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
     /// </summary>
     private async ValueTask<string> ResolveActorOwnerAsync(PulseAddress address, CancellationToken cancellationToken)
     {
-        var candidate = !string.IsNullOrEmpty(address.NodeId) ? address.NodeId! : _currentRing.GetOwner(address.Key);
+        var candidate = !string.IsNullOrEmpty(address.NodeId) ? address.NodeId! : _placementStrategy.SelectOwner(address.Hub, address.Key);
 
         if (!string.Equals(candidate, _localNodeId, StringComparison.Ordinal))
         {

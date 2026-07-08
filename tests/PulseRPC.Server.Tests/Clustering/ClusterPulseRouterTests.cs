@@ -83,7 +83,7 @@ public class ClusterPulseRouterTests
         for (var i = 0; i < 10_000; i++)
         {
             var key = $"actor-{i}";
-            if (ring.GetOwner(key) == targetOwner)
+            if (ring.GetOwner(HashPlacementStrategy.BuildIdentity("RoomHub", key)) == targetOwner)
             {
                 return key;
             }

@@ -234,7 +234,9 @@ public interface IConnectionDirectory
 
 ### Phase B：静态集群 + hash placement
 
-- `StaticClusterMembershipProvider` 从配置读取节点。
+> 落地备注（2026-07-08）：仓库已补齐 Phase B 的最小静态集群边界：静态成员由 `StaticClusterMembership` / `ClusterTopologyOptions` 提供，`HashPlacementStrategy` 以 `(hub,key)` 选择 owner，`TransportBackedNodeLink` 可通过 `INodeTransport` 发送最小原始帧，`ClusterPulseRouter` 的 Actor Ask 已经走跨节点 request-response。
+
+- `StaticClusterMembership` 从 `ClusterTopologyOptions.Members` 读取静态节点（承担 StaticClusterMembershipProvider 角色）。
 - `HashPlacementStrategy` 将 `(hub,key)` 映射到 owner node。
 - `INodeTransport` 先复用现有长连接能力或实现最小 TCP node channel。
 - Actor Ask 跨节点 request-response 打通。

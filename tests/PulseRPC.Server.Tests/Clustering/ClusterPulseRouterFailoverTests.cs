@@ -69,7 +69,8 @@ public class ClusterPulseRouterFailoverTests
         for (var i = 0; i < 100_000; i++)
         {
             var key = $"actor-{i}";
-            if (full.GetOwner(key) == fullOwner && reduced.GetOwner(key) == reducedOwner)
+            if (full.GetOwner(HashPlacementStrategy.BuildIdentity("RoomHub", key)) == fullOwner
+                && reduced.GetOwner(HashPlacementStrategy.BuildIdentity("RoomHub", key)) == reducedOwner)
             {
                 return key;
             }
