@@ -41,6 +41,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
     private readonly IDisposable _backplaneSubscription;
     private readonly DeliveryRetryOptions _retryOptions;
     private readonly IActorLeaseHeartbeat? _leaseHeartbeat;
+    private readonly IClusterDiagnostics _diagnostics;
 
     // P7 故障接管：当注入 IClusterMembership 时，属主解析基于「存活成员」动态重建的环，
     // 且跨节点调用失败会上报健康、把故障节点移出存活集并重新映射属主。未注入时 _currentRing 恒为构造时
@@ -48,7 +49,6 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
     private readonly IClusterMembership? _membership;
     private volatile NodeConsistentHashRing _currentRing;
     private volatile IActorPlacementStrategy _placementStrategy;
-    private readonly bool _rebuildPlacementStrategyOnMembershipChanged;
 
     /// <summary>创建集群路由器。</summary>
     public ClusterPulseRouter(
@@ -62,11 +62,11 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         DeliveryRetryOptions? retryOptions = null,
         IClusterMembership? membership = null,
         IActorPlacementStrategy? placementStrategy = null,
-        IActorLeaseHeartbeat? leaseHeartbeat = null)
+        IActorLeaseHeartbeat? leaseHeartbeat = null,
+        IClusterDiagnostics? diagnostics = null)
     {
         _local = local ?? throw new ArgumentNullException(nameof(local));
         _currentRing = hashRing ?? throw new ArgumentNullException(nameof(hashRing));
-        _rebuildPlacementStrategyOnMembershipChanged = placementStrategy is null;
         _placementStrategy = placementStrategy ?? new HashPlacementStrategy(_currentRing);
         _actorDirectory = actorDirectory ?? throw new ArgumentNullException(nameof(actorDirectory));
         _nodeLink = nodeLink ?? throw new ArgumentNullException(nameof(nodeLink));
@@ -74,6 +74,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _retryOptions = retryOptions ?? new DeliveryRetryOptions();
         _leaseHeartbeat = leaseHeartbeat;
+        _diagnostics = diagnostics ?? new NoopClusterDiagnostics();
 
         ArgumentNullException.ThrowIfNull(topologyOptions);
         _localNodeId = topologyOptions.Value?.LocalNodeId ?? string.Empty;
@@ -108,9 +109,9 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         try
         {
             _currentRing = new NodeConsistentHashRing(live);
-            if (_rebuildPlacementStrategyOnMembershipChanged)
+            if (_placementStrategy is IClusterMembershipAwarePlacementStrategy membershipAware)
             {
-                _placementStrategy = new HashPlacementStrategy(_currentRing);
+                membershipAware.UpdateMembers(_currentRing);
             }
         }
         catch (ArgumentException)
@@ -351,7 +352,13 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
     /// </summary>
     private async ValueTask<string> ResolveActorOwnerAsync(PulseAddress address, CancellationToken cancellationToken)
     {
-        var candidate = !string.IsNullOrEmpty(address.NodeId) ? address.NodeId! : _placementStrategy.SelectOwner(address.Hub, address.Key);
+        var explicitNode = !string.IsNullOrEmpty(address.NodeId);
+        var candidate = explicitNode ? address.NodeId! : _placementStrategy.SelectOwner(address.Hub, address.Key);
+        _diagnostics.RecordPlacementDecision(
+            address.Hub,
+            address.Key,
+            candidate,
+            explicitNode ? "ExplicitNode" : _placementStrategy.GetType().Name);
 
         if (!string.Equals(candidate, _localNodeId, StringComparison.Ordinal))
         {

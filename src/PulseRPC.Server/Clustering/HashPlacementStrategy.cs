@@ -9,9 +9,9 @@ namespace PulseRPC.Server.Clustering;
 /// 将 <c>(Hub, Key)</c> 组合成稳定 identity 后交给 <see cref="NodeConsistentHashRing"/>，确保所有节点在相同静态成员
 /// 列表下为同一 Actor identity 算出相同 owner，同时避免不同 Hub 的相同业务 key 被强制视为同一个哈希输入。
 /// </remarks>
-public sealed class HashPlacementStrategy : IActorPlacementStrategy
+public sealed class HashPlacementStrategy : IClusterMembershipAwarePlacementStrategy
 {
-    private readonly NodeConsistentHashRing _hashRing;
+    private volatile NodeConsistentHashRing _hashRing;
 
     /// <summary>创建 hash placement 策略。</summary>
     public HashPlacementStrategy(NodeConsistentHashRing hashRing)
@@ -25,6 +25,12 @@ public sealed class HashPlacementStrategy : IActorPlacementStrategy
         ArgumentNullException.ThrowIfNull(hub);
         ArgumentNullException.ThrowIfNull(key);
         return _hashRing.GetOwner(BuildIdentity(hub, key));
+    }
+
+    /// <inheritdoc/>
+    public void UpdateMembers(NodeConsistentHashRing hashRing)
+    {
+        _hashRing = hashRing ?? throw new ArgumentNullException(nameof(hashRing));
     }
 
     /// <summary>构建用于哈希放置的稳定 Actor identity。</summary>

@@ -67,6 +67,7 @@ public static class PulseClusteringServiceExtensions
         });
 
         services.TryAddSingleton<IActorPlacementStrategy>(sp => new HashPlacementStrategy(sp.GetRequiredService<NodeConsistentHashRing>()));
+        services.TryAddSingleton<IClusterDiagnostics, NoopClusterDiagnostics>();
         services.TryAddSingleton<INodeAuthenticator, SharedSecretNodeAuthenticator>();
         services.TryAddSingleton<INodeEndpointResolver, StaticNodeEndpointResolver>();
         services.TryAddSingleton<IActorLeaseStore, InMemoryActorLeaseStore>();
@@ -95,7 +96,9 @@ public static class PulseClusteringServiceExtensions
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ClusterPulseRouter>>(),
             sp.GetService<DeliveryRetryOptions>(),
             sp.GetRequiredService<IClusterMembership>(),
-            leaseHeartbeat: sp.GetRequiredService<IActorLeaseHeartbeat>()));
+            sp.GetRequiredService<IActorPlacementStrategy>(),
+            sp.GetRequiredService<IActorLeaseHeartbeat>(),
+            sp.GetRequiredService<IClusterDiagnostics>()));
 
         return services;
     }

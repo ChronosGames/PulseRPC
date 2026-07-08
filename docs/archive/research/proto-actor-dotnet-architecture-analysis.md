@@ -259,6 +259,8 @@ public interface IConnectionDirectory
 
 ### Phase E：高级能力
 
+> 落地备注（2026-07-08）：仓库已补齐 Phase E 的最小高级扩展点：placement 策略可通过 DI 替换，并提供 hash/local-affinity/least-loaded/pinned 策略；服务发现侧已有 Consul/Etcd/Kubernetes provider；新增 `IClusterDiagnostics` 为 tracing、指标、dead letter 与 slow mailbox 诊断预留统一入口。Exactly-once 仍保持显式 opt-in（基于 `MessageId` 去重），默认不承诺 outbox/inbox。
+
 - placement 策略插件化：local affinity、least loaded、pinned。
 - gossip membership 或 Kubernetes/Consul provider。
 - 分布式 tracing、指标、dead letter、slow mailbox 诊断。
