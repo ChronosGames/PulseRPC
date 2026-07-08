@@ -225,6 +225,8 @@ public interface IConnectionDirectory
 
 ### Phase A：架构边界与协议地基
 
+> 落地备注（2026-07-08）：仓库已补齐 Phase A 的最小公共边界：`PulseAddress`、`IPulseRouter`、`IActorDirectory`、`INodeTransport`、`IConnectionDirectory`，并保留单进程 / in-memory 目录语义作为默认验证路径。
+
 - 新增 `PulseAddress`、`IPulseRouter`、`INodeTransport`、`IActorDirectory`、`IConnectionDirectory` 抽象。
 - `MessageHeader` 增加 `SourceNodeId`、`ReplyTo`、`HopLimit`。
 - 为 EnvelopeRelay 增加跨节点转发单元测试。

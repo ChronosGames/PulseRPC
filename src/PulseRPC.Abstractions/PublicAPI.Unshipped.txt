@@ -169,3 +169,19 @@ PulseRPC.Clustering.INodeLink.AskActorAsync(string! targetNodeId, string! hub, s
 PulseRPC.Clustering.INodeLink.SendActorAsync(string! targetNodeId, string! hub, string! key, ushort protocolId, System.ReadOnlyMemory<byte> body, string! sourceNodeId = "", string! replyTo = "", System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken), System.Guid messageId = default(System.Guid)) -> System.Threading.Tasks.ValueTask
 PulseRPC.Clustering.INodeLink.SendToConnectionAsync(string! targetNodeId, string! connectionId, System.ReadOnlyMemory<byte> framedPacket, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 PulseRPC.Clustering.INodeLink.AskConnectionAsync(string! targetNodeId, string! connectionId, ushort protocolId, System.ReadOnlyMemory<byte> payload, System.TimeSpan timeout, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.ReadOnlyMemory<byte>>
+PulseRPC.Clustering.INodeTransport
+PulseRPC.Clustering.INodeTransport.SendFrameAsync(string! targetNodeId, System.ReadOnlyMemory<byte> framedPacket, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Clustering.INodeTransport.AskFrameAsync(string! targetNodeId, System.ReadOnlyMemory<byte> framedPacket, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.ReadOnlyMemory<byte>>
+PulseRPC.Clustering.ConnectionPlacement
+PulseRPC.Clustering.ConnectionPlacement.ConnectionPlacement() -> void
+PulseRPC.Clustering.ConnectionPlacement.ConnectionPlacement(string! nodeId, string! connectionId) -> void
+PulseRPC.Clustering.ConnectionPlacement.NodeId.get -> string!
+PulseRPC.Clustering.ConnectionPlacement.ConnectionId.get -> string!
+PulseRPC.Clustering.ConnectionPlacement.Equals(PulseRPC.Clustering.ConnectionPlacement other) -> bool
+override PulseRPC.Clustering.ConnectionPlacement.Equals(object? obj) -> bool
+override PulseRPC.Clustering.ConnectionPlacement.GetHashCode() -> int
+override PulseRPC.Clustering.ConnectionPlacement.ToString() -> string!
+PulseRPC.Clustering.IConnectionDirectory
+PulseRPC.Clustering.IConnectionDirectory.FindConnectionAsync(string! connectionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<PulseRPC.Clustering.ConnectionPlacement?>
+PulseRPC.Clustering.IConnectionDirectory.FindUserAsync(string! userId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<PulseRPC.Clustering.ConnectionPlacement>!>
+PulseRPC.Clustering.IConnectionDirectory.FindMembersAsync(PulseRPC.Routing.PulseAddress membership, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<PulseRPC.Clustering.ConnectionPlacement>!>
