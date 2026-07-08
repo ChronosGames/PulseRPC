@@ -243,6 +243,8 @@ public interface IConnectionDirectory
 
 ### Phase C：Gateway 与连接 backplane
 
+> 落地备注（2026-07-08）：仓库已补齐 Phase C 的最小连接目录桥接：Gateway 前置 Hub 会把真实客户端注册为虚拟连接，`BackplaneConnectionDirectory` 通过 `IPulseBackplane` 模型 Y 解析 connection/user/group 成员，Fan-out 继续保持“本地投递 + 远端节点扩散”。
+
 - Gateway 注册虚拟连接到 `IConnectionDirectory`。
 - User/Group fan-out 先做“本地投递 + 远端节点扩散”。
 - `HopLimit`、`ReplyTo`、`MessageId` 端到端测试覆盖 client → gateway → backend actor → gateway → client。

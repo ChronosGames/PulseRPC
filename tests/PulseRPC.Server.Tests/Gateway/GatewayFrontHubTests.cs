@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
+using PulseRPC.Clustering;
 using PulseRPC.Routing;
 using PulseRPC.Server.Clustering;
 using PulseRPC.Server.Contexts;
@@ -87,4 +88,26 @@ public class GatewayFrontHubTests
         // 调用结束后作用域必须已释放，不残留到之后的环境上下文中。
         GatewayRelayContext.Current.Should().BeNull();
     }
+
+    [Fact]
+    public async Task RelayAskAsync_WithConnectionDirectory_MustRegisterGatewayVirtualConnection()
+    {
+        var router = Substitute.For<IPulseRouter>();
+        router.AskAsync(Arg.Any<PulseAddress>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<ReadOnlyMemory<byte>>(Array.Empty<byte>()));
+        var directory = Substitute.For<IConnectionDirectory>();
+        var topology = Options.Create(new ClusterTopologyOptions { LocalNodeId = "gateway-1" });
+        var hub = new GatewayFrontHub(router, topology, NullLogger<GatewayFrontHub>.Instance, directory);
+
+        using (PulseContext.SetContext(PulseContextData.CreateUserContext("user-1", connectionId: "client-conn-9")))
+        {
+            await hub.RelayAskAsync("RoomHub", "room-1", 0x1111, Array.Empty<byte>(), hopLimit: 4);
+        }
+
+        await directory.Received(1).RegisterConnectionAsync(
+            GatewayVirtualChannel.ComposeId("gateway-1", "client-conn-9"),
+            new ConnectionPlacement("gateway-1", "client-conn-9"),
+            Arg.Any<CancellationToken>());
+    }
+
 }

@@ -85,6 +85,12 @@ public class PhaseAArchitectureBoundaryTests
 
     private sealed class StubConnectionDirectory : IConnectionDirectory
     {
+        public ValueTask RegisterConnectionAsync(string connectionId, ConnectionPlacement placement, CancellationToken cancellationToken = default)
+            => default;
+
+        public ValueTask RemoveConnectionAsync(string connectionId, ConnectionPlacement placement, CancellationToken cancellationToken = default)
+            => default;
+
         public ValueTask<ConnectionPlacement?> FindConnectionAsync(string connectionId, CancellationToken cancellationToken = default)
             => new(new ConnectionPlacement("node-a", connectionId));
 

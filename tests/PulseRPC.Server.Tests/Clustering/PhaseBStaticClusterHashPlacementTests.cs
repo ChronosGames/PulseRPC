@@ -56,6 +56,7 @@ public class PhaseBStaticClusterHashPlacementTests
         header.Flags.Should().Be(MessageFlags.RequireResponse);
         header.SourceNodeId.Should().Be("gateway-a");
         header.ReplyTo.Should().Be("conn-9");
+        header.MessageId.Should().NotBe(Guid.Empty);
         readBody.ToArray().Should().Equal(body);
     }
 

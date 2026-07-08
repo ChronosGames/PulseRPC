@@ -69,6 +69,7 @@ public static class PulseClusteringServiceExtensions
         services.TryAddSingleton<INodeAuthenticator, SharedSecretNodeAuthenticator>();
         services.TryAddSingleton<INodeEndpointResolver, StaticNodeEndpointResolver>();
         services.TryAddSingleton<IActorDirectory, LeaseActorDirectory>();
+        services.TryAddSingleton<IConnectionDirectory, BackplaneConnectionDirectory>();
         services.TryAddSingleton<INodeLink>(sp =>
         {
             var transport = sp.GetService<INodeTransport>();

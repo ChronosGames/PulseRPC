@@ -61,6 +61,27 @@ public readonly struct ConnectionPlacement : IEquatable<ConnectionPlacement>
 public interface IConnectionDirectory
 {
     /// <summary>
+    /// 注册一个连接查找键到具体连接放置的映射。
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="connectionId"/> 是全局查找键；<paramref name="placement"/> 中的 <see cref="ConnectionPlacement.ConnectionId"/>
+    /// 是 owner 节点内的真实连接 Id。Gateway 虚拟连接可用组合后的虚拟 Id 作为查找键，同时把真实客户端连接 Id 放入
+    /// <see cref="ConnectionPlacement.ConnectionId"/>。
+    /// </remarks>
+    ValueTask RegisterConnectionAsync(
+        string connectionId,
+        ConnectionPlacement placement,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 移除一个连接查找键到具体连接放置的映射。
+    /// </summary>
+    ValueTask RemoveConnectionAsync(
+        string connectionId,
+        ConnectionPlacement placement,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 查找单个连接所在节点；未找到返回 <c>null</c>。
     /// </summary>
     ValueTask<ConnectionPlacement?> FindConnectionAsync(
