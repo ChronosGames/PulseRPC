@@ -39,6 +39,7 @@ Unity 客户端开发者：
 2. [参考手册](reference/index.md)
 3. [变更日志](changelog.md)
 4. [历史归档](archive/)
+5. [Proto.Actor .NET 架构对比研究](archive/research/proto-actor-dotnet-architecture-analysis.md)
 
 AI Agent 或自动化维护任务请阅读仓库根目录下的 `.agent/README.md`。
 
