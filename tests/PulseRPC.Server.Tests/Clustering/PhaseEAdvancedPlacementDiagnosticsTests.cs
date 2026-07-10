@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using PulseRPC.Routing;
 using PulseRPC.Server.Clustering;
+using PulseRPC.Server.Extensions;
 using Xunit;
 
 namespace PulseRPC.Server.Tests.Clustering;
@@ -56,6 +58,25 @@ public class PhaseEAdvancedPlacementDiagnosticsTests
         strategy.SelectOwner("RoomHub", "room-1").Should().Be("node-c");
         strategy.SelectOwner("RoomHub", "room-2").Should().Be("node-b");
         strategy.SelectOwner("OtherHub", "room-1").Should().Be(ring.GetOwner(HashPlacementStrategy.BuildIdentity("OtherHub", "room-1")));
+    }
+
+    [Fact]
+    public void AddPulseClustering_MustRegisterDefaultLoadMetricsForLeastLoadedStrategyPlugins()
+    {
+        var services = new ServiceCollection();
+        services.AddPulseServer();
+        services.AddPulseClustering(
+            topology =>
+            {
+                topology.LocalNodeId = "node-a";
+                topology.Members.Add(new ClusterMemberOptions { NodeId = "node-a", Host = "127.0.0.1", Port = 19001 });
+                topology.Members.Add(new ClusterMemberOptions { NodeId = "node-b", Host = "127.0.0.1", Port = 19002 });
+            },
+            auth => auth.SharedSecret = "secret");
+
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<IClusterLoadMetrics>().Should().BeOfType<NoopClusterLoadMetrics>();
     }
 
     [Fact]

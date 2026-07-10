@@ -67,6 +67,7 @@ public static class PulseClusteringServiceExtensions
         });
 
         services.TryAddSingleton<IActorPlacementStrategy>(sp => new HashPlacementStrategy(sp.GetRequiredService<NodeConsistentHashRing>()));
+        services.TryAddSingleton<IClusterLoadMetrics, NoopClusterLoadMetrics>();
         services.TryAddSingleton<IClusterDiagnostics, NoopClusterDiagnostics>();
         services.TryAddSingleton<INodeAuthenticator, SharedSecretNodeAuthenticator>();
         services.TryAddSingleton<INodeEndpointResolver, StaticNodeEndpointResolver>();

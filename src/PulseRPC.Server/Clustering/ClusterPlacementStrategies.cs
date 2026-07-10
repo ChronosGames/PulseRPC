@@ -24,6 +24,15 @@ public interface IClusterLoadMetrics
 }
 
 /// <summary>
+/// 默认集群负载指标：所有节点视为同等负载，由 placement 策略继续使用 hash owner 作为稳定 tie-breaker。
+/// </summary>
+public sealed class NoopClusterLoadMetrics : IClusterLoadMetrics
+{
+    /// <inheritdoc/>
+    public double GetLoad(string nodeId) => 0;
+}
+
+/// <summary>
 /// 固定放置规则配置。
 /// </summary>
 public sealed class PinnedPlacementOptions
