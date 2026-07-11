@@ -236,24 +236,32 @@ public static class RoutingTableGenerator
 
         sb.AppendLine("    private static void EnforceProtocolAliasAccess(IServiceProvider serviceProvider, string hub, ushort protocolId)");
         sb.AppendLine("    {");
-        sb.AppendLine("        switch (hub)");
-        sb.AppendLine("        {");
-        foreach (var service in services.Where(service => service.ProtocolAliases.Count != 0))
+        var servicesWithAliases = services.Where(service => service.ProtocolAliases.Count != 0).ToList();
+        if (servicesWithAliases.Count == 0)
         {
-            sb.AppendLine($"            case \"{EscapeString(GetCanonicalHubName(service))}\":");
-            sb.AppendLine("                switch (protocolId)");
-            sb.AppendLine("                {");
-            foreach (var alias in service.ProtocolAliases)
-            {
-                sb.AppendLine($"                    case 0x{alias.ProtocolId:X4}:");
-                sb.AppendLine($"                        PulseRPC.Server.Security.ClientFacingGate.Enforce(isClientFacing: {FormatBoolean(alias.IsClientFacing)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
-                sb.AppendLine($"                        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAliasAuthorizationExpression(service, alias)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
-                sb.AppendLine("                        return;");
-            }
-            sb.AppendLine("                }");
-            sb.AppendLine("                return;");
+            sb.AppendLine("        return;");
         }
-        sb.AppendLine("        }");
+        else
+        {
+            sb.AppendLine("        switch (hub)");
+            sb.AppendLine("        {");
+            foreach (var service in servicesWithAliases)
+            {
+                sb.AppendLine($"            case \"{EscapeString(GetCanonicalHubName(service))}\":");
+                sb.AppendLine("                switch (protocolId)");
+                sb.AppendLine("                {");
+                foreach (var alias in service.ProtocolAliases)
+                {
+                    sb.AppendLine($"                    case 0x{alias.ProtocolId:X4}:");
+                    sb.AppendLine($"                        PulseRPC.Server.Security.ClientFacingGate.Enforce(isClientFacing: {FormatBoolean(alias.IsClientFacing)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
+                    sb.AppendLine($"                        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAliasAuthorizationExpression(service, alias)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
+                    sb.AppendLine("                        return;");
+                }
+                sb.AppendLine("                }");
+                sb.AppendLine("                return;");
+            }
+            sb.AppendLine("        }");
+        }
         sb.AppendLine("    }");
         sb.AppendLine();
     }

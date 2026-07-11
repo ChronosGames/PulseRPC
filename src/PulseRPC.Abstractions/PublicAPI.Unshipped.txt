@@ -1,4 +1,5 @@
 #nullable enable
+static PulseRPC.Protocol.ProtocolId.Generate(string! signature) -> PulseRPC.Protocol.ProtocolId
 const PulseRPC.Clustering.NodeWireProtocol.SupportedCapabilities = PulseRPC.Clustering.NodeTransportCapabilities.VersionedActorEnvelope | PulseRPC.Clustering.NodeTransportCapabilities.ClaimsPrincipal | PulseRPC.Clustering.NodeTransportCapabilities.LeaseFencing | PulseRPC.Clustering.NodeTransportCapabilities.HubProtocolValidation | PulseRPC.Clustering.NodeTransportCapabilities.MutualNodeAuthentication -> PulseRPC.Clustering.NodeTransportCapabilities
 PulseRPC.Clustering.IActorStateSnapshot
 PulseRPC.Clustering.IActorStateSnapshot.CaptureStateAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<byte[]!>

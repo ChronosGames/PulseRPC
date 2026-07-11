@@ -42,7 +42,7 @@ public static class GatewayClientChannelExtensions
 /// <summary>
 /// 把普通业务 Stub 的原始调用包装为 Gateway Front Hub 调用的轻量通道视图。
 /// </summary>
-internal sealed class GatewayActorChannel : IClientChannel
+internal sealed class GatewayActorChannel : IHubAddressedClientChannel
 {
     private const byte DefaultHopLimit = 4;
     private const string GatewayFrontHub = "GatewayFrontHub";
@@ -77,23 +77,27 @@ internal sealed class GatewayActorChannel : IClientChannel
     public Task DisconnectAsync(CancellationToken cancellationToken = default)
         => _inner.DisconnectAsync(cancellationToken);
 
-    public async ValueTask<ReadOnlyMemory<byte>> InvokeRawAsync(
+    public ValueTask<ReadOnlyMemory<byte>> InvokeRawAsync(
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedRequest,
+        CancellationToken cancellationToken = default)
+        => InvokeHubRawAsync(_hub, protocolId, serializedRequest, cancellationToken);
+
+    public async ValueTask<ReadOnlyMemory<byte>> InvokeHubRawAsync(
+        string hub,
         ushort protocolId,
         ReadOnlyMemory<byte> serializedRequest,
         CancellationToken cancellationToken = default)
     {
+        EnsureExpectedHub(hub);
+        var addressed = GetAddressedInnerChannel();
         var request = (_hub, _key, protocolId, serializedRequest.ToArray(), DefaultHopLimit);
         var envelope = MemoryPackSerializer.Serialize(request);
-        var response = _inner is IHubAddressedClientChannel addressed
-            ? await addressed.InvokeHubRawAsync(
-                GatewayFrontHub,
-                GatewayProtocolIds.FrontRelayAsk,
-                envelope,
-                cancellationToken).ConfigureAwait(false)
-            : await _inner.InvokeRawAsync(
-                GatewayProtocolIds.FrontRelayAsk,
-                envelope,
-                cancellationToken).ConfigureAwait(false);
+        var response = await addressed.InvokeHubRawAsync(
+            GatewayFrontHub,
+            GatewayProtocolIds.FrontRelayAsk,
+            envelope,
+            cancellationToken).ConfigureAwait(false);
 
         return MemoryPackSerializer.Deserialize<byte[]>(response.Span) ?? Array.Empty<byte>();
     }
@@ -102,19 +106,37 @@ internal sealed class GatewayActorChannel : IClientChannel
         ushort protocolId,
         ReadOnlyMemory<byte> serializedCommand,
         CancellationToken cancellationToken = default)
+        => SendHubCommandAsync(_hub, protocolId, serializedCommand, cancellationToken);
+
+    public ValueTask SendHubCommandAsync(
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedCommand,
+        CancellationToken cancellationToken = default)
     {
+        EnsureExpectedHub(hub);
+        var addressed = GetAddressedInnerChannel();
         var command = (_hub, _key, protocolId, serializedCommand.ToArray(), DefaultHopLimit);
         var envelope = MemoryPackSerializer.Serialize(command);
-        return _inner is IHubAddressedClientChannel addressed
-            ? addressed.SendHubCommandAsync(
-                GatewayFrontHub,
-                GatewayProtocolIds.FrontRelaySend,
-                envelope,
-                cancellationToken)
-            : _inner.SendCommandAsync(
-                GatewayProtocolIds.FrontRelaySend,
-                envelope,
-                cancellationToken);
+        return addressed.SendHubCommandAsync(
+            GatewayFrontHub,
+            GatewayProtocolIds.FrontRelaySend,
+            envelope,
+            cancellationToken);
+    }
+
+    private IHubAddressedClientChannel GetAddressedInnerChannel()
+        => _inner as IHubAddressedClientChannel
+            ?? throw new InvalidOperationException(
+                "Gateway Actor calls require an IHubAddressedClientChannel for strict Hub routing.");
+
+    private void EnsureExpectedHub(string hub)
+    {
+        if (!string.Equals(hub, _hub, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Gateway Actor channel targets canonical Hub '{_hub}', not '{hub}'.");
+        }
     }
 
     public ISubscriptionToken RegisterEventHandler(

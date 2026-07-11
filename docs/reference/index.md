@@ -26,6 +26,7 @@
 | `TransportChannelConfiguration` | 服务端 TCP/KCP 监听配置 |
 | `AddPulseClustering(...)` | 注册集群路由和节点配置 |
 | `AddRedisActorLeases(...)` | 以 Redis 原子脚本替换默认进程内 Actor 租约 |
+| `ProtocolId.Generate(signature)` | 使用与 Source Generator 一致的 FNV-1a 规则计算运行期协议号 |
 | `UseCertificateNodeAuthentication(...)` | 使用证书签名节点凭据替换共享密钥认证 |
 | `AddConsulDiscovery` / `AddEtcdDiscovery` / `AddKubernetesDiscovery` | 覆盖默认成员发现 |
 
@@ -37,7 +38,8 @@
 - `TransportOptions.SmallPacketThreshold` 和 `ChunkSize` 当前保留兼容，已不作为应用层分片主路径依据。
 - `TcpNodeTransport` 是默认节点数据面，提供连接复用、实际写完成、执行 ACK、请求关联、超时隔离、断线淘汰和 node wire 能力协商；`SecurityMode` 未显式设置时 fail closed，生产必须声明并实际提供外部 mTLS。
 - node wire 当前生产版本为 v2；legacy Actor wire 默认关闭。
-- `IHubAddressedClientChannel` 让生成代理显式携带 canonical Hub，服务端按 `(Hub, ProtocolId)` 强校验。
+- `IHubAddressedClientChannel` 让生成代理显式携带 canonical Hub，服务端按 `(Hub, ProtocolId)` 强校验；生成代理不再回退到无 Hub API。
+- `ServiceRoutingTableRegistry` 与 `ResponseSerializerRegistry` 组合所有已加载程序集的生成结果，DI 在解析时取得该组合视图。
 
 ## 集群租约事实
 

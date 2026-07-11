@@ -6,7 +6,7 @@ namespace PulseRPC.Protocol;
 /// <remarks>
 /// <para>
 /// 协议号用于标识RPC方法，范围 0-65535。
-/// 通过 xxHash32 自动生成，保证客户端和服务端一致。
+/// 通过签名的 FNV-1a 哈希自动生成，保证客户端和服务端一致。
 /// </para>
 /// <para>
 /// <strong>使用示例</strong>:
@@ -22,6 +22,9 @@ namespace PulseRPC.Protocol;
 /// </remarks>
 public readonly struct ProtocolId : IEquatable<ProtocolId>, IComparable<ProtocolId>
 {
+    private const uint FnvPrime = 0x01000193;
+    private const uint FnvOffsetBasis = 0x811C9DC5;
+
     /// <summary>
     /// 协议号值 (0-65535)
     /// </summary>
@@ -34,6 +37,33 @@ public readonly struct ProtocolId : IEquatable<ProtocolId>, IComparable<Protocol
     public ProtocolId(ushort value)
     {
         Value = value;
+    }
+
+    /// <summary>
+    /// 使用与客户端/服务端 Source Generator 相同的 FNV-1a 算法从规范方法签名生成协议号。
+    /// </summary>
+    /// <param name="signature">
+    /// 规范签名：<c>InterfaceFullName.MethodName(ParamType1,ParamType2)</c>；
+    /// 参数类型使用 Roslyn <c>ToDisplayString()</c> 结果，并排除 <c>CancellationToken</c>。
+    /// </param>
+    public static ProtocolId Generate(string signature)
+    {
+        if (string.IsNullOrWhiteSpace(signature))
+        {
+            throw new ArgumentException("Protocol signature cannot be null or whitespace.", nameof(signature));
+        }
+
+        var hash = FnvOffsetBasis;
+        unchecked
+        {
+            foreach (var character in signature)
+            {
+                hash ^= character;
+                hash *= FnvPrime;
+            }
+        }
+
+        return new ProtocolId((ushort)(hash & 0xFFFF));
     }
 
     /// <summary>

@@ -56,10 +56,12 @@ internal sealed class MessageDispatcher : IMessageDispatcher
 
     public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
 
-    public MessageDispatcher(ILogger<MessageDispatcher>? logger = null)
+    public MessageDispatcher(
+        IServiceRoutingTable? serviceRoutingTable = null,
+        ILogger<MessageDispatcher>? logger = null)
     {
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<MessageDispatcher>.Instance;
-        _serviceRoutingTable = ServiceRoutingTableRegistry.Instance
+        _serviceRoutingTable = serviceRoutingTable ?? ServiceRoutingTableRegistry.Instance
             ?? throw new ArgumentNullException(nameof(ServiceRoutingTableRegistry.Instance));
     }
 

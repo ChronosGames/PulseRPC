@@ -29,6 +29,7 @@ public class GatewayActorChannelTests
 
         Assert.Equal(expected, result.ToArray());
         Assert.Equal(GatewayProtocolIds.FrontRelayAsk, inner.LastProtocolId);
+        Assert.Equal("GatewayFrontHub", inner.LastHub);
         Assert.Equal(cts.Token, inner.LastCancellationToken);
 
         var request = MemoryPackSerializer.Deserialize<(string, string, ushort, byte[], byte)>(inner.LastPayload.Span);
@@ -48,6 +49,7 @@ public class GatewayActorChannelTests
         await actor.SendCommandAsync(0x4567, new byte[] { 4, 5 });
 
         Assert.Equal(GatewayProtocolIds.FrontRelaySend, inner.LastProtocolId);
+        Assert.Equal("GatewayFrontHub", inner.LastHub);
         var command = MemoryPackSerializer.Deserialize<(string, string, ushort, byte[], byte)>(inner.LastPayload.Span);
         Assert.Equal("PlayerHub", command.Item1);
         Assert.Equal("player-42", command.Item2);
@@ -69,8 +71,9 @@ public class GatewayActorChannelTests
         Assert.Equal(0, inner.DisposeCount);
     }
 
-    private sealed class CapturingClientChannel : IClientChannel
+    private sealed class CapturingClientChannel : IHubAddressedClientChannel
     {
+        public string? LastHub { get; private set; }
         public ushort LastProtocolId { get; private set; }
         public ReadOnlyMemory<byte> LastPayload { get; private set; }
         public CancellationToken LastCancellationToken { get; private set; }
@@ -103,6 +106,16 @@ public class GatewayActorChannelTests
             return new ValueTask<ReadOnlyMemory<byte>>(AskResponse);
         }
 
+        public ValueTask<ReadOnlyMemory<byte>> InvokeHubRawAsync(
+            string hub,
+            ushort protocolId,
+            ReadOnlyMemory<byte> serializedRequest,
+            CancellationToken cancellationToken = default)
+        {
+            LastHub = hub;
+            return InvokeRawAsync(protocolId, serializedRequest, cancellationToken);
+        }
+
         public ValueTask SendCommandAsync(
             ushort protocolId,
             ReadOnlyMemory<byte> serializedCommand,
@@ -112,6 +125,16 @@ public class GatewayActorChannelTests
             LastPayload = serializedCommand.ToArray();
             LastCancellationToken = cancellationToken;
             return default;
+        }
+
+        public ValueTask SendHubCommandAsync(
+            string hub,
+            ushort protocolId,
+            ReadOnlyMemory<byte> serializedCommand,
+            CancellationToken cancellationToken = default)
+        {
+            LastHub = hub;
+            return SendCommandAsync(protocolId, serializedCommand, cancellationToken);
         }
 
         public ISubscriptionToken RegisterEventHandler(

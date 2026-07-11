@@ -608,6 +608,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
     /// <param name="serializedRequest">已通过 MemoryPack 序列化的请求载荷</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>原始响应字节流（待反序列化）</returns>
+    [Obsolete("Hub-less raw calls cannot target strict generated routes. Use IHubAddressedClientChannel.InvokeHubRawAsync instead.", false)]
     public ValueTask<ReadOnlyMemory<byte>> InvokeRawAsync(
         ushort protocolId,
         ReadOnlyMemory<byte> serializedRequest,
@@ -754,6 +755,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
     /// <param name="protocolId">协议号（由源生成器生成）</param>
     /// <param name="serializedCommand">已通过 MemoryPack 序列化的命令载荷</param>
     /// <param name="cancellationToken">取消令牌</param>
+    [Obsolete("Hub-less raw commands cannot target strict generated routes. Use IHubAddressedClientChannel.SendHubCommandAsync instead.", false)]
     public ValueTask SendCommandAsync(
         ushort protocolId,
         ReadOnlyMemory<byte> serializedCommand,

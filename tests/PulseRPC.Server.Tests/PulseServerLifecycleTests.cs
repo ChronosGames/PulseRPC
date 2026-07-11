@@ -90,6 +90,35 @@ public class PulseServerLifecycleTests
     }
 
     [Fact]
+    public async Task ClientDisconnected_MustForwardChannelManagerEvent()
+    {
+        var channelManager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
+        var server = new PulseServer(
+            new TestMessageEngine(),
+            channelManager,
+            new TestTransportIntegrationManager(new TestServerListener()),
+            NullLoggerFactory.Instance,
+            Options.Create(new PulseServerOptions().AddTcp("main", 5000)));
+        var transport = new MockServerTransport("conn-disconnected");
+        var channel = channelManager.AddChannel(transport);
+        var disconnected = new TaskCompletionSource<ClientDisconnectedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+        server.ClientDisconnected += (_, e) => disconnected.TrySetResult(e);
+
+        try
+        {
+            channelManager.RemoveChannel(channel.Id).Should().BeTrue();
+
+            var eventArgs = await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            eventArgs.Channel.Should().BeSameAs(channel);
+        }
+        finally
+        {
+            server.Dispose();
+            channelManager.Dispose();
+        }
+    }
+
+    [Fact]
     public void PulseServerBuilder_Build_MustApplyConfiguredTransports()
     {
         var services = new ServiceCollection();

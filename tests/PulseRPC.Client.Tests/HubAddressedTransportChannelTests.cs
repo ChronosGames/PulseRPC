@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using MemoryPack;
@@ -13,6 +14,19 @@ namespace PulseRPC.Client.Tests;
 
 public sealed class HubAddressedTransportChannelTests
 {
+    [Theory]
+    [InlineData(nameof(IClientChannel.InvokeRawAsync))]
+    [InlineData(nameof(IClientChannel.SendCommandAsync))]
+    public void HublessRawApis_MustProvideStrictRoutingMigrationDiagnostic(string methodName)
+    {
+        var method = typeof(IClientChannel).GetMethod(methodName);
+        var obsolete = method?.GetCustomAttribute<ObsoleteAttribute>();
+
+        Assert.NotNull(obsolete);
+        Assert.Contains(nameof(IHubAddressedClientChannel), obsolete!.Message);
+        Assert.False(obsolete.IsError);
+    }
+
     [Fact]
     public async Task InvokeHubRawAsync_MustWriteCanonicalHubIntoMessageHeader()
     {

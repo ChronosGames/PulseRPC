@@ -47,6 +47,14 @@ services.Configure<TcpNodeTransportOptions>(options =>
 
 `TcpNodeTransportOptions.SecurityMode` 未设置时节点传输拒绝构造；`InsecureDevelopment` 只允许 loopback 测试。`ClusterNodeWireOptions.AllowLegacyActorProtocol` 默认关闭。只有滚动升级窗口可以短期开启；所有节点升级到 wire v2 后应立即关闭。`ActorLeaseHeartbeatOptions.Interval` 必须明显短于 `LeaseActorDirectoryOptions.LeaseDuration`，并为 Redis 抖动保留余量。
 
+### 本地多容器调试
+
+PulseRPC 不提供“私有容器网络明文”安全模式。Docker/Compose bridge 网络不是可信边界，服务名也不是 loopback；因此不能为启动开发栈而把明文节点端口虚假标记为 `ExternalMutualTls`。
+
+- 单进程或同一网络命名空间内的多节点测试可使用不同 loopback 端口，并显式选择 `InsecureDevelopment`。
+- 多容器调试应为每个节点配置 mTLS TCP sidecar/代理：应用节点端口只对本容器代理开放，Compose 网络只暴露代理的 TLS 端口；代理使用同一开发 CA、校验对端客户端证书，成员地址指向目标代理服务名和 TLS 端口。确认双向证书校验实际生效后，应用才选择 `ExternalMutualTls`。
+- 如果不准备本地证书和代理，应改用进程内/loopback 拓扑测试，不要放宽节点传输检查。
+
 ## Kubernetes 注意事项
 
 - Pod 名作为节点 ID 时，重建会改变节点身份。

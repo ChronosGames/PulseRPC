@@ -180,23 +180,20 @@ public static class PulseServerServiceCollectionExtensions
         // 5. 注册统一路由基础设施（IPulseRouter/IPulseBackplane，依赖于上面的 ServerChannelManager）
         services.AddPulseRouting();
 
-        // 6. 注册 ResponseSerializerRegistry（由源代码生成器生成）
-        if (ResponseSerializerRegistry.Instance != null)
-        {
-            services.TryAddSingleton(ResponseSerializerRegistry.Instance);
-        }
+        // 6. 延迟解析 Source Generator 注册表，允许宿主程序集在 AddPulseServer 之后加载。
+        services.TryAddSingleton<IResponseSerializerRegistry>(_ =>
+            ResponseSerializerRegistry.Instance
+            ?? throw new InvalidOperationException("IResponseSerializerRegistry 未注册。"));
 
         // 7. 注册 ServiceRoutingTable（由源代码生成器生成）
         // ServiceRoutingTableRegistry 在程序集加载时由 ModuleInitializer 自动注册
-        if (ServiceRoutingTableRegistry.Instance != null)
-        {
-            services.TryAddSingleton<IServiceRoutingTable>(ServiceRoutingTableRegistry.Instance);
-        }
+        services.TryAddSingleton<IServiceRoutingTable>(_ =>
+            ServiceRoutingTableRegistry.Instance
+            ?? throw new InvalidOperationException("IServiceRoutingTable 未注册。"));
 
-        if (ServiceManifestRegistry.Instance != null)
-        {
-            services.TryAddSingleton<IServiceManifest>(ServiceManifestRegistry.Instance);
-        }
+        services.TryAddSingleton<IServiceManifest>(_ =>
+            ServiceManifestRegistry.Instance
+            ?? throw new InvalidOperationException("IServiceManifest 未注册。"));
     }
 
     /// <summary>
@@ -338,16 +335,16 @@ public static class NamedPulseServerServiceCollectionExtensions
         // 注册序列化器提供程序（共享）
         services.TryAddSingleton<ISerializerProvider>(PulseRPCSerializerProvider.Instance);
 
-        // 注册响应序列化器注册表（如果存在）
-        if (ResponseSerializerRegistry.Instance != null)
-        {
-            services.TryAddSingleton(ResponseSerializerRegistry.Instance);
-        }
+        services.TryAddSingleton<IResponseSerializerRegistry>(_ =>
+            ResponseSerializerRegistry.Instance
+            ?? throw new InvalidOperationException("IResponseSerializerRegistry 未注册。"));
 
-        if (ServiceManifestRegistry.Instance != null)
-        {
-            services.TryAddSingleton<IServiceManifest>(ServiceManifestRegistry.Instance);
-        }
+        services.TryAddSingleton<IServiceRoutingTable>(_ =>
+            ServiceRoutingTableRegistry.Instance
+            ?? throw new InvalidOperationException("IServiceRoutingTable 未注册。"));
+        services.TryAddSingleton<IServiceManifest>(_ =>
+            ServiceManifestRegistry.Instance
+            ?? throw new InvalidOperationException("IServiceManifest 未注册。"));
 
         // 为每个命名服务器注册独立的依赖（使用 Keyed Services）
         // 注意：依赖创建顺序很重要
@@ -362,7 +359,7 @@ public static class NamedPulseServerServiceCollectionExtensions
 
         // 2. 消息分发器（每个服务器独立）
         services.AddKeyedSingleton<IMessageDispatcher>(serverName, (sp, key) =>
-            new MessageDispatcher());
+            new MessageDispatcher(sp.GetRequiredService<IServiceRoutingTable>()));
 
         // 3. 响应处理器（每个服务器独立）
         services.AddKeyedSingleton<IResponseProcessor>(serverName, (sp, key) =>
@@ -378,7 +375,8 @@ public static class NamedPulseServerServiceCollectionExtensions
                 serializerProvider,
                 null, // options
                 logger,
-                responseSerializerRegistry);
+                responseSerializerRegistry,
+                sp.GetService<IServiceRoutingTable>());
         });
 
         // 4. 消息引擎（每个服务器独立）

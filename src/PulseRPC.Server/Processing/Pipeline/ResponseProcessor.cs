@@ -18,11 +18,99 @@ namespace PulseRPC.Server.Processing.Pipeline;
 
 public static class ResponseSerializerRegistry
 {
+    private static readonly Lock _lock = new();
+    private static readonly List<IResponseSerializerRegistry> _registries = new();
+    private static readonly IResponseSerializerRegistry _compositeRegistry = new CompositeResponseSerializerRegistry();
+
     public static IResponseSerializerRegistry? Instance;
 
     public static void Register(IResponseSerializerRegistry instance)
     {
-        Instance = instance;
+        ArgumentNullException.ThrowIfNull(instance);
+
+        using (_lock.EnterScope())
+        {
+            if (_registries.Contains(instance))
+            {
+                return;
+            }
+
+            var protocolIds = new HashSet<ushort>();
+            foreach (var serializer in instance.EnumerateSerializers())
+            {
+                if (!protocolIds.Add(serializer.ProtocolId) || ContainsProtocolId(serializer.ProtocolId))
+                {
+                    throw new InvalidOperationException(
+                        $"Response serializer protocol ID 0x{serializer.ProtocolId:X4} is registered by multiple assemblies.");
+                }
+            }
+
+            _registries.Add(instance);
+            Instance = _compositeRegistry;
+        }
+    }
+
+    internal static void Clear()
+    {
+        using (_lock.EnterScope())
+        {
+            _registries.Clear();
+            Instance = null;
+        }
+    }
+
+    private static bool ContainsProtocolId(ushort protocolId)
+    {
+        foreach (var registry in _registries)
+        {
+            foreach (var serializer in registry.EnumerateSerializers())
+            {
+                if (serializer.ProtocolId == protocolId)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static IResponseSerializerRegistry[] GetSnapshot()
+    {
+        using (_lock.EnterScope())
+        {
+            return _registries.ToArray();
+        }
+    }
+
+    private sealed class CompositeResponseSerializerRegistry : IResponseSerializerRegistry
+    {
+        public bool TryGetSerializer(
+            ushort protocolId,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out IResponseSerializer? serializer)
+        {
+            foreach (var registry in GetSnapshot())
+            {
+                if (registry.TryGetSerializer(protocolId, out serializer))
+                {
+                    return true;
+                }
+            }
+
+            serializer = null;
+            return false;
+        }
+
+        public ReadOnlySpan<IResponseSerializer> EnumerateSerializers()
+        {
+            var serializers = new List<IResponseSerializer>();
+            foreach (var registry in GetSnapshot())
+            {
+                serializers.AddRange(registry.EnumerateSerializers());
+            }
+
+            return serializers.ToArray();
+        }
     }
 }
 

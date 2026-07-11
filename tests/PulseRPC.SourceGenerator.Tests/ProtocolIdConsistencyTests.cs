@@ -80,6 +80,20 @@ public class ProtocolIdConsistencyTests
             "继承方法的协议号哈希输入必须使用方法实际声明所在接口（IGreetingMixin）的全名，与客户端保持一致");
     }
 
+    [Fact]
+    public void RuntimeProtocolIdGenerate_MustMatchBothGenerators()
+    {
+        var compilation = CreateCompilation(TestSource);
+        var serverId = ExtractServerProtocolId(RunServerGenerator(compilation), "SampleHub", "AddAsync");
+        var clientId = ExtractClientProtocolId(RunClientGenerator(compilation), "AddAsync");
+
+        var runtimeId = global::PulseRPC.Protocol.ProtocolId.Generate(
+            "ProtocolIdConsistencyTestNs.ISampleHub.AddAsync(int,int)");
+
+        runtimeId.Value.Should().Be(serverId);
+        runtimeId.Value.Should().Be(clientId);
+    }
+
     private const string FacetCompositionSource = """
         #nullable enable
         using System.Threading.Tasks;
@@ -356,17 +370,34 @@ public class ProtocolIdConsistencyTests
         var commandGeneratedText = RunClientGenerator(CreateCompilation(commandSource));
 
         clientGeneratedText.Should().Contain(
-            "_connection is PulseRPC.Client.IHubAddressedClientChannel __hubChannel__",
-            "新版内置通道必须在协议号之外显式携带 canonical Hub，供服务端强校验 (Hub, ProtocolId)");
+            "_connection as PulseRPC.Client.IHubAddressedClientChannel",
+            "生成 Stub 必须要求通道显式支持 canonical Hub 寻址");
         clientGeneratedText.Should().Contain(
             "InvokeHubRawAsync(\"SampleHub\"",
             "请求/响应调用应使用与 Gateway Actor 寻址一致的 canonical Hub 名");
         commandGeneratedText.Should().Contain(
             "SendHubCommandAsync(\"CommandHub\"",
             "单向调用也必须携带同一个 canonical Hub 名");
+        clientGeneratedText.Should().NotContain(
+            "_connection.InvokeRawAsync(",
+            "严格 Hub 路由不能静默回退为空 Hub 调用");
         clientGeneratedText.Should().Contain(
-            ": await _connection.InvokeRawAsync(",
-            "自定义旧 IClientChannel 实现应保留兼容回退路径");
+            "IHubAddressedClientChannel",
+            "旧通道应获得明确的迁移异常，而不是编译成功后由服务端拒绝空 Hub");
+    }
+
+
+    [Fact]
+    public void GeneratedRoutingTable_WithoutProtocolAliases_MustNotProduceEmptySwitchWarning()
+    {
+        var compilation = CreateCompilation(TestSource);
+        var generator = new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
+
+        driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+
+        outputCompilation.GetDiagnostics()
+            .Should().NotContain(diagnostic => diagnostic.Id == "CS1522");
     }
 
     [Fact]

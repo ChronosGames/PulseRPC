@@ -24,8 +24,8 @@
 
 ## 迁移到严格 Hub 路由和 node wire v2
 
-- 重新生成客户端代理；新代理在通道支持 `IHubAddressedClientChannel` 时会发送 canonical Hub。
-- 手写 `IClientChannel.InvokeRawAsync` / `SendCommandAsync` 调用无法提供 Hub。需要进入严格网络入口的代码应改用 `IHubAddressedClientChannel.InvokeHubRawAsync` / `SendHubCommandAsync`。
+- 重新生成客户端代理；新代理要求通道实现 `IHubAddressedClientChannel` 并始终发送 canonical Hub，不再静默回退为空 Hub 调用。
+- 手写 `IClientChannel.InvokeRawAsync` / `SendCommandAsync` 调用无法提供 Hub，现已标记为 `[Obsolete]` 并给出迁移诊断。需要进入严格网络入口的代码应改用 `IHubAddressedClientChannel.InvokeHubRawAsync` / `SendHubCommandAsync`。
 - 所有集群节点先部署支持能力协商的版本，再保持 `ClusterNodeWireOptions.AllowLegacyActorProtocol=false`。如滚动升级必须短期开启 legacy，应接受该窗口没有 claims 传播与 lease fencing，并在升级完成后关闭。
 - 多节点环境注册共享 `IActorLeaseStore`；默认进程内实现不再被多成员拓扑接受。
 - 显式设置 `TcpNodeTransportOptions.SecurityMode`。生产选择 `ExternalMutualTls` 前必须先让节点端口实际处于 mTLS 保护层之后；本机测试才可使用 `InsecureDevelopment`。
