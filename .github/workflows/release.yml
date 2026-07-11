@@ -47,6 +47,31 @@ jobs:
       # pack nuget
       - run: dotnet build -c Release ./PulseRPC.sln
       - run: dotnet pack -c Release ./PulseRPC.Packaging.slnf --no-build -o ./publish
+      - name: Verify NuGet packages
+        shell: bash
+        run: |
+          version="$(sed -n 's:.*<VersionPrefix>\([^<]*\)</VersionPrefix>.*:\1:p' Directory.Build.props)"
+          test -n "$version"
+          test "$version" = "${{ inputs.tag }}"
+
+          packages=(
+            PulseRPC.Abstractions
+            PulseRPC.Backplane.Redis
+            PulseRPC.Client
+            PulseRPC.Infrastructure
+            PulseRPC.Infrastructure.Consul
+            PulseRPC.Infrastructure.Etcd
+            PulseRPC.Infrastructure.Kubernetes
+            PulseRPC.Server
+            PulseRPC.Shared
+          )
+
+          for package in "${packages[@]}"; do
+            test -f "./publish/${package}.${version}.nupkg"
+          done
+
+          unzip -Z1 "./publish/PulseRPC.Backplane.Redis.${version}.nupkg" |
+            grep -Fx "lib/net10.0/PulseRPC.Backplane.Redis.dll"
       - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
         with:
           name: nuget

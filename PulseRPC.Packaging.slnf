@@ -3,6 +3,7 @@
     "path": "PulseRPC.sln",
     "projects": [
       "src\\PulseRPC.Abstractions\\PulseRPC.Abstractions.csproj",
+      "src\\PulseRPC.Backplane.Redis\\PulseRPC.Backplane.Redis.csproj",
       "src\\PulseRPC.Shared\\PulseRPC.Shared.csproj",
       "src\\PulseRPC.Client\\PulseRPC.Client.csproj",
       "src\\PulseRPC.Server\\PulseRPC.Server.csproj",

@@ -17,6 +17,9 @@
 dotnet add package PulseRPC.Server
 dotnet add package PulseRPC.Server.SourceGenerator
 
+# 多节点 Actor 租约（Redis）
+dotnet add package PulseRPC.Backplane.Redis
+
 # 客户端
 dotnet add package PulseRPC.Client
 dotnet add package PulseRPC.Client.SourceGenerator
@@ -33,6 +36,8 @@ dotnet add package PulseRPC.Infrastructure.Consul
 dotnet add package PulseRPC.Infrastructure.Etcd
 dotnet add package PulseRPC.Infrastructure.Kubernetes
 ```
+
+生产多节点 Actor 必须将 `PulseRPC.Backplane.Redis` 与服务端包保持相同版本，注册共享的 `IConnectionMultiplexer` 后调用 `AddRedisActorLeases(...)`。不要以进程内 `InMemoryActorLeaseStore` 替代共享租约后端；详见[部署指南](../guides/deployment.md)。
 
 ## 定义契约
 

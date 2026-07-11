@@ -1,0 +1,42 @@
+name: Publish Redis Backplane
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version to publish (for example 1.1.7)"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.version }}
+          lfs: true
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - name: Verify requested version
+        shell: bash
+        run: |
+          version="$(sed -n 's:.*<VersionPrefix>\([^<]*\)</VersionPrefix>.*:\1:p' Directory.Build.props)"
+          test -n "$version"
+          test "$version" = "${{ inputs.version }}"
+      - run: dotnet pack -c Release ./src/PulseRPC.Backplane.Redis/PulseRPC.Backplane.Redis.csproj -o ./publish
+      - name: Verify package contents
+        shell: bash
+        run: |
+          package="./publish/PulseRPC.Backplane.Redis.${{ inputs.version }}.nupkg"
+          test -f "$package"
+          unzip -Z1 "$package" | grep -Fx "lib/net10.0/PulseRPC.Backplane.Redis.dll"
+      - name: Publish package
+        run: >
+          dotnet nuget push ./publish/PulseRPC.Backplane.Redis.${{ inputs.version }}.nupkg
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
