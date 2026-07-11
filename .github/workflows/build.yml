@@ -101,7 +101,10 @@ jobs:
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
           mkdir -p ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins
-          find ./build-output -name "PulseRPC.*.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
+          find ./build-output -name "PulseRPC.Abstractions.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
+          find ./build-output -name "PulseRPC.Shared.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
+          find ./build-output -name "PulseRPC.Client.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
+          find ./build-output -name "PulseRPC.Client.SourceGenerator.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
           find ./build-output -name "MemoryPack.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
           find ./build-output -name "System.IO.Pipelines.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
 
