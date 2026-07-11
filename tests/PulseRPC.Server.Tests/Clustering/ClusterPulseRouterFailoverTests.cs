@@ -69,7 +69,8 @@ public class ClusterPulseRouterFailoverTests
         for (var i = 0; i < 100_000; i++)
         {
             var key = $"actor-{i}";
-            if (full.GetOwner(key) == fullOwner && reduced.GetOwner(key) == reducedOwner)
+            if (full.GetOwner(HashPlacementStrategy.BuildIdentity("RoomHub", key)) == fullOwner
+                && reduced.GetOwner(HashPlacementStrategy.BuildIdentity("RoomHub", key)) == reducedOwner)
             {
                 return key;
             }
@@ -81,7 +82,11 @@ public class ClusterPulseRouterFailoverTests
     private static ClusterPulseRouter CreateRouter(StaticClusterMembership membership, INodeLink nodeLink)
     {
         var ring = new NodeConsistentHashRing(new[] { Local, A, B });
-        var actorDirectory = Substitute.For<IActorDirectory>();
+        var actorDirectory = new LeaseActorDirectory(
+            Options.Create(new LeaseActorDirectoryOptions
+            {
+                LeaseDuration = TimeSpan.FromMilliseconds(40),
+            }));
         var backplane = Substitute.For<IPulseBackplane>();
         backplane.Subscribe(Arg.Any<BackplaneMessageHandler>()).Returns(Substitute.For<IDisposable>());
         var topology = Options.Create(new ClusterTopologyOptions { LocalNodeId = Local });
@@ -102,7 +107,7 @@ public class ClusterPulseRouterFailoverTests
         // A 不可达：抛异常；B 正常。
         nodeLink
             .SendActorAsync(A, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(),
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>())
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>())
             .Returns(_ => throw new TimeoutException("node-a unreachable"));
 
         var router = CreateRouter(membership, nodeLink);
@@ -113,9 +118,9 @@ public class ClusterPulseRouterFailoverTests
 
         // 首次尝试打到故障节点 A（失败），接管后重试到存活节点 B（成功）。
         await nodeLink.Received().SendActorAsync(A, "RoomHub", key, 0x1234, Arg.Any<ReadOnlyMemory<byte>>(),
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>());
         await nodeLink.Received(1).SendActorAsync(B, "RoomHub", key, 0x1234, Arg.Any<ReadOnlyMemory<byte>>(),
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>());
 
         membership.LiveNodeIds.Should().NotContain(A);
         membership.LiveNodeIds.Should().Contain(B);
@@ -130,11 +135,11 @@ public class ClusterPulseRouterFailoverTests
         var capturedMessageIds = new System.Collections.Concurrent.ConcurrentBag<Guid>();
         nodeLink
             .SendActorAsync(A, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(),
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>())
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>())
             .Returns(ci => { capturedMessageIds.Add(ci.ArgAt<Guid>(8)); throw new TimeoutException("node-a unreachable"); });
         nodeLink
             .SendActorAsync(B, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(),
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>())
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>())
             .Returns(ci => { capturedMessageIds.Add(ci.ArgAt<Guid>(8)); return ValueTask.CompletedTask; });
 
         var router = CreateRouter(membership, nodeLink);
@@ -155,7 +160,7 @@ public class ClusterPulseRouterFailoverTests
         var nodeLink = Substitute.For<INodeLink>();
         nodeLink
             .SendActorAsync(A, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(),
-                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>())
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>())
             .Returns(_ => throw new TimeoutException("node-a unreachable"));
 
         var router = CreateRouter(membership, nodeLink);
@@ -166,6 +171,40 @@ public class ClusterPulseRouterFailoverTests
 
         await act.Should().ThrowAsync<TimeoutException>();
         await nodeLink.DidNotReceive().SendActorAsync(B, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(),
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task AskAsync_WhenRemoteBusinessCallFails_MustNotQuarantineOrFailover()
+    {
+        using var membership = CreateMembership(failureThreshold: 1);
+        var nodeLink = Substitute.For<INodeLink>();
+        nodeLink
+            .AskActorAsync(A, Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(),
+                Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<string>())
+            .Returns(ValueTask.FromException<ReadOnlyMemory<byte>>(
+                new InvalidOperationException("remote business rejection")));
+
+        var router = CreateRouter(membership, nodeLink);
+        var key = FindKeyForFailover(fullOwner: A, reducedOwner: B);
+
+        var act = async () => await router.AskAsync(
+            PulseAddress.Actor("RoomHub", key),
+            0x1234,
+            MemoryPackSerializer.Serialize("business-error"));
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("remote business rejection");
+        membership.LiveNodeIds.Should().Contain(A);
+        await nodeLink.DidNotReceive().AskActorAsync(
+            B,
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<ushort>(),
+            Arg.Any<ReadOnlyMemory<byte>>(),
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<CancellationToken>(),
+            Arg.Any<string>());
     }
 }

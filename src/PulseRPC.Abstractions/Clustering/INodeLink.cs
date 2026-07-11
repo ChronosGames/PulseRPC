@@ -14,7 +14,7 @@ namespace PulseRPC.Clustering;
 /// 部署集群时应由独立模块注册 <see cref="INodeLink"/> 实现，建立节点间出站连接并完成互信鉴权。
 /// </para>
 /// <para>
-/// <see cref="SourceNodeId"/>/<see cref="ReplyTo"/> 语义对应《统一 IPulseHub 全链路寻址与集群架构设计》
+/// <c>sourceNodeId</c>/<c>replyTo</c> 语义对应《统一 IPulseHub 全链路寻址与集群架构设计》
 /// §4.1/§10：当调用经由网关中转（见路线图 P5 Gateway）时，<c>sourceNodeId</c> 为发起网关的节点标识，
 /// <c>replyTo</c> 为该网关上真实客户端连接的连接标识；接收方节点可据此为该「虚拟连接」建立本地代理
 /// （见 <c>GatewayVirtualChannel</c>），使被调 Actor 之后能像对待本地连接一样对其 <c>Send/Ask</c>。
@@ -38,6 +38,7 @@ public interface INodeLink
     /// <param name="sourceNodeId">发起节点标识（经网关中转时为网关节点 Id）；留空表示本地节点直接发起。</param>
     /// <param name="replyTo">回执地址（经网关中转时为网关上的真实客户端连接 Id）；留空表示无需回执寻径。</param>
     /// <param name="cancellationToken">取消令牌。</param>
+    /// <param name="leaseId">目标 Actor 当前租约标识；版本化节点协议用它拒绝发送到旧 owner 的陈旧帧。</param>
     /// <returns>已序列化的响应体。</returns>
     ValueTask<ReadOnlyMemory<byte>> AskActorAsync(
         string targetNodeId,
@@ -47,15 +48,25 @@ public interface INodeLink
         ReadOnlyMemory<byte> body,
         string sourceNodeId = "",
         string replyTo = "",
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        string leaseId = "");
 
     /// <summary>
     /// 单向发送：把一次 Actor 调用转发给 <paramref name="targetNodeId"/> 执行，不等待返回值。
     /// </summary>
+    /// <param name="targetNodeId">目标节点标识。</param>
+    /// <param name="hub">目标 Hub 名称。</param>
+    /// <param name="key">目标 Actor 实例键。</param>
+    /// <param name="protocolId">方法协议号。</param>
+    /// <param name="body">已序列化的请求体。</param>
+    /// <param name="sourceNodeId">经 Gateway 中转时的 Gateway 节点 Id。</param>
+    /// <param name="replyTo">经 Gateway 中转时的真实客户端连接 Id。</param>
+    /// <param name="cancellationToken">取消令牌。</param>
     /// <param name="messageId">
     /// 全局幂等键（§4.1/§10.3）；<see cref="Guid.Empty"/> 表示未指定。精确一次投递时据此在
     /// 目标节点的 Actor 侧去重（跨越本次节点间转发）。
     /// </param>
+    /// <param name="leaseId">目标 Actor 当前租约标识；版本化节点协议用它拒绝发送到旧 owner 的陈旧帧。</param>
     ValueTask SendActorAsync(
         string targetNodeId,
         string hub,
@@ -65,7 +76,8 @@ public interface INodeLink
         string sourceNodeId = "",
         string replyTo = "",
         CancellationToken cancellationToken = default,
-        Guid messageId = default);
+        Guid messageId = default,
+        string leaseId = "");
 
     /// <summary>
     /// 单向：把一段已组帧的原始字节推送给 <paramref name="targetNodeId"/>（网关节点）上

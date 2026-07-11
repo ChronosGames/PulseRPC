@@ -3,6 +3,7 @@ using System.CommandLine.Parsing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Benchmark.Client;
+using PulseRPC.Benchmark.Clustering;
 using PulseRPC.Benchmark.Models;
 using PulseRPC.Benchmark.Server;
 
@@ -141,6 +142,44 @@ clientCommand.SetAction(async (ParseResult parseResult, CancellationToken cancel
     }
 });
 
+// ============ 真实三节点 TCP 基准 ============
+var clusterCommand = new Command("cluster-three-hop")
+{
+    Description = "启动三个 loopback 节点并测量 Gateway A -> B -> C（含 claims）真实 TCP 端到端性能"
+};
+var clusterWarmupOption = new Option<int>("--warmup")
+{
+    Description = "预热请求数",
+    DefaultValueFactory = _ => 200
+};
+var clusterIterationsOption = new Option<int>("--iterations")
+{
+    Description = "计量请求数",
+    DefaultValueFactory = _ => 10000
+};
+var clusterConcurrencyOption = new Option<int>("--concurrency")
+{
+    Description = "并发请求数",
+    DefaultValueFactory = _ => Math.Max(1, Environment.ProcessorCount)
+};
+var clusterSmokeOption = new Option<bool>("--smoke")
+{
+    Description = "短跑验证：最多 5 次预热、30 次计量、2 并发"
+};
+clusterCommand.Options.Add(clusterWarmupOption);
+clusterCommand.Options.Add(clusterIterationsOption);
+clusterCommand.Options.Add(clusterConcurrencyOption);
+clusterCommand.Options.Add(clusterSmokeOption);
+clusterCommand.SetAction(async (ParseResult parseResult, CancellationToken cancellationToken) =>
+{
+    await ThreeHopClusterBenchmark.RunAsync(
+        parseResult.GetValue(clusterWarmupOption),
+        parseResult.GetValue(clusterIterationsOption),
+        parseResult.GetValue(clusterConcurrencyOption),
+        parseResult.GetValue(clusterSmokeOption),
+        cancellationToken);
+});
+
 // ============ 场景列表命令 ============
 var listCommand = new Command("list") { Description = "列出可用的测试场景" };
 listCommand.SetAction((ParseResult _) =>
@@ -151,10 +190,12 @@ listCommand.SetAction((ParseResult _) =>
     Console.WriteLine("  upload     - 测试客户端到服务端的数据传输带宽");
     Console.WriteLine("  download   - 测试服务端到客户端的数据传输带宽");
     Console.WriteLine("  stability  - 长时间运行测试，监控内存泄漏和连接稳定性");
+    Console.WriteLine("  cluster-three-hop - 真实三节点 Gateway A -> B -> C TCP 端到端基准（独立命令）");
 });
 
 rootCommand.Subcommands.Add(serverCommand);
 rootCommand.Subcommands.Add(clientCommand);
+rootCommand.Subcommands.Add(clusterCommand);
 rootCommand.Subcommands.Add(listCommand);
 
 return await rootCommand.Parse(args).InvokeAsync();

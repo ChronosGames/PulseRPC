@@ -20,12 +20,16 @@ namespace PulseRPC.Server.Tests.Gateway;
 /// </summary>
 public class GatewayRelayHubTests
 {
-    private static IDisposable EnterNodeConnectionScope()
+    private static IDisposable EnterNodeConnectionScope(CancellationToken cancellationToken = default)
     {
         var authContext = new AuthenticationContext("peer-conn-1");
         authContext.SetServiceAuthentication("node-backend-1", "node-backend-1", token: NodeConnectionGate.NodeConnectionScope,
             scopes: new[] { NodeConnectionGate.NodeConnectionScope });
-        return PulseContext.SetContext(PulseContextData.FromAuthenticationContext(authContext));
+        return PulseContext.SetContext(
+            PulseContextData.FromAuthenticationContext(authContext) with
+            {
+                CancellationToken = cancellationToken,
+            });
     }
 
     [Fact]
@@ -88,13 +92,19 @@ public class GatewayRelayHubTests
 
         var hub = new GatewayRelayHub(channelManager, NullLogger<GatewayRelayHub>.Instance);
 
+        using var cts = new CancellationTokenSource();
         byte[] result;
-        using (EnterNodeConnectionScope())
+        using (EnterNodeConnectionScope(cts.Token))
         {
             result = await hub.AskConnectionAsync("real-client-2", 0x2222, new byte[] { 1 }, timeoutMs: 5000);
         }
 
         result.Should().BeEquivalentTo(expected);
+        await realChannel.Received(1).InvokeClientAsync(
+            0x2222,
+            Arg.Any<ReadOnlyMemory<byte>>(),
+            Arg.Any<TimeSpan>(),
+            cts.Token);
     }
 
     [Fact]

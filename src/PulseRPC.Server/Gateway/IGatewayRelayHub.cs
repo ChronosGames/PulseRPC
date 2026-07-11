@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using PulseRPC;
+using PulseRPC.Gateway;
 using PulseRPC.Protocol;
 
 namespace PulseRPC.Server.Gateway;
@@ -17,12 +18,12 @@ public interface IGatewayRelayHub : IPulseHub
     /// <summary>
     /// 单向：把一段已组帧的原始字节推送给 <paramref name="connectionId"/> 标识的真实客户端连接。
     /// </summary>
-    [Protocol(0x9E31)]
+    [Protocol(GatewayProtocolIds.RelayPushFrame)]
     Task PushRawFrameAsync(string connectionId, byte[] framedPacket);
 
     /// <summary>
     /// 请求/响应：向 <paramref name="connectionId"/> 标识的真实客户端连接发起反向 Ask 并等待应答。
     /// </summary>
-    [Protocol(0x9E32)]
+    [Protocol(GatewayProtocolIds.RelayAskConnection)]
     Task<byte[]> AskConnectionAsync(string connectionId, ushort protocolId, byte[] payload, int timeoutMs);
 }

@@ -19,7 +19,7 @@ namespace PulseRPC.Client.Channels;
 /// <summary>
 /// 优化的传输通道 - 减少热路径内存分配
 /// </summary>
-internal class TransportChannel : TransportChannelBase, IClientChannel
+internal class TransportChannel : TransportChannelBase, IHubAddressedClientChannel
 {
     private readonly IClientTransport _transport;
     private readonly ISerializerProvider _serializerProvider;
@@ -608,10 +608,32 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     /// <param name="serializedRequest">已通过 MemoryPack 序列化的请求载荷</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>原始响应字节流（待反序列化）</returns>
-    public async ValueTask<ReadOnlyMemory<byte>> InvokeRawAsync(
+    public ValueTask<ReadOnlyMemory<byte>> InvokeRawAsync(
         ushort protocolId,
         ReadOnlyMemory<byte> serializedRequest,
         CancellationToken cancellationToken = default)
+        => InvokeRawCoreAsync(string.Empty, protocolId, serializedRequest, cancellationToken);
+
+    /// <inheritdoc/>
+    public ValueTask<ReadOnlyMemory<byte>> InvokeHubRawAsync(
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedRequest,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hub))
+        {
+            throw new ArgumentException("Canonical Hub 不能为空或空白。", nameof(hub));
+        }
+
+        return InvokeRawCoreAsync(hub, protocolId, serializedRequest, cancellationToken);
+    }
+
+    private async ValueTask<ReadOnlyMemory<byte>> InvokeRawCoreAsync(
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedRequest,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -646,7 +668,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                     Type = MessageType.Request,
                     MessageId = messageId,
                     ProtocolId = protocolId,
-                    ServiceName = string.Empty,  // 协议号模式下无需服务名
+                    ServiceName = hub,
                     MethodName = string.Empty,   // 协议号模式下无需方法名
                     Flags = MessageFlags.RequireResponse,
                     Timestamp = DateTimeOffset.UtcNow.Ticks,
@@ -732,10 +754,32 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
     /// <param name="protocolId">协议号（由源生成器生成）</param>
     /// <param name="serializedCommand">已通过 MemoryPack 序列化的命令载荷</param>
     /// <param name="cancellationToken">取消令牌</param>
-    public async ValueTask SendCommandAsync(
+    public ValueTask SendCommandAsync(
         ushort protocolId,
         ReadOnlyMemory<byte> serializedCommand,
         CancellationToken cancellationToken = default)
+        => SendCommandCoreAsync(string.Empty, protocolId, serializedCommand, cancellationToken);
+
+    /// <inheritdoc/>
+    public ValueTask SendHubCommandAsync(
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedCommand,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(hub))
+        {
+            throw new ArgumentException("Canonical Hub 不能为空或空白。", nameof(hub));
+        }
+
+        return SendCommandCoreAsync(hub, protocolId, serializedCommand, cancellationToken);
+    }
+
+    private async ValueTask SendCommandCoreAsync(
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedCommand,
+        CancellationToken cancellationToken)
     {
         // Command/OneWay 消息无需等待响应
         var messageBuffer = _bufferWriterPool.Get();
@@ -746,7 +790,7 @@ internal class TransportChannel : TransportChannelBase, IClientChannel
                 Type = MessageType.OneWay,
                 MessageId = Guid.NewGuid(),
                 ProtocolId = protocolId,
-                ServiceName = string.Empty,  // 协议号模式下无需服务名
+                ServiceName = hub,
                 MethodName = string.Empty,   // 协议号模式下无需方法名
                 Flags = MessageFlags.None,
                 Timestamp = DateTimeOffset.UtcNow.Ticks

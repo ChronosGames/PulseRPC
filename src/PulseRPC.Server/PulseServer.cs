@@ -261,8 +261,9 @@ public sealed class PulseServer : IPulseServer
 
     private void OnConnectionAccepted(object? sender, ServerConnectionEventArgs e)
     {
-        // Non-blocking connection processing
-        _ = Task.Run(async () => await ProcessNewConnectionAsync(e));
+        // ProcessNewConnectionAsync 在成功路径的首个 await 之前完成 channel 与消息处理器注册。
+        // 这里不能切到线程池，否则传输开始收包后首帧可能先于 RegisterConnection 到达而被丢弃。
+        _ = ProcessNewConnectionAsync(e);
     }
 
     private async Task ProcessNewConnectionAsync(ServerConnectionEventArgs e)

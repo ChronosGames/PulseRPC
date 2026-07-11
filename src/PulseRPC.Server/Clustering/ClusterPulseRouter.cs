@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -19,8 +21,8 @@ namespace PulseRPC.Server.Clustering;
 /// <para>
 /// 属主解析：<see cref="PulseAddress.NodeId"/> 显式指定时直接采用；否则经
 /// <see cref="NodeConsistentHashRing"/> 算出候选属主（所有节点对同一 Key 算出相同候选，无需协调）。
-/// 候选属主为本节点时，再经 <see cref="IActorDirectory"/> 取得/续租，兼容未来动态成员下的抢占语义；
-/// 候选属主为远端节点时，经 <see cref="INodeLink"/> 转发（不在本地尝试激活，避免双属主）。
+/// 无论候选属主是本地还是远端，都必须先经 <see cref="IActorDirectory"/> 的共享 CAS + TTL 目录取得租约；
+/// 远端调用同时携带该 lease id，由执行端在业务反序列化前做 fencing 校验。
 /// </para>
 /// <para>
 /// <c>Connection</c> 地址全部委派给 <see cref="LocalPulseRouter"/>，单节点行为完全不变；
@@ -40,12 +42,15 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
     private readonly ILogger<ClusterPulseRouter> _logger;
     private readonly IDisposable _backplaneSubscription;
     private readonly DeliveryRetryOptions _retryOptions;
+    private readonly IActorLeaseHeartbeat? _leaseHeartbeat;
+    private readonly IClusterDiagnostics _diagnostics;
 
     // P7 故障接管：当注入 IClusterMembership 时，属主解析基于「存活成员」动态重建的环，
     // 且跨节点调用失败会上报健康、把故障节点移出存活集并重新映射属主。未注入时 _currentRing 恒为构造时
     // 传入的静态环，行为与单节点/静态环完全一致（向后兼容）。
     private readonly IClusterMembership? _membership;
     private volatile NodeConsistentHashRing _currentRing;
+    private volatile IActorPlacementStrategy _placementStrategy;
 
     /// <summary>创建集群路由器。</summary>
     public ClusterPulseRouter(
@@ -57,15 +62,21 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         IOptions<ClusterTopologyOptions> topologyOptions,
         ILogger<ClusterPulseRouter> logger,
         DeliveryRetryOptions? retryOptions = null,
-        IClusterMembership? membership = null)
+        IClusterMembership? membership = null,
+        IActorPlacementStrategy? placementStrategy = null,
+        IActorLeaseHeartbeat? leaseHeartbeat = null,
+        IClusterDiagnostics? diagnostics = null)
     {
         _local = local ?? throw new ArgumentNullException(nameof(local));
         _currentRing = hashRing ?? throw new ArgumentNullException(nameof(hashRing));
+        _placementStrategy = placementStrategy ?? new HashPlacementStrategy(_currentRing);
         _actorDirectory = actorDirectory ?? throw new ArgumentNullException(nameof(actorDirectory));
         _nodeLink = nodeLink ?? throw new ArgumentNullException(nameof(nodeLink));
         _backplane = backplane ?? throw new ArgumentNullException(nameof(backplane));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _retryOptions = retryOptions ?? new DeliveryRetryOptions();
+        _leaseHeartbeat = leaseHeartbeat;
+        _diagnostics = diagnostics ?? new NoopClusterDiagnostics();
 
         ArgumentNullException.ThrowIfNull(topologyOptions);
         _localNodeId = topologyOptions.Value?.LocalNodeId ?? string.Empty;
@@ -100,6 +111,10 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         try
         {
             _currentRing = new NodeConsistentHashRing(live);
+            if (_placementStrategy is IClusterMembershipAwarePlacementStrategy membershipAware)
+            {
+                membershipAware.UpdateMembers(_currentRing);
+            }
         }
         catch (ArgumentException)
         {
@@ -167,7 +182,8 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
             HashSet<string>? triedOwners = null;
             while (true)
             {
-                var ownerNodeId = await ResolveActorOwnerAsync(address, cancellationToken).ConfigureAwait(false);
+                var placement = await ResolveActorPlacementAsync(address, cancellationToken).ConfigureAwait(false);
+                var ownerNodeId = placement.NodeId;
                 if (string.Equals(ownerNodeId, _localNodeId, StringComparison.Ordinal))
                 {
                     break; // 属主为本节点：转本地投递。
@@ -179,24 +195,20 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
                         delivery, _retryOptions,
                         ct => _nodeLink.SendActorAsync(
                             ownerNodeId, address.Hub, address.Key, protocolId, body,
-                            sourceNodeId: sourceNodeId, replyTo: replyTo, cancellationToken: ct, messageId: effectiveMessageId),
+                            sourceNodeId: sourceNodeId, replyTo: replyTo, cancellationToken: ct,
+                            messageId: effectiveMessageId, leaseId: placement.LeaseId),
                         _logger, $"跨节点 Actor Send '{address.Hub}:{address.Key}' -> '{ownerNodeId}'", cancellationToken).ConfigureAwait(false);
                     _membership?.ReportNodeSuccess(ownerNodeId);
                     return;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (IsNodeTransportFailure(ex))
                 {
-                    if (!TryFailover(ex, ownerNodeId, explicitNode, address, ref triedOwners, out var reroute))
+                    if (!TryFailover(ex, ownerNodeId, explicitNode, address, ref triedOwners))
                     {
                         throw;
                     }
 
-                    if (reroute == FailoverDecision.Local)
-                    {
-                        break; // 属主已重新映射到本节点：转本地投递。
-                    }
-
-                    // reroute == Retry：属主已重新映射到另一存活节点，循环重试。
+                    await WaitForLeaseHandoffAsync(address, placement, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -236,7 +248,8 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
             HashSet<string>? triedOwners = null;
             while (true)
             {
-                var ownerNodeId = await ResolveActorOwnerAsync(address, cancellationToken).ConfigureAwait(false);
+                var placement = await ResolveActorPlacementAsync(address, cancellationToken).ConfigureAwait(false);
+                var ownerNodeId = placement.NodeId;
                 if (string.Equals(ownerNodeId, _localNodeId, StringComparison.Ordinal))
                 {
                     break; // 属主为本节点：转本地投递。
@@ -247,23 +260,18 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
                     var response = await _nodeLink.AskActorAsync(
                         ownerNodeId, address.Hub, address.Key, protocolId, body,
                         sourceNodeId: sourceNodeId, replyTo: replyTo,
-                        cancellationToken: cancellationToken).ConfigureAwait(false);
+                        cancellationToken: cancellationToken, leaseId: placement.LeaseId).ConfigureAwait(false);
                     _membership?.ReportNodeSuccess(ownerNodeId);
                     return response;
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (IsNodeTransportFailure(ex))
                 {
-                    if (!TryFailover(ex, ownerNodeId, explicitNode, address, ref triedOwners, out var reroute))
+                    if (!TryFailover(ex, ownerNodeId, explicitNode, address, ref triedOwners))
                     {
                         throw;
                     }
 
-                    if (reroute == FailoverDecision.Local)
-                    {
-                        break; // 属主已重新映射到本节点：转本地投递。
-                    }
-
-                    // reroute == Retry：循环重试新属主。
+                    await WaitForLeaseHandoffAsync(address, placement, cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -271,20 +279,11 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         return await _local.AskAsync(address, protocolId, body, cancellationToken).ConfigureAwait(false);
     }
 
-    private enum FailoverDecision
-    {
-        /// <summary>属主已重新映射到另一存活节点，应循环重试。</summary>
-        Retry,
-
-        /// <summary>属主已重新映射到本节点，应转本地投递。</summary>
-        Local,
-    }
-
     /// <summary>
     /// 处理一次跨节点 Actor 调用失败：上报节点健康，并判断是否可故障接管到其它存活属主（P7）。
     /// </summary>
     /// <returns>
-    /// <c>true</c> 表示已找到新的接管路径（<paramref name="decision"/> 指示重试新属主还是转本地）；
+    /// <c>true</c> 表示拓扑已找到不同候选，可在旧租约失效后重新解析；
     /// <c>false</c> 表示无可接管路径，调用方应重新抛出原异常。
     /// </returns>
     private bool TryFailover(
@@ -292,11 +291,8 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         string failedOwnerNodeId,
         bool explicitNode,
         PulseAddress address,
-        ref HashSet<string>? triedOwners,
-        out FailoverDecision decision)
+        ref HashSet<string>? triedOwners)
     {
-        decision = FailoverDecision.Retry;
-
         _membership?.ReportNodeFailure(failedOwnerNodeId);
 
         // 未启用动态成员，或调用方显式指定了目标节点：不做属主接管，直接向上抛出。
@@ -308,7 +304,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         (triedOwners ??= new HashSet<string>(StringComparer.Ordinal)).Add(failedOwnerNodeId);
 
         // 失败上报可能已把故障节点移出存活集并重建了环；重新解析候选属主。
-        var next = !string.IsNullOrEmpty(address.NodeId) ? address.NodeId! : _currentRing.GetOwner(address.Key);
+        var next = !string.IsNullOrEmpty(address.NodeId) ? address.NodeId! : _placementStrategy.SelectOwner(address.Hub, address.Key);
 
         if (string.Equals(next, failedOwnerNodeId, StringComparison.Ordinal) || triedOwners.Contains(next))
         {
@@ -318,44 +314,83 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
             return false;
         }
 
-        if (string.Equals(next, _localNodeId, StringComparison.Ordinal))
-        {
-            _logger.LogWarning(
-                ex, "跨节点 Actor 调用失败，属主已重新映射到本节点，转本地投递 (Hub={Hub}, Key={Key})",
-                address.Hub, address.Key);
-            decision = FailoverDecision.Local;
-            return true;
-        }
-
         _logger.LogWarning(
-            ex, "跨节点 Actor 调用失败，故障接管到新属主 '{NextOwner}' (Hub={Hub}, Key={Key})",
+            ex, "跨节点 Actor 调用失败，拓扑候选已切换为 '{NextOwner}'；等待旧租约失效后再接管 (Hub={Hub}, Key={Key})",
             next, address.Hub, address.Key);
-        decision = FailoverDecision.Retry;
         return true;
     }
 
     /// <summary>
-    /// 解析 <see cref="AddressKind.Actor"/> 地址的当前属主节点标识。
+    /// 只有链路级失败才能改变成员健康状态。远端业务异常、授权失败和协议校验失败必须原样返回，
+    /// 否则一次确定性的业务错误会错误隔离健康节点，并可能在新 owner 上重复执行请求。
     /// </summary>
-    private async ValueTask<string> ResolveActorOwnerAsync(PulseAddress address, CancellationToken cancellationToken)
-    {
-        var candidate = !string.IsNullOrEmpty(address.NodeId) ? address.NodeId! : _currentRing.GetOwner(address.Key);
+    private static bool IsNodeTransportFailure(Exception exception)
+        => exception is IOException
+            or SocketException
+            or TimeoutException
+            or ObjectDisposedException;
 
-        if (!string.Equals(candidate, _localNodeId, StringComparison.Ordinal))
+    /// <summary>
+    /// 等待失败 owner 的当前租约失效或被合法替换。不能只因本节点观察到网络失败就主动释放远端租约，
+    /// 否则在网络分区而非节点宕机时会产生双 owner。
+    /// </summary>
+    private async ValueTask WaitForLeaseHandoffAsync(
+        PulseAddress address,
+        ActorPlacement failedPlacement,
+        CancellationToken cancellationToken)
+    {
+        while (true)
         {
-            return candidate;
+            cancellationToken.ThrowIfCancellationRequested();
+            var current = await _actorDirectory.ResolveAsync(address.Hub, address.Key, cancellationToken).ConfigureAwait(false);
+            if (current is null
+                || !string.Equals(current.Value.NodeId, failedPlacement.NodeId, StringComparison.Ordinal)
+                || !string.Equals(current.Value.LeaseId, failedPlacement.LeaseId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var remaining = TimeSpan.FromTicks(Math.Max(
+                0,
+                current.Value.ExpiresAtUtcTicks - DateTime.UtcNow.Ticks));
+            var delay = remaining <= TimeSpan.Zero
+                ? TimeSpan.FromMilliseconds(10)
+                : TimeSpan.FromMilliseconds(Math.Min(remaining.TotalMilliseconds, 250));
+            await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 解析 <see cref="AddressKind.Actor"/> 地址的当前租约。所有候选节点（本地与远端）都必须先经过
+    /// 共享目录 CAS，禁止远端候选绕过租约后直接执行。
+    /// </summary>
+    private async ValueTask<ActorPlacement> ResolveActorPlacementAsync(
+        PulseAddress address,
+        CancellationToken cancellationToken)
+    {
+        var explicitNode = !string.IsNullOrEmpty(address.NodeId);
+        var candidate = explicitNode ? address.NodeId! : _placementStrategy.SelectOwner(address.Hub, address.Key);
+        _diagnostics.RecordPlacementDecision(
+            address.Hub,
+            address.Key,
+            candidate,
+            explicitNode ? "ExplicitNode" : _placementStrategy.GetType().Name);
+
+        var placement = await _actorDirectory
+            .ActivateAsync(address.Hub, address.Key, candidate, cancellationToken)
+            .ConfigureAwait(false);
+        if (string.Equals(placement.NodeId, _localNodeId, StringComparison.Ordinal))
+        {
+            _leaseHeartbeat?.Track(address.Hub, address.Key, placement);
         }
 
-        // 候选属主是本节点：经目录取得/续租放置信息。当前静态成员拓扑下 hash 环在所有节点上结果一致，
-        // 正常情况下目录返回的属主必然也是本节点；仍以目录结果为准，便于未来引入动态成员/抢占（P7）时无需改动调用方。
-        var placement = await _actorDirectory.ActivateAsync(address.Hub, address.Key, _localNodeId, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(placement.NodeId, _localNodeId, StringComparison.Ordinal))
+        if (!string.Equals(placement.NodeId, candidate, StringComparison.Ordinal))
         {
             _logger.LogWarning(
-                "一致性哈希候选属主为本节点，但 Actor 目录显示 (Hub={Hub}, Key={Key}) 已被节点 '{ActualOwner}' 持有租约；转发给实际属主。",
-                address.Hub, address.Key, placement.NodeId);
+                "拓扑候选属主为 '{Candidate}'，但 Actor 目录显示 (Hub={Hub}, Key={Key}) 的有效租约由 '{ActualOwner}' 持有；以目录为准。",
+                candidate, address.Hub, address.Key, placement.NodeId);
         }
 
-        return placement.NodeId;
+        return placement;
     }
 }

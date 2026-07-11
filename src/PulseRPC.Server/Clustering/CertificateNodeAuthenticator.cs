@@ -34,12 +34,12 @@ public sealed class CertificateNodeAuthenticatorOptions
     /// <summary>是否要求对端 <c>nodeId</c> 与其证书主体（CN 或 SAN DNS）匹配。默认 true。</summary>
     public bool RequireNodeIdMatchesCertificate { get; set; } = true;
 
-    /// <summary>凭据有效期（抵御重放）。默认 5 分钟。</summary>
+    /// <summary>凭据有效期（限制可重放窗口）。默认 5 分钟。</summary>
     public TimeSpan CredentialLifetime { get; set; } = TimeSpan.FromMinutes(5);
 }
 
 /// <summary>
-/// 基于 X.509 证书的 <see cref="INodeAuthenticator"/> 实现 —— 生产级节点互信（对标 mTLS 的应用层等价物）。
+/// 基于 X.509 证书签名凭据的 <see cref="INodeAuthenticator"/> 实现。
 /// </summary>
 /// <remarks>
 /// <para>
@@ -55,7 +55,8 @@ public sealed class CertificateNodeAuthenticatorOptions
 /// </list>
 /// <para>
 /// 未配置任何信任源（白名单与 CA 均为空）时<strong>一律拒绝</strong>（fail-closed）。相比共享密钥，本实现
-/// 提供按节点独立密钥、可吊销、可链式信任的更强安全性；生产环境推荐配合真实 TLS 传输一并使用。
+/// 提供按节点独立密钥、可吊销、可链式信任的更强身份校验，但不加密线路，也不能替代 mTLS；
+/// 生产环境必须配合真实的双向 TLS 传输使用。
 /// </para>
 /// </remarks>
 public sealed class CertificateNodeAuthenticator : INodeAuthenticator

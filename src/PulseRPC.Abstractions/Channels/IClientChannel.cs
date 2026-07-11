@@ -136,3 +136,28 @@ public interface IClientChannel : IDisposable
     /// <param name="buffer">租借的缓冲区</param>
     void ReturnSerializationBuffer(IBufferWriter<byte> buffer);
 }
+
+/// <summary>
+/// 在协议号之外显式携带 canonical Hub 的客户端通道能力。
+/// </summary>
+/// <remarks>
+/// 新版源生成代理优先使用本接口，使服务端能在反序列化和执行前强校验
+/// <c>(Hub, ProtocolId)</c>。它作为 companion interface 加入，不会给现有自定义
+/// <see cref="IClientChannel"/> 实现增加新的必实现成员。
+/// </remarks>
+public interface IHubAddressedClientChannel : IClientChannel
+{
+    /// <summary>发送带 canonical Hub 的请求并等待响应。</summary>
+    ValueTask<ReadOnlyMemory<byte>> InvokeHubRawAsync(
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedRequest,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>发送带 canonical Hub 的单向命令。</summary>
+    ValueTask SendHubCommandAsync(
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> serializedCommand,
+        CancellationToken cancellationToken = default);
+}

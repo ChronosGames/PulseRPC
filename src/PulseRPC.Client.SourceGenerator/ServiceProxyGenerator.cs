@@ -973,11 +973,16 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"{innerIndent}    : System.ReadOnlyMemory<byte>.Empty;");
         sb.AppendLine($"");
         sb.AppendLine($"{innerIndent}// Step 4: 使用协议号发送并等待响应（零拷贝）");
-        sb.AppendLine($"{innerIndent}var __responseBytes__ = await _connection.InvokeRawAsync(");
-        sb.AppendLine($"{innerIndent}    protocolId: {constName},");
-        sb.AppendLine($"{innerIndent}    serializedRequest: __serializedRequest__,");
-        sb.AppendLine($"{innerIndent}    cancellationToken: {tokenName}");
-        sb.AppendLine($"{innerIndent});");
+        var canonicalHub = interfaceName.TrimStart('I');
+        sb.AppendLine($"{innerIndent}var __responseBytes__ = _connection is PulseRPC.Client.IHubAddressedClientChannel __hubChannel__");
+        sb.AppendLine($"{innerIndent}    ? await __hubChannel__.InvokeHubRawAsync(\"{canonicalHub}\",");
+        sb.AppendLine($"{innerIndent}        protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}        serializedRequest: __serializedRequest__,");
+        sb.AppendLine($"{innerIndent}        cancellationToken: {tokenName})");
+        sb.AppendLine($"{innerIndent}    : await _connection.InvokeRawAsync(");
+        sb.AppendLine($"{innerIndent}        protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}        serializedRequest: __serializedRequest__,");
+        sb.AppendLine($"{innerIndent}        cancellationToken: {tokenName});");
         sb.AppendLine($"");
 
         // Step 5: 反序列化响应
@@ -1050,11 +1055,21 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         sb.AppendLine($"{innerIndent}    : System.ReadOnlyMemory<byte>.Empty;");
         sb.AppendLine($"");
         sb.AppendLine($"{innerIndent}// Step 4: 使用协议号发送（零拷贝，无需等待响应）");
-        sb.AppendLine($"{innerIndent}await _connection.SendCommandAsync(");
-        sb.AppendLine($"{innerIndent}    protocolId: {constName},");
-        sb.AppendLine($"{innerIndent}    serializedCommand: __serializedCommand__,");
-        sb.AppendLine($"{innerIndent}    cancellationToken: {tokenName}");
-        sb.AppendLine($"{innerIndent});");
+        var canonicalHub = interfaceName.TrimStart('I');
+        sb.AppendLine($"{innerIndent}if (_connection is PulseRPC.Client.IHubAddressedClientChannel __hubChannel__)");
+        sb.AppendLine($"{innerIndent}{{");
+        sb.AppendLine($"{innerIndent}    await __hubChannel__.SendHubCommandAsync(\"{canonicalHub}\",");
+        sb.AppendLine($"{innerIndent}        protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}        serializedCommand: __serializedCommand__,");
+        sb.AppendLine($"{innerIndent}        cancellationToken: {tokenName});");
+        sb.AppendLine($"{innerIndent}}}");
+        sb.AppendLine($"{innerIndent}else");
+        sb.AppendLine($"{innerIndent}{{");
+        sb.AppendLine($"{innerIndent}    await _connection.SendCommandAsync(");
+        sb.AppendLine($"{innerIndent}        protocolId: {constName},");
+        sb.AppendLine($"{innerIndent}        serializedCommand: __serializedCommand__,");
+        sb.AppendLine($"{innerIndent}        cancellationToken: {tokenName});");
+        sb.AppendLine($"{innerIndent}}}");
         sb.AppendLine($"{indent}}}");
         sb.AppendLine($"{indent}finally");
         sb.AppendLine($"{indent}{{");

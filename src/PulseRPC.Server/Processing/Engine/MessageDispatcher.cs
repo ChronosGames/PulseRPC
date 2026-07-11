@@ -182,6 +182,7 @@ internal sealed class MessageDispatcher : IMessageDispatcher
 
             var result = await _serviceRoutingTable.RouteByProtocolIdAsync(
                 serviceProvider,
+                header.ServiceName ?? string.Empty,
                 header.ProtocolId,
                 serviceKey,
                 message.Payload,

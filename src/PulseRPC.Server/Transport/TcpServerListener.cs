@@ -16,6 +16,7 @@ public class TcpServerTransport : TcpTransport, IServerTransport
     private readonly string _id;
     private readonly DateTime _connectedAt;
     private DateTime _lastActivityAt;
+    private int _receiveStarted;
 
     public override string Id => _id;
 
@@ -40,14 +41,29 @@ public class TcpServerTransport : TcpTransport, IServerTransport
         // 设置状态
         _state = ConnectionState.Connected;
 
-        // 启动接收循环
-        _receiveTask = ReceiveLoopAsync();
-
         // 订阅基类事件并转发到ITransportConnection事件
         this.StateChanged += OnBaseStateChanged;
         this.DataReceived += OnBaseDataReceived;
 
         _logger.LogInformation("接受客户端连接: {ConnectionId} 从 {RemoteEndPoint}", _id, socket.RemoteEndPoint);
+    }
+
+    /// <summary>
+    /// 在 PulseServer 已同步注册 channel 与消息处理器后启动收包，避免首帧落入尚未就绪的连接。
+    /// </summary>
+    internal void StartReceiving()
+    {
+        if (Interlocked.Exchange(ref _receiveStarted, 1) != 0)
+        {
+            return;
+        }
+
+        if (_state != ConnectionState.Connected)
+        {
+            return;
+        }
+
+        _receiveTask = ReceiveLoopAsync();
     }
 
     /// <summary>
@@ -294,6 +310,10 @@ public class TcpServerListener : IServerListener
 
                 // 触发连接接受事件
                 ConnectionAccepted?.Invoke(this, new ServerConnectionEventArgs(connection));
+
+                // ConnectionAccepted 处理器必须先把 transport 挂入 ServerTransportChannel/MessageEngine，
+                // 然后才允许底层循环读取握手或业务首帧。
+                connection.StartReceiving();
             }
         }
         catch (OperationCanceledException)

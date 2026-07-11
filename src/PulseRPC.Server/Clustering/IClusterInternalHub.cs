@@ -1,6 +1,8 @@
 using System.Threading.Tasks;
 using PulseRPC;
+using PulseRPC.Clustering;
 using PulseRPC.Protocol;
+using PulseRPC.Server;
 
 namespace PulseRPC.Server.Clustering;
 
@@ -22,8 +24,15 @@ public interface IClusterInternalHub : IPulseHub
     /// <summary>
     /// 节点互信鉴权：校验来自 <paramref name="nodeId"/> 的凭据，通过后把当前连接标记为「节点连接」。
     /// </summary>
-    [Protocol(0xD524)]
+    [ClientFacing]
+    [Protocol(NodeWireProtocol.AuthenticateProtocolId)]
     Task<bool> AuthenticateAsync(string nodeId, byte[] credential);
+
+    /// <summary>
+    /// 在节点鉴权成功后协商 node wire 版本与能力，并把结果绑定到当前物理连接。
+    /// </summary>
+    [Protocol(NodeWireProtocol.NegotiateProtocolId)]
+    Task<byte[]> NegotiateAsync(byte[] request);
 
     /// <summary>
     /// 请求/响应：在本节点本地路由表中执行 <paramref name="protocolId"/> 对应的 Actor 方法并返回结果。
@@ -41,16 +50,30 @@ public interface IClusterInternalHub : IPulseHub
     /// <see cref="PulseRPC.Server.Contexts.PulseContext.CurrentConnectionId"/> 注入被调 Actor 方法的执行上下文，
     /// 使其之后可以像对待本地连接一样对该虚拟连接 <c>Send/Ask</c>（见 §10 多跳回执）。
     /// </param>
-    [Protocol(0xFD7F)]
+    [Protocol(NodeWireProtocol.AskActorProtocolId)]
     Task<byte[]> AskActorAsync(string hub, string key, ushort protocolId, byte[] body, string sourceNodeId = "", string replyTo = "");
+
+    /// <summary>版本化请求/响应 Actor 调用。</summary>
+    [Protocol(NodeWireProtocol.AskActorV2ProtocolId)]
+    Task<byte[]> AskActorV2Async(byte[] envelope);
 
     /// <summary>
     /// 单向：在本节点本地路由表中执行 <paramref name="protocolId"/> 对应的 Actor 方法，丢弃返回值。
     /// </summary>
+    /// <param name="hub">目标 Hub 名称。</param>
+    /// <param name="key">目标 Actor 实例键。</param>
+    /// <param name="protocolId">方法协议号。</param>
+    /// <param name="body">已序列化的请求体。</param>
+    /// <param name="sourceNodeId">经 Gateway 中转时的 Gateway 节点 Id。</param>
+    /// <param name="replyTo">经 Gateway 中转时的真实客户端连接 Id。</param>
     /// <param name="messageId">
     /// 全局幂等键（§4.1/§10.3）；<see cref="Guid.Empty"/> 表示未指定。精确一次投递时，接收方按
     /// <c>(hub, key, messageId)</c> 去重，重复消息直接跳过执行（"效果幂等"）。
     /// </param>
-    [Protocol(0x33A0)]
+    [Protocol(NodeWireProtocol.SendActorProtocolId)]
     Task SendActorAsync(string hub, string key, ushort protocolId, byte[] body, string sourceNodeId = "", string replyTo = "", System.Guid messageId = default);
+
+    /// <summary>版本化单向 Actor 调用。</summary>
+    [Protocol(NodeWireProtocol.SendActorV2ProtocolId)]
+    Task SendActorV2Async(byte[] envelope);
 }

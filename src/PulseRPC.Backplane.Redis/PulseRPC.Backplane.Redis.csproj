@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <TargetFramework>net10.0</TargetFramework>
-    <Description>Redis-backed IPulseBackplane（模型 X pub/sub 广播 + 模型 Y 全局成员目录），用于 PulseRPC 多节点集群部署（§P6）。</Description>
+    <Description>Redis-backed IPulseBackplane（pub/sub + 全局成员目录）与 IActorLeaseStore（CAS + TTL），用于 PulseRPC 多节点集群部署。</Description>
 
     <!-- 包配置 -->
     <IsPackable>true</IsPackable>

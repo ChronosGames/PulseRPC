@@ -100,10 +100,32 @@ public static class ClientChannelGenericExtensionsGenerator
         // 生成 GetHub<T> 方法
         GenerateGetHubMethod(sb, hubTypes);
 
+        // 生成经 Gateway 获取 keyed Actor Hub 的便捷入口
+        GenerateGetGatewayActorMethod(sb);
+
         // 生成 RegisterReceiver<T> 方法
         GenerateRegisterReceiverMethod(sb, receiverTypes);
 
         sb.AppendLine("    }");
+    }
+
+    /// <summary>
+    /// 生成强类型 Gateway Actor 入口；实际业务方法仍复用普通 Hub Stub。
+    /// </summary>
+    private static void GenerateGetGatewayActorMethod(StringBuilder sb)
+    {
+        sb.AppendLine("        /// <summary>");
+        sb.AppendLine("        /// 经 Gateway 获取指定 key 的 Actor Hub 代理");
+        sb.AppendLine("        /// </summary>");
+        sb.AppendLine("        /// <typeparam name=\"T\">Actor Hub 接口类型</typeparam>");
+        sb.AppendLine("        /// <param name=\"channel\">连接到 Gateway 的客户端通道</param>");
+        sb.AppendLine("        /// <param name=\"key\">Actor 实例键</param>");
+        sb.AppendLine("        /// <returns>类型安全的 Actor Hub 代理</returns>");
+        sb.AppendLine("        public static T GetGatewayActor<T>(this IClientChannel channel, string key) where T : class, IPulseHub");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return GetHub<T>(channel.ForGatewayActor<T>(key));");
+        sb.AppendLine("        }");
+        sb.AppendLine();
     }
 
     /// <summary>

@@ -15,6 +15,10 @@ public sealed class ServiceModel
     public string ChannelName { get; set; } = null!;
     public string? ServiceName { get; set; }
     public List<MethodModel> Methods { get; set; } = null!;
+    /// <summary>
+    /// 组合 facet 中由独立基 Hub 提供实际分发、但仍属于本 Hub 的合法协议别名。
+    /// </summary>
+    public List<MethodModel> ProtocolAliases { get; } = new();
     public bool HasAsyncMethods => Methods.Any(m => m.IsAsync);
 
     /// <summary>
@@ -131,6 +135,15 @@ public sealed class AuthorizationModel
     /// </summary>
     public bool AllowAnonymous { get; set; }
 
+    /// <summary>是否要求调用方已认证。</summary>
+    public bool RequireAuthentication { get; set; }
+
+    /// <summary>是否仅允许内部服务调用。</summary>
+    public bool InternalOnly { get; set; }
+
+    /// <summary>是否仅允许外部用户调用。</summary>
+    public bool ExternalOnly { get; set; }
+
     /// <summary>
     /// 角色类型（External, Internal, GM, System, 或自定义）
     /// </summary>
@@ -145,4 +158,29 @@ public sealed class AuthorizationModel
     /// 权限范围
     /// </summary>
     public string[]? Scopes { get; set; }
+
+    /// <summary>合并后的全部策略名（全部必须满足）。</summary>
+    public List<string> Policies { get; } = new();
+
+    /// <summary>合并后的角色、权限与 scope 要求（全部必须满足）。</summary>
+    public List<AuthorizationRequirementModel> Requirements { get; } = new();
+
+    public bool IsEmpty =>
+        !AllowAnonymous && !RequireAuthentication && !InternalOnly && !ExternalOnly &&
+        Policies.Count == 0 && Requirements.Count == 0;
+}
+
+public enum AuthorizationRequirementKindModel
+{
+    Role,
+    Permission,
+    Scope,
+}
+
+public sealed class AuthorizationRequirementModel
+{
+    public AuthorizationRequirementKindModel Kind { get; set; }
+    public string Value { get; set; } = null!;
+    public bool AllowInternal { get; set; }
+    public bool AllowSystem { get; set; }
 }

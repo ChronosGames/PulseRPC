@@ -14,6 +14,8 @@ public sealed class KcpCore : IDisposable
     private readonly uint _conv;
     private readonly Action<byte[], int> _output;
     private readonly ILogger _logger;
+    private readonly object _syncRoot = new();
+    private bool _updateInProgress;
 
     // 协议状态
     private uint _mtu = 1400;
@@ -88,37 +90,39 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public int Send(ReadOnlySpan<byte> buffer)
     {
-        if (buffer.Length == 0)
-            return -1;
-
-        var count = buffer.Length <= _mss ? 1 : (int)((buffer.Length + _mss - 1) / _mss);
-        if (count >= 255)
-            return -2;
-
-        if (count == 0)
-            count = 1;
-
-        var offset = 0;
-        for (var i = 0; i < count; i++)
+        lock (_syncRoot)
         {
-            var size = Math.Min((int)_mss, buffer.Length - offset);
-            var seg = KcpSegment.Rent();
+            if (_disposed || buffer.Length == 0)
+                return -1;
 
-            seg.Header.Conv = _conv;
-            seg.Header.Cmd = (byte)KcpCommand.Push;
-            seg.Header.Frg = (byte)(count - i - 1);
-            seg.Header.Wnd = (ushort)WndUnused();
-            seg.Header.Ts = _current;
-            seg.Header.Sn = _sndNxt++;
-            seg.Header.Una = _rcvNxt;
+            var count = buffer.Length <= _mss ? 1 : (int)((buffer.Length + _mss - 1) / _mss);
+            if (count >= 255)
+                return -2;
 
-            seg.SetData(buffer.Slice(offset, size));
-            _sndQueue.Add(seg);
+            if (count == 0)
+                count = 1;
 
-            offset += size;
+            var offset = 0;
+            for (var i = 0; i < count; i++)
+            {
+                var size = Math.Min((int)_mss, buffer.Length - offset);
+                var seg = KcpSegment.Rent();
+
+                seg.Header.Conv = _conv;
+                seg.Header.Cmd = (byte)KcpCommand.Push;
+                seg.Header.Frg = (byte)(count - i - 1);
+                seg.Header.Wnd = (ushort)WndUnused();
+                seg.Header.Ts = _current;
+                seg.Header.Una = _rcvNxt;
+
+                seg.SetData(buffer.Slice(offset, size));
+                _sndQueue.Add(seg);
+
+                offset += size;
+            }
+
+            return 0;
         }
-
-        return 0;
     }
 
     /// <summary>
@@ -126,74 +130,65 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public int Recv(Span<byte> buffer)
     {
-        if (_rcvQueue.Count == 0)
-            return -1;
-
-        var peekSize = PeekSize();
-        if (peekSize < 0)
-            return -2;
-
-        if (peekSize > buffer.Length)
-            return -3;
-
-        var fastRecover = _rcvQueue.Count >= _rcvWnd;
-        var len = 0;
-
-        // 合并所有数据
-        for (var i = 0; i < _rcvQueue.Count; i++)
+        lock (_syncRoot)
         {
-            var seg = _rcvQueue[i];
-            if (seg.Header.Frg > 0)
-                continue;
+            if (_disposed || _rcvQueue.Count == 0)
+                return -1;
 
-            // 找到完整的消息
-            var msgLen = 0;
-            for (var j = i; j < _rcvQueue.Count; j++)
+            var peekSize = PeekSizeCore();
+            if (peekSize < 0)
+                return -2;
+
+            if (peekSize > buffer.Length)
+                return -3;
+
+            var fastRecover = _rcvQueue.Count >= _rcvWnd;
+            var len = 0;
+
+            // KCP 的一条消息按 Frg 从大到小排列，最后一段 Frg=0。
+            // 从队首依次复制并消费，直到完整消息的最后一段。
+            while (_rcvQueue.Count > 0)
             {
-                var s = _rcvQueue[j];
-                msgLen += (int)s.Header.Len;
-                if (s.Header.Frg == 0)
+                var seg = _rcvQueue[0];
+                var segmentLength = (int)seg.Header.Len;
+                seg.Data.Span.CopyTo(buffer.Slice(len, segmentLength));
+                len += segmentLength;
+
+                var fragment = seg.Header.Frg;
+                _rcvQueue.RemoveAt(0);
+                KcpSegment.Return(seg);
+
+                if (fragment == 0)
                     break;
             }
 
-            if (msgLen > buffer.Length)
-                break;
-
-            // 复制数据
-            var pos = 0;
-            for (var j = i; j < _rcvQueue.Count && pos < msgLen; j++)
+            // 移动数据
+            if (_rcvQueue.Count < _rcvWnd && fastRecover)
             {
-                var s = _rcvQueue[j];
-                s.Data.Span.CopyTo(buffer.Slice(pos, (int)s.Header.Len));
-                pos += (int)s.Header.Len;
-
-                KcpSegment.Return(s);
-                _rcvQueue.RemoveAt(j);
-                j--;
-
-                if (s.Header.Frg == 0)
-                    break;
+                // 快速恢复，立即发送窗口更新
+                _probeWait = 0;
+                _tsProbe = _current + _probeWait;
             }
 
-            len = msgLen;
-            break;
+            return len;
         }
-
-        // 移动数据
-        if (_rcvQueue.Count < _rcvWnd && fastRecover)
-        {
-            // 快速恢复，立即发送窗口更新
-            _probeWait = 0;
-            _tsProbe = _current + _probeWait;
-        }
-
-        return len;
     }
 
     /// <summary>
     /// 输入数据包
     /// </summary>
     public int Input(ReadOnlySpan<byte> data)
+    {
+        lock (_syncRoot)
+        {
+            if (_disposed)
+                return -1;
+
+            return InputCore(data);
+        }
+    }
+
+    private int InputCore(ReadOnlySpan<byte> data)
     {
         var oldUna = _sndUna;
         uint maxAck = 0;
@@ -266,31 +261,12 @@ public sealed class KcpCore : IDisposable
             }
             else if (segment.Header.Cmd == (byte)KcpCommand.Push)
             {
-                var seqDiff = TimeDiff(segment.Header.Sn, _rcvNxt + _rcvWnd);
-
                 if (TimeDiff(segment.Header.Sn, _rcvNxt + _rcvWnd) < 0)
                 {
                     AckPush(segment.Header.Sn, segment.Header.Ts);
 
-                    var nextDiff = TimeDiff(segment.Header.Sn, _rcvNxt);
-
                     if (TimeDiff(segment.Header.Sn, _rcvNxt) >= 0)
                     {
-                        // 序列号同步检查和修复逻辑
-                        var seqGap = (int)(segment.Header.Sn - _rcvNxt);
-                        if (seqGap > 0 && seqGap <= 10) // 合理的序列号跳跃范围
-                        {
-                            _logger.LogWarning("[KCP.Input] 检测到序列号跳跃，自动同步: 期望={ExpectedSn}, 实际={ActualSn}, 差距={SeqGap}",
-                                _rcvNxt, segment.Header.Sn, seqGap);
-                            _rcvNxt = segment.Header.Sn;
-                            _logger.LogInformation("[KCP.Input] 序列号已同步: RcvNxt={RcvNxt}", _rcvNxt);
-                        }
-                        else if (seqGap > 10)
-                        {
-                            _logger.LogError("[KCP.Input] 序列号跳跃过大，可能存在数据丢失: 期望={ExpectedSn}, 实际={ActualSn}, 差距={SeqGap}",
-                                _rcvNxt, segment.Header.Sn, seqGap);
-                        }
-
                         ParseData(segment);
                         segment = null; // 已被ParseData处理
                     }
@@ -355,28 +331,73 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public void Update(uint current)
     {
-        _current = current;
+        List<byte[]>? outputs = null;
 
-        if (_updated == 0)
+        lock (_syncRoot)
         {
-            _updated = 1;
-            _tsFlush = _current;
+            if (_disposed || _updateInProgress)
+                return;
+
+            _updateInProgress = true;
+
+            try
+            {
+                _current = current;
+
+                if (_updated == 0)
+                {
+                    _updated = 1;
+                    _tsFlush = _current;
+                }
+
+                var slap = TimeDiff(_current, _tsFlush);
+
+                if (slap >= 10000 || slap < -10000)
+                {
+                    _tsFlush = _current;
+                    slap = 0;
+                }
+
+                if (slap >= 0)
+                {
+                    _tsFlush += _interval;
+                    if (TimeDiff(_current, _tsFlush) >= 0)
+                        _tsFlush = _current + _interval;
+
+                    outputs = new List<byte[]>();
+                    Flush(outputs);
+                }
+            }
+            catch
+            {
+                _updateInProgress = false;
+                throw;
+            }
         }
 
-        var slap = TimeDiff(_current, _tsFlush);
-
-        if (slap >= 10000 || slap < -10000)
+        try
         {
-            _tsFlush = _current;
-            slap = 0;
+            if (outputs == null)
+                return;
+
+            foreach (var output in outputs)
+            {
+                lock (_syncRoot)
+                {
+                    if (_disposed)
+                        break;
+                }
+
+                // 用户回调不得在核心状态锁内执行：它可能阻塞、重入或触发 Dispose。
+                _output(output, output.Length);
+            }
         }
-
-        if (slap >= 0)
+        finally
         {
-            _tsFlush += _interval;
-            if (TimeDiff(_current, _tsFlush) >= 0)
-                _tsFlush = _current + _interval;
-            Flush();
+            lock (_syncRoot)
+            {
+                _updateInProgress = false;
+            }
         }
     }
 
@@ -385,35 +406,41 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public uint Check(uint current)
     {
-        var tsFlush = _tsFlush;
-        var tmFlush = int.MaxValue;
-        var tmPacket = int.MaxValue;
-
-        if (_updated == 0)
-            return current;
-
-        if (TimeDiff(current, tsFlush) >= 10000 || TimeDiff(current, tsFlush) < -10000)
-            tsFlush = current;
-
-        if (TimeDiff(current, tsFlush) >= 0)
-            return current;
-
-        tmFlush = (int)TimeDiff(tsFlush, current);
-
-        foreach (var seg in _sndBuf)
+        lock (_syncRoot)
         {
-            var diff = (int)TimeDiff(seg.ResendTs, current);
-            if (diff <= 0)
+            if (_disposed)
                 return current;
-            if (diff < tmPacket)
-                tmPacket = diff;
+
+            var tsFlush = _tsFlush;
+            var tmFlush = int.MaxValue;
+            var tmPacket = int.MaxValue;
+
+            if (_updated == 0)
+                return current;
+
+            if (TimeDiff(current, tsFlush) >= 10000 || TimeDiff(current, tsFlush) < -10000)
+                tsFlush = current;
+
+            if (TimeDiff(current, tsFlush) >= 0)
+                return current;
+
+            tmFlush = TimeDiff(tsFlush, current);
+
+            foreach (var seg in _sndBuf)
+            {
+                var diff = TimeDiff(seg.ResendTs, current);
+                if (diff <= 0)
+                    return current;
+                if (diff < tmPacket)
+                    tmPacket = diff;
+            }
+
+            var minimal = Math.Min(tmPacket, tmFlush);
+            if (minimal >= _interval)
+                minimal = (int)_interval;
+
+            return current + (uint)minimal;
         }
-
-        var minimal = Math.Min(tmPacket, tmFlush);
-        if (minimal >= _interval)
-            minimal = (int)_interval;
-
-        return current + (uint)minimal;
     }
 
     /// <summary>
@@ -421,7 +448,26 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public int PeekSize()
     {
+        lock (_syncRoot)
+        {
+            if (_disposed)
+                return -1;
+
+            return PeekSizeCore();
+        }
+    }
+
+    private int PeekSizeCore()
+    {
         if (_rcvQueue.Count == 0)
+            return -1;
+
+        var first = _rcvQueue[0];
+        if (first.Header.Frg == 0)
+            return (int)first.Header.Len;
+
+        // Frg 表示当前段之后还剩多少段；数量不足说明消息尚未收完整。
+        if (_rcvQueue.Count < first.Header.Frg + 1)
             return -1;
 
         var length = 0;
@@ -429,10 +475,10 @@ public sealed class KcpCore : IDisposable
         {
             length += (int)seg.Header.Len;
             if (seg.Header.Frg == 0)
-                break;
+                return length;
         }
 
-        return length;
+        return -1;
     }
 
     /// <summary>
@@ -440,12 +486,15 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public int SetMtu(int mtu)
     {
-        if (mtu < 50 || mtu < KcpSegmentHeader.HeaderSize)
-            return -1;
+        lock (_syncRoot)
+        {
+            if (_disposed || mtu < 50 || mtu < KcpSegmentHeader.HeaderSize)
+                return -1;
 
-        _mtu = (uint)mtu;
-        _mss = _mtu - KcpSegmentHeader.HeaderSize;
-        return 0;
+            _mtu = (uint)mtu;
+            _mss = _mtu - KcpSegmentHeader.HeaderSize;
+            return 0;
+        }
     }
 
     /// <summary>
@@ -453,11 +502,17 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public int SetWindowSize(int sndwnd, int rcvwnd)
     {
-        if (sndwnd > 0)
-            _sndWnd = (uint)sndwnd;
-        if (rcvwnd > 0)
-            _rcvWnd = (uint)rcvwnd;
-        return 0;
+        lock (_syncRoot)
+        {
+            if (_disposed)
+                return -1;
+
+            if (sndwnd > 0)
+                _sndWnd = (uint)sndwnd;
+            if (rcvwnd > 0)
+                _rcvWnd = (uint)rcvwnd;
+            return 0;
+        }
     }
 
     /// <summary>
@@ -465,42 +520,48 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public int NoDelay(int nodelay, int interval, int resend, bool nc)
     {
-        if (nodelay >= 0)
+        lock (_syncRoot)
         {
-            _nodelay = (uint)nodelay;
-            if (nodelay != 0)
-                _rxMinrto = 30;
-            else
-                _rxMinrto = 100;
-        }
+            if (_disposed)
+                return -1;
 
-        if (interval >= 0)
-        {
-            if (interval > 5000)
-                interval = 5000;
-            else if (interval < 10)
-                interval = 10;
-            _interval = (uint)interval;
-        }
+            if (nodelay >= 0)
+            {
+                _nodelay = (uint)nodelay;
+                if (nodelay != 0)
+                    _rxMinrto = 30;
+                else
+                    _rxMinrto = 100;
+            }
 
-        if (resend >= 0)
-        {
-            // 暂不实现resend参数
-        }
+            if (interval >= 0)
+            {
+                if (interval > 5000)
+                    interval = 5000;
+                else if (interval < 10)
+                    interval = 10;
+                _interval = (uint)interval;
+            }
 
-        // nc参数控制是否关闭拥塞控制
-        if (nc)
-        {
-            _cwnd = _sndWnd;
-            _incr = _sndWnd * _mss;
-        }
+            if (resend >= 0)
+            {
+                // 暂不实现resend参数
+            }
 
-        return 0;
+            // nc参数控制是否关闭拥塞控制
+            if (nc)
+            {
+                _cwnd = _sndWnd;
+                _incr = _sndWnd * _mss;
+            }
+
+            return 0;
+        }
     }
 
     #region Private Methods
 
-    private void Flush()
+    private void Flush(List<byte[]> outputs)
     {
         var current = _current;
         var change = false;
@@ -523,7 +584,7 @@ public sealed class KcpCore : IDisposable
             {
                 seg.Header.Sn = _ackList[i];
                 seg.Header.Ts = _ackList[i + 1];
-                OutputSeg(seg);
+                OutputSeg(seg, outputs);
             }
         }
         _ackList.Clear();
@@ -601,7 +662,7 @@ public sealed class KcpCore : IDisposable
                 segment.Header.Wnd = (ushort)WndUnused();
                 segment.Header.Una = _rcvNxt;
 
-                OutputSeg(segment);
+                OutputSeg(segment, outputs);
 
                 if (segment.Xmit >= 3)
                 {
@@ -635,13 +696,13 @@ public sealed class KcpCore : IDisposable
         }
     }
 
-    private void OutputSeg(KcpSegment seg)
+    private static void OutputSeg(KcpSegment seg, List<byte[]> outputs)
     {
         var buffer = new byte[KcpSegmentHeader.HeaderSize + seg.Header.Len];
         var encoded = seg.Encode(buffer);
         if (encoded > 0)
         {
-            _output(buffer, encoded);
+            outputs.Add(buffer);
         }
     }
 
@@ -826,28 +887,32 @@ public sealed class KcpCore : IDisposable
     /// </summary>
     public void Dispose()
     {
-        if (_disposed)
-            return;
+        lock (_syncRoot)
+        {
+            if (_disposed)
+                return;
 
-        _disposed = true;
+            _disposed = true;
 
-        // 清理所有队列
-        foreach (var seg in _sndQueue)
-            KcpSegment.Return(seg);
-        _sndQueue.Clear();
+            // Flush 已把待输出段编码为独立 byte[] 后才释放锁，因此这里可安全清理协议状态；
+            // 正在执行的用户 output 回调不持有 KcpSegment，也不需要等待本锁。
+            foreach (var seg in _sndQueue)
+                KcpSegment.Return(seg);
+            _sndQueue.Clear();
 
-        foreach (var seg in _rcvQueue)
-            KcpSegment.Return(seg);
-        _rcvQueue.Clear();
+            foreach (var seg in _rcvQueue)
+                KcpSegment.Return(seg);
+            _rcvQueue.Clear();
 
-        foreach (var seg in _sndBuf)
-            KcpSegment.Return(seg);
-        _sndBuf.Clear();
+            foreach (var seg in _sndBuf)
+                KcpSegment.Return(seg);
+            _sndBuf.Clear();
 
-        foreach (var seg in _rcvBuf)
-            KcpSegment.Return(seg);
-        _rcvBuf.Clear();
+            foreach (var seg in _rcvBuf)
+                KcpSegment.Return(seg);
+            _rcvBuf.Clear();
 
-        _ackList.Clear();
+            _ackList.Clear();
+        }
     }
 }

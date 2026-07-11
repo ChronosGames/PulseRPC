@@ -42,6 +42,7 @@ public class ProtocolIdConsistencyTests
         [Channel("TestServer")]
         public interface ISampleHub : IPulseHub, IGreetingMixin
         {
+            [Reentrant]
             Task<int> AddAsync(int a, int b);
         }
 
@@ -108,6 +109,61 @@ public class ProtocolIdConsistencyTests
         }
         """;
 
+    private const string AuthorizationSource = """
+        #nullable enable
+        using System;
+        using System.Threading.Tasks;
+        using PulseRPC;
+
+        namespace PulseRPC.Server
+        {
+            [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+            public sealed class RequireRoleAttribute : Attribute
+            {
+                public RequireRoleAttribute(string role) { }
+                public bool AllowInternal { get; set; } = true;
+                public bool AllowSystem { get; set; } = true;
+            }
+
+            [AttributeUsage(AttributeTargets.Method, AllowMultiple = true)]
+            public sealed class RequirePermissionAttribute : Attribute
+            {
+                public RequirePermissionAttribute(string permission) { }
+                public bool AllowInternal { get; set; } = true;
+                public bool AllowSystem { get; set; } = true;
+            }
+
+            [AttributeUsage(AttributeTargets.Method)]
+            public sealed class InternalAttribute : Attribute { }
+
+            [AttributeUsage(AttributeTargets.Method)]
+            public sealed class ExternalOnlyAttribute : Attribute { }
+        }
+
+        namespace AuthorizationGenerationNs
+        {
+            [Authorize(Role = "DeclaringRole")]
+            public interface ISecureMixin
+            {
+                [AllowAnonymous]
+                [PulseRPC.Server.RequireRole("MethodRole", AllowInternal = false, AllowSystem = false)]
+                [PulseRPC.Server.RequirePermission("records.read", AllowInternal = false, AllowSystem = false)]
+                Task<string> ReadAsync();
+            }
+
+            [Channel("TestServer")]
+            [Authorize(Role = "InterfaceRole", Policy = "tenant-owner", Scopes = new[] { "tenant.read" })]
+            public interface ISecureHub : IPulseHub, ISecureMixin
+            {
+                [PulseRPC.Server.Internal]
+                Task InternalAsync();
+
+                [PulseRPC.Server.ExternalOnly]
+                Task ExternalAsync();
+            }
+        }
+        """;
+
     [Fact]
     public void FacetCompositionOfTwoTopLevelHubs_MustNotProduceDuplicateServerRoute()
     {
@@ -150,6 +206,167 @@ public class ProtocolIdConsistencyTests
         serverGeneratedText.Should().Contain(
             "RouteByProtocolIdKeyedAsync",
             "生成的路由表必须包含按协议号分发到 keyed 路由器的内部方法");
+
+        serverGeneratedText.Should().Contain(
+            "implementation is global::PulseRPC.Server.Services.PulseServiceBase actor",
+            "keyed 实现实例是 PulseServiceBase 时必须进入 Actor 邮箱");
+
+        serverGeneratedText.Should().Contain(
+            "reentrant: false",
+            "普通 keyed 方法必须作为写者串行执行");
+
+        serverGeneratedText.Should().Contain(
+            "reentrant: true",
+            "[Reentrant] keyed 方法必须作为只读请求进入邮箱");
+    }
+
+    [Fact]
+    public void GeneratedRoutingTable_MustValidateCanonicalHubAndProtocolAtomically()
+    {
+        var serverGeneratedText = RunServerGenerator(CreateCompilation(TestSource));
+
+        serverGeneratedText.Should().Contain("public bool IsProtocolIdValid(string hub, ushort protocolId)");
+        serverGeneratedText.Should().Contain("\"SampleHub\" => protocolId is");
+        serverGeneratedText.Should().Contain(
+            "RouteByProtocolIdAsync(IServiceProvider serviceProvider, string hub, ushort protocolId, ReadOnlyMemory<byte> data");
+        serverGeneratedText.Should().Contain(
+            "RouteByProtocolIdAsync(IServiceProvider serviceProvider, string hub, ushort protocolId, string serviceKey, ReadOnlyMemory<byte> data");
+        serverGeneratedText.Should().Contain("EnsureProtocolIdValid(hub, protocolId);");
+    }
+
+    [Fact]
+    public void FacetComposition_StrictMap_MustKeepDerivedHubProtocolAlias()
+    {
+        var serverGeneratedText = RunServerGenerator(CreateCompilation(FacetCompositionSource));
+        var guildProtocolId = ExtractServerProtocolId(serverGeneratedText, "GuildHub", "CreateGuildAsync");
+
+        guildProtocolId.Should().NotBeNull();
+        serverGeneratedText.Should().MatchRegex(
+            $"\\\"BackendHub\\\"\\s*=>[^\\r\\n]*0x{guildProtocolId!.Value:X4}",
+            "派生 facet 调用继承方法时仍携带派生 Hub canonical name，严格映射必须保留该合法别名");
+    }
+
+    [Fact]
+    public void GeneratedRoutingTable_MustEmitMergedAuthorizationBeforeActivationOrInvocation()
+    {
+        var serverGeneratedText = RunServerGenerator(CreateCompilation(AuthorizationSource));
+
+        serverGeneratedText.Should().Contain("allowAnonymous: true");
+        serverGeneratedText.Should().Contain("requireAuthentication: false");
+        serverGeneratedText.Should().Contain("AuthorizationRequirementKind.Role, \"InterfaceRole\"");
+        serverGeneratedText.Should().Contain("AuthorizationRequirementKind.Role, \"DeclaringRole\"");
+        serverGeneratedText.Should().Contain("AuthorizationRequirementKind.Role, \"MethodRole\", allowInternal: false, allowSystem: false");
+        serverGeneratedText.Should().Contain("AuthorizationRequirementKind.Permission, \"records.read\", allowInternal: false, allowSystem: false");
+        serverGeneratedText.Should().Contain("AuthorizationRequirementKind.Scope, \"tenant.read\"");
+        serverGeneratedText.Should().Contain("\"tenant-owner\"");
+        serverGeneratedText.Should().Contain("internalOnly: true");
+        serverGeneratedText.Should().Contain("externalOnly: true");
+
+        var gateIndex = serverGeneratedText.IndexOf("AuthorizationGate.Enforce", StringComparison.Ordinal);
+        var resolveIndex = serverGeneratedText.IndexOf("ResolveKeyedHubInstanceAsync<", StringComparison.Ordinal);
+        gateIndex.Should().BeGreaterThan(-1);
+        resolveIndex.Should().BeGreaterThan(gateIndex,
+            "授权必须在 keyed 实例解析/激活及参数反序列化前执行");
+    }
+
+    [Fact]
+    public void GeneratedStrictRoutingAndAuthorizationCode_MustCompile()
+    {
+        var additionalReferences = new[]
+        {
+            MetadataReference.CreateFromFile(typeof(global::PulseRPC.Server.IServiceRoutingTable).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(global::PulseRPC.Server.Security.AuthorizationGate).Assembly.Location),
+            MetadataReference.CreateFromFile(Path.Combine(
+                Path.GetDirectoryName(typeof(global::PulseRPC.Server.IServiceRoutingTable).Assembly.Location)!,
+                "PulseRPC.Shared.dll")),
+            MetadataReference.CreateFromFile(typeof(global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions).Assembly.Location),
+        };
+        var compilation = CreateCompilation(AuthorizationSource, additionalReferences);
+        var generator = new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator();
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(generator);
+
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var generatorDiagnostics);
+
+        generatorDiagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("生成器驱动不应报告错误");
+        outputCompilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("严格 Hub 映射和授权 descriptor 的生成代码必须可编译");
+    }
+
+    [Fact]
+    public void CanonicalHubNameCollision_MustBeBuildError()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using PulseRPC;
+
+            namespace CanonicalHubCollisionNs;
+
+            public interface IInventoryHub : IPulseHub
+            {
+                Task FirstAsync();
+            }
+
+            public interface InventoryHub : IPulseHub
+            {
+                Task SecondAsync();
+            }
+            """;
+
+        var result = RunServerGeneratorRaw(CreateCompilation(source));
+
+        result.Diagnostics.Should().Contain(diagnostic =>
+            diagnostic.Id == "PULSE005" && diagnostic.Severity == DiagnosticSeverity.Error);
+    }
+
+    [Fact]
+    public void GeneratedClientExtensions_MustExposeTypedGatewayActorEntryPoint()
+    {
+        var clientGeneratedText = RunClientGenerator(CreateCompilation(TestSource));
+
+        clientGeneratedText.Should().Contain(
+            "public static T GetGatewayActor<T>(this IClientChannel channel, string key) where T : class, IPulseHub",
+            "客户端应能用强类型 Hub + Actor key 创建透明 Gateway 代理");
+        clientGeneratedText.Should().Contain(
+            "return GetHub<T>(channel.ForGatewayActor<T>(key));",
+            "Gateway Actor 入口必须复用普通业务 Stub，而不是生成第二套调用协议");
+    }
+
+    [Fact]
+    public void GeneratedClientStub_MustSendCanonicalHub_WhenChannelSupportsAddressedWire()
+    {
+        var clientGeneratedText = RunClientGenerator(CreateCompilation(TestSource));
+        const string commandSource = """
+            using System.Threading.Tasks;
+            using PulseRPC;
+
+            namespace HubAddressedCommandNs;
+
+            [Channel("TestServer")]
+            public interface ICommandHub : IPulseHub
+            {
+                Task NotifyAsync(string value);
+            }
+
+            [PulseClientGeneration(typeof(ICommandHub))]
+            public partial class ClientRegistrar
+            {
+            }
+            """;
+        var commandGeneratedText = RunClientGenerator(CreateCompilation(commandSource));
+
+        clientGeneratedText.Should().Contain(
+            "_connection is PulseRPC.Client.IHubAddressedClientChannel __hubChannel__",
+            "新版内置通道必须在协议号之外显式携带 canonical Hub，供服务端强校验 (Hub, ProtocolId)");
+        clientGeneratedText.Should().Contain(
+            "InvokeHubRawAsync(\"SampleHub\"",
+            "请求/响应调用应使用与 Gateway Actor 寻址一致的 canonical Hub 名");
+        commandGeneratedText.Should().Contain(
+            "SendHubCommandAsync(\"CommandHub\"",
+            "单向调用也必须携带同一个 canonical Hub 名");
+        clientGeneratedText.Should().Contain(
+            ": await _connection.InvokeRawAsync(",
+            "自定义旧 IClientChannel 实现应保留兼容回退路径");
     }
 
     [Fact]
@@ -279,14 +496,23 @@ public class ProtocolIdConsistencyTests
         return string.Join("\n\n", result.Results.SelectMany(r => r.GeneratedSources).Select(s => s.SourceText.ToString()));
     }
 
-    private static CSharpCompilation CreateCompilation(string source)
+    private static CSharpCompilation CreateCompilation(
+        string source,
+        IEnumerable<MetadataReference>? additionalReferences = null)
     {
         var syntaxTree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Latest));
+        var references = GetMetadataReferences().AsEnumerable();
+        if (additionalReferences is not null)
+        {
+            references = references.Concat(additionalReferences)
+                .GroupBy(reference => reference.Display, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First());
+        }
 
         return CSharpCompilation.Create(
             assemblyName: "ProtocolIdConsistencyTestAssembly",
             syntaxTrees: new[] { syntaxTree },
-            references: GetMetadataReferences(),
+            references: references,
             options: new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 nullableContextOptions: NullableContextOptions.Enable));

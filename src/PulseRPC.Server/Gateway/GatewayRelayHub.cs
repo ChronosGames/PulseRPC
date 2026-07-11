@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Clustering;
+using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Gateway;
@@ -35,7 +36,9 @@ public sealed class GatewayRelayHub : IGatewayRelayHub
             return;
         }
 
-        await channel.SendAsync(framedPacket).ConfigureAwait(false);
+        await channel.SendAsync(
+            framedPacket,
+            PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
@@ -47,7 +50,11 @@ public sealed class GatewayRelayHub : IGatewayRelayHub
             ?? throw new InvalidOperationException($"网关反向 Ask 目标连接 '{connectionId}' 不存在或已断开。");
 
         var timeout = timeoutMs > 0 ? TimeSpan.FromMilliseconds(timeoutMs) : TimeSpan.Zero;
-        var result = await channel.InvokeClientAsync(protocolId, payload, timeout, CancellationToken.None).ConfigureAwait(false);
+        var result = await channel.InvokeClientAsync(
+            protocolId,
+            payload,
+            timeout,
+            PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
         return result.ToArray();
     }
 }

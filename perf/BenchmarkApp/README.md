@@ -9,6 +9,7 @@ PulseRPC.Benchmark/           # 主项目
 ├── Program.cs                # CLI 入口
 ├── Models/                   # 配置和结果模型
 ├── Scenarios/                # 测试场景
+├── Clustering/               # 真实三节点 TCP 拓扑与基准
 ├── Server/                   # 服务端实现
 ├── Client/                   # 客户端运行器
 └── Reports/                  # 报告生成
@@ -173,7 +174,23 @@ dotnet run -c release --project PulseRPC.Benchmark -- client stability --port 12
 ═══════════════════════════════════════════════════════════════
 ```
 
-### 3. 导出结果
+### 3. 真实三节点 TCP 基准
+
+该命令在同一进程内启动三个独立 PulseServer，外部用户上下文先进入 A 的 `GatewayFrontHub`，节点间使用内置 `TcpNodeTransport`，每次计量请求均完整经过 `Gateway A -> B -> C`，并在 C 校验 claims、角色、权限及 bearer token 剥离：
+
+```bash
+dotnet run -c Release --project PulseRPC.Benchmark -- cluster-three-hop --warmup 200 --iterations 10000 --concurrency 8
+```
+
+CI 或本地快速验证使用 smoke 参数；它会把规模限制为最多 5 次预热、30 次计量和 2 并发：
+
+```bash
+dotnet run -c Release --project PulseRPC.Benchmark -- cluster-three-hop --smoke
+```
+
+输出包含 `ops/s` 以及端到端延迟 `p50/p95/p99`。
+
+### 4. 导出结果
 
 添加 `--output` 参数将结果保存为 JSON 文件：
 
@@ -201,6 +218,15 @@ dotnet run -c release --project PulseRPC.Benchmark -- client latency --port 1234
 | `--size` | 1024 | 消息大小（字节） |
 | `--warmup` | 100 | 预热迭代次数 |
 | `--output` | - | 输出文件路径（JSON） |
+
+### 三节点 TCP 参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--warmup` | 200 | 预热请求数 |
+| `--iterations` | 10000 | 计量请求数 |
+| `--concurrency` | CPU 核数 | 并发请求数 |
+| `--smoke` | false | 启用短跑上限 |
 
 ## 测试场景说明
 

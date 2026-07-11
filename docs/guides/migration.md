@@ -22,10 +22,18 @@
 
 `samples/README.md` 已标记历史探索示例。迁移这些示例前，先确认当前公共 API，并补最小构建测试。
 
+## 迁移到严格 Hub 路由和 node wire v2
+
+- 重新生成客户端代理；新代理在通道支持 `IHubAddressedClientChannel` 时会发送 canonical Hub。
+- 手写 `IClientChannel.InvokeRawAsync` / `SendCommandAsync` 调用无法提供 Hub。需要进入严格网络入口的代码应改用 `IHubAddressedClientChannel.InvokeHubRawAsync` / `SendHubCommandAsync`。
+- 所有集群节点先部署支持能力协商的版本，再保持 `ClusterNodeWireOptions.AllowLegacyActorProtocol=false`。如滚动升级必须短期开启 legacy，应接受该窗口没有 claims 传播与 lease fencing，并在升级完成后关闭。
+- 多节点环境注册共享 `IActorLeaseStore`；默认进程内实现不再被多成员拓扑接受。
+- 显式设置 `TcpNodeTransportOptions.SecurityMode`。生产选择 `ExternalMutualTls` 前必须先让节点端口实际处于 mTLS 保护层之后；本机测试才可使用 `InsecureDevelopment`。
+- wire v2 的 Send 现在等待远端执行 ACK。容量规划应重新测量延迟/吞吐；跨进程 exactly-once 仍需持久 inbox 或业务幂等，不能只依赖进程内去重窗口。
+
 ## 相关文档
 
 - [RPC 模型](../concepts/rpc-model.md)
 - [Source Generator 模型](../concepts/source-generation.md)
 - [测试指南](testing.md)
 - [历史归档](../archive/)
-

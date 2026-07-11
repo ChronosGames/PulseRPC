@@ -23,15 +23,17 @@ Unity 客户端开发者：
 2. [Actor 模型](concepts/actor-model.md)
 3. [服务端运行时](concepts/server-runtime.md)
 4. [Actor 服务开发](guides/actor-services.md)
-5. [认证与授权](guides/authentication.md)
+5. [经 Gateway 调用 Actor](guides/gateway-actors.md)
+6. [认证与授权](guides/authentication.md)
 
 集群和部署维护者：
 
 1. [架构总览](concepts/architecture.md)
 2. [集群与路由](concepts/clustering-and-routing.md)
-3. [传输模型](concepts/transport-model.md)
-4. [部署指南](guides/deployment.md)
-5. [性能指南](guides/performance.md)
+3. [经 Gateway 调用 Actor](guides/gateway-actors.md)
+4. [传输模型](concepts/transport-model.md)
+5. [部署指南](guides/deployment.md)
+6. [性能指南](guides/performance.md)
 
 维护者：
 
@@ -39,6 +41,7 @@ Unity 客户端开发者：
 2. [参考手册](reference/index.md)
 3. [变更日志](changelog.md)
 4. [历史归档](archive/)
+5. [Proto.Actor .NET 架构对比研究](archive/research/proto-actor-dotnet-architecture-analysis.md)
 
 AI Agent 或自动化维护任务请阅读仓库根目录下的 `.agent/README.md`。
 

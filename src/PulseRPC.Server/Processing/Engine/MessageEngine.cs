@@ -504,21 +504,23 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                         context = PulseContextData.FromAuthenticationContext(authContext, serverChannel.Transport);
                         context = context with
                         {
+                            RequestId = envelope.MessageId,
                             ConnectionId = envelope.ConnectionId,
                             ServiceName = serviceName,
                             ServiceKey = serviceKey,
-                            MethodName = methodName
+                            MethodName = methodName,
+                            CancellationToken = dispatchToken,
                         };
                     }
                     else
                     {
-                        context = PulseContextData.CreateServiceContext(
-                            serviceType: "Internal",
-                            serviceId: envelope.ConnectionId ?? "Unknown",
-                            transport: serverChannel.Transport);
+                        context = PulseContextData.CreateAnonymousClientContext(
+                            envelope.ConnectionId,
+                            serverChannel.Transport,
+                            dispatchToken);
                         context = context with
                         {
-                            ConnectionId = envelope.ConnectionId,
+                            RequestId = envelope.MessageId,
                             ServiceName = serviceName,
                             ServiceKey = serviceKey,
                             MethodName = methodName
@@ -529,7 +531,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                     hasContext = true;
                 }
 
-                // 🔐 权限检查现在由源代码生成器生成的代理类处理
+                // 🔐 ClientFacing 与声明式授权由源生成路由表在反序列化/实例激活前统一强制。
 
                 try
                 {

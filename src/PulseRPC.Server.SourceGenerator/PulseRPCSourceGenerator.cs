@@ -135,6 +135,11 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             // 自身的 ServiceModel 提供路由项。避免全局路由表（单一 switch）出现重复 case（见 §11.2）。
             DeduplicateFacadeInheritedMethods(serviceModels);
 
+            if (!ValidateCanonicalHubNames(context, serviceModels))
+            {
+                return;
+            }
+
             // 为所有服务方法分配协议号 - 需要适配新的上下文
             AssignProtocolIdsForIncremental(serviceModels, context);
 
@@ -278,7 +283,9 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <para>
     /// 处理方式：只要方法的声明接口本身也在本次编译中被独立识别为顶层 Hub（有自己的
     /// <see cref="ServiceModel"/>），就认为该方法的路由已由声明接口自己提供，从派生 facet
-    /// 中移除，避免重复路由项；纯 mixin 基接口（未独立注册为 Hub）的方法则保留，
+    /// 中移除实际 switch case，避免重复路由项；同时把它保存在
+    /// <see cref="ServiceModel.ProtocolAliases"/>，使严格 <c>(Hub, ProtocolId)</c> 映射仍接受
+    /// 派生 facet 的 canonical Hub 名。纯 mixin 基接口（未独立注册为 Hub）的方法则保留，
     /// 从而仍然修复"客户端能调用、服务端未路由"的静默丢失问题。
     /// </para>
     /// </remarks>
@@ -288,11 +295,50 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
 
         foreach (var service in serviceModels)
         {
-            service.Methods.RemoveAll(method =>
+            var aliases = service.Methods.Where(method =>
                 method.DeclaringInterfaceFullName != null &&
                 method.DeclaringInterfaceFullName != service.InterfaceFullName &&
-                topLevelInterfaces.Contains(method.DeclaringInterfaceFullName));
+                topLevelInterfaces.Contains(method.DeclaringInterfaceFullName)).ToList();
+
+            service.ProtocolAliases.AddRange(aliases);
+            service.Methods.RemoveAll(aliases.Contains);
         }
+    }
+
+    private static bool ValidateCanonicalHubNames(
+        SourceProductionContext context,
+        List<ServiceModel> serviceModels)
+    {
+        var isValid = true;
+        foreach (var group in serviceModels.GroupBy(
+                     service => service.InterfaceName.TrimStart('I'),
+                     StringComparer.Ordinal))
+        {
+            var conflictingServices = group
+                .Select(service => service.InterfaceFullName)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (conflictingServices.Count < 2)
+            {
+                continue;
+            }
+
+            isValid = false;
+            var descriptor = new DiagnosticDescriptor(
+                "PULSE005",
+                "Canonical Hub name conflict",
+                "Hub interfaces {0} map to the same canonical Hub name '{1}'. Rename a Hub so (Hub, ProtocolId) routing remains unambiguous.",
+                "PulseRPC.Server.SourceGenerator",
+                DiagnosticSeverity.Error,
+                true);
+            context.ReportDiagnostic(Diagnostic.Create(
+                descriptor,
+                Location.None,
+                string.Join(", ", conflictingServices),
+                group.Key));
+        }
+
+        return isValid;
     }
 
     /// <summary>
@@ -355,6 +401,16 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
                     {
                         usedIds[protocolId] = (service.InterfaceName, method.MethodName, method.Location);
                     }
+                }
+            }
+
+            // 组合 facet 的继承方法由其声明 Hub 提供实际 switch case，但派生 Hub 仍是该协议的
+            // 合法寻址别名。别名使用同一纯哈希/手动协议号，不参与全局冲突登记。
+            foreach (var alias in service.ProtocolAliases)
+            {
+                if (alias.ProtocolId == 0)
+                {
+                    alias.ProtocolId = GenerateProtocolIdInternal(service, alias);
                 }
             }
         }
@@ -957,7 +1013,7 @@ public static partial class ProtocolIdMapping
                     // 尝试读取 [Protocol] 特性
                     var manualProtocolId = TryGetProtocolIdFromAttribute(methodSymbol);
 
-                    var methodAuthorization = AuthorizationHelper.GetAuthorization(methodSymbol);
+                    var methodAuthorization = AuthorizationHelper.GetEffectiveAuthorization(typeSymbol, methodSymbol);
 
                     var isReentrant = methodSymbol.GetAttributes()
                         .Any(attr => attr.AttributeClass?.Name is "ReentrantAttribute" or "Reentrant");

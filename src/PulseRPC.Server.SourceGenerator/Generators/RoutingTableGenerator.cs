@@ -94,6 +94,7 @@ public static class RoutingTableGenerator
         sb.AppendLine("    private ServiceRoutingTable() { }");
         sb.AppendLine();
 
+        GenerateAuthorizationDescriptors(sb, services);
         GenerateProtocolIdEnumeration(sb, services);
 
         // 生成路由方法
@@ -112,6 +113,55 @@ public static class RoutingTableGenerator
         GenerateHelperMethods(sb, services);
 
         sb.AppendLine("}");
+    }
+
+    private static void GenerateAuthorizationDescriptors(StringBuilder sb, List<ServiceModel> services)
+    {
+        foreach (var service in services)
+        {
+            foreach (var method in service.Methods)
+            {
+                GenerateAuthorizationDescriptor(sb, GetAuthorizationFieldName(method), method.Authorization);
+            }
+
+            foreach (var alias in service.ProtocolAliases)
+            {
+                GenerateAuthorizationDescriptor(sb, GetAliasAuthorizationFieldName(service, alias), alias.Authorization);
+            }
+        }
+    }
+
+    private static void GenerateAuthorizationDescriptor(
+        StringBuilder sb,
+        string fieldName,
+        AuthorizationModel? authorization)
+    {
+        if (authorization is null)
+        {
+            return;
+        }
+
+        sb.AppendLine($"    private static readonly global::PulseRPC.Server.Security.AuthorizationDescriptor {fieldName} = new(");
+        sb.AppendLine($"        allowAnonymous: {FormatBoolean(authorization.AllowAnonymous)},");
+        sb.AppendLine($"        requireAuthentication: {FormatBoolean(authorization.RequireAuthentication)},");
+        sb.AppendLine($"        internalOnly: {FormatBoolean(authorization.InternalOnly)},");
+        sb.AppendLine($"        externalOnly: {FormatBoolean(authorization.ExternalOnly)},");
+        sb.AppendLine("        requirements: new global::PulseRPC.Server.Security.AuthorizationRequirement[]");
+        sb.AppendLine("        {");
+        foreach (var requirement in authorization.Requirements)
+        {
+            sb.AppendLine(
+                $"            new(global::PulseRPC.Server.Security.AuthorizationRequirementKind.{requirement.Kind}, \"{EscapeString(requirement.Value)}\", allowInternal: {FormatBoolean(requirement.AllowInternal)}, allowSystem: {FormatBoolean(requirement.AllowSystem)}),");
+        }
+        sb.AppendLine("        },");
+        sb.AppendLine("        policies: new string[]");
+        sb.AppendLine("        {");
+        foreach (var policy in authorization.Policies)
+        {
+            sb.AppendLine($"            \"{EscapeString(policy)}\",");
+        }
+        sb.AppendLine("        });");
+        sb.AppendLine();
     }
 
     private static void GenerateProtocolIdEnumeration(StringBuilder sb, List<ServiceModel> services)
@@ -143,6 +193,71 @@ public static class RoutingTableGenerator
         GenerateProtocolIdBasedRouting(sb, services);
     }
 
+    private static void GenerateHubProtocolValidation(StringBuilder sb, List<ServiceModel> services)
+    {
+        sb.AppendLine("    /// <summary>严格校验 canonical (Hub, ProtocolId) 归属。</summary>");
+        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("    public bool IsProtocolIdValid(string hub, ushort protocolId)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        return hub switch");
+        sb.AppendLine("        {");
+
+        foreach (var hubGroup in services.GroupBy(GetCanonicalHubName, StringComparer.Ordinal))
+        {
+            var protocolIds = hubGroup
+                .SelectMany(service => service.Methods.Concat(service.ProtocolAliases))
+                .Select(method => method.ProtocolId)
+                .Distinct()
+                .ToList();
+
+            if (protocolIds.Count == 0)
+            {
+                continue;
+            }
+
+            var patterns = string.Join(" or ", protocolIds.Select(id => $"0x{id:X4}"));
+            sb.AppendLine($"            \"{EscapeString(hubGroup.Key)}\" => protocolId is {patterns},");
+        }
+
+        sb.AppendLine("            _ => false,");
+        sb.AppendLine("        };");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
+        sb.AppendLine("    private void EnsureProtocolIdValid(string hub, ushort protocolId)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        if (!IsProtocolIdValid(hub, protocolId))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            throw new ProtocolIdNotFoundException($\"Protocol ID '0x{protocolId:X4}' does not belong to canonical Hub '{hub}'.\");");
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine("    private static void EnforceProtocolAliasAccess(IServiceProvider serviceProvider, string hub, ushort protocolId)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        switch (hub)");
+        sb.AppendLine("        {");
+        foreach (var service in services.Where(service => service.ProtocolAliases.Count != 0))
+        {
+            sb.AppendLine($"            case \"{EscapeString(GetCanonicalHubName(service))}\":");
+            sb.AppendLine("                switch (protocolId)");
+            sb.AppendLine("                {");
+            foreach (var alias in service.ProtocolAliases)
+            {
+                sb.AppendLine($"                    case 0x{alias.ProtocolId:X4}:");
+                sb.AppendLine($"                        PulseRPC.Server.Security.ClientFacingGate.Enforce(isClientFacing: {FormatBoolean(alias.IsClientFacing)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
+                sb.AppendLine($"                        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAliasAuthorizationExpression(service, alias)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
+                sb.AppendLine("                        return;");
+            }
+            sb.AppendLine("                }");
+            sb.AppendLine("                return;");
+        }
+        sb.AppendLine("        }");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+    }
+
     /// <summary>
     /// 生成基于协议号的路由（最快路径）
     /// </summary>
@@ -150,6 +265,8 @@ public static class RoutingTableGenerator
     {
         sb.AppendLine("    #region Protocol ID Based Routing (Recommended - Zero Allocation)");
         sb.AppendLine();
+
+        GenerateHubProtocolValidation(sb, services);
 
         sb.AppendLine("    /// <summary>");
         sb.AppendLine("    /// [推荐] 基于协议号的超快速路由 - 零字符串分配");
@@ -174,6 +291,14 @@ public static class RoutingTableGenerator
 
         sb.AppendLine("            _ => ThrowProtocolIdNotFoundException(protocolId)");
         sb.AppendLine("        };");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine("    public ValueTask<object?> RouteByProtocolIdAsync(IServiceProvider serviceProvider, string hub, ushort protocolId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        EnsureProtocolIdValid(hub, protocolId);");
+        sb.AppendLine("        EnforceProtocolAliasAccess(serviceProvider, hub, protocolId);");
+        sb.AppendLine("        return RouteByProtocolIdAsync(serviceProvider, protocolId, data, cancellationToken);");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -206,6 +331,14 @@ public static class RoutingTableGenerator
         sb.AppendLine("        }");
         sb.AppendLine();
         sb.AppendLine("        return RouteByProtocolIdKeyedAsync(serviceProvider, protocolId, serviceKey, data, cancellationToken);");
+        sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine("    public ValueTask<object?> RouteByProtocolIdAsync(IServiceProvider serviceProvider, string hub, ushort protocolId, string serviceKey, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)");
+        sb.AppendLine("    {");
+        sb.AppendLine("        EnsureProtocolIdValid(hub, protocolId);");
+        sb.AppendLine("        EnforceProtocolAliasAccess(serviceProvider, hub, protocolId);");
+        sb.AppendLine("        return RouteByProtocolIdAsync(serviceProvider, protocolId, serviceKey, data, cancellationToken);");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -305,7 +438,7 @@ public static class RoutingTableGenerator
     private static void GenerateProtocolIdMethodRouter(StringBuilder sb, ServiceModel service, MethodModel method)
     {
         var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method.MethodName);
-        var proxyClassName = $"{service.InterfaceName.TrimStart('I')}Proxy";
+        var proxyClassName = $"{GetCanonicalHubName(service)}Proxy";
 
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// Protocol ID router for {service.InterfaceName}.{method.MethodName} (0x{method.ProtocolId:X4})");
@@ -317,8 +450,9 @@ public static class RoutingTableGenerator
         // P-6：客户端可见性门闸——强制链的唯一必经检查点，位于所有协议号路由的公共出口。
         // isClientFacing 由源生成器在编译期根据 [ClientFacing] 解析得出，与业务鉴权（[Authorize] 等）无关。
         sb.AppendLine($"        PulseRPC.Server.Security.ClientFacingGate.Enforce(isClientFacing: {(method.IsClientFacing ? "true" : "false")}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
+        sb.AppendLine($"        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAuthorizationExpression(method)}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
 
-        sb.AppendLine($"        var proxy = GetOrCreate{service.InterfaceName.TrimStart('I')}Proxy(serviceProvider);");
+        sb.AppendLine($"        var proxy = GetOrCreate{GetCanonicalHubName(service)}Proxy(serviceProvider);");
         sb.AppendLine($"        return proxy.Invoke_{method.MethodName}_Async(data, cancellationToken);");
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -331,7 +465,7 @@ public static class RoutingTableGenerator
     private static void GenerateKeyedProtocolIdMethodRouter(StringBuilder sb, ServiceModel service, MethodModel method)
     {
         var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method.MethodName) + "_Keyed";
-        var hubShortName = service.InterfaceName.TrimStart('I');
+        var hubShortName = GetCanonicalHubName(service);
 
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// Keyed protocol ID router for {service.InterfaceName}.{method.MethodName} (0x{method.ProtocolId:X4})");
@@ -339,8 +473,17 @@ public static class RoutingTableGenerator
         sb.AppendLine($"    private async ValueTask<object?> {routerMethodName}(IServiceProvider serviceProvider, string serviceKey, ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
         sb.AppendLine("    {");
         sb.AppendLine($"        PulseRPC.Server.Security.ClientFacingGate.Enforce(isClientFacing: {(method.IsClientFacing ? "true" : "false")}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
+        sb.AppendLine($"        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAuthorizationExpression(method)}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
         sb.AppendLine($"        var implementation = await ResolveKeyedHubInstanceAsync<{service.InterfaceFullName}>(serviceProvider, \"{hubShortName}\", serviceKey, cancellationToken);");
         sb.AppendLine($"        var proxy = GetOrCreate{hubShortName}ProxyForInstance(implementation);");
+        sb.AppendLine("        if (implementation is global::PulseRPC.Server.Services.PulseServiceBase actor)");
+        sb.AppendLine("        {");
+        sb.AppendLine($"            return await actor.EnqueueAsync(");
+        sb.AppendLine($"                async () => await proxy.Invoke_{method.MethodName}_Async(data, cancellationToken).ConfigureAwait(false),");
+        sb.AppendLine($"                reentrant: {(method.IsReentrant ? "true" : "false")},");
+        sb.AppendLine("                cancellationToken: cancellationToken).ConfigureAwait(false);");
+        sb.AppendLine("        }");
+        sb.AppendLine();
         sb.AppendLine($"        return await proxy.Invoke_{method.MethodName}_Async(data, cancellationToken);");
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -352,8 +495,8 @@ public static class RoutingTableGenerator
     /// </summary>
     private static void GenerateProxyGetter(StringBuilder sb, ServiceModel service)
     {
-        var proxyClassName = $"{service.InterfaceName.TrimStart('I')}Proxy";
-        var serviceName = service.InterfaceName.TrimStart('I');
+        var proxyClassName = $"{GetCanonicalHubName(service)}Proxy";
+        var serviceName = GetCanonicalHubName(service);
         var cacheFieldName = $"_{serviceName}ProxyCache";
 
         sb.AppendLine($"    // Proxy 缓存 - 使用 ConditionalWeakTable 避免内存泄漏，键为服务实现实例");
@@ -668,6 +811,30 @@ public static class RoutingTableGenerator
         sb.AppendLine("    #endregion");
         sb.AppendLine();
     }
+
+    private static string GetCanonicalHubName(ServiceModel service)
+        => service.InterfaceName.TrimStart('I');
+
+    private static string GetAuthorizationFieldName(MethodModel method)
+        => $"s_authorization_{method.ProtocolId:X4}";
+
+    private static string GetAliasAuthorizationFieldName(ServiceModel service, MethodModel method)
+        => $"s_authorization_alias_{service.InterfaceName}_{method.ProtocolId:X4}";
+
+    private static string GetAuthorizationExpression(MethodModel method)
+        => method.Authorization is null
+            ? "global::PulseRPC.Server.Security.AuthorizationDescriptor.None"
+            : GetAuthorizationFieldName(method);
+
+    private static string GetAliasAuthorizationExpression(ServiceModel service, MethodModel method)
+        => method.Authorization is null
+            ? "global::PulseRPC.Server.Security.AuthorizationDescriptor.None"
+            : GetAliasAuthorizationFieldName(service, method);
+
+    private static string EscapeString(string value)
+        => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+    private static string FormatBoolean(bool value) => value ? "true" : "false";
 
     /// <summary>
     /// 将字符串转换为 PascalCase（首字母大写）

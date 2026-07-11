@@ -65,6 +65,12 @@ public class ClusterPulseRouterTests
 
         var hashRing = new NodeConsistentHashRing(new[] { LocalNodeId, RemoteNodeId });
         actorDirectory = Substitute.For<IActorDirectory>();
+        actorDirectory
+            .ActivateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call => new ActorPlacement(
+                call.ArgAt<string>(2),
+                $"lease-{call.ArgAt<string>(2)}",
+                DateTime.UtcNow.AddMinutes(1).Ticks));
         nodeLink = Substitute.For<INodeLink>();
         backplane = Substitute.For<IPulseBackplane>();
         backplane.Subscribe(Arg.Any<BackplaneMessageHandler>()).Returns(Substitute.For<IDisposable>());
@@ -83,7 +89,7 @@ public class ClusterPulseRouterTests
         for (var i = 0; i < 10_000; i++)
         {
             var key = $"actor-{i}";
-            if (ring.GetOwner(key) == targetOwner)
+            if (ring.GetOwner(HashPlacementStrategy.BuildIdentity("RoomHub", key)) == targetOwner)
             {
                 return key;
             }
@@ -126,8 +132,8 @@ public class ClusterPulseRouterTests
         var body = MemoryPackSerializer.Serialize("hello-actor");
         await router.SendAsync(PulseAddress.Actor("RoomHub", key), 0x1234, body);
 
-        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0x1234, body, "", "", Arg.Any<CancellationToken>(), Arg.Any<Guid>());
-        await actorDirectory.DidNotReceive().ActivateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0x1234, body, "", "", Arg.Any<CancellationToken>(), Arg.Any<Guid>(), "lease-node-remote");
+        await actorDirectory.Received(1).ActivateAsync("RoomHub", key, RemoteNodeId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -137,7 +143,7 @@ public class ClusterPulseRouterTests
         var key = FindKeyOwnedBy(RemoteNodeId);
 
         var expectedResponse = MemoryPackSerializer.Serialize("actor-result");
-        nodeLink.AskActorAsync(RemoteNodeId, "RoomHub", key, 0x5678, Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+        nodeLink.AskActorAsync(RemoteNodeId, "RoomHub", key, 0x5678, Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<string>())
             .Returns(new ValueTask<ReadOnlyMemory<byte>>(expectedResponse));
 
         var body = MemoryPackSerializer.Serialize("ask-actor");
@@ -162,7 +168,7 @@ public class ClusterPulseRouterTests
         var act = async () => await router.SendAsync(PulseAddress.Actor("RoomHub", key), 0x1111, body);
         (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("IServiceRoutingTable");
 
-        await nodeLink.DidNotReceive().SendActorAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>());
+        await nodeLink.DidNotReceive().SendActorAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>());
     }
 
     [Fact]
@@ -178,7 +184,7 @@ public class ClusterPulseRouterTests
         var body = MemoryPackSerializer.Serialize("payload");
         await router.SendAsync(PulseAddress.Actor("RoomHub", key), 0x2222, body);
 
-        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0x2222, body, "", "", Arg.Any<CancellationToken>(), Arg.Any<Guid>());
+        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0x2222, body, "", "", Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>());
     }
 
     [Fact]
@@ -191,8 +197,8 @@ public class ClusterPulseRouterTests
         var body = MemoryPackSerializer.Serialize("explicit-node");
         await router.SendAsync(PulseAddress.Actor("RoomHub", key, RemoteNodeId), 0x3333, body);
 
-        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0x3333, body, "", "", Arg.Any<CancellationToken>(), Arg.Any<Guid>());
-        await actorDirectory.DidNotReceive().ActivateAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0x3333, body, "", "", Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>());
+        await actorDirectory.Received(1).ActivateAsync("RoomHub", key, RemoteNodeId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -226,11 +232,11 @@ public class ClusterPulseRouterTests
             await router.SendAsync(PulseAddress.Actor("RoomHub", key), 0x9999, body);
         }
 
-        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0x9999, body, "gateway-1", "client-conn-7", Arg.Any<CancellationToken>(), Arg.Any<Guid>());
+        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0x9999, body, "gateway-1", "client-conn-7", Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>());
 
         // 作用域释放后不应再残留，之后的调用退化为无回执寻径。
         await router.SendAsync(PulseAddress.Actor("RoomHub", key), 0xAAAA, body);
-        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0xAAAA, body, "", "", Arg.Any<CancellationToken>(), Arg.Any<Guid>());
+        await nodeLink.Received(1).SendActorAsync(RemoteNodeId, "RoomHub", key, 0xAAAA, body, "", "", Arg.Any<CancellationToken>(), Arg.Any<Guid>(), Arg.Any<string>());
     }
 
     /// <summary>

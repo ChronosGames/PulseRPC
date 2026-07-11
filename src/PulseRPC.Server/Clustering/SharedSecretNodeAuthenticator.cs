@@ -17,7 +17,7 @@ public sealed class SharedSecretNodeAuthenticatorOptions
     /// <summary>集群共享密钥（预共享，所有节点必须一致）。</summary>
     public string SharedSecret { get; set; } = string.Empty;
 
-    /// <summary>凭据有效期（超过该时长视为过期，用于抵御重放）。默认 5 分钟。</summary>
+    /// <summary>凭据有效期（超过该时长视为过期，用于限制重放窗口）。默认 5 分钟。</summary>
     public TimeSpan CredentialLifetime { get; set; } = TimeSpan.FromMinutes(5);
 }
 
@@ -27,10 +27,11 @@ public sealed class SharedSecretNodeAuthenticatorOptions
 /// <remarks>
 /// <para>
 /// 凭据格式：<c>[8 字节 UTC Unix 秒时间戳（大端）][32 字节 HMAC-SHA256(nodeId:timestamp)]</c>。
-/// 校验方通过时间窗口 + 固定时间比较（<see cref="CryptographicOperations.FixedTimeEquals"/>）抵御重放与时序攻击。
+/// 校验方通过时间窗口限制重放时段，并用固定时间比较（<see cref="CryptographicOperations.FixedTimeEquals"/>）
+/// 降低时序侧信道；真正的防窃听、防篡改和防中间人依赖外部 mTLS。
 /// </para>
 /// <para>
-/// 适用于内网受控通信；生产环境建议切换到 mTLS 实现（见路线图 P8），两者均实现同一 <see cref="INodeAuthenticator"/> 接口。
+/// 适用于内网受控通信；生产环境建议切换到证书签名凭据，并在外层强制 mTLS。
 /// </para>
 /// </remarks>
 public sealed class SharedSecretNodeAuthenticator : INodeAuthenticator

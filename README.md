@@ -16,6 +16,7 @@
 - **健康检查与故障转移**：客户端连接健康检查与服务端 `IPulseServiceHealthCheck` 支持
 - **连接管理**：连接生命周期管理，支持自动重连
 - **代码生成**：基于 Source Generator 的客户端/服务端代理，客户端避免使用反射（兼容 Unity）
+- **多节点 Actor / Gateway**：内置节点 TCP 数据面、wire v2 claims 与 lease fencing、Redis CAS + TTL 租约及严格授权路由（部署边界见专项指南）
 - **高性能序列化**：优先使用 MemoryPack
 - **可观测性基础**：服务端包含消息引擎监控与分布式追踪集成点；当前未发布独立 `PulseRPC.Monitoring` / `PulseRPC.Tracing` 包
 
@@ -139,6 +140,7 @@ await client.StopAsync();
 - [架构总览](docs/concepts/architecture.md)
 - [Actor 模型](docs/concepts/actor-model.md)
 - [集群与路由](docs/concepts/clustering-and-routing.md)
+- [经 Gateway 调用 Actor](docs/guides/gateway-actors.md)
 - [参考手册](docs/reference/index.md)
 - [示例项目](docs/samples.md)
 - [变更日志](docs/changelog.md)
@@ -152,7 +154,7 @@ await client.StopAsync();
 - [ChatApp](samples/ChatApp/) - 基于服务隔离架构的实时聊天/游戏示例（含 Unity 客户端）
 - [JwtAuthentication](samples/JwtAuthentication/) - JWT 身份验证集成示例
 - [JsonTranscoding](samples/JsonTranscoding/) - JSON 协议转码示例
-- [GameApp](samples/GameApp/) / [DistributedGameApp](samples/DistributedGameApp/) - 游戏服务器示例
+- [GameApp](samples/GameApp/) / [DistributedGameApp](samples/DistributedGameApp/) - 历史游戏架构参考，不作为当前可运行模板
 
 ## 🔧 开发约定
 

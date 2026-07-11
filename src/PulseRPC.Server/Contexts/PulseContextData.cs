@@ -257,11 +257,9 @@ public sealed record class PulseContextData : IPulseContext
             User = authContext?.Principal,
 
             // Identity info
-            SourceType = authContext?.IsAuthenticated == true
-                ? CallSourceType.ExternalUser
-                : CallSourceType.InternalService,
+            SourceType = ResolveCallSource(authContext),
             CallerId = authContext?.Identity ?? transport?.Id ?? "Unknown",
-            UserId = authContext?.Identity,
+            UserId = IsAuthenticatedClient(authContext) ? authContext!.Identity : null,
             Token = authContext?.Token,
             Permissions = permissions,
             Roles = roles,
@@ -367,9 +365,9 @@ public sealed record class PulseContextData : IPulseContext
 
         return new PulseContextData
         {
-            SourceType = CallSourceType.ExternalUser,
+            SourceType = ResolveCallSource(authContext),
             CallerId = authContext.Identity ?? "Unknown",
-            UserId = authContext.Identity,
+            UserId = IsAuthenticatedClient(authContext) ? authContext.Identity : null,
             Token = authContext.Token,
             AuthenticatedAt = authContext.AuthenticationTime ?? DateTime.UtcNow,
             AuthenticationContext = authContext,
@@ -381,4 +379,31 @@ public sealed record class PulseContextData : IPulseContext
             StartTimestamp = Stopwatch.GetTimestamp()
         };
     }
+
+    /// <summary>
+    /// 为尚未认证的网络客户端创建最小权限上下文。匿名网络流量仍属于外部调用，
+    /// 绝不能退化为拥有内部服务通配权限的上下文。
+    /// </summary>
+    internal static PulseContextData CreateAnonymousClientContext(
+        string? connectionId,
+        IServerTransport? transport,
+        CancellationToken cancellationToken)
+        => new()
+        {
+            SourceType = CallSourceType.ExternalUser,
+            CallerId = connectionId ?? transport?.Id ?? "Anonymous",
+            ConnectionId = connectionId ?? transport?.Id,
+            CancellationToken = cancellationToken,
+            Transport = transport,
+            StartTimestamp = Stopwatch.GetTimestamp(),
+        };
+
+    private static CallSourceType ResolveCallSource(IAuthenticationContext? authContext)
+        => authContext?.IsAuthenticated == true
+           && authContext.Type is AuthenticationType.Service or AuthenticationType.Internal
+            ? CallSourceType.InternalService
+            : CallSourceType.ExternalUser;
+
+    private static bool IsAuthenticatedClient(IAuthenticationContext? authContext)
+        => authContext?.IsAuthenticated == true && authContext.Type == AuthenticationType.Client;
 }

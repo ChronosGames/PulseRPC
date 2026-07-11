@@ -218,13 +218,17 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                     FullMode = ExecutionOptions.BackpressureMode switch
                     {
                         ServiceBackpressureMode.Block => BoundedChannelFullMode.Wait,
-                        ServiceBackpressureMode.DropNewest => BoundedChannelFullMode.DropNewest,
+                        ServiceBackpressureMode.DropNewest => BoundedChannelFullMode.DropWrite,
                         ServiceBackpressureMode.DropOldest => BoundedChannelFullMode.DropOldest,
+                        ServiceBackpressureMode.ThrowException => BoundedChannelFullMode.DropWrite,
                         _ => BoundedChannelFullMode.Wait
                     },
                     SingleReader = true,
                     SingleWriter = false
-                });
+                },
+                itemDropped: item => item.Reject(new InvalidOperationException(
+                    $"Service mailbox is full and rejected a request ({ExecutionOptions.BackpressureMode}): " +
+                    ((IPulseService)this).ServiceAddress)));
         }
         // ThreadAffinity 模式使用共享调度器，不创建私有队列
 
@@ -309,7 +313,6 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 // 等待消息处理完成
                 if (_messageProcessingTask != null)
                 {
-                    _processingCts?.Cancel();
                     try
                     {
                         await _messageProcessingTask.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken);
@@ -317,6 +320,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                     catch (TimeoutException)
                     {
                         Logger.LogWarning("Message processing did not complete within timeout");
+                        _processingCts?.Cancel();
                     }
                 }
 
@@ -402,21 +406,35 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
         {
             // DedicatedQueue 模式：使用专属队列
             var capturedContext = PulseContext.Current;
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             Func<Task> wrapped = async () =>
             {
-                if (capturedContext != null)
+                try
                 {
-                    using var _ = PulseContext.SetContext(capturedContext);
-                    await work();
+                    if (capturedContext != null)
+                    {
+                        using var _ = PulseContext.SetContext(capturedContext);
+                        await work();
+                    }
+                    else
+                    {
+                        await work();
+                    }
+
+                    completion.TrySetResult(true);
                 }
-                else
+                catch (Exception ex)
                 {
-                    await work();
+                    completion.TrySetException(ex);
+                    throw;
                 }
             };
 
-            await _messageQueue.Writer.WriteAsync(new WorkItem(wrapped, reentrant), cancellationToken);
+            await _messageQueue.Writer.WriteAsync(
+                new WorkItem(wrapped, reentrant, exception => completion.TrySetException(exception)),
+                cancellationToken);
+            await completion.Task;
         }
         else if (_affinityScheduler != null && ExecutionOptions.SchedulingMode == ServiceSchedulingMode.ThreadAffinity)
         {
@@ -525,7 +543,9 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 }
             };
 
-            await _messageQueue.Writer.WriteAsync(new WorkItem(wrapped, reentrant), cancellationToken);
+            await _messageQueue.Writer.WriteAsync(
+                new WorkItem(wrapped, reentrant, exception => valueTaskSource.TrySetException(exception)),
+                cancellationToken);
 
             return await valueTaskSource.GetValueTask();
         }
@@ -818,11 +838,16 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
         /// <summary>是否为可重入（只读）工作项，可与其它读者并发执行。</summary>
         public readonly bool Reentrant;
 
-        public WorkItem(Func<Task> work, bool reentrant)
+        private readonly Action<Exception> _reject;
+
+        public WorkItem(Func<Task> work, bool reentrant, Action<Exception> reject)
         {
             Work = work;
             Reentrant = reentrant;
+            _reject = reject;
         }
+
+        public void Reject(Exception exception) => _reject(exception);
     }
 }
 
@@ -896,4 +921,3 @@ public sealed class ServiceConfiguration
         };
     }
 }
-

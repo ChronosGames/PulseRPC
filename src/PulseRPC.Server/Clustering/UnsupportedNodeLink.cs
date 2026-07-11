@@ -15,7 +15,8 @@ internal sealed class UnsupportedNodeLink : INodeLink
         ReadOnlyMemory<byte> body,
         string sourceNodeId = "",
         string replyTo = "",
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        string leaseId = "")
         => throw CreateException();
 
     public ValueTask SendActorAsync(
@@ -27,7 +28,8 @@ internal sealed class UnsupportedNodeLink : INodeLink
         string sourceNodeId = "",
         string replyTo = "",
         CancellationToken cancellationToken = default,
-        Guid messageId = default)
+        Guid messageId = default,
+        string leaseId = "")
         => throw CreateException();
 
     public ValueTask SendToConnectionAsync(

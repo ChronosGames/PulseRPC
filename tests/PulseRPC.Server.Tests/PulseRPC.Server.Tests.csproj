@@ -33,4 +33,9 @@
     <ProjectReference Include="..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\..\perf\BenchmarkApp\PulseRPC.Benchmark\Clustering\ThreeNodeTcpTopology.cs"
+             Link="Clustering\ThreeNodeTcpTopology.cs" />
+  </ItemGroup>
+
 </Project>

@@ -393,7 +393,9 @@ public abstract class TcpTransport : ITransport
                 // 读取消息内容
                 var messageBuffer = header.Length <= _receiveBuffer.Length
                     ? _receiveBuffer : new byte[header.Length];
-                var ownsMessageBuffer = messageBuffer.Length == header.Length;
+                // 只有显式为大帧分配的新数组才可把所有权交给事件订阅方。长度刚好等于
+                // RecvBufferSize 时 messageBuffer 仍是共享缓冲，必须复制，否则下一帧会覆盖响应。
+                var ownsMessageBuffer = header.Length > _receiveBuffer.Length;
 
                 if (!await ReadExactBytesAsync(messageBuffer, 0, header.Length))
                 {
@@ -445,6 +447,15 @@ public abstract class TcpTransport : ITransport
         {
             _logger.LogError(ex, "接收循环异常");
             ChangeState(ConnectionState.Disconnected, $"接收异常: {ex.Message}", ex);
+        }
+        finally
+        {
+            // EOF、非法帧长度/魔数等分支会正常 break；它们同样表示该字节流不能继续复用。
+            // 必须发布断线状态，让服务端移除 channel、节点客户端失败所有 pending 请求。
+            if (!_cts.IsCancellationRequested && _state == ConnectionState.Connected)
+            {
+                ChangeState(ConnectionState.Disconnected, "TCP 接收循环已结束。");
+            }
         }
     }
 

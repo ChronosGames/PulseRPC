@@ -1,5 +1,7 @@
 using System.Threading.Tasks;
 using PulseRPC;
+using PulseRPC.Gateway;
+using PulseRPC.Protocol;
 
 namespace PulseRPC.Server.Gateway;
 
@@ -21,6 +23,7 @@ namespace PulseRPC.Server.Gateway;
 /// 因为消费方是叶子客户端应用而非被广泛引用的 <c>PulseRPC.Server</c> 库本身。
 /// </para>
 /// </remarks>
+[ClientFacing]
 public interface IGatewayFrontHub : IPulseHub
 {
     /// <summary>
@@ -34,10 +37,12 @@ public interface IGatewayFrontHub : IPulseHub
     /// 剩余转发跳数上限（防止网关拓扑配置错误导致的转发环路），默认 4；达到 0 时拒绝转发。
     /// </param>
     /// <returns>已序列化的响应体。</returns>
+    [Protocol(GatewayProtocolIds.FrontRelayAsk)]
     Task<byte[]> RelayAskAsync(string hub, string key, ushort protocolId, byte[] body, byte hopLimit);
 
     /// <summary>
     /// 单向：把一次对 <c>Actor(hub,key)</c> 的调用经网关中转到拥有该实例的节点，不等待返回值。
     /// </summary>
+    [Protocol(GatewayProtocolIds.FrontRelaySend)]
     Task RelaySendAsync(string hub, string key, ushort protocolId, byte[] body, byte hopLimit);
 }

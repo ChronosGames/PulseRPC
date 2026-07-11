@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 using PulseRPC.Messaging;
+using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Processing.Engine;
 using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Server.Transport;
@@ -12,6 +13,40 @@ namespace PulseRPC.Server.Tests.Processing;
 
 public sealed class MessageEngineCancellationTests
 {
+    [Fact]
+    public async Task UnauthenticatedNetworkMessage_MustUseMinimalExternalContext()
+    {
+        const string connectionId = "anonymous-conn-1";
+        var dispatcher = new ContextCapturingDispatcher();
+        var channelManager = Substitute.For<IServerChannelManager>();
+        var transport = Substitute.For<IServerTransport>();
+        transport.Id.Returns(connectionId);
+        using var channel = new ServerTransportChannel(
+            transport,
+            NullLogger<ServerTransportChannel>.Instance);
+        channelManager.GetChannel(connectionId).Returns(channel);
+
+        await using var engine = new MessageEngine(
+            dispatcher,
+            Substitute.For<IServiceProvider>(),
+            Options.Create(new MessageEngineConfiguration()),
+            NullLogger<MessageEngine>.Instance,
+            channelManager,
+            new NoopResponseProcessor());
+
+        await engine.StartAsync();
+        engine.RegisterConnection(connectionId);
+
+        Assert.True(engine.TryEnqueueMessage(
+            connectionId,
+            CreatePacket(MessageType.OneWay, Guid.NewGuid(), protocolId: 0x1234)));
+
+        var captured = await dispatcher.ContextReceived.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal(CallSourceType.ExternalUser, captured.SourceType);
+        Assert.False(captured.HasWildcardPermission);
+        Assert.Null(captured.UserId);
+    }
+
     [Fact]
     public async Task CancelFrame_MustCancelInFlightRequestToken()
     {
@@ -99,6 +134,35 @@ public sealed class MessageEngineCancellationTests
         {
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             return null;
+        }
+    }
+
+    private sealed class ContextCapturingDispatcher : IMessageDispatcher
+    {
+        public TaskCompletionSource<(CallSourceType SourceType, bool HasWildcardPermission, string? UserId)> ContextReceived { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
+
+        public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public ValueTask<object?> DispatchAsync(
+            MessageEnvelope message,
+            IServiceProvider serviceProvider,
+            CancellationToken cancellationToken = default)
+        {
+            var context = PulseContext.Current;
+            ContextReceived.TrySetResult((
+                context?.SourceType ?? CallSourceType.InternalService,
+                context?.Permissions.Contains("*") == true,
+                context?.UserId));
+            return new ValueTask<object?>((object?)null);
+        }
+
+        public void Dispose()
+        {
         }
     }
 

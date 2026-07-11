@@ -11,6 +11,16 @@ namespace PulseRPC.Server;
 public interface IServiceRoutingTable
 {
     /// <summary>
+    /// 检查协议号是否属于指定的 canonical Hub。
+    /// </summary>
+    /// <remarks>
+    /// Hub 名称与客户端 <c>typeof(THub).Name.TrimStart('I')</c> 使用相同口径。
+    /// 此检查用于不受信入口在执行 placement、租约或方法调用前拒绝伪造的
+    /// <c>(Hub, ProtocolId)</c> 组合。
+    /// </remarks>
+    bool IsProtocolIdValid(string hub, ushort protocolId);
+
+    /// <summary>
     /// 获取此路由表支持的全部协议号。
     /// </summary>
     ReadOnlySpan<ushort> EnumerateProtocolIds();
@@ -31,6 +41,16 @@ public interface IServiceRoutingTable
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// 校验 canonical Hub 与协议号归属后执行无实例键路由。
+    /// </summary>
+    ValueTask<object?> RouteByProtocolIdAsync(
+        IServiceProvider serviceProvider,
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// 基于协议号 + 可选实例键的路由（支持 (Hub,Key) 入站路由，§P3 keyed-actor-routing）。
     /// </summary>
     /// <param name="serviceProvider">服务提供者</param>
@@ -45,6 +65,17 @@ public interface IServiceRoutingTable
     /// <returns>方法执行结果</returns>
     ValueTask<object?> RouteByProtocolIdAsync(
         IServiceProvider serviceProvider,
+        ushort protocolId,
+        string serviceKey,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// 校验 canonical Hub 与协议号归属后执行 keyed 路由。
+    /// </summary>
+    ValueTask<object?> RouteByProtocolIdAsync(
+        IServiceProvider serviceProvider,
+        string hub,
         ushort protocolId,
         string serviceKey,
         ReadOnlyMemory<byte> data,

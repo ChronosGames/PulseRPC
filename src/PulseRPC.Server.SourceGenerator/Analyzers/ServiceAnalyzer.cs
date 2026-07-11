@@ -37,6 +37,7 @@ public static class ServiceAnalyzer
         var namespaceName = interfaceSymbol.ContainingNamespace?.ToDisplayString() ?? string.Empty;
         var channelName = GetChannelName(interfaceSymbol) ?? "DefaultChannel";
         var serviceName = GetServiceName(interfaceSymbol) ?? interfaceName;
+        var facetClientFacing = ClientFacingHelper.GetClientFacing(interfaceSymbol) ?? false;
 
         var methods = new List<MethodModel>();
 
@@ -45,7 +46,7 @@ public static class ServiceAnalyzer
         {
             if (member is IMethodSymbol methodSymbol && methodSymbol.MethodKind == MethodKind.Ordinary)
             {
-                var methodModel = AnalyzeMethod(methodSymbol);
+                var methodModel = AnalyzeMethod(interfaceSymbol, methodSymbol, facetClientFacing);
 
                 if (methodModel != null)
                     methods.Add(methodModel);
@@ -129,7 +130,10 @@ public static class ServiceAnalyzer
     /// <summary>
     /// 分析方法元数据
     /// </summary>
-    private static MethodModel? AnalyzeMethod(IMethodSymbol methodSymbol)
+    private static MethodModel? AnalyzeMethod(
+        INamedTypeSymbol serviceInterface,
+        IMethodSymbol methodSymbol,
+        bool facetClientFacing)
     {
         var returnType = methodSymbol.ReturnType;
         var returnTypeName = GetReturnTypeName(returnType);
@@ -162,7 +166,10 @@ public static class ServiceAnalyzer
         }
 
         var methodChannelName = GetMethodChannelName(methodSymbol);
-        var authorization = AuthorizationHelper.GetAuthorization(methodSymbol);
+        var authorization = AuthorizationHelper.GetEffectiveAuthorization(serviceInterface, methodSymbol);
+        var isReentrant = methodSymbol.GetAttributes()
+            .Any(attr => attr.AttributeClass?.Name is "ReentrantAttribute" or "Reentrant");
+        var isClientFacing = ClientFacingHelper.GetClientFacing(methodSymbol) ?? facetClientFacing;
 
         return new MethodModel
         {
@@ -177,6 +184,8 @@ public static class ServiceAnalyzer
             ResponseTypeFullName = responseTypeFullName,
             IsResponseMemoryPackable = isResponseMemoryPackable,
             Authorization = authorization,
+            IsReentrant = isReentrant,
+            IsClientFacing = isClientFacing,
             Location = methodSymbol.Locations.FirstOrDefault()
         };
     }

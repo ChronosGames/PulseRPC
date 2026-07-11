@@ -245,7 +245,7 @@ public sealed class LocalPulseRouter : IPulseRouter
         {
             await DeliveryRetryExecutor.ExecuteAsync(
                 delivery, _retryOptions,
-                async ct => await routingTable.RouteByProtocolIdAsync(_serviceProvider, protocolId, address.Key, body, ct).ConfigureAwait(false),
+                async ct => await routingTable.RouteByProtocolIdAsync(_serviceProvider, address.Hub, protocolId, address.Key, body, ct).ConfigureAwait(false),
                 _logger, $"Actor Send '{address.Hub}:{address.Key}'", cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -263,7 +263,7 @@ public sealed class LocalPulseRouter : IPulseRouter
         {
             await DeliveryRetryExecutor.ExecuteAsync(
                 delivery, _retryOptions,
-                async ct => await routingTable.RouteByProtocolIdAsync(_serviceProvider, protocolId, address.Key, body, ct).ConfigureAwait(false),
+                async ct => await routingTable.RouteByProtocolIdAsync(_serviceProvider, address.Hub, protocolId, address.Key, body, ct).ConfigureAwait(false),
                 _logger, $"Actor Send '{scopeKey}' (MessageId={effectiveMessageId})", cancellationToken).ConfigureAwait(false);
         }
         catch
@@ -283,7 +283,7 @@ public sealed class LocalPulseRouter : IPulseRouter
     private async ValueTask<ReadOnlyMemory<byte>> AskLocalActorAsync(PulseAddress address, ushort protocolId, ReadOnlyMemory<byte> body, CancellationToken cancellationToken)
     {
         var routingTable = RequireRoutingTable();
-        var result = await routingTable.RouteByProtocolIdAsync(_serviceProvider, protocolId, address.Key, body, cancellationToken).ConfigureAwait(false);
+        var result = await routingTable.RouteByProtocolIdAsync(_serviceProvider, address.Hub, protocolId, address.Key, body, cancellationToken).ConfigureAwait(false);
 
         if (result is null)
         {

@@ -1,1 +1,3 @@
 #nullable enable
+PulseRPC.Client.GatewayClientChannelExtensions
+static PulseRPC.Client.GatewayClientChannelExtensions.ForGatewayActor<THub>(this PulseRPC.Client.IClientChannel! channel, string! key) -> PulseRPC.Client.IClientChannel!

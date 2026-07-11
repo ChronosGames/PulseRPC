@@ -44,6 +44,9 @@ public static class PulseClusteringServiceExtensions
         services.Configure(configureTopology);
         services.Configure(configureAuthenticator);
         services.Configure<LeaseActorDirectoryOptions>(configureLeaseDirectory ?? (_ => { }));
+        services.Configure<ActorLeaseHeartbeatOptions>(_ => { });
+        services.Configure<TcpNodeTransportOptions>(_ => { });
+        services.Configure<ClusterNodeWireOptions>(_ => { });
 
         // P8：集群成员视图（静态成员 + P7 故障接管所需的存活集健康管理）。
         // 作为 IClusterMembership 的默认实现；动态发现（Consul/Etcd/K8s）可通过替换本注册接入。
@@ -65,10 +68,63 @@ public static class PulseClusteringServiceExtensions
             return new NodeConsistentHashRing(topology.Members.Select(m => m.NodeId));
         });
 
+        services.TryAddSingleton<IActorPlacementStrategy>(sp => new HashPlacementStrategy(sp.GetRequiredService<NodeConsistentHashRing>()));
+        services.TryAddSingleton<IClusterLoadMetrics, NoopClusterLoadMetrics>();
+        services.TryAddSingleton<IClusterDiagnostics, NoopClusterDiagnostics>();
         services.TryAddSingleton<INodeAuthenticator, SharedSecretNodeAuthenticator>();
         services.TryAddSingleton<INodeEndpointResolver, StaticNodeEndpointResolver>();
-        services.TryAddSingleton<IActorDirectory, LeaseActorDirectory>();
-        services.TryAddSingleton<INodeLink, UnsupportedNodeLink>();
+        services.TryAddSingleton<INodeTransport, TcpNodeTransport>();
+        services.TryAddSingleton<IActorLeaseStore, InMemoryActorLeaseStore>();
+        services.TryAddSingleton<IActorDirectory>(sp =>
+        {
+            var store = sp.GetRequiredService<IActorLeaseStore>();
+            var topology = sp.GetRequiredService<IOptions<ClusterTopologyOptions>>().Value;
+            var leaseOptions = sp.GetRequiredService<IOptions<LeaseActorDirectoryOptions>>();
+            var distinctMembers = topology.Members
+                .Where(member => member is not null && !string.IsNullOrWhiteSpace(member.NodeId))
+                .Select(member => member.NodeId)
+                .Distinct(StringComparer.Ordinal)
+                .Take(2)
+                .Count();
+
+            if (distinctMembers > 1
+                && store is InMemoryActorLeaseStore
+                && !leaseOptions.Value.AllowInMemoryStoreForMultiNode)
+            {
+                throw new InvalidOperationException(
+                    "多节点拓扑不能使用 InMemoryActorLeaseStore。请注册 Redis/Etcd/数据库 CAS + TTL " +
+                    "租约后端；仅本地测试可显式设置 LeaseActorDirectoryOptions.AllowInMemoryStoreForMultiNode=true。");
+            }
+
+            return new LeaseActorDirectory(leaseOptions, store);
+        });
+        services.TryAddSingleton<IActorLeaseHeartbeat>(sp =>
+        {
+            var heartbeatOptions = sp.GetRequiredService<IOptions<ActorLeaseHeartbeatOptions>>().Value;
+            var leaseOptions = sp.GetRequiredService<IOptions<LeaseActorDirectoryOptions>>().Value;
+            var interval = heartbeatOptions.Interval > TimeSpan.Zero
+                ? heartbeatOptions.Interval
+                : TimeSpan.FromSeconds(10);
+            var leaseDuration = leaseOptions.LeaseDuration > TimeSpan.Zero
+                ? leaseOptions.LeaseDuration
+                : TimeSpan.FromSeconds(30);
+            if (interval >= leaseDuration)
+            {
+                throw new InvalidOperationException(
+                    "ActorLeaseHeartbeatOptions.Interval 必须短于 LeaseActorDirectoryOptions.LeaseDuration，" +
+                    "否则 owner 的租约会在首次续租前失效。");
+            }
+
+            return new ActorLeaseHeartbeat(
+                sp.GetRequiredService<IActorDirectory>(),
+                heartbeatOptions);
+        });
+        services.TryAddSingleton<IConnectionDirectory, BackplaneConnectionDirectory>();
+        services.TryAddSingleton<INodeLink>(sp =>
+        {
+            var transport = sp.GetService<INodeTransport>();
+            return transport is null ? new UnsupportedNodeLink() : new TransportBackedNodeLink(transport);
+        });
         services.TryAddSingleton<IClusterInternalHub, ClusterInternalHub>();
 
         // ClusterPulseRouter 内部持有 LocalPulseRouter 做本地投递；覆盖 IPulseRouter 的默认单节点注册。
@@ -83,13 +139,16 @@ public static class PulseClusteringServiceExtensions
             sp.GetRequiredService<IOptions<ClusterTopologyOptions>>(),
             sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ClusterPulseRouter>>(),
             sp.GetService<DeliveryRetryOptions>(),
-            sp.GetRequiredService<IClusterMembership>()));
+            sp.GetRequiredService<IClusterMembership>(),
+            sp.GetRequiredService<IActorPlacementStrategy>(),
+            sp.GetRequiredService<IActorLeaseHeartbeat>(),
+            sp.GetRequiredService<IClusterDiagnostics>()));
 
         return services;
     }
 
     /// <summary>
-    /// 切换节点互信鉴权为基于 X.509 证书的生产级实现（<see cref="CertificateNodeAuthenticator"/>），
+    /// 切换节点互信鉴权为基于 X.509 证书签名的实现（<see cref="CertificateNodeAuthenticator"/>），
     /// 覆盖 <see cref="AddPulseClustering"/> 默认注册的共享密钥鉴权（§P8）。
     /// </summary>
     /// <remarks>应在 <see cref="AddPulseClustering"/> 之后调用。</remarks>

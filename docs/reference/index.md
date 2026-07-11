@@ -12,6 +12,7 @@
 | `PulseRPC.Shared` | TCP/KCP、缓冲池、批处理等共享组件 |
 | `PulseRPC.Infrastructure` | 发现和集群成员通用基础设施 |
 | `PulseRPC.Infrastructure.*` | Consul、Etcd、Kubernetes 等后端 |
+| `PulseRPC.Backplane.Redis` | Redis Backplane 与 CAS + TTL Actor 租约存储 |
 | `PulseRPC.*.SourceGenerator` | 客户端/服务端代码生成 |
 
 ## 常用配置入口
@@ -24,6 +25,8 @@
 | `AddNamedPulseServer(...)` | 注册命名服务端 |
 | `TransportChannelConfiguration` | 服务端 TCP/KCP 监听配置 |
 | `AddPulseClustering(...)` | 注册集群路由和节点配置 |
+| `AddRedisActorLeases(...)` | 以 Redis 原子脚本替换默认进程内 Actor 租约 |
+| `UseCertificateNodeAuthentication(...)` | 使用证书签名节点凭据替换共享密钥认证 |
 | `AddConsulDiscovery` / `AddEtcdDiscovery` / `AddKubernetesDiscovery` | 覆盖默认成员发现 |
 
 ## 协议和传输事实
@@ -32,6 +35,16 @@
 - 传输抽象为 `ITransport`、`IClientTransport`、`IServerTransport`、`IServerListener`。
 - 当前帧头、握手和协议常量以 `src/PulseRPC.Abstractions/Transport/ProtocolConstants.cs` 以及 `PulseRPC.Shared` 中实现为准。
 - `TransportOptions.SmallPacketThreshold` 和 `ChunkSize` 当前保留兼容，已不作为应用层分片主路径依据。
+- `TcpNodeTransport` 是默认节点数据面，提供连接复用、实际写完成、执行 ACK、请求关联、超时隔离、断线淘汰和 node wire 能力协商；`SecurityMode` 未显式设置时 fail closed，生产必须声明并实际提供外部 mTLS。
+- node wire 当前生产版本为 v2；legacy Actor wire 默认关闭。
+- `IHubAddressedClientChannel` 让生成代理显式携带 canonical Hub，服务端按 `(Hub, ProtocolId)` 强校验。
+
+## 集群租约事实
+
+- `InMemoryActorLeaseStore` 只用于单进程开发；多成员拓扑默认 fail closed。
+- `RedisActorLeaseStore` 对每个 `(Hub, Key)` 使用带 TTL 的单个 Redis Hash，并以 Lua 原子执行激活、解析、续租和释放。
+- 远程 Actor wire 携带 lease id；执行节点在业务反序列化前核对 owner、lease 与 TTL。
+- 租约不替代持久化层事务、幂等和 fencing token 校验。
 
 ## Public API
 
@@ -52,4 +65,3 @@
 | Backplane | 节点间广播/路由的共享通道 |
 | L2 | 多节点 Actor 属主选择和路由 |
 | L3 | 可选 Actor 状态迁移 |
-

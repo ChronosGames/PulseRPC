@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using NSubstitute;
 using PulseRPC.Clustering;
 using PulseRPC.Server.Clustering;
@@ -29,22 +30,28 @@ public class ClusterInternalHubTests
         var nodeLink = Substitute.For<INodeLink>();
         var serviceProvider = Substitute.For<IServiceProvider>();
         var routingTable = Substitute.For<IServiceRoutingTable>();
+        routingTable.IsProtocolIdValid(Arg.Any<string>(), Arg.Any<ushort>()).Returns(true);
 
         var hub = new ClusterInternalHub(
             authenticator, channelManager, nodeLink, serviceProvider,
-            NullLogger<ClusterInternalHub>.Instance, routingTable);
+            NullLogger<ClusterInternalHub>.Instance, routingTable,
+            wireOptions: Options.Create(new ClusterNodeWireOptions { AllowLegacyActorProtocol = true }));
 
         return (hub, channelManager, routingTable);
     }
 
-    private static IDisposable EnterNodeConnectionScope()
+    private static IDisposable EnterNodeConnectionScope(CancellationToken cancellationToken = default)
     {
         var authContext = new AuthenticationContext("peer-conn-1");
         authContext.SetServiceAuthentication("node-backend-1", "node-backend-1", token: NodeConnectionGate.NodeConnectionScope,
             scopes: new[] { NodeConnectionGate.NodeConnectionScope });
         // FromAuthenticationContext 本身不会回填 ConnectionId（真实管线中由 transport 提供），测试里显式补上，
         // 以验证虚拟连接切换前后 CurrentConnectionId 的往返。
-        return PulseContext.SetContext(PulseContextData.FromAuthenticationContext(authContext) with { ConnectionId = "peer-conn-1" });
+        return PulseContext.SetContext(PulseContextData.FromAuthenticationContext(authContext) with
+        {
+            ConnectionId = "peer-conn-1",
+            CancellationToken = cancellationToken,
+        });
     }
 
     [Fact]
@@ -67,10 +74,20 @@ public class ClusterInternalHubTests
             .Returns(virtualChannel);
 
         string? connectionIdDuringRouting = null;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x2222, "room-9", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        CallSourceType? sourceTypeDuringRouting = null;
+        string? userIdDuringRouting = "not-captured";
+        IReadOnlySet<string>? permissionsDuringRouting = null;
+        string? serviceNameDuringRouting = null;
+        string? serviceKeyDuringRouting = null;
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x2222, "room-9", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 connectionIdDuringRouting = PulseContext.CurrentConnectionId;
+                sourceTypeDuringRouting = PulseContext.Current?.SourceType;
+                userIdDuringRouting = PulseContext.CurrentUserId;
+                permissionsDuringRouting = PulseContext.Current?.Permissions;
+                serviceNameDuringRouting = PulseContext.Current?.ServiceName;
+                serviceKeyDuringRouting = PulseContext.CurrentServiceKey;
                 return new ValueTask<object?>((object?)null);
             });
 
@@ -80,9 +97,15 @@ public class ClusterInternalHubTests
 
             // 调用结束后当前上下文（鉴权作用域）中的连接 Id 必须已恢复，不残留虚拟连接标识。
             PulseContext.CurrentConnectionId.Should().Be("peer-conn-1");
+            PulseContext.Current?.SourceType.Should().Be(CallSourceType.InternalService);
         }
 
         connectionIdDuringRouting.Should().Be(GatewayVirtualChannel.ComposeId("gateway-1", "client-conn-3"));
+        sourceTypeDuringRouting.Should().Be(CallSourceType.ExternalUser);
+        userIdDuringRouting.Should().BeNull("当前 wire 未安全传播原始用户身份，必须匿名而非继承节点身份");
+        permissionsDuringRouting.Should().BeEmpty("Gateway 业务调用不得继承 cluster-node 权限");
+        serviceNameDuringRouting.Should().Be("RoomHub");
+        serviceKeyDuringRouting.Should().Be("room-9");
         channelManager.Received(1).GetOrRegisterVirtualChannel(
             GatewayVirtualChannel.ComposeId("gateway-1", "client-conn-3"), Arg.Any<Func<string, IServerChannel>>());
     }
@@ -91,20 +114,28 @@ public class ClusterInternalHubTests
     public async Task SendActorAsync_WithoutReplyTo_MustNotRegisterVirtualChannel_AndLeaveConnectionIdUnchanged()
     {
         var (hub, channelManager, routingTable) = CreateHub();
+        using var cts = new CancellationTokenSource();
         string? connectionIdDuringRouting = null;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x3333, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x3333, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 connectionIdDuringRouting = PulseContext.CurrentConnectionId;
                 return new ValueTask<object?>((object?)null);
             });
 
-        using (EnterNodeConnectionScope())
+        using (EnterNodeConnectionScope(cts.Token))
         {
             await hub.SendActorAsync("RoomHub", "room-1", 0x3333, Array.Empty<byte>());
         }
 
         connectionIdDuringRouting.Should().Be("peer-conn-1");
+        await routingTable.Received(1).RouteByProtocolIdAsync(
+            Arg.Any<IServiceProvider>(),
+            "RoomHub",
+            0x3333,
+            "room-1",
+            Arg.Any<ReadOnlyMemory<byte>>(),
+            cts.Token);
         channelManager.DidNotReceiveWithAnyArgs().GetOrRegisterVirtualChannel(default!, default!);
     }
 
@@ -112,7 +143,7 @@ public class ClusterInternalHubTests
     public async Task AskActorAsync_WhenRoutingResultIsNull_MustReturnEmptyArray_WithoutTouchingSerializerRegistry()
     {
         var (hub, _, routingTable) = CreateHub();
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x4444, "k", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x4444, "k", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(new ValueTask<object?>((object?)null));
 
         byte[] result;
@@ -134,7 +165,7 @@ public class ClusterInternalHubTests
     {
         var (hub, _, routingTable) = CreateHub();
         var callCount = 0;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x6666, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x6666, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;
@@ -156,7 +187,7 @@ public class ClusterInternalHubTests
     {
         var (hub, _, routingTable) = CreateHub();
         var callCount = 0;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x7777, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x7777, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;
@@ -177,7 +208,7 @@ public class ClusterInternalHubTests
     {
         var (hub, _, routingTable) = CreateHub();
         var callCount = 0;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x8888, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x8888, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;

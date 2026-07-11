@@ -152,12 +152,22 @@ public class MessageDispatcherTests
 
         public ReadOnlySpan<ushort> EnumerateProtocolIds() => Array.Empty<ushort>();
 
+        public bool IsProtocolIdValid(string hub, ushort protocolId) => true;
+
         public ValueTask<object?> RouteByProtocolIdAsync(
             IServiceProvider serviceProvider,
             ushort protocolId,
             ReadOnlyMemory<byte> data,
             CancellationToken cancellationToken = default)
             => RouteByProtocolIdAsync(serviceProvider, protocolId, string.Empty, data, cancellationToken);
+
+        public ValueTask<object?> RouteByProtocolIdAsync(
+            IServiceProvider serviceProvider,
+            string hub,
+            ushort protocolId,
+            ReadOnlyMemory<byte> data,
+            CancellationToken cancellationToken = default)
+            => RouteByProtocolIdAsync(serviceProvider, protocolId, data, cancellationToken);
 
         public ValueTask<object?> RouteByProtocolIdAsync(
             IServiceProvider serviceProvider,
@@ -169,5 +179,14 @@ public class MessageDispatcherTests
             Calls.Add((protocolId, serviceKey, data.ToArray()));
             return OnRoute(serviceProvider, protocolId, serviceKey, data, cancellationToken);
         }
+
+        public ValueTask<object?> RouteByProtocolIdAsync(
+            IServiceProvider serviceProvider,
+            string hub,
+            ushort protocolId,
+            string serviceKey,
+            ReadOnlyMemory<byte> data,
+            CancellationToken cancellationToken = default)
+            => RouteByProtocolIdAsync(serviceProvider, protocolId, serviceKey, data, cancellationToken);
     }
 }

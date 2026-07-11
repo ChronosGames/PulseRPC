@@ -103,6 +103,9 @@ public class ResponseProcessorTests
 
         public ReadOnlySpan<ushort> EnumerateProtocolIds() => _protocolIds;
 
+        public bool IsProtocolIdValid(string hub, ushort protocolId)
+            => _protocolIds.Contains(protocolId);
+
         public ValueTask<object?> RouteByProtocolIdAsync(
             IServiceProvider serviceProvider,
             ushort protocolId,
@@ -112,6 +115,23 @@ public class ResponseProcessorTests
 
         public ValueTask<object?> RouteByProtocolIdAsync(
             IServiceProvider serviceProvider,
+            string hub,
+            ushort protocolId,
+            ReadOnlyMemory<byte> data,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public ValueTask<object?> RouteByProtocolIdAsync(
+            IServiceProvider serviceProvider,
+            ushort protocolId,
+            string serviceKey,
+            ReadOnlyMemory<byte> data,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public ValueTask<object?> RouteByProtocolIdAsync(
+            IServiceProvider serviceProvider,
+            string hub,
             ushort protocolId,
             string serviceKey,
             ReadOnlyMemory<byte> data,

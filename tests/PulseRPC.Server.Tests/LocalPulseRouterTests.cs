@@ -202,7 +202,7 @@ public class LocalPulseRouterTests
     {
         var routingTable = Substitute.For<IServiceRoutingTable>();
         var callCount = 0;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x1, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x1, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;
@@ -224,7 +224,7 @@ public class LocalPulseRouterTests
     {
         var routingTable = Substitute.For<IServiceRoutingTable>();
         var callCount = 0;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x2, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x2, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;
@@ -251,7 +251,7 @@ public class LocalPulseRouterTests
     {
         var routingTable = Substitute.For<IServiceRoutingTable>();
         var callCount = 0;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x3, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x3, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;
@@ -274,7 +274,7 @@ public class LocalPulseRouterTests
     {
         var routingTable = Substitute.For<IServiceRoutingTable>();
         var callCount = 0;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x4, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x4, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;
@@ -297,7 +297,7 @@ public class LocalPulseRouterTests
     {
         var routingTable = Substitute.For<IServiceRoutingTable>();
         var callCount = 0;
-        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), 0x5, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+        routingTable.RouteByProtocolIdAsync(Arg.Any<IServiceProvider>(), "RoomHub", 0x5, "room-1", Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
             .Returns(_ =>
             {
                 callCount++;

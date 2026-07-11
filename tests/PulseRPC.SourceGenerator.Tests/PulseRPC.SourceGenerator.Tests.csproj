@@ -28,6 +28,7 @@
          以便在测试中手动实例化并通过 CSharpGeneratorDriver 驱动执行，
          而不是让它们分析本测试项目自身的代码。 -->
     <ProjectReference Include="..\..\src\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
     <ProjectReference Include="..\..\src\PulseRPC.Server.SourceGenerator\PulseRPC.Server.SourceGenerator.csproj" />
     <ProjectReference Include="..\..\src\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" />
   </ItemGroup>
