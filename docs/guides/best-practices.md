@@ -5,7 +5,7 @@
 当前边界：
 
 - 远程契约统一继承 `IPulseHub`。
-- 客户端推送接收契约使用 `[Channel("CLIENT")] : IPulseHub`，不再使用 `IPulseReceiver`。
+- 客户端推送接收契约使用 `[Channel("CLIENT")] : IPulseHub`；旧 `IPulseReceiver` 已从公共 API 硬移除。
 - 客户端调用通过 Source Generator 生成的 `IClientChannel.GetHub<T>()`。
 - 客户端接收推送通过 Source Generator 生成的 `IClientChannel.RegisterReceiver<T>()`。
 - 服务端推送当前推荐使用 `IHubContext<TReceiver>`，其泛型约束已统一为 `IPulseHub`。
@@ -802,19 +802,17 @@ await _receiverContext.Clients.Group("room-1").OnSystemAnnouncementAsync(message
 await _receiverContext.Clients.All.OnSystemAnnouncementAsync(message);
 ```
 
-### 旧 Receiver 迁移
+### 迁移旧 Receiver 契约
+
+旧 `IPulseReceiver` 没有运行时兼容层。保留原接口名和方法签名，直接改为当前声明：
 
 ```csharp
-// 旧
-public interface IGameReceiver : IPulseReceiver
-{
-}
-
-// 新
 [Channel("CLIENT")]
 public interface IGameReceiver : IPulseHub
 {
 }
 ```
+
+两个 Source Generator 都包含迁移诊断与 CodeFix；完成改写后重新生成 Dispatcher 和推送代理。
 
 遵循这些实践，可以让代码与当前统一 `IPulseHub` 寻址、生成器和集群实现保持一致，同时避免依赖旧 API 或项目中未显式接入的外部基础设施。

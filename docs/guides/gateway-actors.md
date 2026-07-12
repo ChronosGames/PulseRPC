@@ -135,7 +135,9 @@ services.AddSingleton<IConnectionMultiplexer>(
 
 services.AddPulseServer(options =>
 {
-    options.UsePreset(ServerPreset.Default).AddTcp(7000);
+    options.AddTcp(7000);
+    options.MessageWorkerShardCount = Math.Max(1, Environment.ProcessorCount);
+    options.MessageQueueCapacityPerShard = 1024;
     options.EnableClientFacingGate = true;
 });
 services.AddPulseClustering(

@@ -10,6 +10,7 @@ namespace PulseRPC.Server.Processing.Pipeline;
 /// 批量网络写入器 - 聚合多个写入操作到单个系统调用
 /// 实现高吞吐量的网络I/O优化
 /// </summary>
+[Obsolete("Experimental standalone component. It is not connected to the server runtime.", false)]
 public sealed class BatchedNetworkWriter : IAsyncDisposable
 {
     private readonly Stream _stream;

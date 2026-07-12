@@ -29,6 +29,7 @@ public class DockerEnvironmentDetector
     }
 
     // 从环境变量获取服务配置
+    [Obsolete("This returns the disconnected ServerOptions model. Bind environment configuration to PulseServerOptions instead.", false)]
     public static ServerOptions GetServerOptionsFromEnv()
     {
         var options = new ServerOptions();

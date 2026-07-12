@@ -32,8 +32,8 @@ internal abstract class Program
 
         try
         {
-            // 启动 Host（PulseServerHostedService 会自动启动 IPulseServer；
-            // PulseServiceManagerHostedService 会把 AddPulseService<T> 注册的服务类型注册到 PulseServiceManager）
+            // 启动 Host：PulseServerHostedService 自动启动 IPulseServer；
+            // AddPulseService<T> 的类型目录已在 Manager 首次解析时注册，HostedService 只负责 AutoStart 服务。
             await host.StartAsync();
 
             Console.WriteLine("\n高性能服务器已启动，按 ESC 键停止服务器...\n");

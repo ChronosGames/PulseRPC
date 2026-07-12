@@ -3,6 +3,7 @@ namespace PulseRPC.Server.Configuration;
 /// <summary>
 /// 服务器预设模式
 /// </summary>
+[Obsolete("Server presets are not connected to runtime behavior. Configure PulseServerOptions explicitly.", false)]
 public enum ServerPreset
 {
     /// <summary>
@@ -44,6 +45,7 @@ public enum ServerPreset
 /// <summary>
 /// 服务器预设配置工厂
 /// </summary>
+[Obsolete("Server presets are not connected to runtime behavior. Configure PulseServerOptions explicitly.", false)]
 public static class ServerPresets
 {
     /// <summary>

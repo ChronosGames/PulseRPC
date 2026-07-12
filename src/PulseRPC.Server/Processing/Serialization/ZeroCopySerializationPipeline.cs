@@ -17,6 +17,7 @@ namespace PulseRPC.Server.Processing.Serialization;
 /// 零拷贝序列化管道 - 直接写入网络缓冲区避免中间复制
 /// 针对高频小消息和大消息分别优化
 /// </summary>
+[Obsolete("Experimental standalone component. It is not connected to the server runtime.", false)]
 public sealed class ZeroCopySerializationPipeline : IAsyncDisposable
 {
     private readonly PipeWriter _writer;

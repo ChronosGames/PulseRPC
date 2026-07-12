@@ -1,57 +1,27 @@
-name: Deploy to GitHub Pages
+name: Verify Documentation on Main
 
 on:
   push:
     branches:
       - main
     paths:
+      - 'README.md'
+      - 'Directory.Build.props'
       - 'docs/**'
+      - 'samples/HelloRPC/**'
+      - 'src/PulseRPC.Client/README.md'
+      - 'src/PulseRPC.Server/README.md'
+      - '.github/scripts/verify-hello-rpc.sh'
+      - '.github/scripts/verify-nuget-readmes.sh'
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build Docusaurus
+  verify:
+    name: Verify HelloRPC docs and runtime
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: Cysharp/Actions/.github/actions/checkout@main
-        with:
-          fetch-depth: 0
-      - uses: pnpm/action-setup@08c4be7e2e672a47d11bd04269e27e5f3e8529cb # v6.0.0
-        with:
-          version: 9
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          node-version: 18
-          cache: 'pnpm'
-          cache-dependency-path: 'docs/pnpm-lock.yaml'
-      - name: Install dependencies
-        working-directory: docs
-        run: pnpm install --frozen-lockfile
-      - name: Build website
-        working-directory: docs
-        run: pnpm build
-
-      - name: Upload Build Artifact
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: docs/build
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-
-    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
-    permissions:
-      pages: write # to deploy to Pages
-      id-token: write # to verify the deployment originates from an appropriate source
-
-    # Deploy to the github-pages environment
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+      - uses: actions/checkout@v7
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - run: bash ./.github/scripts/verify-hello-rpc.sh
+      - run: bash ./.github/scripts/verify-nuget-readmes.sh

@@ -28,6 +28,8 @@
 | `ConnectionConfig` / `ConnectionDescriptor` | 客户端连接描述 |
 | `AddPulseServer(...)` | 注册默认服务端 |
 | `AddNamedPulseServer(...)` | 注册命名服务端 |
+| `PulseServerOptions.MessageWorkerShardCount` | 固定服务端消息 worker shard 数；默认等于逻辑处理器数 |
+| `PulseServerOptions.MessageQueueCapacityPerShard` | 每个消息 shard 的有界队列容量；默认 `1024` |
 | `TransportChannelConfiguration` | 服务端 TCP/KCP 监听配置 |
 | `AddPulseClustering(...)` | 注册集群路由和节点配置 |
 | `AddRedisActorLeases(...)` | 以 Redis 原子脚本替换默认进程内 Actor 租约 |
@@ -45,6 +47,15 @@
 - node wire 当前生产版本为 v2；legacy Actor wire 默认关闭。
 - `IHubAddressedClientChannel` 让生成代理显式携带 canonical Hub，服务端按 `(Hub, ProtocolId)` 强校验；生成代理不再回退到无 Hub API。
 - `ServiceRoutingTableRegistry` 与 `ResponseSerializerRegistry` 组合所有已加载程序集的生成结果，DI 在解析时取得该组合视图。
+
+## 服务端消息执行事实
+
+- `MessageEngine` 在运行时构造固定数量的 worker shard；连接注册时按轮询选择一个 shard，并在本次连接生命周期内保持绑定。
+- 每个 shard 只有一个长期 worker 和一个容量固定的 channel。队列满时本次入队立即失败，载荷所有权和请求取消状态在拒绝路径释放。
+- 连接断开会停用 generation-scoped lease 并取消在途 handler；旧队列项不会在同 ID 重连后进入新连接。
+- 停机会停止新连接和新入队，等待连接停用及所有固定 worker 完成积压终结清理，再停止 dispatcher 和响应处理器。
+- 当前消息引擎不使用每连接 L1/L2/L3、adaptive batching 或 `TieredMemoryPool`。对应已发布 API 只作兼容保留，并带有 `[Obsolete]`。
+- 队列事实通过 `RuntimeQueueMetrics` 的 `message-engine.shard` 实例报告；不要把旧 tiered monitoring DTO 当作当前指标源。
 
 ## 集群租约事实
 

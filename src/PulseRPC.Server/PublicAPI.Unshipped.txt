@@ -1,4 +1,8 @@
 #nullable enable
+PulseRPC.Server.Configuration.PulseServerOptions.MessageQueueCapacityPerShard.get -> int
+PulseRPC.Server.Configuration.PulseServerOptions.MessageQueueCapacityPerShard.set -> void
+PulseRPC.Server.Configuration.PulseServerOptions.MessageWorkerShardCount.get -> int
+PulseRPC.Server.Configuration.PulseServerOptions.MessageWorkerShardCount.set -> void
 PulseRPC.Server.Extensions.PipelineMetrics.LatencyAverage.get -> double
 PulseRPC.Server.Extensions.PipelineMetrics.LatencyAverage.init -> void
 PulseRPC.Server.Extensions.PipelineMetrics.LatencyCount.get -> long
@@ -21,4 +25,7 @@ PulseRPC.Server.Processing.Engine.EngineStatistics.P50LatencyMs.get -> double
 PulseRPC.Server.Processing.Engine.EngineStatistics.P50LatencyMs.set -> void
 PulseRPC.Server.Processing.Engine.EngineStatistics.P95LatencyMs.get -> double
 PulseRPC.Server.Processing.Engine.EngineStatistics.P95LatencyMs.set -> void
+PulseRPC.Server.Processing.Engine.ITieredMessageEngine.RegisterConnection(PulseRPC.Server.Transport.IServerChannel! channel) -> void
+PulseRPC.Server.Processing.Engine.ITieredMessageEngine.TryEnqueueMessage(PulseRPC.Server.Transport.IServerChannel! sourceChannel, PulseRPC.Messaging.MessagePacketHolder! message, PulseRPC.MessagePriority priority) -> bool
+PulseRPC.Server.Processing.Engine.ITieredMessageEngine.UnregisterConnection(PulseRPC.Server.Transport.IServerChannel! channel) -> void
 override PulseRPC.Server.Transport.TcpServerTransport.Dispose() -> void

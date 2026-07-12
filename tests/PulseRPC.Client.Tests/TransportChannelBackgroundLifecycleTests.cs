@@ -8,6 +8,8 @@ using Xunit;
 
 namespace PulseRPC.Client.Tests;
 
+#pragma warning disable CS0618 // Direct internal-channel compatibility coverage.
+
 public sealed class TransportChannelBackgroundLifecycleTests
 {
     [Fact]
@@ -97,3 +99,4 @@ public sealed class TransportChannelBackgroundLifecycleTests
         return frame;
     }
 }
+#pragma warning restore CS0618

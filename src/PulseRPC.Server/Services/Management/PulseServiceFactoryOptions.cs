@@ -8,6 +8,7 @@ namespace PulseRPC.Server.Services.Management;
 /// 控制 <see cref="PulseServiceFactory{TService}"/> 的行为，包括缓存策略、清理策略和健康检查。
 /// </para>
 /// </remarks>
+[Obsolete("Use PulseServiceManagerOptions with AddPulseService<TService>().", false)]
 public class PulseServiceFactoryOptions
 {
     /// <summary>

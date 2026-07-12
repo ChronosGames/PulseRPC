@@ -3,6 +3,8 @@ using PulseRPC.Server.Services;
 using PulseRPC.Server.Services.Management;
 using Xunit;
 
+#pragma warning disable CS0618 // Intentional compatibility coverage for the deprecated parallel factory.
+
 namespace PulseRPC.Server.Tests.Services;
 
 public sealed class PulseServiceFactoryLifecycleTests

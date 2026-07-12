@@ -39,10 +39,11 @@ Unity 客户端开发者：
 
 1. [测试指南](guides/testing.md)
 2. [参考手册](reference/index.md)
-3. [变更日志](changelog.md)
-4. [历史归档](archive/)
-5. [Proto.Actor .NET 架构对比研究](archive/research/proto-actor-dotnet-architecture-analysis.md)
-6. [架构优化清单](reference/architecture-optimization-checklist.md)
+3. [NuGet 包说明](nuget-readme.md)
+4. [变更日志](changelog.md)
+5. [历史归档](archive/)
+6. [Proto.Actor .NET 架构对比研究](archive/research/proto-actor-dotnet-architecture-analysis.md)
+7. [架构优化清单](reference/architecture-optimization-checklist.md)
 
 AI Agent 或自动化维护任务请阅读仓库根目录下的 `.agent/README.md`。
 

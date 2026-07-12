@@ -1,8 +1,9 @@
 namespace PulseRPC.Server.Configuration;
 
 /// <summary>
-/// Service 生命周期管理配置选项
+/// 未接入统一服务管理器的历史 Service 生命周期配置。
 /// </summary>
+[Obsolete("This options type is not consumed. Configure PulseServiceManagerOptions for managed service lifecycle.", false)]
 public sealed class ServiceLifecycleOptions
 {
     /// <summary>

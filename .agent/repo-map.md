@@ -29,10 +29,11 @@
 
 | 路径 | 状态 |
 | --- | --- |
-| `samples/ChatApp` | 推荐维护样例 |
-| `samples/JwtAuthentication` | 推荐认证样例 |
-| `samples/JsonTranscoding` | 推荐转码样例 |
-| `samples/ServiceFactoryExample` | 推荐服务实例生命周期样例 |
+| `samples/HelloRPC` | 唯一首次上手黄金路径；三项目并由 CI 端到端运行 |
+| `samples/ChatApp` | 维护中的专项样例 |
+| `samples/JwtAuthentication` | 维护中的认证专项样例 |
+| `samples/JsonTranscoding` | 维护中的转码专项样例 |
+| `samples/ServiceFactoryExample` | 维护中的服务实例生命周期专项样例 |
 | `samples/GameApp` | 综合游戏样例，含历史蓝图 |
 | `samples/DistributedGameApp` | 分布式游戏样例，含历史蓝图 |
 

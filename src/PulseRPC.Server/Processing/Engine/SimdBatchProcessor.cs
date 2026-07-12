@@ -12,6 +12,7 @@ namespace PulseRPC.Server.Processing.Engine;
 /// P8 优化：SIMD 加速的批量消息处理器
 /// 提供高性能的消息扫描、长度提取和协议号批量查找功能
 /// </summary>
+[Obsolete("Experimental standalone component. It is not used by the fixed-shard message engine.", false)]
 public static class SimdBatchProcessor
 {
     /// <summary>

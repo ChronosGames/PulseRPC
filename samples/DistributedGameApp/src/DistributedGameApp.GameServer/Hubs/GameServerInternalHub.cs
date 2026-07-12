@@ -3,7 +3,6 @@ using DistributedGameApp.Shared.Hubs;
 using DistributedGameApp.Shared.Receivers;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server;
-using PulseRPC.Server.Services;
 
 namespace DistributedGameApp.GameServer.Hubs;
 
@@ -16,32 +15,23 @@ namespace DistributedGameApp.GameServer.Hubs;
 /// <item><description>接收 BackendServer 的匹配成功回调</description></item>
 /// <item><description>使用 IHubContext&lt;IGameReceiver&gt; 转发通知给客户端</description></item>
 /// </list>
-/// <para><strong>设计原则</strong>:</para>
-/// <list type="bullet">
-/// <item><description>✅ 继承 PulseServiceBase - 因为需要单例模式</description></item>
-/// <item><description>✅ 全局单例 (ServiceId = "Global")</description></item>
-/// <item><description>✅ 使用框架提供的 IUserConnectionMapping 管理连接状态</description></item>
-/// </list>
+/// 该 Hub 自身无状态；共享连接状态由 <see cref="IUserConnectionMapping"/> 管理，
+/// 因此使用标准 DI 单例，不创建平行的 <c>IPulseService</c> 生命周期。
 /// </remarks>
-[PulseService(
-    Scenario = ServiceScenario.Actor,  // 单线程顺序执行，保证线程安全
-    StartupType = ServiceStartupType.AutoStart,
-    InstanceScope = ServiceInstanceScope.Singleton,
-    DisplayName = "GameServerInternalHub",
-    EnableHealthCheck = true)]
-public class GameServerInternalHub : PulseServiceBase, IGameServerInternalHub, IPulseServiceLifecycle
+public sealed class GameServerInternalHub : IGameServerInternalHub
 {
     private readonly IHubContext<IGameReceiver> _gameReceiverContext;
     private readonly IUserConnectionMapping _userConnectionMapping;
+    private readonly ILogger<GameServerInternalHub> _logger;
 
     public GameServerInternalHub(
         IHubContext<IGameReceiver> gameReceiverContext,
         IUserConnectionMapping userConnectionMapping,
         ILogger<GameServerInternalHub> logger)
-        : base("GameServerInternalHub", "Global", logger)
     {
         _gameReceiverContext = gameReceiverContext;
         _userConnectionMapping = userConnectionMapping;
+        _logger = logger;
     }
 
     /// <summary>
@@ -54,7 +44,7 @@ public class GameServerInternalHub : PulseServiceBase, IGameServerInternalHub, I
             // 使用框架提供的 IUserConnectionMapping 检查玩家是否在线
             if (!_userConnectionMapping.IsUserOnline(playerId))
             {
-                Logger.LogWarning("Player not connected: {PlayerId}", playerId);
+                _logger.LogWarning("Player not connected: {PlayerId}", playerId);
                 return false;
             }
 
@@ -71,7 +61,7 @@ public class GameServerInternalHub : PulseServiceBase, IGameServerInternalHub, I
             // 协议号由源生成器自动生成，无需手动计算
             await _gameReceiverContext.Clients.User(playerId).OnMatchFoundAsync(clientNotification);
 
-            Logger.LogInformation(
+            _logger.LogInformation(
                 "Match found notification sent via IHubContext - PlayerId: {PlayerId}, MatchId: {MatchId}, BattleRoom: {RoomId}",
                 playerId, notification.MatchId, notification.BattleRoomId);
 
@@ -79,7 +69,7 @@ public class GameServerInternalHub : PulseServiceBase, IGameServerInternalHub, I
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to send match found notification - PlayerId: {PlayerId}", playerId);
+            _logger.LogError(ex, "Failed to send match found notification - PlayerId: {PlayerId}", playerId);
             return false;
         }
     }
@@ -93,14 +83,14 @@ public class GameServerInternalHub : PulseServiceBase, IGameServerInternalHub, I
         {
             if (!_userConnectionMapping.IsUserOnline(playerId))
             {
-                Logger.LogWarning("Player not connected: {PlayerId}", playerId);
+                _logger.LogWarning("Player not connected: {PlayerId}", playerId);
                 return false;
             }
 
             // ✅ 使用 IHubContext<IGameReceiver> 推送给客户端
             await _gameReceiverContext.Clients.User(playerId).OnMatchCancelledAsync(reason);
 
-            Logger.LogInformation(
+            _logger.LogInformation(
                 "Match cancelled notification sent via IHubContext - PlayerId: {PlayerId}, Reason: {Reason}",
                 playerId, reason);
 
@@ -108,28 +98,8 @@ public class GameServerInternalHub : PulseServiceBase, IGameServerInternalHub, I
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to send match cancelled notification - PlayerId: {PlayerId}", playerId);
+            _logger.LogError(ex, "Failed to send match cancelled notification - PlayerId: {PlayerId}", playerId);
             return false;
         }
-    }
-
-    public override Task OnStartingAsync(CancellationToken cancellationToken = default)
-    {
-        Logger.LogInformation("GameServerInternalHub starting...");
-        return Task.CompletedTask;
-    }
-
-    public override Task OnStoppingAsync(CancellationToken cancellationToken = default)
-    {
-        Logger.LogInformation("GameServerInternalHub stopping...");
-        return Task.CompletedTask;
-    }
-
-    public override Task<ServiceHealthCheckResult> CheckHealthAsync(CancellationToken cancellationToken = default)
-    {
-        var playerCount = _userConnectionMapping.OnlineUserCount;
-        Logger.LogDebug("GameServerInternalHub health check: {PlayerCount} players connected", playerCount);
-
-        return Task.FromResult(ServiceHealthCheckResult.Healthy($"{playerCount} players connected"));
     }
 }

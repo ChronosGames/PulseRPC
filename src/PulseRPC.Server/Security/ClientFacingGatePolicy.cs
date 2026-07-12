@@ -1,4 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
+using PulseRPC.Routing;
+using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Security;
 
@@ -24,13 +26,16 @@ internal sealed class ClientFacingGateServiceProvider : IServiceProvider, IKeyed
 {
     private readonly IServiceProvider _innerProvider;
     private readonly IClientFacingGatePolicy _policy;
+    private readonly object? _runtimeKey;
 
     public ClientFacingGateServiceProvider(
         IServiceProvider innerProvider,
-        IClientFacingGatePolicy policy)
+        IClientFacingGatePolicy policy,
+        object? runtimeKey = null)
     {
         _innerProvider = innerProvider ?? throw new ArgumentNullException(nameof(innerProvider));
         _policy = policy ?? throw new ArgumentNullException(nameof(policy));
+        _runtimeKey = runtimeKey;
     }
 
     public object? GetService(Type serviceType)
@@ -40,6 +45,13 @@ internal sealed class ClientFacingGateServiceProvider : IServiceProvider, IKeyed
         if (serviceType == typeof(IClientFacingGatePolicy))
         {
             return _policy;
+        }
+
+        if (_runtimeKey is not null &&
+            (serviceType == typeof(IPulseRouter) ||
+             serviceType == typeof(IServerChannelManager)))
+        {
+            return GetInnerKeyedProvider().GetRequiredKeyedService(serviceType, _runtimeKey);
         }
 
         if (serviceType == typeof(IServiceProvider) ||

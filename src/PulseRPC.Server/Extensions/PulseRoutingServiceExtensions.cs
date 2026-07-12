@@ -32,7 +32,13 @@ public static class PulseRoutingServiceExtensions
     public static IServiceCollection AddPulseRouting(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        RegisterSharedRoutingDependencies(services);
+        services.TryAddSingleton<IPulseRouter, LocalPulseRouter>();
+        return services;
+    }
 
+    internal static void RegisterSharedRoutingDependencies(IServiceCollection services)
+    {
         // Group/User 寻址（PulseAddress.Group/User）依赖这两个管理器；未显式调用 AddPulseReceiverServices 时提供默认实现，
         // 确保 IPulseRouter 在任何注册顺序下都具备完整的本地寻址能力。
         services.TryAddSingleton<IUserConnectionMapping, UserConnectionMapping>();
@@ -43,8 +49,5 @@ public static class PulseRoutingServiceExtensions
         // 否则本地直投与跨节点转发对同一 (Hub,Key) Actor 的去重判定会互不可见。
         services.TryAddSingleton<MessageDeduplicationCache>();
         services.TryAddSingleton<DeliveryRetryOptions>();
-        services.TryAddSingleton<IPulseRouter, LocalPulseRouter>();
-
-        return services;
     }
 }

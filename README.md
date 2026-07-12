@@ -6,19 +6,20 @@
 
 基于现代 .NET 平台的高性能 RPC 框架，支持 TCP 和 KCP 传输协议，面向 Unity 游戏和微服务架构设计。
 
-> 项目仍在积极开发中，部分接口可能发生变化。完整、可运行的用法优先参考 [`docs/index.md`](docs/index.md)、[`samples/ChatApp`](samples/ChatApp/)、[`samples/JwtAuthentication`](samples/JwtAuthentication/) 与 [`samples/HubFactoryExample`](samples/HubFactoryExample/)。
+> 项目仍在积极开发中，部分接口可能发生变化。首次上手只参考经过 CI 端到端验证的三项目 [`samples/HelloRPC`](samples/HelloRPC/) 黄金路径。
 
 ## 🚀 核心特性
 
 - **多传输协议**：TCP（可靠）与 KCP（低延迟）传输实现
 - **集群发现**：`IDiscoveryProvider` / `IClusterMembership` 抽象，提供静态成员以及 Consul、Etcd、Kubernetes 后端
-- **客户端负载均衡**：连接级随机、轮询和最少连接；加权轮询与一致性哈希仍为实验枚举值，选择时会明确抛出 `NotSupportedException`
+- **客户端负载均衡**：支持随机、轮询、最少连接、平滑加权轮询与一致性哈希；动态权重通过 `IConnectionWeightProvider` 提供，一致性哈希调用必须提供稳定的 `ServiceProxyOptions.StickyKey`，非法输入会明确失败
 - **健康检查与故障转移**：客户端连接健康检查与服务端 `IPulseServiceHealthCheck` 支持
 - **连接管理**：连接生命周期管理，支持自动重连
+- **有界消息执行**：服务端使用固定数量的 worker shard；连接在其生命周期内绑定一个 shard，每个 shard 使用有界队列，队列满时立即拒绝新消息；有效调优入口为 `PulseServerOptions.MessageWorkerShardCount` 与 `MessageQueueCapacityPerShard`
 - **代码生成**：基于 Source Generator 的客户端/服务端代理，客户端避免使用反射（兼容 Unity）
 - **多节点 Actor / Gateway**：内置节点 TCP 数据面、wire v2 claims 与 lease fencing、Redis CAS + TTL 租约及严格授权路由（部署边界见专项指南）
 - **高性能序列化**：优先使用 MemoryPack
-- **可观测性基础**：服务端包含消息引擎监控与分布式追踪集成点；当前未发布独立 `PulseRPC.Monitoring` / `PulseRPC.Tracing` 包
+- **可观测性基础**：服务端通过 `EngineStatistics` 与 `RuntimeQueueMetrics` 暴露消息处理和有界队列事实；当前未发布独立 `PulseRPC.Monitoring` / `PulseRPC.Tracing` 包
 
 ## 📦 项目结构
 
@@ -65,66 +66,21 @@ dotnet test
 dotnet build -c Release
 ```
 
-### 服务端
+### 唯一黄金路径：HelloRPC
 
-以下示例基于 [`samples/ChatApp`](samples/ChatApp/)，演示如何注册并启动服务端：
+HelloRPC 的 Contracts、Server、Client 三个项目是 README、Quickstart 与 NuGet 包说明共用的唯一首次上手路径：
 
-```csharp
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using PulseRPC.Server;
-using PulseRPC.Server.Extensions;
-using PulseRPC.Shared;
+```bash
+dotnet build samples/HelloRPC/HelloRPC.sln
 
-var host = Host.CreateDefaultBuilder(args)
-    .ConfigureServices(services =>
-    {
-        // 注册 PulseRPC 服务端及传输通道
-        services.AddPulseServer(options =>
-        {
-            options.Transports = new()
-            {
-                new TransportChannelConfiguration
-                {
-                    Name = "TCP",
-                    Type = TransportType.TCP,
-                    Port = 7000,
-                    IsDefault = true
-                }
-            };
-        });
+# 终端 1
+dotnet run --project samples/HelloRPC/HelloRPC.Server
 
-        // 注册业务服务（服务实现 IPulseHub / IPulseService）
-        services.AddPulseService<ChatRoomService>();
-    })
-    .Build();
-
-var server = host.Services.GetRequiredService<IPulseServer>();
-await server.StartAsync();
+# 终端 2
+dotnet run --project samples/HelloRPC/HelloRPC.Client
 ```
 
-### 客户端
-
-```csharp
-using Microsoft.Extensions.Logging;
-using PulseRPC.Client;
-using PulseRPC.Client.Configuration;
-
-// 通过 Builder 配置并创建客户端
-var client = new PulseClientBuilder()
-    .AddConnection(ConnectionConfig.Tcp(name: "ChatServer", host: "127.0.0.1", port: 7000).ToDescriptor())
-    .WithLogging(LoggerFactory.Create(b => b.AddConsole()))
-    .Build();
-
-await client.InitializeAsync();
-
-// 通过 Source Generator 生成的代理调用远程服务
-// （代理与扩展方法由 PulseRPC.Client.SourceGenerator 生成）
-
-await client.StopAsync();
-```
-
-> 更完整的端到端示例（服务契约定义、代理调用、认证、Unity 集成等）请参阅 [`docs/index.md`](docs/index.md) 与 [`samples/`](samples/) 目录。
+成功时客户端输出 `Hello, PulseRPC!`。完整源码和说明见 [`samples/HelloRPC`](samples/HelloRPC/)；逐步说明见[快速开始](docs/getting-started/quickstart.md)。
 
 ## 📊 性能基准测试
 
@@ -149,12 +105,7 @@ await client.StopAsync();
 
 ## 🧪 示例项目
 
-项目包含多个示例，完整清单见 [`samples/README.md`](samples/README.md)，其中包括：
-
-- [ChatApp](samples/ChatApp/) - 基于服务隔离架构的实时聊天/游戏示例（含 Unity 客户端）
-- [JwtAuthentication](samples/JwtAuthentication/) - JWT 身份验证集成示例
-- [HubFactoryExample](samples/HubFactoryExample/) - 当前 Hub 工厂用法
-- [GameApp](samples/GameApp/) / [DistributedGameApp](samples/DistributedGameApp/) - 历史游戏架构参考，不作为当前可运行模板
+首次上手只使用 [HelloRPC](samples/HelloRPC/)；专项功能和历史参考的完整清单见 [`samples/README.md`](samples/README.md)，它们不作为 Quickstart 的替代入口。
 
 ## 🔧 开发约定
 

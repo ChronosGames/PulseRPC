@@ -146,7 +146,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
     private readonly IServerChannelManager _sessionManager;
     private readonly ISerializerProvider _serializerProvider;
     private readonly ILogger<ResponseProcessor> _logger;
-    private readonly ResponseProcessorOptions _options;
+    private readonly ResponseProcessorSettings _options;
 
     // 高性能通道用于响应处理
     private readonly ChannelWriter<ResponseTask> _responseWriter;
@@ -163,6 +163,11 @@ internal sealed class ResponseProcessor : IResponseProcessor
     // 处理任务
     private Task[]? _processingTasks;
     private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly object _lifecycleLock = new();
+     private Task? _startTask;
+     private Task? _stopTask;
+     private Task? _disposeTask;
+     private int _disposeState;
 
     // 性能统计（使用线程本地计数器以减少原子操作开销）
     private long _totalResponsesSent;
@@ -182,14 +187,14 @@ internal sealed class ResponseProcessor : IResponseProcessor
     public ResponseProcessor(
         IServerChannelManager sessionManager,
         ISerializerProvider? serializerProvider = null,
-        ResponseProcessorOptions? options = null,
+        ResponseProcessorSettings? options = null,
         ILogger<ResponseProcessor>? logger = null,
         IResponseSerializerRegistry? responseSerializerRegistry = null,
         IServiceRoutingTable? routingTable = null)
     {
         _sessionManager = sessionManager ?? throw new ArgumentNullException(nameof(sessionManager));
         _serializerProvider = serializerProvider ?? PulseRPCSerializerProvider.Instance;
-        _options = options ?? new ResponseProcessorOptions();
+        _options = options ?? new ResponseProcessorSettings();
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ResponseProcessor>.Instance;
         _responseSerializerRegistry = responseSerializerRegistry;
         _routingTable = routingTable ?? ServiceRoutingTableRegistry.Instance;
@@ -213,6 +218,23 @@ internal sealed class ResponseProcessor : IResponseProcessor
 
      public Task StartAsync(CancellationToken cancellationToken = default)
      {
+         lock (_lifecycleLock)
+         {
+             ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+             if (_stopTask is not null)
+             {
+                 return Task.FromException(new InvalidOperationException("ResponseProcessor cannot be restarted after stop."));
+             }
+
+             _startTask ??= StartCoreAsync(cancellationToken);
+             return _startTask;
+         }
+     }
+
+     private async Task StartCoreAsync(CancellationToken cancellationToken)
+     {
+         await Task.Yield();
+         cancellationToken.ThrowIfCancellationRequested();
          _logger.LogInformation("启动高性能响应处理器，处理器线程数: {ProcessorCount}", _options.ProcessorThreadCount);
 
          ValidateResponseSerializers();
@@ -230,11 +252,15 @@ internal sealed class ResponseProcessor : IResponseProcessor
          for (var i = 0; i < _options.ProcessorThreadCount; i++)
          {
              var processorId = i;
-             _processingTasks[i] = Task.Run(async () => await ProcessResponseTasksAsync(processorId, _shutdownCts.Token), cancellationToken);
+             // The caller token controls whether Start succeeds, not worker scheduling. Using it
+             // as Task.Run's scheduling token can create canceled worker tasks that never execute
+             // their cleanup path when Stop races with Start.
+             _processingTasks[i] = Task.Run(
+                 async () => await ProcessResponseTasksAsync(processorId, _shutdownCts.Token),
+                 CancellationToken.None);
          }
 
          _logger.LogInformation("响应处理器启动完成");
-         return Task.CompletedTask;
      }
 
      private void ValidateResponseSerializers()
@@ -272,43 +298,101 @@ internal sealed class ResponseProcessor : IResponseProcessor
          }
      }
 
-     public async Task StopAsync(CancellationToken cancellationToken = default)
+     public Task StopAsync(CancellationToken cancellationToken = default)
      {
-         _logger.LogInformation("停止响应处理器");
+         lock (_lifecycleLock)
+         {
+             _stopTask ??= StopCoreAsync(cancellationToken);
+             return _stopTask;
+         }
+     }
+
+     private async Task StopCoreAsync(CancellationToken cancellationToken)
+     {
+         await Task.Yield();
+         _ = cancellationToken;
+         SafeLog(() => _logger.LogInformation("停止响应处理器"));
 
          // 标记写入完成（安全关闭通道）
-         try
-         {
-             _responseWriter.Complete();
-         }
-         catch (ChannelClosedException)
-         {
-             // 通道已经关闭，忽略此异常
-             _logger.LogDebug("响应通道已经关闭");
-         }
+         _responseWriter.TryComplete();
 
          // 取消所有处理任务
-         await _shutdownCts.CancelAsync();
+         try
+         {
+             await _shutdownCts.CancelAsync().ConfigureAwait(false);
+         }
+         catch (Exception ex)
+         {
+             SafeLog(() => _logger.LogError(ex, "取消响应处理器时回调失败"));
+         }
 
-         // 等待所有处理任务完成
-         if (_processingTasks != null)
+         Task? startTask;
+         lock (_lifecycleLock)
+         {
+             startTask = _startTask;
+         }
+
+         if (startTask is not null)
          {
              try
              {
-                 await Task.WhenAll(_processingTasks).WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+                 await startTask.ConfigureAwait(false);
              }
-             catch (TimeoutException)
+             catch
              {
-                 _logger.LogWarning("响应处理器停止超时");
+                 // Start failure is observed by its caller; stop still releases the queue registration.
              }
          }
 
-         // 聚合所有线程的指标
-         AggregateMetrics();
-         _queueMetrics.Dispose();
+         try
+         {
+             // A completed Stop guarantees that no worker still owns a pooled response buffer.
+             // Workers are expected to honor the shutdown token passed to SendAsync, so do not
+             // return after an arbitrary timeout while a send is still in flight.
+              if (_processingTasks != null)
+              {
+                  try
+                  {
+                      await Task.WhenAll(_processingTasks).ConfigureAwait(false);
+                 }
+                 catch (Exception ex)
+                  {
+                      SafeLog(() => _logger.LogError(ex, "响应处理器 worker 异常退出"));
+                  }
+                  finally
+                  {
+                      _processingTasks = null;
+                  }
+              }
+         }
+         finally
+         {
+             // Cancellation intentionally abandons queued responses; drain them so results and
+             // exception graphs are not retained for the lifetime of the DI provider.
+             while (_responseReader.TryRead(out _))
+             {
+             }
 
-         _logger.LogInformation("响应处理器停止完成，总响应数: {TotalResponses}, 错误数: {TotalErrors}",
-             _totalResponsesSent, _totalResponseErrors);
+             AggregateMetrics();
+             _queueMetrics.Dispose();
+         }
+
+         SafeLog(() => _logger.LogInformation(
+             "响应处理器停止完成，总响应数: {TotalResponses}, 错误数: {TotalErrors}",
+             _totalResponsesSent,
+             _totalResponseErrors));
+     }
+
+     private static void SafeLog(Action logAction)
+     {
+         try
+         {
+             logAction();
+         }
+         catch
+         {
+             // Worker, queue and metrics cleanup must not depend on a logger provider.
+         }
      }
 
      /// <summary>
@@ -335,7 +419,8 @@ internal sealed class ResponseProcessor : IResponseProcessor
             eventArgs.Result,
             eventArgs.Success,
             eventArgs.Exception,
-            DateTime.UtcNow);
+            DateTime.UtcNow,
+            callContext.ExpectedChannel);
 
          // 快速路径：尝试同步写入（零分配）
          if (_responseWriter.TryWrite(responseTask))
@@ -432,32 +517,45 @@ internal sealed class ResponseProcessor : IResponseProcessor
                  if (!await _responseReader.WaitToReadAsync(cancellationToken))
                      break;
 
-                 // 批量同步读取（快速路径，避免异步开销）
-                 var count = 0;
-                 while (count < batchBuffer.Length && _responseReader.TryRead(out var task))
-                 {
-                     batchBuffer[count++] = task;
-                 }
+                  // 批量同步读取（快速路径，避免异步开销）
+                  var count = 0;
+                  while (count < batchBuffer.Length && _responseReader.TryRead(out batchBuffer[count]))
+                  {
+                      count++;
+                  }
                  _queueMetrics.Observe();
 
-                 // 批量处理（同步循环，减少异步状态机开销）
-                 for (var i = 0; i < count; i++)
-                 {
-                     await ProcessResponseTaskAsync(batchBuffer[i], processorId);
-                 }
-             }
-         }
+                  // 批量处理（同步循环，减少异步状态机开销）
+                  for (var i = 0; i < count; i++)
+                  {
+                      try
+                      {
+                          await ProcessResponseTaskAsync(batchBuffer[i], processorId);
+                      }
+                      finally
+                      {
+                          // Workers are long-lived. Clear each completed item so the batch does
+                          // not retain result/exception graphs or an old channel while idle.
+                          batchBuffer[i] = default;
+                      }
+                  }
+              }
+          }
          catch (OperationCanceledException)
          {
              // 正常关闭
          }
          catch (Exception ex)
-         {
-             _logger.LogError(ex, "响应处理器 #{ProcessorId} 发生异常", processorId);
-         }
+          {
+              _logger.LogError(ex, "响应处理器 #{ProcessorId} 发生异常", processorId);
+          }
+          finally
+          {
+              Array.Clear(batchBuffer);
+          }
 
-         _logger.LogDebug("响应处理器 #{ProcessorId} 停止", processorId);
-     }
+          _logger.LogDebug("响应处理器 #{ProcessorId} 停止", processorId);
+      }
 
      /// <summary>
      /// 处理单个响应任务
@@ -535,7 +633,9 @@ internal sealed class ResponseProcessor : IResponseProcessor
              var session = _sessionManager.GetChannel(responseTask.ConnectionId);
              var sent = false;
 
-             if (session != null)
+             if (session != null &&
+                 (responseTask.ExpectedChannel is null ||
+                  ReferenceEquals(session, responseTask.ExpectedChannel)))
              {
                  // 发送完整的消息包（包括头长度、头数据和payload数据）
                  sent = await session.SendAsync(packetBuffer.Memory[..bytesWritten], _shutdownCts.Token);
@@ -665,13 +765,34 @@ internal sealed class ResponseProcessor : IResponseProcessor
 
      public void Dispose()
      {
-         if (!_shutdownCts.IsCancellationRequested)
+         Task disposeTask;
+         lock (_lifecycleLock)
          {
-             StopAsync().GetAwaiter().GetResult();
+             if (_disposeTask is null)
+             {
+                 Volatile.Write(ref _disposeState, 1);
+                 _disposeTask = DisposeCoreAsync();
+             }
+
+             disposeTask = _disposeTask;
          }
 
-         _shutdownCts.Dispose();
-         _serializerCache.Clear();
+         disposeTask.GetAwaiter().GetResult();
+     }
+
+     private async Task DisposeCoreAsync()
+     {
+         // Ensure _disposeTask is published before Stop can invoke external cancellation callbacks.
+         await Task.Yield();
+         try
+         {
+             await StopAsync().ConfigureAwait(false);
+         }
+         finally
+         {
+             _shutdownCts.Dispose();
+             _serializerCache.Clear();
+         }
      }
 }
 
@@ -699,6 +820,7 @@ internal readonly struct ResponseTask
     public readonly bool Success;
     public readonly Exception? Exception;
     public readonly DateTime ResponseTime;
+    public readonly IServerChannel? ExpectedChannel;
 
     public ResponseTask(
         string connectionId,
@@ -709,7 +831,8 @@ internal readonly struct ResponseTask
         object? result,
         bool success,
         Exception? exception,
-        DateTime responseTime)
+        DateTime responseTime,
+        IServerChannel? expectedChannel = null)
     {
         ConnectionId = connectionId;
         MessageId = messageId;
@@ -720,29 +843,26 @@ internal readonly struct ResponseTask
         Success = success;
         Exception = exception;
         ResponseTime = responseTime;
+        ExpectedChannel = expectedChannel;
     }
 }
 
+internal sealed class ResponseProcessorSettings
+{
+    public int ProcessorThreadCount { get; set; } = Math.Max(1, Environment.ProcessorCount / 2);
+    public int ChannelCapacity { get; set; } = 50000;
+    public bool IncludeStackTrace { get; set; }
+}
+
 /// <summary>
-/// 响应处理器配置选项
+/// Legacy response options retained for source and binary compatibility.
 /// </summary>
+[Obsolete("This options model is not connected to AddPulseServer. Response processing is configured internally.", false)]
 public sealed class ResponseProcessorOptions
 {
-    /// <summary>
-    /// 处理器线程数量
-    /// </summary>
     public int ProcessorThreadCount { get; set; } = Math.Max(1, Environment.ProcessorCount / 2);
-
-    /// <summary>
-    /// 响应通道容量（增大到50000以应对高并发场景）
-    /// </summary>
     public int ChannelCapacity { get; set; } = 50000;
-
-    /// <summary>
-    /// 是否在错误响应中包含堆栈跟踪
-    /// </summary>
-    public bool IncludeStackTrace { get; set; } = false;
-
+    public bool IncludeStackTrace { get; set; }
     /// <summary>
     /// 序列化器缓存大小
     /// </summary>

@@ -18,6 +18,8 @@ using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Client.Channels;
 
+#pragma warning disable CS0618 // Internal compatibility channel consumes the legacy options DTO.
+
 /// <summary>
 /// 优化的传输通道 - 减少热路径内存分配
 /// </summary>
@@ -1150,6 +1152,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
         writer.Clear();
     }
 }
+#pragma warning restore CS0618
 
 /// <summary>
 /// 适配器类，使用 ArrayBufferWriter 来兼容 <c>IBufferWriter&lt;byte&gt;</c>

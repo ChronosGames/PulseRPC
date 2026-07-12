@@ -38,29 +38,36 @@ public static class PulseServiceExtensions
         this IServiceCollection services,
         Action<PulseServiceManagerOptions>? configure = null)
     {
-        var options = new PulseServiceManagerOptions();
-        configure?.Invoke(options);
+        ArgumentNullException.ThrowIfNull(services);
 
-        // 使用 IOptions 模式注册配置
-        services.Configure<PulseServiceManagerOptions>(opt =>
+        services.AddOptions<PulseServiceManagerOptions>();
+        if (configure is not null)
         {
-            opt.ContinueOnAutoStartFailure = options.ContinueOnAutoStartFailure;
-            opt.CleanupInterval = options.CleanupInterval;
-            opt.MaxCachedInstances = options.MaxCachedInstances;
-            opt.EnableInstanceEviction = options.EnableInstanceEviction;
-        });
+            services.Configure(configure);
+        }
 
-        services.TryAddSingleton(options);
-        services.TryAddSingleton<PulseServiceManager>();
+        services.TryAddSingleton<PulseServiceManager>(serviceProvider =>
+        {
+            var manager = new PulseServiceManager(
+                serviceProvider,
+                serviceProvider.GetRequiredService<ILogger<PulseServiceManager>>(),
+                serviceProvider
+                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<PulseServiceManagerOptions>>()
+                    .Value);
+
+            foreach (var registration in serviceProvider.GetServices<ServiceRegistrationEntry>())
+            {
+                registration.RegisterAction(manager);
+            }
+
+            return manager;
+        });
 
         // 添加后台服务以自动启动 AutoStart 服务
         services.AddHostedService<PulseServiceManagerHostedService>();
 
-        // 添加服务实例清理器（如果启用）
-        if (options.EnableInstanceEviction)
-        {
-            services.AddHostedService<ServiceInstanceEvictor>();
-        }
+        // 注册图不依赖配置委托的调用顺序；禁用时 Evictor.StartAsync 直接返回。
+        services.AddHostedService<ServiceInstanceEvictor>();
 
         return services;
     }
@@ -106,23 +113,15 @@ public static class PulseServiceExtensions
         // 1. 确保统一服务管理系统已注册
         services.AddPulseServiceManagement();
 
-        // 2. 注册服务类型本身（用于 DI 创建）
-        services.TryAddTransient<TService>();
-
-        // 3. 注册服务访问器
+        // 2. 只注册受管理的访问器。TService 不直接暴露给 DI，避免创建绕过
+        // PulseServiceManager 的未启动、未缓存、无租约平行实例。
         services.TryAddSingleton<IServiceAccessor<TService>, ServiceAccessor<TService>>();
 
-        // 4. 注册到服务管理器的配置
-        services.Configure<ServiceRegistrationCollection>(collection =>
+        // 3. 注册内部 catalog；Manager 首次解析时立即完成类型注册，
+        // 不要求宿主先启动 HostedService。
+        services.AddSingleton(new ServiceRegistrationEntry
         {
-            collection.Add(new ServiceRegistrationEntry
-            {
-                ServiceType = typeof(TService),
-                Factory = factory != null
-                    ? (sp, id) => factory(sp, id)
-                    : null,
-                RegisterAction = manager => manager.Register<TService>(factory)
-            });
+            RegisterAction = manager => manager.Register<TService>(factory)
         });
 
         return services;
@@ -134,24 +133,10 @@ public static class PulseServiceExtensions
 /// </summary>
 internal sealed class ServiceRegistrationEntry
 {
-    public required Type ServiceType { get; init; }
-    public Func<IServiceProvider, string, IPulseService>? Factory { get; init; }
-
     /// <summary>
     /// 注册委托 - 直接调用 PulseServiceManager.Register，避免反射
     /// </summary>
     public required Action<PulseServiceManager> RegisterAction { get; init; }
-}
-
-/// <summary>
-/// 服务注册集合（用于配置阶段收集注册信息）
-/// </summary>
-internal sealed class ServiceRegistrationCollection
-{
-    private readonly List<ServiceRegistrationEntry> _entries = new();
-
-    public void Add(ServiceRegistrationEntry entry) => _entries.Add(entry);
-    public IReadOnlyList<ServiceRegistrationEntry> GetEntries() => _entries;
 }
 
 /// <summary>
@@ -160,16 +145,13 @@ internal sealed class ServiceRegistrationCollection
 internal sealed class PulseServiceManagerHostedService : IHostedService
 {
     private readonly PulseServiceManager _serviceManager;
-    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<PulseServiceManagerHostedService> _logger;
 
     public PulseServiceManagerHostedService(
         PulseServiceManager serviceManager,
-        IServiceProvider serviceProvider,
         ILogger<PulseServiceManagerHostedService> logger)
     {
         _serviceManager = serviceManager;
-        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -177,32 +159,21 @@ internal sealed class PulseServiceManagerHostedService : IHostedService
     {
         _logger.LogInformation("Starting PulseServiceManagerHostedService");
 
-        // 注册所有配置的服务
-        var serviceCollection = _serviceProvider.GetService<Microsoft.Extensions.Options.IOptions<ServiceRegistrationCollection>>();
-        if (serviceCollection?.Value != null)
-        {
-            foreach (var entry in serviceCollection.Value.GetEntries())
-            {
-                RegisterServiceDynamic(entry);
-            }
-        }
-
         // 启动所有 AutoStart 服务
         await _serviceManager.StartAutoStartServicesAsync(cancellationToken);
 
         _logger.LogInformation("PulseServiceManagerHostedService started");
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken)
+    public Task StopAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Stopping PulseServiceManagerHostedService");
-        await _serviceManager.DisposeAsync();
-        _logger.LogInformation("PulseServiceManagerHostedService stopped");
-    }
-
-    private void RegisterServiceDynamic(ServiceRegistrationEntry entry)
-    {
-        // 直接调用预编译的注册委托，避免反射开销
-        entry.RegisterAction(_serviceManager);
+        // IHostedService stop order depends on registration order. Disposing the manager here can
+        // invalidate IServiceAccessor while a Pulse server registered earlier is still draining
+        // requests. The DI provider owns the singleton and disposes it after every hosted service
+        // has stopped.
+        _logger.LogInformation(
+            "PulseServiceManagerHostedService stopped; manager disposal is deferred to the service provider");
+        return Task.CompletedTask;
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using PulseRPC.Authentication;
+using PulseRPC.Client.Channels;
 using PulseRPC.Client.Configuration;
 using PulseRPC.Client.Transport;
 using PulseRPC.Shared;
@@ -10,8 +11,78 @@ using Xunit;
 
 namespace PulseRPC.Client.Tests;
 
+#pragma warning disable CS0618 // Intentional compatibility coverage of unsupported builder APIs.
 public class PulseClientBuilderContractTests
 {
+    [Theory]
+    [InlineData(nameof(ClientOptions.DefaultTimeout))]
+    [InlineData(nameof(ClientOptions.MaxConcurrentConnections))]
+    [InlineData(nameof(ClientOptions.EnableDebugMode))]
+    [InlineData(nameof(ClientOptions.EnableStatistics))]
+    [InlineData(nameof(ClientOptions.AutoCleanupInterval))]
+    [InlineData(nameof(ClientOptions.Settings))]
+    public void UnwiredClientOptions_MustBeMarkedObsolete(string propertyName)
+    {
+        var property = typeof(ClientOptions).GetProperty(propertyName);
+
+        Assert.NotNull(property);
+        Assert.NotNull(Attribute.GetCustomAttribute(property!, typeof(ObsoleteAttribute)));
+    }
+
+    [Theory]
+    [InlineData(nameof(ServiceProxyOptions.ConnectionId))]
+    [InlineData(nameof(ServiceProxyOptions.ChannelName))]
+    [InlineData(nameof(ServiceProxyOptions.Tags))]
+    [InlineData(nameof(ServiceProxyOptions.PreferredRegion))]
+    [InlineData(nameof(ServiceProxyOptions.Timeout))]
+    [InlineData(nameof(ServiceProxyOptions.RetryPolicy))]
+    [InlineData(nameof(ServiceProxyOptions.UseCache))]
+    public void UnwiredServiceProxyOptions_MustBeMarkedObsolete(string propertyName)
+    {
+        var property = typeof(ServiceProxyOptions).GetProperty(propertyName);
+
+        Assert.NotNull(property);
+        Assert.NotNull(Attribute.GetCustomAttribute(property!, typeof(ObsoleteAttribute)));
+    }
+
+    [Fact]
+    public void EffectiveServiceProxyOptions_MustRemainSupported()
+    {
+        Assert.Null(Attribute.GetCustomAttribute(
+            typeof(ServiceProxyOptions).GetProperty(nameof(ServiceProxyOptions.LoadBalancingHint))!,
+            typeof(ObsoleteAttribute)));
+        Assert.Null(Attribute.GetCustomAttribute(
+            typeof(ServiceProxyOptions).GetProperty(nameof(ServiceProxyOptions.StickyKey))!,
+            typeof(ObsoleteAttribute)));
+    }
+
+    [Fact]
+    public void UnwiredCompatibilityModels_MustBeMarkedObsolete()
+    {
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ClientPresets), typeof(ObsoleteAttribute)));
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ChannelPresets), typeof(ObsoleteAttribute)));
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(TransportChannelOptions), typeof(ObsoleteAttribute)));
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ConnectionPoolOptions), typeof(ObsoleteAttribute)));
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ServiceConnectionOptions), typeof(ObsoleteAttribute)));
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(RetryPolicy), typeof(ObsoleteAttribute)));
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(PoolingStrategy), typeof(ObsoleteAttribute)));
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(EventListenerOptions), typeof(ObsoleteAttribute)));
+        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ServiceDiscoveryOptions), typeof(ObsoleteAttribute)));
+    }
+
+    [Theory]
+    [InlineData(nameof(PulseClientBuilder.UseDefaults))]
+    [InlineData(nameof(PulseClientBuilder.UseGameClientPreset))]
+    [InlineData(nameof(PulseClientBuilder.UseHighThroughputPreset))]
+    [InlineData(nameof(PulseClientBuilder.UseDevelopmentPreset))]
+    public void LegacyPresetBuilderMethods_MustBeMarkedObsolete(string methodName)
+    {
+        var method = typeof(PulseClientBuilder).GetMethod(methodName);
+
+        Assert.NotNull(method);
+        Assert.NotNull(Attribute.GetCustomAttribute(method!, typeof(ObsoleteAttribute)));
+    }
+
     [Fact]
     public void Build_WithAuthentication_MustFailExplicitly()
     {
@@ -153,3 +224,4 @@ public class PulseClientBuilderContractTests
         public int GetWeight(IClientChannel connection) => 1;
     }
 }
+#pragma warning restore CS0618

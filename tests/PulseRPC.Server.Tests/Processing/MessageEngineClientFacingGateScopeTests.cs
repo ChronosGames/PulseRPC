@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using NSubstitute;
 using PulseRPC.Messaging;
 using PulseRPC.Server.Processing.Engine;
+using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Server.Security;
 using PulseRPC.Server.Transport;
@@ -91,7 +92,11 @@ public sealed class MessageEngineClientFacingGateScopeTests
         var engine = new MessageEngine(
             dispatcher,
             serviceProvider,
-            Options.Create(new MessageEngineConfiguration()),
+            Options.Create(new PulseServerOptions
+            {
+                MessageWorkerShardCount = 1,
+                MessageQueueCapacityPerShard = 16
+            }),
             NullLogger<MessageEngine>.Instance,
             channelManager,
             new NoopResponseProcessor());

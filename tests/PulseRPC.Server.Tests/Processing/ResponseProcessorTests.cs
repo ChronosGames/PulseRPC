@@ -2,11 +2,13 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
 using MemoryPack;
 using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Diagnostics;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Server.Processing;
@@ -34,7 +36,7 @@ public class ResponseProcessorTests
 
         using var processor = new ResponseProcessor(
             channelManager,
-            options: new ResponseProcessorOptions { ProcessorThreadCount = 1, ChannelCapacity = 16 },
+            options: new ResponseProcessorSettings { ProcessorThreadCount = 1, ChannelCapacity = 16 },
             responseSerializerRegistry: new TestResponseSerializerRegistry(serializer),
             routingTable: new TestRoutingTable(protocolId));
 
@@ -93,7 +95,7 @@ public class ResponseProcessorTests
 
         using var processor = new ResponseProcessor(
             channelManager,
-            options: new ResponseProcessorOptions { ProcessorThreadCount = 1, ChannelCapacity = 16 },
+            options: new ResponseProcessorSettings { ProcessorThreadCount = 1, ChannelCapacity = 16 },
             responseSerializerRegistry: new TestResponseSerializerRegistry(serializer),
             routingTable: new TestRoutingTable(protocolId));
         await processor.StartAsync();
@@ -130,7 +132,7 @@ public class ResponseProcessorTests
         using var channelManager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
         using var processor = new ResponseProcessor(
             channelManager,
-            options: new ResponseProcessorOptions { ProcessorThreadCount = 1, ChannelCapacity = 16 },
+            options: new ResponseProcessorSettings { ProcessorThreadCount = 1, ChannelCapacity = 16 },
             responseSerializerRegistry: new TestResponseSerializerRegistry(),
             routingTable: new TestRoutingTable(0x7777));
 
@@ -138,6 +140,32 @@ public class ResponseProcessorTests
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*0x7777*");
+    }
+
+    [Fact]
+    public async Task PreCanceledStartThenDispose_MustReleaseWorkersAndQueueRegistration()
+    {
+        var registrationsBefore = RuntimeQueueMetrics.GetSnapshots()
+            .Count(snapshot => snapshot.QueueName == "pipeline.response");
+        using var channelManager = new ServerChannelManager(
+            NullLogger<ServerChannelManager>.Instance);
+        var processor = new ResponseProcessor(
+            channelManager,
+            options: new ResponseProcessorSettings { ProcessorThreadCount = 2, ChannelCapacity = 16 },
+            responseSerializerRegistry: new TestResponseSerializerRegistry(),
+            routingTable: new TestRoutingTable());
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        var start = () => processor.StartAsync(cancellation.Token);
+        await start.Should().ThrowAsync<OperationCanceledException>();
+
+        var dispose = () => processor.Dispose();
+        dispose.Should().NotThrow();
+        dispose.Should().NotThrow("subsequent disposal joins the cached cleanup task");
+        RuntimeQueueMetrics.GetSnapshots()
+            .Count(snapshot => snapshot.QueueName == "pipeline.response")
+            .Should().Be(registrationsBefore);
     }
 
     [Fact]
@@ -149,7 +177,7 @@ public class ResponseProcessorTests
 
         using var processor = new ResponseProcessor(
             channelManager,
-            options: new ResponseProcessorOptions { ProcessorThreadCount = 1, ChannelCapacity = 16 },
+            options: new ResponseProcessorSettings { ProcessorThreadCount = 1, ChannelCapacity = 16 },
             responseSerializerRegistry: new TestResponseSerializerRegistry(new ThrowingResponseSerializer(0x1234)),
             routingTable: new TestRoutingTable(0x1234));
 
@@ -187,6 +215,40 @@ public class ResponseProcessorTests
         error.ErrorMessage.Should().Contain("响应序列化失败");
     }
 
+    [Fact]
+    public async Task IdleWorker_MustNotRetainLastCompletedResponseResult()
+    {
+        const ushort protocolId = 0x2201;
+        using var channelManager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
+        var transport = new MockServerTransport("conn-response-retention");
+        channelManager.AddChannel(transport);
+        using var processor = new ResponseProcessor(
+            channelManager,
+            options: new ResponseProcessorSettings { ProcessorThreadCount = 1, ChannelCapacity = 16 },
+            responseSerializerRegistry: new TestResponseSerializerRegistry(new RetentionProbeSerializer(protocolId)),
+            routingTable: new TestRoutingTable(protocolId));
+        await processor.StartAsync();
+
+        var callContext = new ServiceCallContext(
+            connectionId: transport.Id,
+            messageId: Guid.NewGuid(),
+            serviceName: "RetentionHub",
+            methodName: "Get",
+            protocolId: protocolId,
+            requestData: null,
+            messageType: MessageType.Request,
+            receivedTime: DateTime.UtcNow,
+            processorId: 0,
+            flags: MessageFlags.None);
+        var resultReference = EnqueueRetentionProbe(processor, callContext);
+
+        await SpinUntilAsync(() => transport.SentFrames.Count == 1);
+        ForceFullCollection();
+
+        resultReference.IsAlive.Should().BeFalse(
+            "an idle response worker must clear completed batch entries and loop locals");
+    }
+
     private static async Task SpinUntilAsync(Func<bool> condition)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
@@ -194,6 +256,34 @@ public class ResponseProcessorTests
         {
             cts.Token.ThrowIfCancellationRequested();
             await Task.Delay(20, cts.Token);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference EnqueueRetentionProbe(
+        ResponseProcessor processor,
+        ServiceCallContext callContext)
+    {
+        var result = new object();
+        var resultReference = new WeakReference(result);
+        var enqueue = processor.ProcessMessageResultAsync(new MessageProcessedEventArgs(
+            callContext,
+            result,
+            TimeSpan.Zero,
+            dispatcherId: 0,
+            success: true));
+        enqueue.IsCompletedSuccessfully.Should().BeTrue();
+        enqueue.GetAwaiter().GetResult();
+        return resultReference;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void ForceFullCollection()
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+            GC.WaitForPendingFinalizers();
         }
     }
 
@@ -277,6 +367,32 @@ public class ResponseProcessorTests
             => throw new InvalidOperationException("serializer failed");
 
         public ValueTask SerializeAsync(object response, IBufferWriter<byte> writer, CancellationToken cancellationToken = default)
+        {
+            Serialize(response, writer);
+            return ValueTask.CompletedTask;
+        }
+
+        public bool TryGetTypedSerializer<T>(out Action<T, IBufferWriter<byte>> serializer)
+        {
+            serializer = null!;
+            return false;
+        }
+    }
+
+    private sealed class RetentionProbeSerializer(ushort protocolId) : IResponseSerializer
+    {
+        public ushort ProtocolId { get; } = protocolId;
+
+        public void Serialize(object response, IBufferWriter<byte> writer)
+        {
+            writer.GetSpan(1)[0] = 1;
+            writer.Advance(1);
+        }
+
+        public ValueTask SerializeAsync(
+            object response,
+            IBufferWriter<byte> writer,
+            CancellationToken cancellationToken = default)
         {
             Serialize(response, writer);
             return ValueTask.CompletedTask;

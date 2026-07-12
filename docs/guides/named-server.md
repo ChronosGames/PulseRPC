@@ -8,11 +8,17 @@
 
 - ✅ 支持在同一进程中运行多个独立的服务器实例
 - ✅ 每个服务器拥有独立的配置和传输层
-- ✅ 使用 .NET Keyed Services 隔离 channel、消息引擎和 `ClientFacingGate` 策略
+- ✅ 使用 .NET Keyed Services 隔离 channel、固定 worker shard、消息队列和 `ClientFacingGate` 策略
+- ✅ Generic Host 通过统一的 named catalog 自动启动，并按相反顺序停止
 - ✅ 符合 .NET 最佳实践
 
 命名服务器仍共享应用级 DI 服务和生成的路由表，并不是通用的多租户安全边界。每个服务器的
 `EnableClientFacingGate` 会按自身命名配置执行，不受其它服务器的解析或启动顺序影响。
+
+当前 Hub/Service 实现也由共享根容器解析，不会按 server name 自动复制实例。因此，不要在一个
+由多个 named server 共用的 Hub 构造函数中注入 `IPulseRouter` 或 `IServerChannelManager`：根容器
+无法为同一个实例动态选择不同 name。需要这类 name 绑定依赖时，应把不同服务器放入独立的 Host
+或 ServiceProvider，或等待后续的 keyed Hub 激活 API；当前运行时不会静默承诺这项隔离。
 
 ## 使用方法
 
@@ -20,10 +26,13 @@
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
+using PulseRPC.Server;
+using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Extensions;
 using PulseRPC.Shared;
 
 var services = new ServiceCollection();
+services.AddLogging();
 
 // 注册对外服务器（TCP 8080）
 services.AddNamedPulseServer("ExternalServer", options =>
@@ -31,7 +40,7 @@ services.AddNamedPulseServer("ExternalServer", options =>
     options.Transports.Add(new TransportChannelConfiguration
     {
         Name = "ExternalTcp",
-        Type = TransportType.Tcp,
+        Type = TransportType.TCP,
         Port = 8080,
         IsDefault = true
     });
@@ -43,15 +52,15 @@ services.AddNamedPulseServer("InternalServer", options =>
     options.Transports.Add(new TransportChannelConfiguration
     {
         Name = "InternalTcp",
-        Type = TransportType.Tcp,
+        Type = TransportType.TCP,
         Port = 9080,
         IsDefault = true
     });
 });
 
-var serviceProvider = services.BuildServiceProvider();
+await using var serviceProvider = services.BuildServiceProvider();
 
-// 获取并启动服务器
+// 这里没有启动 Generic Host，因此显式启动服务器
 var externalServer = serviceProvider.GetRequiredKeyedService<INamedPulseServer>("ExternalServer");
 var internalServer = serviceProvider.GetRequiredKeyedService<INamedPulseServer>("InternalServer");
 
@@ -60,6 +69,9 @@ await internalServer.StartAsync();
 
 Console.WriteLine($"External Server: {externalServer.ServerName}");
 Console.WriteLine($"Internal Server: {internalServer.ServerName}");
+
+await internalServer.StopAsync();
+await externalServer.StopAsync();
 ```
 
 ### 2. 使用 IConfiguration 配置
@@ -69,26 +81,30 @@ Console.WriteLine($"Internal Server: {internalServer.ServerName}");
 ```json
 {
   "ExternalServer": {
+    "MessageWorkerShardCount": 8,
+    "MessageQueueCapacityPerShard": 2048,
     "Transports": [
       {
         "Name": "ExternalTcp",
-        "Type": "Tcp",
+        "Type": "TCP",
         "Port": 8080,
         "IsDefault": true
       },
       {
         "Name": "ExternalKcp",
-        "Type": "Kcp",
+        "Type": "KCP",
         "Port": 8081,
         "IsDefault": false
       }
     ]
   },
   "InternalServer": {
+    "MessageWorkerShardCount": 4,
+    "MessageQueueCapacityPerShard": 512,
     "Transports": [
       {
         "Name": "InternalTcp",
-        "Type": "Tcp",
+        "Type": "TCP",
         "Port": 9080,
         "IsDefault": true
       }
@@ -119,7 +135,7 @@ services.AddNamedPulseServer(
     "InternalServer",
     configuration.GetSection("InternalServer"));
 
-var serviceProvider = services.BuildServiceProvider();
+await using var serviceProvider = services.BuildServiceProvider();
 ```
 
 ### 3. 在 ASP.NET Core 中使用
@@ -143,14 +159,9 @@ builder.Services.AddNamedPulseServer(
 
 var app = builder.Build();
 
-// 手动启动服务器（如需要）
+// AddNamedPulseServer 已注册统一 HostedService；app.RunAsync() 会自动启动两个 named runtime。
 var externalServer = app.Services.GetRequiredKeyedService<INamedPulseServer>("ExternalServer");
 var internalServer = app.Services.GetRequiredKeyedService<INamedPulseServer>("InternalServer");
-
-await Task.WhenAll(
-    externalServer.StartAsync(),
-    internalServer.StartAsync()
-);
 
 await app.RunAsync();
 ```
@@ -160,6 +171,8 @@ await app.RunAsync();
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using PulseRPC.Server;
+using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Extensions;
 using PulseRPC.Shared;
 
@@ -179,7 +192,7 @@ services.AddNamedPulseServer("ExternalServer", options =>
     options.Transports.Add(new TransportChannelConfiguration
     {
         Name = "ExternalTcp",
-        Type = TransportType.Tcp,
+        Type = TransportType.TCP,
         Port = 8080,
         IsDefault = true
     });
@@ -188,14 +201,13 @@ services.AddNamedPulseServer("ExternalServer", options =>
     options.Transports.Add(new TransportChannelConfiguration
     {
         Name = "ExternalKcp",
-        Type = TransportType.Kcp,
+        Type = TransportType.KCP,
         Port = 8081,
         IsDefault = false
     });
 
-    // 配置其他选项
-    options.DefaultOperationTimeout = TimeSpan.FromSeconds(30);
-    options.MaxConcurrentOperations = 10000;
+    options.MessageWorkerShardCount = Math.Max(1, Environment.ProcessorCount);
+    options.MessageQueueCapacityPerShard = 2048;
 });
 
 // 注册对内服务器（处理节点间通信）
@@ -204,16 +216,16 @@ services.AddNamedPulseServer("InternalServer", options =>
     options.Transports.Add(new TransportChannelConfiguration
     {
         Name = "InternalTcp",
-        Type = TransportType.Tcp,
+        Type = TransportType.TCP,
         Port = 9080,
         IsDefault = true
     });
 
-    options.DefaultOperationTimeout = TimeSpan.FromSeconds(10);
-    options.MaxConcurrentOperations = 1000;
+    options.MessageWorkerShardCount = Math.Max(1, Environment.ProcessorCount / 2);
+    options.MessageQueueCapacityPerShard = 512;
 });
 
-var serviceProvider = services.BuildServiceProvider();
+await using var serviceProvider = services.BuildServiceProvider();
 
 // 获取并启动服务器
 var externalServer = serviceProvider.GetRequiredKeyedService<INamedPulseServer>("ExternalServer");
@@ -287,6 +299,7 @@ public static IServiceCollection AddNamedPulseServer(
 3. **.NET 版本要求**：需要 .NET 8.0 或更高版本（Keyed Services 支持）
 4. **独立依赖**：每个命名服务器拥有独立的 `MessageEngine`、`ChannelManager` 等组件
 5. **共享依赖**：`TransportIntegrationManager` 和序列化器等核心依赖在所有服务器间共享
+6. **Hub DI 边界**：Hub/Service 来自共享根容器；构造函数中的 router/registry 不会自动按 name 绑定
 
 ## 与传统方式的对比
 

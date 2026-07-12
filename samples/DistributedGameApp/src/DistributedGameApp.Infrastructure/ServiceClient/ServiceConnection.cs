@@ -107,7 +107,9 @@ public class ServiceConnection : IAsyncDisposable
                 // 如果提供了认证提供者，配置认证
                 if (_authenticationProvider != null)
                 {
+#pragma warning disable CS0618 // Compatibility path; Build fails fast until handshake authentication is wired.
                     builder.WithAuthentication(_authenticationProvider);
+#pragma warning restore CS0618
                 }
 
                 _client = builder.Build();

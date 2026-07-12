@@ -88,8 +88,9 @@ public interface IPulseServer : IAsyncDisposable, IDisposable
     IReadOnlyList<ITransportChannel> GetAllChannels();
 
     /// <summary>
-    /// 获取连接池（用于高级场景）
+    /// 获取运行时 Channel Registry 的只读兼容视图。
     /// </summary>
+    [Obsolete("Use GetChannel/GetAllChannels. Runtime channels are owned by IPulseServer; pool mutation is not supported.", false)]
     ITransportChannelPool ChannelPool { get; }
 
     // === 服务管理 ===

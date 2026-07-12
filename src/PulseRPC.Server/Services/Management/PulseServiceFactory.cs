@@ -22,6 +22,7 @@ namespace PulseRPC.Server.Services.Management;
 /// <item><description>指标收集</description></item>
 /// </list>
 /// </remarks>
+[Obsolete("Compatibility implementation. Use PulseServiceManager and IServiceAccessor<TService>.", false)]
 internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TService>, IPulseServiceFactoryMetrics, IDisposable
     where TService : IPulseService
 {

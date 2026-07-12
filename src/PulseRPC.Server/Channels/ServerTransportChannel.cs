@@ -209,9 +209,43 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
         _lastActiveTime = ConnectedTime;
         _logger = logger;
 
-        // 转发传输层事件
-        _transport.StateChanged += OnTransportStateChanged;
-        _transport.DataReceived += OnTransportDataReceived;
+        // 转发传输层事件。构造失败时 this 不会返回给调用方，因此必须在这里
+        // 归还底层 transport，并撤销可能已经成功的第一条订阅。
+        try
+        {
+            _transport.StateChanged += OnTransportStateChanged;
+            _transport.DataReceived += OnTransportDataReceived;
+        }
+        catch
+        {
+            try
+            {
+                _transport.StateChanged -= OnTransportStateChanged;
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                _transport.DataReceived -= OnTransportDataReceived;
+            }
+            catch
+            {
+            }
+
+            _lifecycleCts.Dispose();
+            try
+            {
+                _transport.Dispose();
+            }
+            catch
+            {
+                // Preserve the subscription/construction failure.
+            }
+
+            throw;
+        }
     }
 
     /// <inheritdoc />
@@ -581,7 +615,7 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
                 }
 
                 // 创建消息包持有者：此处将载荷复制进池化缓冲（P1-8），持有者所有权在同步触发事件后
-                // 移交给消息处理管道（最终由 MessageEngine/TieredMessageProcessor 在终结点归还）。
+                // 移交给消息处理管道（最终由 MessageEngine worker shard 在终结点归还）。
                 var messagePacketHolder = new MessagePacketHolder(messagePacket);
 
                 var handler = MessageParsed;

@@ -4,6 +4,7 @@ using NSubstitute;
 using PulseRPC.Messaging;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Processing.Engine;
+using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Server.Transport;
 using PulseRPC.Shared;
@@ -29,7 +30,11 @@ public sealed class MessageEngineCancellationTests
         await using var engine = new MessageEngine(
             dispatcher,
             Substitute.For<IServiceProvider>(),
-            Options.Create(new MessageEngineConfiguration()),
+            Options.Create(new PulseServerOptions
+            {
+                MessageWorkerShardCount = 1,
+                MessageQueueCapacityPerShard = 16
+            }),
             NullLogger<MessageEngine>.Instance,
             channelManager,
             new NoopResponseProcessor());
@@ -56,7 +61,11 @@ public sealed class MessageEngineCancellationTests
         await using var engine = new MessageEngine(
             dispatcher,
             Substitute.For<IServiceProvider>(),
-            Options.Create(new MessageEngineConfiguration()),
+            Options.Create(new PulseServerOptions
+            {
+                MessageWorkerShardCount = 1,
+                MessageQueueCapacityPerShard = 16
+            }),
             NullLogger<MessageEngine>.Instance,
             channelManager,
             responseProcessor);

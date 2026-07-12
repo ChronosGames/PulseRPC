@@ -4,7 +4,7 @@
 
 从本版本开始，PulseRPC 统一使用 `IPulseHub` 作为所有远程接口的标记接口，通过 `ChannelAttribute` 和 `AuthorizeAttribute` 来声明式地配置提供者来源和认证方式。
 
-原有的 `IPulseReceiver` 已被标记为过时，并继承自 `IPulseHub` 以保持向后兼容。
+旧 `IPulseReceiver` 已从公共 API 硬移除。旧源码应改为 `[Channel("CLIENT")] : IPulseHub`；客户端与服务端 Source Generator 都会针对旧继承写法给出迁移诊断和 CodeFix。
 
 ## 核心概念
 
@@ -247,17 +247,10 @@ public interface IVIPHub : IPulseHub
 
 ## 迁移指南
 
-### 从 IPulseReceiver 迁移
+### 迁移旧 Receiver 契约
 
-**旧代码**：
-```csharp
-public interface IGameReceiver : IPulseReceiver
-{
-    Task OnMatchFoundAsync(MatchFoundNotification notification);
-}
-```
+`IPulseReceiver` 不再存在于运行时程序集，旧源码不能依赖二进制兼容层。保留接口名和方法签名，只把契约改为当前方向声明：
 
-**新代码**：
 ```csharp
 [Channel("CLIENT")]
 public interface IGameReceiver : IPulseHub
@@ -266,10 +259,7 @@ public interface IGameReceiver : IPulseHub
 }
 ```
 
-**兼容性**：
-- `IPulseReceiver` 现在继承自 `IPulseHub`，旧代码仍可正常工作
-- 编译器会产生 `Obsolete` 警告，提示迁移到新用法
-- 建议逐步迁移到新架构
+Source Generator 的迁移分析器会在旧继承语法上报告诊断，并可用 CodeFix 完成这项机械改写；迁移后重新生成客户端 Dispatcher 与服务端推送代理。
 
 ## 配置与线程调度
 

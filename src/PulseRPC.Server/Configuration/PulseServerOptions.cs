@@ -17,11 +17,24 @@ public sealed class PulseServerOptions
     /// </summary>
     public List<TransportChannelConfiguration> Transports { get; set; } = new();
 
+    // === Message Engine Configuration ===
+
+    /// <summary>
+    /// Fixed number of message worker shards. Each connection is assigned to one shard for its lifetime.
+    /// </summary>
+    public int MessageWorkerShardCount { get; set; } = Math.Max(1, Environment.ProcessorCount);
+
+    /// <summary>
+    /// Maximum number of queued messages in each worker shard.
+    /// </summary>
+    public int MessageQueueCapacityPerShard { get; set; } = 1024;
+
     // === Pipeline Configuration ===
 
     /// <summary>
     /// Configuration for backpressure policy component.
     /// </summary>
+    [Obsolete("This property is not connected to the server runtime. Configure MessageWorkerShardCount and MessageQueueCapacityPerShard instead.", false)]
     public BackpressurePolicyOptions BackpressurePolicy { get; set; } = new();
 
     // === General Server Options ===
@@ -30,18 +43,21 @@ public sealed class PulseServerOptions
     /// Default timeout for server operations.
     /// Default: 30 seconds.
     /// </summary>
+    [Obsolete("This property is not connected to the server runtime.", false)]
     public TimeSpan DefaultOperationTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// Maximum number of concurrent operations.
     /// Default: 1000.
     /// </summary>
+    [Obsolete("This property is not connected to the server runtime. Use MessageWorkerShardCount to bound dispatch concurrency.", false)]
     public int MaxConcurrentOperations { get; set; } = 1000;
 
     /// <summary>
     /// Enable detailed logging for debugging.
     /// Default: false.
     /// </summary>
+    [Obsolete("This property is not connected to logging. Configure Microsoft.Extensions.Logging instead.", false)]
     public bool EnableDetailedLogging { get; set; } = false;
 
     /// <summary>
@@ -79,11 +95,12 @@ public sealed class PulseServerOptions
                 throw new InvalidOperationException($"Transport '{transport.Name}' port must be between 1 and 65535 (got {transport.Port})");
         }
 
-        if (DefaultOperationTimeout <= TimeSpan.Zero)
-            throw new InvalidOperationException("DefaultOperationTimeout must be positive");
+        if (MessageWorkerShardCount <= 0)
+            throw new InvalidOperationException("MessageWorkerShardCount must be greater than zero");
 
-        if (MaxConcurrentOperations <= 0)
-            throw new InvalidOperationException("MaxConcurrentOperations must be greater than zero");
+        if (MessageQueueCapacityPerShard <= 0)
+            throw new InvalidOperationException("MessageQueueCapacityPerShard must be greater than zero");
+
     }
 
     /// <summary>
@@ -91,6 +108,7 @@ public sealed class PulseServerOptions
     /// </summary>
     /// <param name="preset">预设模式</param>
     /// <returns>当前选项实例，支持链式调用</returns>
+    [Obsolete("Server presets are not connected to runtime behavior. Configure transports and message shard settings explicitly.", false)]
     public PulseServerOptions UsePreset(ServerPreset preset)
     {
         ServerPresets.ApplyPreset(this, preset);

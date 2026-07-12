@@ -60,7 +60,6 @@ public partial class ScenarioRunner
             for (int i = 0; i < connectionCount; i++)
             {
                 var builder = new PulseClientBuilder();
-                builder.UseGameClientPreset();
                 var tags = new Dictionary<string, string> { ["service"] = "IBenchmarkHub" };
                 builder.AddTcpConnection($"TcpChannel-{i}", "default", config.Host, config.TcpPort, tags: tags);
                 var client = builder.Build();

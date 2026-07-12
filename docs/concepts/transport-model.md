@@ -1,674 +1,125 @@
-# PulseRPC 传输层架构说明
+# 传输与连接模型
 
-## 概述
+本文只描述当前实现。首次运行 RPC 请使用三项目 [HelloRPC](../../samples/HelloRPC/)；这里解释它背后的传输、连接和消息所有权。
 
-PulseRPC 是一个基于 TCP/KCP 的现代 RPC 框架，采用三层抽象架构设计，支持 .NET 和 Unity 平台。本文档详细描述了 PulseRPC 的传输层架构结构、各层职责以及核心设计原理，涵盖服务端和客户端的完整架构设计。
+## 当前数据路径
 
-## 架构总览
-
-PulseRPC 传输层采用三层抽象架构模式，每层职责明确，实现了从底层网络传输到高级业务功能的完整抽象：
-
-### 服务端架构
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   应用层 (Application Layer)                 │
-│                RPC 服务调用、Hub方法、业务逻辑处理                │
-│              IClientSession, IClientSessionManager          │
-├─────────────────────────────────────────────────────────────┤
-│                    会话层 (Session Layer)                    │
-│              认证管理、会话状态、属性存储、传输与应用的桥接           │
-│           ISessionChannel, IServerChannel, 认证上下文         │
-├─────────────────────────────────────────────────────────────┤
-│                   传输层 (Transport Layer)                   │
-│             协议抽象、连接管理、状态机、TCP/KCP具体实现             │
-│         ITransportConnection, IServerTransport, 监听器       │
-└─────────────────────────────────────────────────────────────┘
+```text
+客户端生成代理
+  -> IClientChannel
+  -> TCP / KCP
+  -> Server listener
+  -> ServerTransportChannel
+  -> ServerChannelManager（唯一连接注册表）
+  -> MessageEngine（固定 worker shard + 每 shard 有界队列）
+  -> IServiceRoutingTable
+  -> ResponseProcessor
+  -> 原连接 generation
 ```
 
-### 客户端架构
-```
-┌─────────────────────────────────────────────────────────────┐
-│                   应用层 (Application Layer)                 │
-│          IPulseClient、服务代理、事件处理器、连接池管理             │
-│       IPulseClient, IConnectionRouter, IServiceDiscovery     │
-├─────────────────────────────────────────────────────────────┤
-│                    会话层 (Session Layer)                    │
-│        连接上下文、状态管理、请求-响应映射、服务代理缓存              │
-│        IConnectionContext, IConnection, SimpleConnection     │
-├─────────────────────────────────────────────────────────────┤
-│                   传输层 (Transport Layer)                   │
-│             协议抽象、连接建立、数据传输、TCP/KCP客户端             │
-│            IClientTransport, ITransportConnection            │
-└─────────────────────────────────────────────────────────────┘
-```
+这条路径有三个明确边界：
 
-## 分层详细设计
+1. 传输负责建立连接、收发字节和关闭 socket。
+2. Channel 负责连接身份、认证上下文、请求与响应关联。
+3. 生成的 Hub 代理和路由表负责强类型 RPC。
 
-### 1. 传输层 (Transport Layer)
+运行时不会为每条连接创建消息 worker，也不会构造历史的 L1/L2/L3 消息管线、adaptive scheduler 或 `TieredMemoryPool`。
 
-#### 职责
-- 提供协议无关的传输连接抽象
-- 管理底层网络连接状态和生命周期
-- 实现 TCP/KCP 等具体网络协议
-- 处理连接建立、数据传输和连接关闭
+## 服务端连接所有权
 
-#### 核心接口
+每个 `ServerRuntime` 只有一个 `ServerChannelManager`。Listener 接受物理连接后，将其包装为 `ServerTransportChannel` 并发布到这个注册表；消息引擎、响应处理器、广播和管理查询都读取同一个实例。
 
-##### 传输连接基础接口
-```csharp
-public interface ITransportConnection : IDisposable
-{
-    string ConnectionId { get; }
-    ConnectionState State { get; }
-    EndPoint RemoteEndPoint { get; }
-    EndPoint LocalEndPoint { get; }
-    DateTime ConnectedAt { get; }
-    DateTime LastActivityAt { get; }
-    TransportType TransportType { get; }
-    bool IsConnected { get; }
-
-    Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
-    Task CloseAsync(CancellationToken cancellationToken = default);
-
-    event EventHandler<ConnectionStateChangedEventArgs> StateChanged;
-    event EventHandler<TransportDataEventArgs> DataReceived;
-}
+```text
+ServerRuntime
+  ├─ listeners
+  ├─ ServerChannelManager  <- 唯一连接注册表
+  ├─ MessageEngine         <- 订阅连接与消息事件
+  └─ ResponseProcessor     <- 按精确 channel generation 回应
 ```
 
-`SendAsync` 的完成语义是“本地传输已完成该帧的写出/交付给协议栈”：TCP 会等待底层 `NetworkStream.WriteAsync` 完成，KCP 会等待帧被 KCP 栈接收。它不表示远端业务方法已执行；需要业务执行结果时必须使用 Ask/响应或节点 wire v2 ACK。发送队列满时调用会等待、被取消或返回失败，不能把“成功进入队列”误报为发送完成。
+连接注册成功后，注册表取得 channel 和底层 transport 的所有权：
 
-TCP/KCP transport wire v3 支持 Brotli 压缩和 AES-256-GCM 加密。`UseCompression` / `UseEncryption` 表示连接必需能力，而不是“尽力启用”：双方能力必须完全一致，否则握手失败，不能静默降级。握手帧本身始终明文；业务帧通过显式压缩/加密标志、原始长度、key id 和单调序号验证。
+- 连接断开、超时、Server Stop 或 DI provider Dispose 都会从注册表移除并释放 channel。
+- 同一连接 ID 重连时，旧 channel 的迟到事件不能删除新 channel。
+- 旧 generation 的取消帧、认证上下文和响应不能作用于同 ID 的新连接。
+- `IPulseServer.ChannelPool` 只保留为只读兼容视图；写操作会抛出 `NotSupportedException`。新代码使用 `GetChannel` 和 `GetAllChannels`。
 
-压缩阈值由双方在握手中声明，本次连接取较大值；只有原始消息达到阈值且 Brotli 结果确实更小时才设置压缩标志。解压前先验证声明的原始长度不超过 `MaxPacketSize`。加密使用双方随机 nonce、方向标签和 32 字节主密钥派生独立的收发密钥与 nonce 前缀；AES-GCM tag、key id、序号、帧内外标志或原始长度任一异常都会关闭连接，已接收序号也不能重放。
+`StopAsync` 是资源边界：它先停止 listener、等待接入任务，再关闭注册表中的活动连接，最后停止消息引擎。返回后不应再有该 server 拥有的活动 socket 或消息 worker。
 
-启用加密时必须提供 `ITransportEncryptionKeyProvider`。轮换采用“新连接切换、既有连接固定”的规则：先把新 key 发布为 current，同时让 `TryGetKey` 在轮换窗口内继续解析旧 key；旧连接排空后再移除旧 key。key id 必须非零，密钥必须恰好 32 字节。内置 wire 加密提供帧机密性和完整性，但预共享密钥不替代节点身份认证；跨不可信边界仍建议使用 TLS/mTLS。
+## 固定 shard 与背压
 
-```csharp
-var options = new TcpTransportOptions
-{
-    UseCompression = true,
-    CompressionThreshold = 1024,
-    UseEncryption = true,
-    EncryptionKeyProvider = keyProvider
-};
-```
+`PulseServerOptions` 是服务端消息运行时的有效配置入口：
 
-`BatchedTransport` 的 reader、周期刷新和释放排空属于同一可追踪生命周期；`DisposeAsync` 会等待所有已接受请求得到发送结果。背压支持 `Block`、`DropNewest` 和 `Reject`；`DropOldest` 因无法在当前目标框架上可靠通知被淘汰请求，仍为实验枚举值并在构造时 fail-fast。
-
-所有实际有界运行时队列都会注册到 `RuntimeQueueMetrics`。快照直接读取底层 channel/ring buffer 的真实深度，并报告 capacity、saturation、高水位、饱和事件、入队等待和拒绝次数；同一数据同时通过 `PulseRPC.RuntimeQueues` meter 和服务端 `/diagnostics/queue-stats`、Prometheus 指标导出。队列销毁时注册同步移除，因此诊断结果不保留失效实例。
-
-客户端 `StopAsync` / `DisconnectAsync` 的 `graceful=false` 为真正的 abortive 路径：立即取消自动重连和通道后台任务，TCP 以 linger=0 关闭 socket，KCP 直接关闭 UDP socket；不发送 KCP 断开帧，也不排空待发队列。
-
-历史上已公开但当前不生效的配置均带有编译期废弃提示：应用层 `SmallPacketThreshold` / `ChunkSize` 分片、自定义 `KeepAliveInterval`、重复的 `TcpTransportOptions.ConnectTimeout` 和自适应批处理开关。TCP linger、系统 KeepAlive、缓冲区和 `ConnectionTimeout` 则会真实应用到 socket/连接流程。
-
-##### 客户端传输接口
-```csharp
-public interface IClientTransport : ITransportConnection
-{
-    string Name { get; }
-    TransportType Type { get; }
-
-    Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default);
-    Task DisconnectAsync(CancellationToken cancellationToken = default);
-}
-```
-
-##### 服务端传输接口
-```csharp
-public interface IServerTransport : ITransportConnection
-{
-    string Name { get; }
-    TransportType Type { get; }
-}
-```
-
-##### 服务端监听器接口
-```csharp
-public interface IServerListener : IDisposable
-{
-    string Name { get; }
-    TransportType Type { get; }
-    EndPoint LocalEndPoint { get; }
-    bool IsListening { get; }
-
-    event EventHandler<ServerConnectionEventArgs> ConnectionAccepted;
-
-    Task StartAsync(CancellationToken cancellationToken = default);
-    Task StopAsync(CancellationToken cancellationToken = default);
-}
-```
-
-#### 具体实现
-
-##### 客户端传输实现
-- **TCP 客户端**: `TcpClientTransport`
-  - 基于可靠的 TCP 协议
-  - 主动连接到服务器
-  - 连接状态管理和重连机制
-  - 活动时间跟踪
-
-- **KCP 客户端**: `KcpClientTransport`
-  - 基于 UDP 的可靠传输
-  - 低延迟优化连接
-  - 自定义拥塞控制
-  - transport wire v3 握手携带显式协议版本、必需能力、阈值、key id 与会话 nonce；确认包只接受协商服务器端点
-  - 握手接收使用整体超时窗口，不遗留超时的异步 UDP 接收
-  - 自动重连复用已绑定 UDP socket；`MaxReconnectAttempts = 0` 表示无限重试
-  - 丢包、乱序和 30 秒网络中断使用确定性故障注入验证重传恢复
-  - 握手尚无可认证的 rebinding token，因此同 conversation ID 从新端点出现时 fail-closed，不自动接受 NAT rebinding
-
-##### 服务端传输实现
-- **TCP 服务端**: `TcpServerTransport`, `TcpServerListener`
-  - 基于可靠的 TCP 协议
-  - 单帧收发不超过 `MaxPacketSize`；已停用的 legacy chunk 帧会被拒绝
-  - 连接状态管理
-  - 活动时间跟踪
-
-- **KCP 服务端**: `KcpServerTransport`, `KcpServerListener`
-  - 基于 UDP 的可靠传输
-  - 低延迟优化
-  - 按完整消息大小接收，并以 `MaxPacketSize` 作为明确上限
-  - 仅接受带类型和长度边界的 wire v3 握手，破坏性拒绝旧 4/5 字节握手；重试复用同一 offer/nonce 和确认包
-  - 自定义拥塞控制
-  - 时间戳同步机制
-
-```csharp
-// KCP 核心配置
-public class KcpTransportOptions
-{
-    public bool NoDelay { get; set; } = true;
-    public int Interval { get; set; } = 10;
-    public int Resend { get; set; } = 2;
-    public bool DisableFlowControl { get; set; } = false;
-    public int SendWindow { get; set; } = 128;
-    public int RecvWindow { get; set; } = 128;
-}
-```
-
-### 2. 会话层 (Session Layer)
-
-#### 职责
-**服务端会话层**：
-- 在传输连接基础上提供会话抽象
-- 管理认证上下文和用户身份
-- 提供会话属性存储和管理
-- 桥接传输层和应用层，隐藏传输细节
-
-**客户端会话层**：
-- 管理连接上下文和生命周期
-- 维护请求-响应映射机制
-- 提供服务代理缓存管理
-- 实现连接状态监控和统计
-
-#### 核心接口
-
-##### 客户端连接上下文接口
-```csharp
-public interface IConnectionContext : IDisposable
-{
-    string Id { get; }
-    ConnectionConfig Config { get; }
-    ConnectionDescriptor Descriptor { get; }
-    EndpointAddress Endpoint { get; }
-    ExtendedConnectionState State { get; }
-    ConnectionStatistics Statistics { get; }
-    EndPoint? RemoteEndPoint { get; }
-    EndPoint? LocalEndPoint { get; }
-    DateTime CreatedAt { get; }
-    DateTime LastActivityAt { get; }
-
-    Task ConnectAsync(CancellationToken cancellationToken = default);
-    Task DisconnectAsync(CancellationToken cancellationToken = default);
-    Task<T> GetServiceAsync<T>() where T : class, IPulseHub;
-    Task<T> InvokeAsync<T>(RpcRequest request, CancellationToken cancellationToken = default);
-    Task InvokeAsync(RpcRequest request, CancellationToken cancellationToken = default);
-
-    event EventHandler<ConnectionStateChangedEventArgs>? StateChanged;
-}
-```
-
-##### 客户端连接接口
-```csharp
-public interface IConnection : IDisposable
-{
-    string Id { get; }
-    ConnectionDescriptor Descriptor { get; }
-    ExtendedConnectionState State { get; }
-
-    Task<T> GetServiceAsync<T>() where T : class, IPulseHub;
-    Task<T> SendAsync<T>(RpcRequest request, CancellationToken cancellationToken = default);
-    Task SendAsync(RpcRequest request, CancellationToken cancellationToken = default);
-}
-```
-
-##### 会话通道基础接口
-```csharp
-public interface ISessionChannel : ITransportConnection
-{
-    string SessionId => ConnectionId;
-    IAuthenticationContext? AuthenticationContext { get; }
-    bool IsAuthenticated { get; }
-    IDictionary<string, object> Properties { get; }
-
-    void SetAuthentication(IAuthenticationContext authContext);
-    void ClearAuthentication();
-
-    event EventHandler<AuthenticationChangedEventArgs> AuthenticationChanged;
-}
-```
-
-##### 传输通道接口
-```csharp
-public interface ITransportChannel : ISessionChannel
-{
-    IServerTransport Transport { get; }
-    DateTime ConnectedTime => ConnectedAt;
-}
-```
-
-##### 服务端通道接口
-```csharp
-public interface IServerChannel : ITransportChannel
-{
-    // 服务端特定的通道功能（当前为空接口，用于类型标识）
-}
-```
-
-#### 具体实现
-
-##### 客户端会话层实现
-
-###### 连接上下文实现
-- **类**: `ConnectionContext`
-- **特性**:
-  - 管理IClientTransport实例
-  - 维护连接状态机
-  - 实现请求-响应映射机制
-  - 提供服务代理缓存
-  - 支持连接统计和监控
-
-###### 简单连接包装器
-- **类**: `SimpleConnection`
-- **特性**:
-  - 包装IConnectionContext为IConnection
-  - 提供轻量级连接表示
-  - 委托调用到底层连接上下文
-  - 支持优雅的连接释放
-
-##### 服务端会话层实现
-
-###### 会话通道基础类
-```csharp
-public abstract class SessionChannelBase : ISessionChannel
-{
-    protected IAuthenticationContext? _authenticationContext;
-    protected readonly Dictionary<string, object> _properties = new();
-
-    public virtual bool IsAuthenticated => _authenticationContext?.IsAuthenticated == true;
-    public virtual IDictionary<string, object> Properties => _properties;
-
-    public virtual void SetAuthentication(IAuthenticationContext authContext);
-    public virtual void ClearAuthentication();
-}
-```
-
-##### 服务端传输通道
-- **类**: `ServerTransportChannel`
-- **特性**:
-  - 包装 `IServerTransport` 提供会话功能
-  - 管理认证状态和属性
-  - 转发传输层事件到会话层
-  - 提供连接生命周期管理
-
-#### 认证集成
-- **认证上下文**: 存储用户身份和认证信息
-- **属性管理**: 支持自定义会话属性存储
-- **事件通知**: 认证状态变化的事件通知
-
-### 3. 应用层 (Application Layer)
-
-#### 职责
-**服务端应用层**：
-- 提供高级业务功能接口
-- 实现 RPC 服务调用和 Hub 方法
-- 管理客户端会话和业务逻辑
-- 提供完整的 RPC 编程模型
-
-**客户端应用层**：
-- 提供统一的客户端API接口
-- 实现连接管理和路由策略
-- 支持服务发现和负载均衡
-- 提供Source Generator生成的服务代理
-
-#### 核心接口
-
-##### 客户端核心接口
-```csharp
-public interface IPulseClient : IDisposable
-{
-    IConnectionManager Connections { get; }
-    IConnectionRouter Router { get; }
-    IServiceDiscovery ServiceDiscovery { get; }
-    IConnectionRegistry Registry { get; }
-    IConnectionLifecycleManager Lifecycle { get; }
-    ILoadBalancer LoadBalancer { get; }
-    ClientState State { get; }
-
-    Task InitializeAsync(CancellationToken cancellationToken = default);
-    Task StopAsync(bool graceful = true, TimeSpan? timeout = null, CancellationToken cancellationToken = default);
-    Task<IConnection> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
-    Task<IConnection> ConnectToServiceAsync(string serviceName, ServiceConnectionOptions? options = null, CancellationToken cancellationToken = default);
-    Task<T> GetServiceAsync<T>(ServiceProxyOptions? options = null, CancellationToken cancellationToken = default) where T : class, IPulseHub;
-    Task DisconnectAsync(string connectionId, bool graceful = true, CancellationToken cancellationToken = default);
-
-    event EventHandler<ClientStateChangedEventArgs> StateChanged;
-}
-```
-
-##### 连接管理器接口
-```csharp
-public interface IConnectionManager : IDisposable
-{
-    Task<IConnectionContext> ConnectAsync(ConnectionConfig config, CancellationToken cancellationToken = default);
-    Task<IConnectionContext> ConnectAsync(ConnectionDescriptor descriptor, CancellationToken cancellationToken = default);
-    Task DisconnectAsync(string connectionId, CancellationToken cancellationToken = default);
-    IConnectionContext? GetConnection(string connectionId);
-    IReadOnlyList<IConnectionContext> GetAllConnections();
-    int Count { get; }
-}
-```
-
-##### 连接路由器接口
-```csharp
-public interface IConnectionRouter
-{
-    void RegisterRule(RoutingRule rule);
-    bool RemoveRule(string ruleId);
-    Task<IConnection> RouteAsync(string routingKey, RoutingContext? context = null, CancellationToken cancellationToken = default);
-    IReadOnlyList<IConnection> GetMatchingConnections(string routingKey, RoutingContext? context = null);
-}
-```
-
-##### 服务发现接口
-```csharp
-public interface IServiceDiscovery : IDisposable
-{
-    Task<IReadOnlyList<ServiceEndpoint>> DiscoverAsync(string serviceName, CancellationToken cancellationToken = default);
-    Task<IServiceWatcher> WatchAsync(string serviceName, Action<ServiceChangeEvent> callback, CancellationToken cancellationToken = default);
-    Task<IReadOnlyList<string>> GetServicesAsync(CancellationToken cancellationToken = default);
-    Task<bool> ExistsAsync(string serviceName, CancellationToken cancellationToken = default);
-    Task RefreshAsync(string? serviceName = null, CancellationToken cancellationToken = default);
-}
-```
-
-##### 服务端客户端会话接口
-```csharp
-public interface IClientSession : IDisposable
-{
-    string SessionId { get; }
-    bool IsConnected { get; }
-    bool IsAuthenticated { get; }
-    ISessionStatistics? Statistics { get; }
-
-    // RPC 服务调用
-    Task<TResult> InvokeAsync<TService, TResult>(
-        string methodName, object?[] args, CancellationToken cancellationToken = default)
-        where TService : class, IPulseService;
-
-    // Hub 方法调用
-    Task<TResult> InvokeAsync<THub, TResult>(
-        string methodName, object?[] args, CancellationToken cancellationToken = default)
-        where THub : class, IPulseHub;
-
-    // 事件订阅
-    Task SubscribeToHubEventsAsync<THub>(CancellationToken cancellationToken = default)
-        where THub : class, IPulseHub;
-
-    // 数据发送
-    Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
-
-    // 会话管理
-    Task CloseAsync(CancellationToken cancellationToken = default);
-
-    // 事件
-    event EventHandler<SessionEventArgs>? SessionStateChanged;
-    event EventHandler<SessionEventArgs>? SessionDisconnected;
-}
-```
-
-##### 会话管理器接口
-```csharp
-public interface IClientSessionManager : IDisposable
-{
-    int ActiveSessionCount { get; }
-    IReadOnlyCollection<string> SessionIds { get; }
-
-    bool AddSession(IClientSession session);
-    IClientSession? GetSession(string sessionId);
-    Task<bool> RemoveSessionAsync(string sessionId);
-    Task<IReadOnlyCollection<IClientSession>> GetAllSessionsAsync();
-    Task<bool> BroadcastAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
-
-    event EventHandler<SessionEventArgs>? SessionAdded;
-    event EventHandler<SessionEventArgs>? SessionRemoved;
-}
-```
-
-#### 具体实现
-
-##### 客户端应用层实现
-
-###### PulseRPC客户端核心
-- **类**: `PulseClient`
-- **特性**:
-  - 统一的客户端入口点
-  - 集成连接管理、路由、服务发现
-  - 支持连接池和负载均衡
-  - 提供完整的生命周期管理
-
-###### 连接管理器
-- **类**: `ConnectionManager`
-- **特性**:
-  - 管理所有客户端连接
-  - 支持连接复用和池化
-  - 提供连接健康检查
-  - 实现连接的优雅关闭
-
-###### 服务代理生成器
-- **Source Generator**: `ServiceProxyGenerator`
-- **特性**:
-  - 编译时生成强类型服务代理
-  - 避免运行时反射开销
-  - 支持IPulseHub接口的自动实现
-  - 集成连接调用链
-
-###### 事件处理器生成器
-- **Source Generator**: `EventHandlerGenerator`
-- **特性**:
-  - 生成高性能事件处理器
-  - 支持批量事件处理(BatchProcessor)
-  - 提供性能监控包装器
-  - 实现智能订阅管理
-
-##### 服务端应用层实现
-
-###### 客户端会话适配器
-- **类**: `ClientSessionAdapter`
-- **特性**:
-  - 适配 `IServerChannel` 为 `IClientSession`
-  - 提供完整的业务层功能
-  - 集成会话统计和健康检查
-  - 支持 RPC 和 Hub 方法调用
-
-##### 会话管理器
-- **类**: `ClientSessionManager`
-- **特性**:
-  - 管理所有活跃的客户端会话
-  - 提供会话查找和批量操作
-  - 实现会话生命周期管理
-  - 支持广播和会话清理
-
-## 数据流和层间交互
-
-### 客户端数据流向
-```
-Client Application
-     ↓
-Application Layer (IPulseClient → ServiceProxy)
-     ↓ (服务代理调用)
-Session Layer (IConnection → IConnectionContext)
-     ↓ (请求-响应映射)
-Transport Layer (IClientTransport)
-     ↓ (协议处理)
-Network (TCP/KCP)
-     ↓
-Server
-```
-
-### 服务端数据流向
-```
-Client Request
-     ↓
-Application Layer (IClientSession)
-     ↓ (业务逻辑处理)
-Session Layer (ISessionChannel)
-     ↓ (认证和会话管理)
-Transport Layer (ITransportConnection)
-     ↓ (协议处理)
-Network (TCP/KCP)
-```
-
-### 客户端事件流向
-```
-Network Event (Connection/Data)
-     ↓
-Transport Layer (IClientTransport.StateChanged/DataReceived)
-     ↓ (事件转发和响应匹配)
-Session Layer (IConnectionContext.StateChanged/请求完成)
-     ↓ (状态通知和服务代理更新)
-Application Layer (IPulseClient.StateChanged/服务调用完成)
-```
-
-### 服务端事件流向
-```
-Network Event (Connection/Data)
-     ↓
-Transport Layer (StateChanged/DataReceived)
-     ↓ (事件转发)
-Session Layer (认证状态更新)
-     ↓ (业务事件)
-Application Layer (会话状态通知)
-```
-
-## 架构优势
-
-### 1. 清晰的职责分离
-- **传输层**: 专注于网络协议和连接管理
-- **会话层**: 专注于认证和会话状态管理
-- **应用层**: 专注于业务逻辑和 RPC 功能
-
-### 2. 良好的扩展性
-- 新传输协议易于添加
-- 认证机制可插拔
-- 业务功能可独立扩展
-
-### 3. 事件驱动设计
-- 松耦合的组件交互
-- 异步编程模型
-- 状态变化的及时通知
-
-### 4. 类型安全
-- 强类型接口设计
-- 泛型方法支持
-- 编译时类型检查
-
-## 关键设计特性
-
-### 1. 内存管理优化
-- 使用 `ReadOnlyMemory<byte>` 减少拷贝
-- 活动时间跟踪优化连接管理
-- 事件驱动减少轮询开销
-
-### 2. 异步编程
-- 全面的 `async/await` 支持
-- `CancellationToken` 取消机制
-- `ValueTask` 性能优化
-
-### 3. 协议优化
-- TCP 的可靠性保证
-- KCP 的低延迟特性
-- 连接状态的高效管理
-
-## 配置示例
-
-### 服务端配置
 ```csharp
 services.AddPulseServer(options =>
 {
-    options.ListenOn("127.0.0.1", 9090, TransportType.Tcp);
-    options.ListenOn("127.0.0.1", 9091, TransportType.Kcp);
-    options.MaxConcurrentConnections = 1000;
-    options.Authentication.RequireAuthentication = true;
+    options.AddTcp("tcp", 9090, isDefault: true);
+    options.AddKcp("kcp", 9091);
+    options.MessageWorkerShardCount = Math.Max(1, Environment.ProcessorCount);
+    options.MessageQueueCapacityPerShard = 1024;
 });
 ```
 
-### 客户端配置
-```csharp
-// 方式1: 使用 PulseClient 统一接口
-var client = new PulseClientBuilder()
-    .AddConnection(new ConnectionDescriptor
-    {
-        Name = "primary",
-        Host = "127.0.0.1",
-        Port = 9090,
-        Transport = TransportType.Tcp
-    })
-    .WithServiceDiscovery(new ConsulServiceDiscovery())
-    .WithLoadBalancing(LoadBalancingStrategy.RoundRobin)
-    .Build();
+连接建立时以 round-robin 固定绑定一个 shard。worker 数只由 `MessageWorkerShardCount` 决定，不随连接数增长。每个 shard 的队列容量固定；队列满时新消息立即拒绝，载荷和请求取消状态在拒绝路径释放。
 
+可通过 `RuntimeQueueMetrics` 观察真实 capacity、depth、high watermark、saturation 和 rejected enqueue，再用相同 workload 调整 shard 数或容量。
+
+## 客户端黄金路径
+
+客户端使用 `PulseClientBuilder` 创建一个生命周期明确的 `IPulseClient`，再显式建立 `IClientChannel`：
+
+```csharp
+using var client = new PulseClientBuilder().Build();
 await client.InitializeAsync();
 
-// 获取服务代理（自动路由）
-var myService = await client.GetServiceAsync<IMyService>();
-var result = await myService.GetDataAsync("param1");
-
-// 方式2: 直接连接管理
-var connectionManager = new ConnectionManager();
-var connection = await connectionManager.ConnectAsync(new ConnectionDescriptor
+var channel = await client.ConnectToServerAsync("127.0.0.1", 9090);
+try
 {
-    Name = "direct-connection",
-    Host = "127.0.0.1",
-    Port = 9090,
-    Transport = TransportType.Tcp
-});
-
-var service = await connection.GetServiceAsync<IMyService>();
-var data = await service.GetDataAsync("param1");
+    var hub = channel.GetHub<IMyHub>();
+    var result = await hub.GetDataAsync("value");
+}
+finally
+{
+    await channel.DisconnectAsync();
+    await client.StopAsync();
+}
 ```
 
-## 总结
+`GetHub<T>()` 由 Client Source Generator 提供；契约需继承 `IPulseHub`，并在客户端程序集使用 `PulseClientGeneration` 声明生成目标。完整接线见 [HelloRPC Client](../../samples/HelloRPC/HelloRPC.Client/)。
 
-PulseRPC 的三层抽象架构通过清晰的职责分离实现了高性能、可扩展的 RPC 通信框架。该架构涵盖了完整的客户端和服务端设计，主要优势包括：
+### 当前不支持的 Builder 能力
 
-### 架构优势
-1. **模块化设计**: 各层职责明确，便于维护和扩展
-2. **协议无关**: 支持多种传输协议，易于适配新协议
-3. **业务友好**: 提供完整的 RPC 编程模型
-4. **高性能**: 通过内存优化和异步编程实现高性能
-5. **类型安全**: 强类型接口设计保证代码质量
+以下已发布入口尚未接入传输主路径，现带有 `[Obsolete]`，并在 `Build()` 时 fail-fast：
 
-### 客户端特色
-1. **Source Generator集成**: 编译时生成强类型服务代理，避免运行时反射
-2. **智能连接管理**: 支持连接池、负载均衡、自动重连
-3. **服务发现**: 集成多种服务发现机制
-4. **请求-响应映射**: 高效的异步请求处理机制
-5. **事件处理优化**: 批量事件处理和性能监控
+| 入口 | 当前状态 |
+|---|---|
+| `WithAuthentication` | 尚未接入客户端握手，不能保证令牌发送 |
+| `WithConnectionPooling` | 尚未接入 `ConnectionManager` |
+| `WithRetryPolicy` | 尚未接入连接或请求执行路径 |
+| `WithLoadBalancing(strategy, options)` 的松散 `options` | 只有 `strategy` 生效；非空松散选项会失败 |
 
-### 服务端特色
-1. **会话管理**: 完整的客户端会话生命周期管理
-2. **认证集成**: 可插拔的认证机制
-3. **多协议支持**: TCP/KCP等多种传输协议
-4. **高并发**: 支持大量并发连接和请求处理
+不要通过这些入口表达安全性或可靠性承诺。认证接线完成前，应在应用层或受控网关建立身份边界。
 
-这种分层架构为构建高质量的分布式应用提供了坚实的基础，能够满足从简单 RPC 调用到复杂实时通信的各种需求。通过客户端和服务端的对称设计，开发者可以轻松构建可靠、高性能的分布式系统。 
+## TCP 与 KCP
+
+当前枚举成员是 `TransportType.TCP` 和 `TransportType.KCP`。
+
+- TCP 提供可靠、有序字节流，是 HelloRPC 和一般业务的默认选择。
+- KCP 面向需要低延迟、可调 UDP 可靠性的场景；部署前需要验证 MTU、拥塞参数和网络策略。
+
+服务端通过 `AddTcp` / `AddKcp` 配置 listener；客户端通过 `ConnectToServerAsync(..., transport: TransportType.TCP/KCP)` 选择传输。两者最终进入相同的 Channel Registry 和固定 shard 消息路径。
+
+## Standard、Named 与 Factory
+
+- `AddPulseServer`：推荐的单 server Generic Host 入口，自动 Start/Stop。
+- `AddNamedPulseServer`：多个独立 runtime；每个名称拥有独立注册表、shard 和队列，统一 HostedService 顺序启动、逆序停止。
+- `PulseServerFactory`：仅作兼容保留并带 `[Obsolete]`；内部仍复用 standard 组合根并拥有其 DI provider。
+
+无论入口如何，运行时组件都由 `ServerRuntimeComponentFactory` 创建；连接表不会复制为第二个 pool。
+
+## 相关文档
+
+- [服务端运行时](server-runtime.md)
+- [客户端和服务端使用指南](../guides/client-server.md)
+- [命名服务器](../guides/named-server.md)
+- [迁移指南](../guides/migration.md)

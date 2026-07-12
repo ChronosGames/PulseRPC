@@ -4,8 +4,9 @@ using PulseRPC.Client.Reliability;
 namespace PulseRPC.Client.Configuration;
 
 /// <summary>
-/// 客户端预设配置 - 开箱即用的常见场景配置
+/// Legacy client presets retained for compatibility.
 /// </summary>
+[Obsolete("Client presets configure legacy ClientOptions fields that are not consumed. Configure effective load-balancing and per-connection transport options explicitly.", false)]
 public static class ClientPresets
 {
     /// <summary>
@@ -55,8 +56,9 @@ public static class ClientPresets
 }
 
 /// <summary>
-/// 通道预设配置
+/// Legacy presets for an options type that has no public connection wiring.
 /// </summary>
+[Obsolete("ChannelPresets cannot be applied through the public client API. Configure ConnectionDescriptor.TransportOptions instead.", false)]
 public static class ChannelPresets
 {
     /// <summary>

@@ -24,6 +24,7 @@ namespace PulseRPC.Server.Services.Management;
 /// <item><description>当 Service 被移除时，对应的 Hub 也会被移除</description></item>
 /// </list>
 /// </remarks>
+[Obsolete("Compatibility implementation for IPulseHubFactory. Use IServiceAccessor<TService>.", false)]
 internal sealed class PulseHubFactory<THub, TService> : IPulseHubFactory<THub, TService>, IDisposable
     where THub : class
     where TService : IPulseService

@@ -203,8 +203,9 @@ public sealed class ConnectionConfig
 }
 
 /// <summary>
-/// 连接池配置选项
+/// Legacy connection-pool options retained for compatibility.
 /// </summary>
+[Obsolete("Connection pooling is not connected to the client runtime. Register explicit connections instead.", false)]
 public sealed class ConnectionPoolOptions
 {
     /// <summary>

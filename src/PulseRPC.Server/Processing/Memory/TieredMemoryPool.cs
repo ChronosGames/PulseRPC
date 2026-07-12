@@ -10,12 +10,15 @@ using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+#pragma warning disable CS0618 // Legacy helper types in this file reference the experimental pool constants.
+
 namespace PulseRPC.Server.Processing.Memory;
 
 /// <summary>
 /// 分层内存池 - 高性能多级缓存内存管理器
 /// 替代原有NetworkBufferPool，提供L0(线程本地)→L1(NUMA感知)→L2(全局)三级缓存架构
 /// </summary>
+[Obsolete("Experimental standalone component. It is not used by the fixed-shard message engine.", false)]
 public sealed class TieredMemoryPool : IDisposable
 {
     #region 技术规格常量

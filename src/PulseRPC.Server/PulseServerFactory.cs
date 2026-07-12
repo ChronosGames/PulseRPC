@@ -1,44 +1,23 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Options;
-using PulseRPC.Server.Configuration;
-using PulseRPC.Server.Transport;
-using PulseRPC.Server.Processing.Engine;
-using PulseRPC.Server.Processing.Pipeline;
-using PulseRPC.Server.Processing;
-using PulseRPC.Server.Security;
+using PulseRPC.Channels;
 using PulseRPC.Serialization;
+using PulseRPC.Server.Configuration;
+using PulseRPC.Server.Extensions;
+using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Shared;
 
 namespace PulseRPC.Server;
 
 /// <summary>
-/// PulseRPC 服务器工厂类 - 提供简化的服务器创建 API
+/// Deprecated static compatibility facade for applications that cannot yet use Generic Host.
 /// </summary>
-/// <example>
-/// 最简配置：
-/// <code>
-/// var server = PulseServer.CreateDefault(5000);
-/// await server.StartAsync();
-/// </code>
-///
-/// 使用预设：
-/// <code>
-/// var server = PulseServer.Create(options => options
-///     .UsePreset(ServerPreset.HighThroughput)
-///     .AddTcp(5000));
-/// </code>
-///
-/// 完整配置：
-/// <code>
-/// var server = PulseServer.Create(options => options
-///     .UsePreset(ServerPreset.LowLatency)
-///     .AddTcp(5000)
-///     .AddKcp(5001));
-/// </code>
-/// </example>
+/// <remarks>
+/// This facade now reuses the same internal runtime composition as
+/// <c>services.AddPulseServer(...)</c> and owns its private DI provider, but Generic Host
+/// remains the supported entry point for configuration, logging, and lifecycle ordering.
+/// </remarks>
+[Obsolete("Use Generic Host with services.AddPulseServer(...).", false)]
 public static class PulseServerFactory
 {
     /// <summary>
@@ -48,9 +27,7 @@ public static class PulseServerFactory
     /// <returns>配置好的服务器实例</returns>
     public static IPulseServer CreateDefault(int port)
     {
-        return Create(options => options
-            .UsePreset(ServerPreset.Default)
-            .AddTcp(port));
+        return Create(options => options.AddTcp(port));
     }
 
     /// <summary>
@@ -62,9 +39,7 @@ public static class PulseServerFactory
     public static IPulseServer CreateDefault(int port, ILoggerFactory loggerFactory)
     {
         return Create(
-            options => options
-                .UsePreset(ServerPreset.Default)
-                .AddTcp(port),
+            options => options.AddTcp(port),
             loggerFactory);
     }
 
@@ -76,9 +51,8 @@ public static class PulseServerFactory
     /// <returns>配置好的服务器实例</returns>
     public static IPulseServer Create(ServerPreset preset, int port)
     {
-        return Create(options => options
-            .UsePreset(preset)
-            .AddTcp(port));
+        _ = preset;
+        return Create(options => options.AddTcp(port));
     }
 
     /// <summary>
@@ -90,10 +64,9 @@ public static class PulseServerFactory
     /// <returns>配置好的服务器实例</returns>
     public static IPulseServer Create(ServerPreset preset, int port, ILoggerFactory loggerFactory)
     {
+        _ = preset;
         return Create(
-            options => options
-                .UsePreset(preset)
-                .AddTcp(port),
+            options => options.AddTcp(port),
             loggerFactory);
     }
 
@@ -118,101 +91,229 @@ public static class PulseServerFactory
         if (configure == null)
             throw new ArgumentNullException(nameof(configure));
 
-        // 创建并配置选项
-        var options = new PulseServerOptions();
-        configure(options);
-
-        // 验证配置
-        options.Validate();
-
-        // 使用日志工厂或默认空日志
-        var factory = loggerFactory ?? NullLoggerFactory.Instance;
-
-        // 直接创建依赖并构建服务器
-        return CreateServerWithDependencies(options, factory);
-    }
-
-    /// <summary>
-    /// 使用依赖创建服务器实例
-    /// </summary>
-    private static PulseServer CreateServerWithDependencies(
-        PulseServerOptions options,
-        ILoggerFactory loggerFactory)
-    {
-        // 创建简单的服务提供者用于消息引擎
         var services = new ServiceCollection();
-        var serviceProvider = new MinimalServiceProvider(
-            new ClientFacingGatePolicy(options.EnableClientFacingGate));
+        services.AddLogging();
 
-        // 创建传输集成管理器
-        var transportProviders = new ITransportProvider[]
+        if (loggerFactory is not null)
         {
-            new TcpTransportProvider(),
-            new KcpTransportProvider()
-        };
-        var transportManagerLogger = loggerFactory.CreateLogger<TransportIntegrationManager>();
-        var transportIntegrationManager = new TransportIntegrationManager(transportProviders, transportManagerLogger);
+            services.AddSingleton(loggerFactory);
+        }
 
-        // 创建消息分发器
-        var dispatcher = new MessageDispatcher();
+        services.AddSingleton<IServiceRoutingTable>(
+            ServiceRoutingTableRegistry.Instance ?? EmptyServiceRoutingTable.Instance);
+        services.AddSingleton<IResponseSerializerRegistry>(
+            ResponseSerializerRegistry.Instance ?? EmptyResponseSerializerRegistry.Instance);
 
-        // 创建通道管理器
-        var channelManagerLogger = loggerFactory.CreateLogger<ServerChannelManager>();
-        var channelManager = new ServerChannelManager(channelManagerLogger, loggerFactory);
+        // Reuse the standard DI composition instead of maintaining a parallel,
+        // partial dependency graph in the compatibility factory.
+        services.AddPulseServer(configure);
 
-        // 创建响应处理器
-        var responseProcessorLogger = loggerFactory.CreateLogger<ResponseProcessor>();
-        var responseProcessor = new ResponseProcessor(
-            channelManager,
-            PulseRPCSerializerProvider.Instance,
-            null,
-            responseProcessorLogger,
-            ResponseSerializerRegistry.Instance);
-
-        // 创建消息引擎配置
-        var engineConfig = Options.Create(new MessageEngineConfiguration());
-
-        // 创建消息引擎
-        var engineLogger = loggerFactory.CreateLogger<MessageEngine>();
-        var messageEngine = new MessageEngine(
-            dispatcher,
-            serviceProvider,
-            engineConfig,
-            engineLogger,
-            channelManager,
-            responseProcessor,
-            null); // IServiceScheduler - 可选
-
-        // 创建服务器实例
-        return new PulseServer(
-            messageEngine,
-            channelManager,
-            transportIntegrationManager,
-            loggerFactory,
-            Options.Create(options));
+        var provider = services.BuildServiceProvider();
+        try
+        {
+            return new OwnedPulseServer(
+                provider.GetRequiredService<PulseServer>(),
+                provider);
+        }
+        catch
+        {
+            provider.Dispose();
+            throw;
+        }
     }
 }
 
-/// <summary>
-/// 最小服务提供者实现 - 用于工厂模式下的简单场景
-/// </summary>
-internal sealed class MinimalServiceProvider : IServiceProvider
+internal sealed class EmptyServiceRoutingTable : IServiceRoutingTable
 {
-    private readonly IClientFacingGatePolicy _clientFacingGatePolicy;
+    public static EmptyServiceRoutingTable Instance { get; } = new();
 
-    public MinimalServiceProvider(IClientFacingGatePolicy clientFacingGatePolicy)
+    private EmptyServiceRoutingTable()
     {
-        _clientFacingGatePolicy = clientFacingGatePolicy;
     }
 
-    public object? GetService(Type serviceType)
-    {
-        if (serviceType == typeof(IClientFacingGatePolicy))
-            return _clientFacingGatePolicy;
-        if (serviceType == typeof(IServiceProvider))
-            return this;
+    public bool IsProtocolIdValid(string hub, ushort protocolId) => false;
+    public ReadOnlySpan<ushort> EnumerateProtocolIds() => [];
 
-        // 工厂模式下其它服务返回 null，大多数场景下不需要 DI
-        return null;
+    public ValueTask<object?> RouteByProtocolIdAsync(
+        IServiceProvider serviceProvider,
+        ushort protocolId,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default)
+        => ValueTask.FromException<object?>(UnknownProtocol(protocolId));
+
+    public ValueTask<object?> RouteByProtocolIdAsync(
+        IServiceProvider serviceProvider,
+        string hub,
+        ushort protocolId,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default)
+        => ValueTask.FromException<object?>(UnknownProtocol(protocolId));
+
+    public ValueTask<object?> RouteByProtocolIdAsync(
+        IServiceProvider serviceProvider,
+        ushort protocolId,
+        string serviceKey,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default)
+        => ValueTask.FromException<object?>(UnknownProtocol(protocolId));
+
+    public ValueTask<object?> RouteByProtocolIdAsync(
+        IServiceProvider serviceProvider,
+        string hub,
+        ushort protocolId,
+        string serviceKey,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default)
+        => ValueTask.FromException<object?>(UnknownProtocol(protocolId));
+
+    private static InvalidOperationException UnknownProtocol(ushort protocolId)
+        => new($"No generated service routing table is registered for protocol 0x{protocolId:X4}.");
+}
+
+internal sealed class EmptyResponseSerializerRegistry : IResponseSerializerRegistry
+{
+    public static EmptyResponseSerializerRegistry Instance { get; } = new();
+
+    private EmptyResponseSerializerRegistry()
+    {
+    }
+
+    public bool TryGetSerializer(
+        ushort protocolId,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out IResponseSerializer? serializer)
+    {
+        serializer = null;
+        return false;
+    }
+
+    public ReadOnlySpan<IResponseSerializer> EnumerateSerializers() => [];
+}
+
+internal sealed class OwnedPulseServer : IPulseServer
+{
+    private readonly PulseServer _server;
+    private readonly IServiceProvider _provider;
+    private readonly object _disposeLock = new();
+    private Task? _disposeTask;
+    private int _eventsDetached;
+
+    public OwnedPulseServer(PulseServer server, IServiceProvider provider)
+    {
+        _server = server ?? throw new ArgumentNullException(nameof(server));
+        _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        _server.StateChanged += OnServerStateChanged;
+        _server.ClientConnected += OnServerClientConnected;
+        _server.ClientDisconnected += OnServerClientDisconnected;
+    }
+
+    internal ServerRuntime Runtime => _server.Runtime;
+
+    public ServerState State => _server.State;
+    public bool IsRunning => _server.IsRunning;
+    public int ActiveConnectionCount => _server.ActiveConnectionCount;
+
+    public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
+
+    public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
+
+    public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
+
+    public Task StartAsync(CancellationToken cancellationToken = default)
+        => _server.StartAsync(cancellationToken);
+
+    public Task StopAsync(CancellationToken cancellationToken = default)
+        => _server.StopAsync(cancellationToken);
+
+    public IReadOnlyDictionary<string, TransportInfo> GetTransports()
+        => _server.GetTransports();
+
+    public TransportInfo? GetDefaultTransport()
+        => _server.GetDefaultTransport();
+
+    public IReadOnlyList<ConnectionInfo> GetActiveConnections()
+        => _server.GetActiveConnections();
+
+    public Task<int> BroadcastAsync(
+        ReadOnlyMemory<byte> data,
+        Func<TransportContext, bool>? filter = null,
+        CancellationToken cancellationToken = default)
+        => _server.BroadcastAsync(data, filter, cancellationToken);
+
+    public Task<bool> SendAsync(
+        string connectionId,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default)
+        => _server.SendAsync(connectionId, data, cancellationToken);
+
+    public ITransportChannel? GetChannel(string connectionId)
+        => _server.GetChannel(connectionId);
+
+    public IReadOnlyList<ITransportChannel> GetAllChannels()
+        => _server.GetAllChannels();
+
+    [Obsolete("Use GetChannel/GetAllChannels. Runtime channels are owned by IPulseServer; pool mutation is not supported.", false)]
+    public ITransportChannelPool ChannelPool => _server.Runtime.ChannelPool;
+
+    public IReadOnlyList<ServiceInfo> GetRegisteredServices()
+        => _server.GetRegisteredServices();
+
+    public ServerPerformanceMetrics GetPerformanceMetrics()
+        => _server.GetPerformanceMetrics();
+
+    public void ResetPerformanceMetrics()
+        => _server.ResetPerformanceMetrics();
+
+    public void Dispose()
+        => DisposeAsync().AsTask().GetAwaiter().GetResult();
+
+    public ValueTask DisposeAsync()
+    {
+        lock (_disposeLock)
+        {
+            _disposeTask ??= DisposeCoreAsync();
+            return new ValueTask(_disposeTask);
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        try
+        {
+            if (_provider is IAsyncDisposable asyncDisposable)
+            {
+                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+            }
+            else if (_provider is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        }
+        finally
+        {
+            DetachServerEvents();
+        }
+
+        GC.SuppressFinalize(this);
+    }
+
+    private void OnServerStateChanged(object? sender, ServerStateChangedEventArgs args)
+        => StateChanged?.Invoke(this, args);
+
+    private void OnServerClientConnected(object? sender, ClientConnectedEventArgs args)
+        => ClientConnected?.Invoke(this, args);
+
+    private void OnServerClientDisconnected(object? sender, ClientDisconnectedEventArgs args)
+        => ClientDisconnected?.Invoke(this, args);
+
+    private void DetachServerEvents()
+    {
+        if (Interlocked.Exchange(ref _eventsDetached, 1) != 0)
+        {
+            return;
+        }
+
+        _server.StateChanged -= OnServerStateChanged;
+        _server.ClientConnected -= OnServerClientConnected;
+        _server.ClientDisconnected -= OnServerClientDisconnected;
     }
 }

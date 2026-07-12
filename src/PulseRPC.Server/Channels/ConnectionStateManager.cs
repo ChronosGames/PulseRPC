@@ -13,6 +13,7 @@ namespace PulseRPC.Server.Channels;
 /// Manages connection state tracking and lifecycle.
 /// Thread-safe connection registry with automatic cleanup.
 /// </summary>
+[Obsolete("This state store is not connected to IPulseServer. Use IServerChannelManager or IPulseServer connection queries.", false)]
 public sealed class ServerConnectionStateManager : IDisposable
 {
     private readonly ConcurrentDictionary<string, ServerConnection> _connections = new();

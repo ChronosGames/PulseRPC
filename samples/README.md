@@ -1,10 +1,16 @@
 # PulseRPC 示例项目
 
-本目录包含 PulseRPC 框架的各种使用示例，帮助开发者快速上手和理解框架的功能特性。
+本目录包含 PulseRPC 的黄金路径、专项示例和历史参考。
 
-> 当前维护且纳入 CI 构建的可运行入口优先参考 ChatApp、JwtAuthentication、HubFactoryExample、ServiceFactoryExample 和 JsonTranscoding。其余目录属于历史探索代码，不能作为当前新项目模板。
+> 首次上手只有一个入口：三项目 [HelloRPC](HelloRPC/)。README、Quickstart、NuGet README 和 CI smoke 都引用这条路径。其他维护样例只解释专项能力，不作为新项目模板。
 
-## 📁 示例清单
+## 黄金路径
+
+| 示例 | 说明 |
+|------|------|
+| [HelloRPC](HelloRPC/) | Contracts / Server / Client 三项目，执行一次真实 TCP RPC；由 CI 端到端运行 |
+
+## 专项示例
 
 | 示例 | 说明 |
 |------|------|
@@ -12,7 +18,7 @@
 | [GameApp](GameApp/) | 完整的游戏服务器示例（见 [README](GameApp/README.md)） |
 | [DistributedGameApp](DistributedGameApp/) | 分布式游戏服务器示例（见 [README](DistributedGameApp/README.md)） |
 | [JwtAuthentication](JwtAuthentication/) | JWT 身份验证集成示例（客户端 / 服务端 / 共享契约） |
-| [HubFactoryExample](HubFactoryExample/) | Hub 工厂用法示例 |
+| [HubFactoryExample](HubFactoryExample/) | 历史项目名；代码已迁移为无状态 Hub + `IServiceAccessor` |
 | [ServiceFactoryExample](ServiceFactoryExample/) | 当前 `AddPulseService` / `IServiceAccessor` 服务实例管理示例 |
 | [JsonTranscoding](JsonTranscoding/) | 同一 Hub 实现同时提供 PulseRPC 和显式 ASP.NET JSON 网关（非自动转码） |
 
@@ -30,12 +36,12 @@
 ## 🚀 运行示例
 
 ```bash
-# 构建整个解决方案（仓库根目录）
-dotnet build
+# 构建黄金路径（仓库根目录）
+dotnet build samples/HelloRPC/HelloRPC.sln
 
-# 运行某个示例（以 ChatApp.Server 为例）
-cd samples/ChatApp/ChatApp.Server
-dotnet run
+# 分别在两个终端运行
+dotnet run --project samples/HelloRPC/HelloRPC.Server
+dotnet run --project samples/HelloRPC/HelloRPC.Client
 ```
 
 依赖外部组件的示例可使用 Docker 启动对应服务后再运行，具体命令请参阅示例目录内的说明或源码注释。

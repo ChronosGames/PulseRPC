@@ -14,6 +14,7 @@ namespace PulseRPC.Server.Processing.Engine;
 /// 自适应批处理调度器 - 基于负载动态调整批处理参数的智能调度器
 /// 替代固定间隔的批处理机制，提供更优的延迟和吞吐量平衡
 /// </summary>
+[Obsolete("Experimental standalone component. It is not used by the fixed-shard message engine.", false)]
 public sealed class AdaptiveBatchScheduler : IAsyncDisposable
 {
     #region 技术规格常量
@@ -412,6 +413,7 @@ public sealed class AdaptiveBatchScheduler : IAsyncDisposable
 /// <summary>
 /// 批处理器接口
 /// </summary>
+[Obsolete("Adaptive batching is not used by the fixed-shard message engine.", false)]
 public interface IBatchProcessor
 {
     /// <summary>
@@ -425,6 +427,7 @@ public interface IBatchProcessor
 /// <summary>
 /// 调度器性能指标
 /// </summary>
+[Obsolete("Adaptive batching is not used by the fixed-shard message engine.", false)]
 public struct SchedulerMetrics
 {
     public int CurrentBatchInterval { get; set; }

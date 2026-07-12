@@ -13,13 +13,21 @@ namespace PulseRPC.Server.Processing;
 /// <summary>
 /// 增强的服务器通道管理器 - 集成高吞吐量消息处理器
 /// </summary>
-internal class ServerChannelManager : IServerChannelManager
+internal interface IServerChannelRegistryLifetime
+{
+    bool RemoveChannel(IServerChannel channel);
+    void StopAcceptingChannelsAndCloseAll();
+}
+
+internal class ServerChannelManager : IServerChannelManager, IServerChannelRegistryLifetime
 {
     private readonly ConcurrentDictionary<string, IServerChannel> _channels;
+    private readonly object _channelMutationLock = new();
     private readonly ILogger<ServerChannelManager> _logger;
     private readonly ILoggerFactory? _loggerFactory;
     private readonly Timer _cleanupTimer;
     private volatile bool _disposed;
+    private bool _acceptingChannels = true;
 
     // 统计信息
     private long _totalChannelsCreated;
@@ -88,26 +96,45 @@ internal class ServerChannelManager : IServerChannelManager
         var channelLogger = _loggerFactory?.CreateLogger<ServerTransportChannel>();
         var channel = new ServerTransportChannel(transport, channelLogger);
 
-        // 注册事件处理
-        channel.StateChanged += OnChannelStateChanged;
-        channel.MessageParsed += OnChannelMessageParsed;
-
-        // 添加到管理字典
-        if (_channels.TryAdd(transport.Id, channel))
+        try
         {
-            Interlocked.Increment(ref _totalChannelsCreated);
+            lock (_channelMutationLock)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, nameof(ServerChannelManager));
+                ThrowIfNotAcceptingChannels();
 
-            _logger.LogInformation("已添加传输通道: {ConnectionId}, 总数: {TotalCount}", transport.Id, _channels.Count);
+                channel.StateChanged += OnChannelStateChanged;
+                channel.MessageParsed += OnChannelMessageParsed;
 
-            ChannelConnected?.Invoke(this, new ChannelEventArgs(channel));
-            return channel;
+                if (_channels.TryAdd(transport.Id, channel))
+                {
+                    Interlocked.Increment(ref _totalChannelsCreated);
+
+                    TryLog(() => _logger.LogInformation(
+                        "已添加传输通道: {ConnectionId}, 总数: {TotalCount}",
+                        transport.Id,
+                        _channels.Count));
+
+                    RaiseChannelConnected(channel);
+                    return channel;
+                }
+
+            }
         }
-        else
+        catch
         {
-            // 如果添加失败，说明连接ID冲突，释放新创建的通道
-            channel.Dispose();
-            throw new InvalidOperationException($"连接ID冲突: {transport.Id}");
+            // The manager has not published this candidate. It still owns the wrapper and
+            // underlying transport even when Dispose/Stop wins between construction and lock entry.
+            if (!ReferenceEquals(GetChannel(transport.Id), channel))
+            {
+                CleanupUnpublishedChannel(channel, transport.Id);
+            }
+            throw;
         }
+
+        // 如果添加失败，说明连接ID冲突，释放新创建的通道
+        CleanupUnpublishedChannel(channel, transport.Id);
+        throw new InvalidOperationException($"连接ID冲突: {transport.Id}");
     }
 
     /// <inheritdoc/>
@@ -117,24 +144,50 @@ internal class ServerChannelManager : IServerChannelManager
         ArgumentNullException.ThrowIfNull(factory);
         ObjectDisposedException.ThrowIf(_disposed, nameof(ServerChannelManager));
 
-        var didCreate = false;
-        var channel = _channels.GetOrAdd(connectionId, id =>
+        lock (_channelMutationLock)
         {
-            didCreate = true;
-            return factory(id);
-        });
+            ObjectDisposedException.ThrowIf(_disposed, nameof(ServerChannelManager));
+            ThrowIfNotAcceptingChannels();
 
-        if (didCreate)
-        {
-            Interlocked.Increment(ref _totalChannelsCreated);
-            channel.StateChanged += OnChannelStateChanged;
-            channel.MessageParsed += OnChannelMessageParsed;
+            if (_channels.TryGetValue(connectionId, out var existingChannel))
+            {
+                return existingChannel;
+            }
 
-            _logger.LogInformation("已注册虚拟通道: {ConnectionId}, 总数: {TotalCount}", connectionId, _channels.Count);
-            ChannelConnected?.Invoke(this, new ChannelEventArgs(channel));
+            IServerChannel? candidate = null;
+            try
+            {
+                candidate = factory(connectionId)
+                    ?? throw new InvalidOperationException(
+                        $"虚拟通道工厂为连接 '{connectionId}' 返回了 null。");
+                if (!StringComparer.Ordinal.Equals(candidate.Id, connectionId))
+                {
+                    throw new InvalidOperationException(
+                        $"虚拟通道 Id '{candidate.Id}' 与注册键 '{connectionId}' 不一致。");
+                }
+
+                candidate.StateChanged += OnChannelStateChanged;
+                candidate.MessageParsed += OnChannelMessageParsed;
+                _channels[connectionId] = candidate;
+                Interlocked.Increment(ref _totalChannelsCreated);
+
+                TryLog(() => _logger.LogInformation(
+                    "已注册虚拟通道: {ConnectionId}, 总数: {TotalCount}",
+                    connectionId,
+                    _channels.Count));
+                RaiseChannelConnected(candidate);
+                return candidate;
+            }
+            catch
+            {
+                if (candidate is not null && !_channels.ContainsKey(connectionId))
+                {
+                    CleanupUnpublishedChannel(candidate, connectionId);
+                }
+
+                throw;
+            }
         }
-
-        return channel;
     }
 
     /// <summary>
@@ -157,28 +210,63 @@ internal class ServerChannelManager : IServerChannelManager
     /// <param name="connectionId">连接ID</param>
     /// <returns>是否成功移除</returns>
     public bool RemoveChannel(string connectionId)
+        => RemoveChannelCore(connectionId, expectedChannel: null);
+
+    bool IServerChannelRegistryLifetime.RemoveChannel(IServerChannel channel)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        return RemoveChannelCore(channel.Id, channel);
+    }
+
+    private bool RemoveChannelCore(string connectionId, IServerChannel? expectedChannel)
     {
         if (string.IsNullOrEmpty(connectionId))
             return false;
 
-        if (!_channels.TryRemove(connectionId, out var channel))
-            return false;
+        IServerChannel channel;
+        int remainingCount;
+        lock (_channelMutationLock)
+        {
+            if (!_channels.TryGetValue(connectionId, out channel!) ||
+                (expectedChannel is not null && !ReferenceEquals(channel, expectedChannel)) ||
+                !_channels.TryRemove(new KeyValuePair<string, IServerChannel>(connectionId, channel)))
+                return false;
 
-        Interlocked.Increment(ref _totalChannelsRemoved);
+            Interlocked.Increment(ref _totalChannelsRemoved);
+            remainingCount = _channels.Count;
+            ReleaseRemovedChannelResources(channel, connectionId);
+        }
 
-        _logger.LogInformation("已移除传输通道: {ConnectionId}, 剩余: {RemainingCount}", connectionId, _channels.Count);
-
-        // 取消订阅事件
-        channel.StateChanged -= OnChannelStateChanged;
-        channel.MessageParsed -= OnChannelMessageParsed;
-
-        // 触发断开事件
-        ChannelDisconnected?.Invoke(this, new ChannelEventArgs(channel));
-
-        // 释放通道资源
-        channel.Dispose();
+        TryLog(() => _logger.LogInformation(
+            "已移除传输通道: {ConnectionId}, 剩余: {RemainingCount}",
+            connectionId,
+            remainingCount));
+        RaiseChannelDisconnectedSafely(channel, connectionId);
 
         return true;
+    }
+
+    void IServerChannelRegistryLifetime.StopAcceptingChannelsAndCloseAll()
+        => StopAcceptingChannelsAndCloseAll();
+
+    internal void StopAcceptingChannelsAndCloseAll()
+    {
+        List<KeyValuePair<string, IServerChannel>> channels;
+        lock (_channelMutationLock)
+        {
+            _acceptingChannels = false;
+            _cleanupTimer.Dispose();
+            channels = TakeAllChannelsLocked();
+            foreach (var entry in channels)
+            {
+                ReleaseRemovedChannelResources(entry.Value, entry.Key);
+            }
+        }
+
+        foreach (var entry in channels)
+        {
+            RaiseChannelDisconnectedSafely(entry.Value, entry.Key);
+        }
     }
 
     /// <summary>
@@ -255,6 +343,56 @@ internal class ServerChannelManager : IServerChannelManager
         };
     }
 
+    private void RaiseChannelConnected(IServerChannel channel)
+    {
+        var handlers = ChannelConnected;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        var args = new ChannelEventArgs(channel);
+        foreach (EventHandler<ChannelEventArgs> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(this, args);
+            }
+            catch (Exception ex)
+            {
+                TryLog(() => _logger.LogError(
+                    ex,
+                    "ChannelConnected 处理器失败: {ConnectionId}",
+                    channel.Id));
+            }
+        }
+    }
+
+    private void RaiseChannelDisconnected(IServerChannel channel)
+    {
+        var handlers = ChannelDisconnected;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        var args = new ChannelEventArgs(channel);
+        foreach (EventHandler<ChannelEventArgs> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(this, args);
+            }
+            catch (Exception ex)
+            {
+                TryLog(() => _logger.LogError(
+                    ex,
+                    "ChannelDisconnected 处理器失败: {ConnectionId}",
+                    channel.Id));
+            }
+        }
+    }
+
     /// <summary>
     /// 处理通道状态变更事件
     /// </summary>
@@ -263,12 +401,16 @@ internal class ServerChannelManager : IServerChannelManager
         if (sender is not IServerChannel channel)
             return;
 
-        _logger.LogDebug("通道状态变更: {ConnectionId} - {OldState} -> {NewState}", channel.Id, e.PreviousState, e.CurrentState);
+        TryLog(() => _logger.LogDebug(
+            "通道状态变更: {ConnectionId} - {OldState} -> {NewState}",
+            channel.Id,
+            e.PreviousState,
+            e.CurrentState));
 
         // 如果连接断开，自动移除通道
         if (e.CurrentState == ConnectionState.Disconnected)
         {
-            RemoveChannel(channel.Id);
+            ((IServerChannelRegistryLifetime)this).RemoveChannel(channel);
         }
     }
 
@@ -277,16 +419,64 @@ internal class ServerChannelManager : IServerChannelManager
     /// </summary>
     private void OnChannelMessageParsed(object? sender, PulseRPC.Server.Transport.MessageParsedEventArgs eventArgs)
     {
-        _logger.LogTrace("[消息路由] {ConnectionId} 解析消息: 服务={ServiceName}, 方法={MethodName}, 类型={Type}",
-            eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName, eventArgs.MessagePacket.Header.MethodName, eventArgs.MessagePacket.Header.Type);
+        try
+        {
+            _logger.LogTrace(
+                "[消息路由] {ConnectionId} 解析消息: 服务={ServiceName}, 方法={MethodName}, 类型={Type}",
+                eventArgs.ConnectionId,
+                eventArgs.MessagePacket.Header.ServiceName,
+                eventArgs.MessagePacket.Header.MethodName,
+                eventArgs.MessagePacket.Header.Type);
+        }
+        catch
+        {
+            // Logging must not break payload ownership transfer.
+        }
 
         if (sender is not IServerChannel)
         {
-            _logger.LogWarning("[消息路由] {ConnectionId} 消息入队失败，来源不正确", eventArgs.ConnectionId);
+            try
+            {
+                _logger.LogWarning(
+                    "[消息路由] {ConnectionId} 消息入队失败，来源不正确",
+                    eventArgs.ConnectionId);
+            }
+            catch
+            {
+                // Logging must not prevent returning the pooled payload.
+            }
+            eventArgs.MessagePacket.Dispose();
             return;
         }
 
-        ChannelMessageParsed?.Invoke(sender, eventArgs);
+        var handlers = ChannelMessageParsed;
+        if (handlers is null)
+        {
+            eventArgs.MessagePacket.Dispose();
+            return;
+        }
+
+        var ownershipTransferred = false;
+        foreach (EventHandler<MessageParsedEventArgs> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(sender, eventArgs);
+                ownershipTransferred = true;
+            }
+            catch (Exception ex)
+            {
+                TryLog(() => _logger.LogError(
+                    ex,
+                    "ChannelMessageParsed 处理器失败: {ConnectionId}",
+                    eventArgs.ConnectionId));
+            }
+        }
+
+        if (!ownershipTransferred)
+        {
+            eventArgs.MessagePacket.Dispose();
+        }
     }
 
     /// <summary>
@@ -294,7 +484,10 @@ internal class ServerChannelManager : IServerChannelManager
     /// </summary>
     private void CleanupExpiredChannels(object? state)
     {
-        ObjectDisposedException.ThrowIf(_disposed, nameof(ServerChannelManager));
+        if (_disposed)
+        {
+            return;
+        }
 
         try
         {
@@ -305,20 +498,22 @@ internal class ServerChannelManager : IServerChannelManager
 
             foreach (var channel in expiredChannels)
             {
-                _logger.LogInformation("清理过期通道: {ConnectionId}, 最后活动时间: {LastActiveTime}",
-                    channel.Id, channel.LastActiveTime);
+                TryLog(() => _logger.LogInformation(
+                    "清理过期通道: {ConnectionId}, 最后活动时间: {LastActiveTime}",
+                    channel.Id,
+                    channel.LastActiveTime));
 
-                RemoveChannel(channel.Id);
+                ((IServerChannelRegistryLifetime)this).RemoveChannel(channel);
             }
 
             if (expiredChannels.Count > 0)
             {
-                _logger.LogInformation("已清理 {Count} 个过期通道", expiredChannels.Count);
+                TryLog(() => _logger.LogInformation("已清理 {Count} 个过期通道", expiredChannels.Count));
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "清理过期通道时发生异常");
+            TryLog(() => _logger.LogError(ex, "清理过期通道时发生异常"));
         }
     }
 
@@ -327,34 +522,135 @@ internal class ServerChannelManager : IServerChannelManager
     /// </summary>
     public void Dispose()
     {
-        if (_disposed)
-            return;
-
-        _disposed = true;
-
-        // 停止清理定时器
-        _cleanupTimer.Dispose();
-
-        // 关闭所有通道
-        var allChannels = _channels.Values.ToList();
-        _channels.Clear();
-
-        foreach (var channel in allChannels)
+        List<KeyValuePair<string, IServerChannel>> allChannels;
+        lock (_channelMutationLock)
         {
-            try
+            if (_disposed)
+                return;
+
+            _disposed = true;
+            _acceptingChannels = false;
+            _cleanupTimer.Dispose();
+            allChannels = TakeAllChannelsLocked();
+            foreach (var entry in allChannels)
             {
-                channel.StateChanged -= OnChannelStateChanged;
-                channel.MessageParsed -= OnChannelMessageParsed;
-                channel.Dispose();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "释放通道 {ConnectionId} 时发生异常", channel.Id);
+                ReleaseRemovedChannelResources(entry.Value, entry.Key);
             }
         }
 
+        foreach (var entry in allChannels)
+        {
+            RaiseChannelDisconnectedSafely(entry.Value, entry.Key);
+        }
+
         var stats = GetChannelManagerStats();
-        _logger.LogInformation("服务器通道管理器已释放，最终统计: 通道创建={ChannelsCreated}, 通道移除={ChannelsRemoved}, 消息引擎创建={EnginesCreated}",
-            stats.TotalChannelsCreated, stats.TotalChannelsRemoved, stats.TotalMessageEnginesCreated);
+        TryLog(() => _logger.LogInformation(
+            "服务器通道管理器已释放，最终统计: 通道创建={ChannelsCreated}, 通道移除={ChannelsRemoved}, 消息引擎创建={EnginesCreated}",
+            stats.TotalChannelsCreated,
+            stats.TotalChannelsRemoved,
+            stats.TotalMessageEnginesCreated));
+    }
+
+    private List<KeyValuePair<string, IServerChannel>> TakeAllChannelsLocked()
+    {
+        var channels = new List<KeyValuePair<string, IServerChannel>>(_channels.Count);
+        foreach (var entry in _channels.ToArray())
+        {
+            if (!_channels.TryRemove(entry))
+            {
+                continue;
+            }
+
+            channels.Add(entry);
+            Interlocked.Increment(ref _totalChannelsRemoved);
+        }
+
+        return channels;
+    }
+
+    private void ThrowIfNotAcceptingChannels()
+    {
+        if (!_acceptingChannels)
+        {
+            throw new InvalidOperationException("Server channel registry has stopped accepting channels.");
+        }
+    }
+
+    private void DisposeChannel(IServerChannel channel, string connectionId)
+    {
+        try
+        {
+            channel.Dispose();
+        }
+        catch (Exception ex)
+        {
+            TryLog(() => _logger.LogError(ex, "释放通道 {ConnectionId} 时发生异常", connectionId));
+        }
+    }
+
+    private void ReleaseRemovedChannelResources(IServerChannel channel, string connectionId)
+    {
+        UnsubscribeChannelEvents(channel, connectionId);
+        DisposeChannel(channel, connectionId);
+    }
+
+    private void RaiseChannelDisconnectedSafely(IServerChannel channel, string connectionId)
+    {
+        try
+        {
+            RaiseChannelDisconnected(channel);
+        }
+        catch (Exception ex)
+        {
+            TryLog(() => _logger.LogError(
+                ex,
+                "发布通道断开事件失败: {ConnectionId}",
+                connectionId));
+        }
+    }
+
+    private void CleanupUnpublishedChannel(IServerChannel channel, string connectionId)
+    {
+        UnsubscribeChannelEvents(channel, connectionId);
+        DisposeChannel(channel, connectionId);
+    }
+
+    private void UnsubscribeChannelEvents(IServerChannel channel, string connectionId)
+    {
+        try
+        {
+            channel.StateChanged -= OnChannelStateChanged;
+        }
+        catch (Exception ex)
+        {
+            TryLog(() => _logger.LogError(
+                ex,
+                "取消通道状态订阅失败: {ConnectionId}",
+                connectionId));
+        }
+
+        try
+        {
+            channel.MessageParsed -= OnChannelMessageParsed;
+        }
+        catch (Exception ex)
+        {
+            TryLog(() => _logger.LogError(
+                ex,
+                "取消通道消息订阅失败: {ConnectionId}",
+                connectionId));
+        }
+    }
+
+    private static void TryLog(Action logAction)
+    {
+        try
+        {
+            logAction();
+        }
+        catch
+        {
+            // Cleanup and ownership transfer must not depend on a custom logger implementation.
+        }
     }
 }

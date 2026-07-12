@@ -16,8 +16,10 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     private IAuthenticationProvider? _authenticationProvider;
     private LoadBalancingStrategy _loadBalancingStrategy = LoadBalancingStrategy.RoundRobin;
     private readonly Dictionary<string, object> _loadBalancingOptions = new();
+#pragma warning disable CS0618 // Stored only so compatibility builder calls can fail explicitly at Build().
     private ConnectionPoolOptions? _connectionPoolOptions;
     private RetryPolicy? _retryPolicy;
+#pragma warning restore CS0618
     private readonly Dictionary<TransportType, TransportOptions> _transportOptions = new();
     private readonly ClientOptions _clientOptions = new();
 
@@ -56,8 +58,9 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     }
 
     /// <summary>
-    /// 配置连接池
+    /// 兼容入口；连接池尚未接入客户端运行时。
     /// </summary>
+    [Obsolete("Connection pooling is not connected to the client runtime. Configure explicit connections instead.", false)]
     public IPulseClientBuilder WithConnectionPooling(ConnectionPoolOptions poolOptions)
     {
         _connectionPoolOptions = poolOptions ?? throw new ArgumentNullException(nameof(poolOptions));
@@ -65,8 +68,9 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     }
 
     /// <summary>
-    /// 配置重试策略
+    /// 兼容入口；重试策略尚未接入请求或连接路径。
     /// </summary>
+    [Obsolete("RetryPolicy is not connected to client requests or connection attempts.", false)]
     public IPulseClientBuilder WithRetryPolicy(RetryPolicy retryPolicy)
     {
         _retryPolicy = retryPolicy ?? throw new ArgumentNullException(nameof(retryPolicy));
@@ -92,8 +96,9 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     }
 
     /// <summary>
-    /// 配置认证提供者
+    /// 兼容入口；认证提供者尚未接入传输握手。
     /// </summary>
+    [Obsolete("Client authentication is not connected to the transport handshake.", false)]
     public IPulseClientBuilder WithAuthentication(IAuthenticationProvider authenticationProvider)
     {
         _authenticationProvider = authenticationProvider ?? throw new ArgumentNullException(nameof(authenticationProvider));
@@ -156,16 +161,6 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
         }
 
         // 验证客户端选项
-        if (_clientOptions.DefaultTimeout <= TimeSpan.Zero)
-        {
-            throw new InvalidOperationException("默认超时时间必须大于 0");
-        }
-
-        if (_clientOptions.MaxConcurrentConnections <= 0)
-        {
-            throw new InvalidOperationException("最大并发连接数必须大于 0");
-        }
-
         if (_authenticationProvider != null)
         {
             throw new NotSupportedException(
@@ -218,8 +213,9 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     #region 预设配置方法
 
     /// <summary>
-    /// 使用默认预设配置
+    /// Applies the legacy default preset.
     /// </summary>
+    [Obsolete("Client presets contain settings that are not consumed. Configure effective options explicitly.", false)]
     public PulseClientBuilder UseDefaults()
     {
         Configure(ClientPresets.Default);
@@ -227,8 +223,9 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     }
 
     /// <summary>
-    /// 使用游戏客户端预设 - 低延迟优化
+    /// Applies the legacy game-client preset.
     /// </summary>
+    [Obsolete("This preset does not change channel timeout, concurrency, or statistics behavior. Configure each connection explicitly.", false)]
     public PulseClientBuilder UseGameClientPreset()
     {
         Configure(ClientPresets.GameClient);
@@ -236,8 +233,9 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     }
 
     /// <summary>
-    /// 使用高吞吐预设 - 服务端到服务端通信
+    /// Applies the legacy high-throughput preset.
     /// </summary>
+    [Obsolete("This preset does not change channel timeout, concurrency, or statistics behavior. Configure each connection explicitly.", false)]
     public PulseClientBuilder UseHighThroughputPreset()
     {
         Configure(ClientPresets.HighThroughput);
@@ -245,8 +243,9 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     }
 
     /// <summary>
-    /// 使用开发环境预设 - 长超时便于调试
+    /// Applies the legacy development preset.
     /// </summary>
+    [Obsolete("This preset does not change channel timeout or logging behavior. Configure transport options and Microsoft.Extensions.Logging explicitly.", false)]
     public PulseClientBuilder UseDevelopmentPreset()
     {
         Configure(ClientPresets.Development);
@@ -263,7 +262,7 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     /// <param name="loggerFactory">日志工厂（可选）</param>
     public static IPulseClient CreateDefault(ILoggerFactory? loggerFactory = null)
     {
-        var builder = new PulseClientBuilder().UseDefaults();
+        var builder = new PulseClientBuilder();
         if (loggerFactory != null)
             builder.WithLogging(loggerFactory);
         return builder.Build();
@@ -273,6 +272,7 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     /// 快速创建游戏客户端
     /// </summary>
     /// <param name="loggerFactory">日志工厂（可选）</param>
+    [Obsolete("The game preset does not change channel runtime behavior. Use PulseClientBuilder and configure each connection explicitly.", false)]
     public static IPulseClient CreateGameClient(ILoggerFactory? loggerFactory = null)
     {
         var builder = new PulseClientBuilder().UseGameClientPreset();
@@ -285,6 +285,7 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
     /// 快速创建开发环境客户端
     /// </summary>
     /// <param name="loggerFactory">日志工厂（可选）</param>
+    [Obsolete("The development preset does not change channel timeout or logging behavior. Use PulseClientBuilder with explicit transport and logging configuration.", false)]
     public static IPulseClient CreateDevelopment(ILoggerFactory? loggerFactory = null)
     {
         var builder = new PulseClientBuilder().UseDevelopmentPreset();

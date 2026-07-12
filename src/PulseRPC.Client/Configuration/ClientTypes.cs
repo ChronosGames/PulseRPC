@@ -148,8 +148,9 @@ public sealed class ClientHealthCheckResult
 }
 
 /// <summary>
-/// 服务连接选项
+/// Legacy service-connection options retained for compatibility.
 /// </summary>
+[Obsolete("This type is not consumed by the client runtime. Configure ConnectionDescriptor directly.", false)]
 public sealed class ServiceConnectionOptions
 {
     /// <summary>
@@ -179,23 +180,27 @@ public sealed class ServiceConnectionOptions
 public sealed class ServiceProxyOptions
 {
     /// <summary>
-    /// 指定连接ID（精确路由）
+    /// Legacy exact-connection selector that is not consumed by automatic routing.
     /// </summary>
+    [Obsolete("This property is not consumed. Use the generated overload that accepts connectionId explicitly.", false)]
     public string? ConnectionId { get; set; }
 
     /// <summary>
-    /// 指定通道名称（按name过滤）
+    /// Legacy channel-name filter that is not consumed by routing.
     /// </summary>
+    [Obsolete("This property is not consumed by client routing.", false)]
     public string? ChannelName { get; set; }
 
     /// <summary>
-    /// 路由标签
+    /// Legacy tag filter that is not consumed by routing.
     /// </summary>
+    [Obsolete("This property is not consumed by client routing.", false)]
     public Dictionary<string, string>? Tags { get; set; }
 
     /// <summary>
-    /// 偏好区域
+    /// Legacy region preference that is not consumed by routing.
     /// </summary>
+    [Obsolete("This property is not consumed by client routing.", false)]
     public string? PreferredRegion { get; set; }
 
     /// <summary>
@@ -210,24 +215,28 @@ public sealed class ServiceProxyOptions
     public string? StickyKey { get; set; }
 
     /// <summary>
-    /// 超时时间
+    /// Legacy per-proxy timeout that is not propagated to generated stubs.
     /// </summary>
+    [Obsolete("This property is not propagated to generated stubs. Use the CancellationToken parameter on the generated RPC method.", false)]
     public TimeSpan? Timeout { get; set; }
 
     /// <summary>
-    /// 重试策略
+    /// Legacy retry policy that is not connected to generated stub calls.
     /// </summary>
+    [Obsolete("This property is not connected to generated stub calls.", false)]
     public RetryPolicy? RetryPolicy { get; set; }
 
     /// <summary>
-    /// 启用代理缓存
+    /// Legacy proxy-cache flag that is not consumed.
     /// </summary>
+    [Obsolete("This property is not consumed; generated service factories do not maintain a proxy cache.", false)]
     public bool UseCache { get; set; } = true;
 }
 
 /// <summary>
-/// 事件监听器选项
+/// Legacy event-listener options retained for generated API compatibility.
 /// </summary>
+[Obsolete("EventListenerOptions is not consumed by generated registration. Pass null and use IClientChannel.RegisterReceiver<T>() for current code.", false)]
 public sealed class EventListenerOptions
 {
     /// <summary>
@@ -247,8 +256,9 @@ public sealed class EventListenerOptions
 }
 
 /// <summary>
-/// 重试策略
+/// Legacy builder retry DTO retained for compatibility.
 /// </summary>
+[Obsolete("This retry policy is not connected to generated calls or connection attempts.", false)]
 public sealed class RetryPolicy
 {
     /// <summary>
@@ -376,8 +386,9 @@ public enum ConnectionLifetime
 }
 
 /// <summary>
-/// 连接池策略
+/// Legacy connection-pool strategy retained for compatibility.
 /// </summary>
+[Obsolete("Connection pooling is not connected to the client runtime.", false)]
 public enum PoolingStrategy
 {
     /// <summary>

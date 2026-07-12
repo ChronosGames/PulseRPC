@@ -1,225 +1,113 @@
-﻿# PulseRPC.Server 架构设计深度分析
+# 服务端运行时
 
-> 文档状态：历史架构分析。当前源码已使用 `PulseServiceBase` 与 `ServiceExecutionOptions`，本文中的 `BaseService`/`ConcurrentServiceBase` 分类是早期命名。
+PulseRPC 服务端只有一个当前运行时模型：每个服务端实例由一个内部 `ServerRuntime` 组合根拥有启停状态、监听器和消息管线，并且只引用一个权威 Channel Registry。新项目使用 Generic Host + `AddPulseServer`。
 
-## 执行摘要
-
-本报告深入分析 PulseRPC.Server 项目的核心架构设计，重点关注 **IPulseService** 和 **IPulseHub** 两个关键接口。
-
-### 核心发现
-- **IPulseHub** 是标记接口，定义远程可调用性
-- **IPulseService** 启用线程亲和性和灾难隔离
-- 两接口可独立或联合使用
-- 架构采用分层设计，分离关注点明确
-
----
-
-## 一、核心接口定义
-
-### IPulseHub（标记接口）
-**位置**：`src/PulseRPC.Abstractions/IPulseHub.cs`
-
-```csharp
-public interface IPulseHub
-{
-    // 所有远程服务都应继承此接口
-}
+```mermaid
+flowchart LR
+    A["PulseServer / NamedPulseServer"] --> R["ServerRuntime"]
+    R --> T["Transport listeners"]
+    R --> C["one IServerChannelManager"]
+    R --> E["MessageEngine"]
+    E --> S["fixed worker shards"]
+    S --> Q["bounded queue per shard"]
+    E --> D["generated dispatcher"]
+    E --> P["response processor"]
+    P --> C
 ```
 
-**职责**：
-- 仅用于标记，无方法定义
-- 使源代码生成器识别服务
-- 支持自动代码生成
-
-### IPulseService（调度接口）
-**位置**：`src/PulseRPC.Server/Abstractions/IPulseService.cs`
+## 推荐注册
 
 ```csharp
-public interface IPulseService
+builder.Services.AddPulseServer(options =>
 {
-    // 服务类型名称（不可变）
-    string ServiceName { get; }
-    
-    // 服务实例唯一标识（不可变）
-    string ServiceId { get; }
-}
+    options.AddTcp("main", 5055);
+    options.MessageWorkerShardCount = Math.Max(1, Environment.ProcessorCount);
+    options.MessageQueueCapacityPerShard = 1024;
+});
 ```
 
-**职责**：
-- 定义服务实例身份
-- 启用线程亲和性调度
-- 启用灾难隔离和健康监控
+`PulseServerOptions` 是服务端唯一有效的根配置。当前真正接入运行时的内容包括：
 
----
+- TCP/KCP transport 配置；
+- `MessageWorkerShardCount`；
+- `MessageQueueCapacityPerShard`；
+- `EnableClientFacingGate`。
 
-## 二、IPulseService 和 IPulseHub 的关系
+旧的 `ServerPreset`、`ServerOptions`、三套 tiered/adaptive options 以及未接线的 timeout/backpressure 字段只为二进制兼容保留，均已标记 `[Obsolete]`。
 
-### 四种实现模式
+## 固定 worker shard
 
-1. **仅 IPulseHub**（无状态）
-   - 使用默认线程池调度
-   - 支持并发执行
-   - 适合数据库查询、无状态操作
+`MessageEngine` 在构造时一次性创建固定数量的 worker shard。每个 shard 有一个单消费者有界队列：
 
-2. **IPulseHub + IPulseService**（有状态）
-   - 基于 ServiceId 线程调度
-   - 相同 ServiceId 串行执行
-   - 适合聊天室、游戏房间
+1. 连接注册时以 round-robin 选择 shard；
+2. 同一 connection generation 在整个生命周期内保持绑定；
+3. 队列满时立即拒绝新消息，调用方不会隐式等待或重试；
+4. 断连会取消该 generation 的在途请求；
+5. 同 ID 重连使用新 lease，旧积压不会进入新连接；
+6. 停机等待所有 lease、worker、dispatcher 和 response processor 完成释放。
 
-3. **BaseService**（Actor 模型）
-   - 强制单线程语义
-   - 支持定时器、系统消息
-   - 完整生命周期管理
+worker 数不会随连接数增长。当前核心路径不创建每连接处理器，不运行 adaptive scheduler，也不构造 L1/L2/L3 或 `TieredMemoryPool`。
 
-4. **ConcurrentServiceBase**（并发）
-   - 支持多线程处理
-   - 可配置并发度
-   - 适合 I/O 密集型
+## 单一 Channel Registry
 
----
+每个 `ServerRuntime` 恰好引用一个 `IServerChannelManager`。消息引擎、响应处理器、服务端查询和广播都使用该实例。
 
-## 三、生命周期管理
+`IPulseServer.ChannelPool` 是这个 registry 的只读兼容视图，不再维护第二个字典；其 mutation 方法会明确抛出 `NotSupportedException`，连接所有权始终留在 runtime。正常网络连接在以下入口中的观察结果一致：
 
-### ThreadAffinityManager
-- 维护 ServiceId → Thread 映射
-- 定时清理空闲实例（默认 1 分钟）
-- 使用一致性哈希分配线程
+- `IPulseServer.GetChannel`；
+- `IPulseServer.GetAllChannels`；
+- `IPulseServer.ChannelPool`；
+- `IServerChannelManager`。
 
-### ServiceInstanceHealthMonitor
-- 记录请求结果
-- 触发熔断器状态转换
-- 健康状态：Healthy → Isolated → CoolingDown → ProbeAllowed
+不同 named server 拥有不同 runtime 和不同 registry；“单一”指每个 runtime 一个权威 registry，不是让多个 named server 共享全局连接表。
 
-### ServiceSchedulingOptions
+## standard、named 与 factory
+
+三种入口都委托同一个内部 `ServerRuntime`：
+
+- standard：`AddPulseServer` 注册一个默认 runtime，并由 HostedService 自动启停；
+- named：每个 name 注册一个 keyed runtime，内部依赖和 registry 按 name 隔离，并由统一 catalog HostedService 自动启停；
+- factory：`PulseServerFactory` 是兼容入口，内部直接复用 standard DI 组合并拥有该容器，释放 facade 时会释放完整对象图。
+
+新代码不要使用静态 factory。Generic Host 提供更清楚的配置、日志、启动顺序和资源所有权。
+
+在 DI 路径中，`ServerRuntime` 协调停止顺序，容器负责最终 Dispose engine、response processor 与 registry。公开 `PulseServer` 构造函数接收的依赖视为 borrowed，直接构造时仍由调用方释放；兼容 factory 则通过其 owned provider 释放完整对象图。
+
+## 有状态 Service 生命周期
+
+Hub 保持无状态，由标准 DI 管理；有状态 keyed 实例统一由 `PulseServiceManager` 管理，并通过 `IServiceAccessor<TService>` 访问：
+
 ```csharp
-public sealed class ServiceSchedulingOptions
+builder.Services.AddPulseService<RoomService>((services, roomId) =>
+    new RoomService(
+        roomId,
+        services.GetRequiredService<ILogger<RoomService>>()));
+
+builder.Services.AddSingleton<IRoomHub, RoomHub>();
+
+public sealed class RoomHub(IServiceAccessor<RoomService> rooms) : IRoomHub
 {
-    public int WorkerThreadCount { get; set; } = Environment.ProcessorCount;
-    public TimeSpan IdleInstanceTimeout { get; set; } = TimeSpan.FromMinutes(5);
-    public int VirtualNodesPerThread { get; set; } = 150;
-}
-```
-
----
-
-## 四、DI 容器注册
-
-### 注册基础设施
-```csharp
-services.AddIPulseServiceScheduling(
-    configureScheduling: options =>
+    public async Task SendAsync(string roomId, string text)
     {
-        options.WorkerThreadCount = 16;
-        options.IdleInstanceTimeout = TimeSpan.FromMinutes(10);
-    },
-    configureHealthMonitor: options =>
-    {
-        options.FailureThreshold = 3;
-        options.CoolingPeriod = TimeSpan.FromMinutes(1);
-    });
+        var room = await rooms.GetAsync(roomId);
+        await room.EnqueueAsync(() => room.SendAsync(text));
+    }
+}
 ```
 
-### 注册服务
-```csharp
-// 简单注册
-builder.Services.AddSingleton<IGameHub, GameHub>();
+服务注册目录在 `PulseServiceManager` 首次解析时完成，不依赖 Host 已经执行 `StartAsync`。HostedService 只负责 AutoStart 服务；实例清理器只在最终 options 启用时启动后台循环。
 
-// 工厂注册（多实例）
-builder.Services.AddSingleton<Func<string, ChatRoomService>>(sp =>
-    roomId => new ChatRoomService(
-        sp.GetRequiredService<ILogger<ChatRoomService>>(),
-        roomId));
-```
+`AddPulseServiceFactory`、`AddPulseHubFactory`、`IPulseHubFactory` 和 `PulseServiceFactoryOptions` 已进入兼容废弃期，不再是推荐生命周期模型。
 
----
+## 验证入口
 
-## 五、服务隔离实现
+相关回归测试：
 
-### 隔离层次
-1. **线程隔离**：不同 ServiceId → 不同线程
-2. **健康监控**：故障实例自动隔离
-3. **请求路由**：服务注册表管理
+- `MessageEngineLifecycleTests`；
+- `MessageWorkerShardLifecycleTests`；
+- `ServerRuntimeCompositionTests`；
+- `ServerChannelManagerConcurrencyTests`；
+- `PulseServiceRegistrationTests`；
+- `PulseServiceManagerLifecycleTests`。
 
-### 故障隔离流程
-```
-Healthy → (3次失败) → Isolated → (冷却期) → CoolingDown
-                                      ↓
-                              (探测成功≥阈值)
-                                    ↓
-                            ← Healthy ←
-```
-
-### 存在的问题
-1. **隔离不完整**：仅隔离线程，不隔离内存和 CPU
-2. **生命周期不清**：IPulseService 实例创建销毁逻辑不明确
-3. **文档不足**：隔离能力和边界未清楚说明
-
----
-
-## 六、示例项目
-
-### ChatApp
-- PlayerHub 仅实现 IPulseHub
-- 无状态或简单有状态
-- 依赖 RequestContext 获取上下文
-
-### DistributedGameApp
-- 多个 Hub 服务（GameHub、BattleHub）
-- Consul 集成服务注册
-- 完整的集群架构
-
----
-
-## 七、最佳实践
-
-### 选择实现模式
-- 无状态 → 仅 IPulseHub
-- 有状态，需要串行 → IPulseHub + IPulseService
-- 复杂有状态 → BaseService
-- 并发密集 → ConcurrentServiceBase
-
-### 配置建议
-- CPU 密集：WorkerThreadCount = CPU 核数
-- I/O 密集：WorkerThreadCount = CPU 核数 * 2-4
-- 调优虚拟节点以获得均匀分布
-
-### 监控诊断
-- 使用健康监控 API
-- 暴露诊断端点
-- 支持手动恢复隔离实例
-
----
-
-## 八、架构优缺点
-
-### 优点
-✅ 清晰的责任分离
-✅ 灵活的使用模式
-✅ 自动线程管理
-✅ 自动故障隔离
-✅ 生成器自动化（无反射）
-✅ 完全向后兼容
-✅ 集群友好
-
-### 缺点
-❌ 文档不足
-❌ 隔离不完整（仅线程）
-❌ 生命周期管理不明确
-❌ 健康监控粒度不够
-❌ 配置参数众多（调优困难）
-❌ 跨服务影响不清晰
-
----
-
-## 九、改进方向
-
-1. **明确生命周期**：定义 IServiceLifecycle，区分创建、初始化、销毁
-2. **增强隔离**：细化故障类型分类，支持更细粒度的隔离
-3. **自动化工厂**：PulseServiceFactory 模式自动管理实例生命周期
-4. **完善文档**：明确说明隔离范围和未隔离资源
-5. **诊断工具**：提供更好的服务实例观测能力
-
----
-
-**报告日期**：2025-11-10
-**分析深度**：Very Thorough（非常深入）
+旧的 2025 架构分析已移至[历史设计记录](../archive/historical-design-notes/server-runtime-2025.md)，其中的历史基类与并行 Factory 不代表当前 API。

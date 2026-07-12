@@ -7,11 +7,14 @@ using PulseRPC.Server.Processing.Engine;
 // 类型别名兼容性
 using TieredProcessorOptions = PulseRPC.Server.Processing.Engine.TieredMessageProcessorOptions;
 
+#pragma warning disable CS0618 // This file implements the shipped legacy tiered monitoring surface.
+
 namespace PulseRPC.Server.Processing.Engine;
 
 /// <summary>
 /// TieredMessageEngine服务扩展
 /// </summary>
+[Obsolete("Use AddPulseServer and configure PulseServerOptions. The tiered engine registration path is no longer active.", false)]
 public static class TieredMessageEngineServiceExtensions
 {
     /// <summary>
@@ -76,6 +79,7 @@ public static class TieredMessageEngineServiceExtensions
 /// <summary>
 /// 监控配置选项
 /// </summary>
+[Obsolete("Tiered engine monitoring is not connected to the fixed-shard runtime. Use EngineStatistics and RuntimeQueueMetrics.", false)]
 public class MonitoringOptions
 {
     /// <summary>
@@ -97,6 +101,7 @@ public class MonitoringOptions
 /// <summary>
 /// 性能告警阈值
 /// </summary>
+[Obsolete("Tiered engine monitoring is not connected to the fixed-shard runtime.", false)]
 public class PerformanceThresholds
 {
     /// <summary>
@@ -123,6 +128,7 @@ public class PerformanceThresholds
 /// <summary>
 /// 引擎监控服务接口
 /// </summary>
+[Obsolete("Tiered engine monitoring is not connected to the fixed-shard runtime. Use EngineStatistics and RuntimeQueueMetrics.", false)]
 public interface ITieredEngineMonitorService
 {
     Task<MonitoringReport> GetCurrentReportAsync();
@@ -132,6 +138,7 @@ public interface ITieredEngineMonitorService
 /// <summary>
 /// 监控报告
 /// </summary>
+[Obsolete("Tiered engine monitoring is not connected to the fixed-shard runtime.", false)]
 public class MonitoringReport
 {
     public DateTime Timestamp { get; set; }
@@ -143,6 +150,7 @@ public class MonitoringReport
 /// <summary>
 /// 连接性能报告
 /// </summary>
+[Obsolete("Per-connection processor reports are no longer produced by the fixed-shard runtime.", false)]
 public class ConnectionPerformanceReport
 {
     public string ConnectionId { get; set; } = "";
@@ -156,6 +164,7 @@ public class ConnectionPerformanceReport
 /// <summary>
 /// 系统资源报告
 /// </summary>
+[Obsolete("Tiered engine monitoring is not connected to the fixed-shard runtime.", false)]
 public class SystemResourceReport
 {
     public long TotalMemoryUsage { get; set; }
@@ -167,6 +176,7 @@ public class SystemResourceReport
 /// <summary>
 /// 监控告警
 /// </summary>
+[Obsolete("Tiered engine monitoring is not connected to the fixed-shard runtime.", false)]
 public class MonitoringAlert
 {
     public string ConnectionId { get; set; } = "";
@@ -179,6 +189,7 @@ public class MonitoringAlert
 /// <summary>
 /// 告警严重程度
 /// </summary>
+[Obsolete("Tiered engine monitoring is not connected to the fixed-shard runtime.", false)]
 public enum AlertSeverity
 {
     Info,

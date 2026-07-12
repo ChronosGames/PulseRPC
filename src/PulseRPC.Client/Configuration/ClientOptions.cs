@@ -4,16 +4,17 @@ namespace PulseRPC.Client.Configuration;
 /// 客户端选项
 /// </summary>
 /// <remarks>
-/// <para>推荐使用 <see cref="ClientPresets"/> 预设配置，减少手动配置。</para>
+/// <para>
+/// The client runtime currently consumes <see cref="Name"/> and
+/// <see cref="LoadBalancing"/>. Other shipped properties remain only for source and
+/// binary compatibility and are marked obsolete.
+/// </para>
 /// <code>
-/// // 使用预设配置
 /// var client = new PulseClientBuilder()
-///     .UseGameClientPreset()  // 或 UseDefaults(), UseDevelopmentPreset()
+///     .Configure(options =>
+///         options.LoadBalancing.ConsistentHashVirtualNodes = 256)
 ///     .WithLogging(loggerFactory)
 ///     .Build();
-///
-/// // 或使用静态工厂方法
-/// var client = PulseClientBuilder.CreateGameClient(loggerFactory);
 /// </code>
 /// </remarks>
 public sealed class ClientOptions
@@ -24,23 +25,27 @@ public sealed class ClientOptions
     public string Name { get; set; } = "PulseRPC-Client";
 
     /// <summary>
-    /// 默认超时时间
+    /// Legacy default timeout that is not propagated to client channels.
     /// </summary>
+    [Obsolete("This value is not propagated to generated calls. Use each RPC method's CancellationToken; configure connection/handshake timeouts on ConnectionDescriptor.TransportOptions.", false)]
     public TimeSpan DefaultTimeout { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// 最大并发连接数
+    /// Legacy connection limit that is not consumed by ConnectionManager.
     /// </summary>
+    [Obsolete("This value is not consumed by ConnectionManager. Manage explicit ConnectionDescriptor registrations instead.", false)]
     public int MaxConcurrentConnections { get; set; } = 100;
 
     /// <summary>
-    /// 启用调试模式
+    /// Legacy debug flag that is not connected to logging.
     /// </summary>
+    [Obsolete("This flag is not connected to the client runtime. Configure Microsoft.Extensions.Logging instead.", false)]
     public bool EnableDebugMode { get; set; }
 
     /// <summary>
-    /// 启用统计信息收集
+    /// Legacy statistics switch. Client statistics are always maintained.
     /// </summary>
+    [Obsolete("This switch is not consumed; client statistics are always maintained.", false)]
     public bool EnableStatistics { get; set; } = true;
 
     /// <summary>
@@ -49,17 +54,18 @@ public sealed class ClientOptions
     public ConnectionLoadBalancingOptions LoadBalancing { get; set; } = new();
 
     /// <summary>
-    /// 自动清理间隔（高级选项，一般无需修改）
+    /// Legacy cleanup interval that is not consumed by ConnectionManager.
     /// </summary>
+    [Obsolete("This value is not consumed by ConnectionManager.", false)]
     public TimeSpan AutoCleanupInterval { get; set; } = TimeSpan.FromMinutes(5);
 
     /// <summary>
     /// 自定义设置字典（高级选项）
     /// </summary>
     /// <remarks>
-    /// 用于存储自定义键值对配置，一般无需使用。
-    /// 推荐使用强类型配置属性替代。
+    /// This dictionary is retained for compatibility and is not read by the runtime.
     /// </remarks>
+    [Obsolete("This settings dictionary is not read by the client runtime. Use strongly typed effective options instead.", false)]
     public Dictionary<string, string> Settings { get; set; } = new();
 }
 
@@ -95,8 +101,13 @@ public enum ServiceDiscoveryType
 }
 
 /// <summary>
-/// 服务发现配置选项
+/// Legacy client-side service discovery model.
 /// </summary>
+/// <remarks>
+/// The client runtime does not consume this type. Register explicit client connections;
+/// server cluster discovery is provided by PulseRPC.Infrastructure packages.
+/// </remarks>
+[Obsolete("Client-side service discovery is not connected to the runtime. Register explicit connections; use PulseRPC.Infrastructure for server cluster discovery.", false)]
 public class ServiceDiscoveryOptions
 {
     /// <summary>

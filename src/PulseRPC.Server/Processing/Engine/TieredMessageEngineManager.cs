@@ -1,5 +1,6 @@
 using PulseRPC.Messaging;
 using PulseRPC.Server.Services.Scheduling;
+using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Processing.Engine;
 
@@ -11,9 +12,15 @@ public interface ITieredMessageEngine
 
     void RegisterConnection(string connectionId);
 
+    void RegisterConnection(IServerChannel channel);
+
     void UnregisterConnection(string connectionId);
 
+    void UnregisterConnection(IServerChannel channel);
+
     bool TryEnqueueMessage(string connectionId, MessagePacketHolder message, MessagePriority priority);
+
+    bool TryEnqueueMessage(IServerChannel sourceChannel, MessagePacketHolder message, MessagePriority priority);
 
     EngineStatistics GetStatistics();
 }
@@ -21,6 +28,7 @@ public interface ITieredMessageEngine
 /// <summary>
 /// 引擎管理器配置选项
 /// </summary>
+[Obsolete("This options model is not used. Configure PulseServerOptions instead.", false)]
 public class TieredEngineManagerOptions
 {
     public int MaxConnections { get; set; } = 10000;
@@ -42,6 +50,7 @@ public class TieredEngineManagerOptions
 /// <summary>
 /// 管理器统计信息
 /// </summary>
+[Obsolete("Tiered engine manager statistics are no longer produced. Use EngineStatistics.", false)]
 public class ManagerStatistics
 {
     public int TotalConnections { get; set; }

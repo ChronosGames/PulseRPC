@@ -18,7 +18,6 @@ internal sealed class PulseClient : IPulseClient
     private readonly ILogger<PulseClient> _logger;
     private readonly List<ConnectionDescriptor> _initialConnections;
     private readonly ClientOptions _clientOptions;
-    private readonly RetryPolicy? _retryPolicy;
 
     // 核心组件（简化后只保留 ConnectionManager 和 LoadBalancer）
     private readonly ConnectionManager _connectionManager;
@@ -56,6 +55,7 @@ internal sealed class PulseClient : IPulseClient
     /// <summary>
     /// 构造函数
     /// </summary>
+#pragma warning disable CS0618 // Compatibility constructor rejects these unsupported DTOs below.
     public PulseClient(
         IReadOnlyList<ConnectionDescriptor> connections,
         ILoggerFactory? loggerFactory = null,
@@ -66,8 +66,26 @@ internal sealed class PulseClient : IPulseClient
         RetryPolicy? retryPolicy = null,
         ClientOptions? clientOptions = null)
     {
+#pragma warning restore CS0618
+        if (authenticationProvider is not null)
+        {
+            throw new NotSupportedException(
+                "Client authentication is not connected to the transport handshake.");
+        }
+
+        if (connectionPoolOptions is not null)
+        {
+            throw new NotSupportedException(
+                "Connection pooling is not connected to ConnectionManager.");
+        }
+
+        if (retryPolicy is not null)
+        {
+            throw new NotSupportedException(
+                "RetryPolicy is not connected to client requests or connection attempts.");
+        }
+
         _initialConnections = connections?.ToList() ?? new List<ConnectionDescriptor>();
-        _retryPolicy = retryPolicy;
         _clientOptions = clientOptions ?? new ClientOptions();
 
         var logger = loggerFactory ?? NullLoggerFactory.Instance;

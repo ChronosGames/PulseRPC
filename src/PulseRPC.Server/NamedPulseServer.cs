@@ -14,7 +14,8 @@ namespace PulseRPC.Server;
 /// </summary>
 internal sealed class NamedPulseServer : INamedPulseServer
 {
-    private readonly PulseServer _innerServer;
+    private readonly ServerRuntime _runtime;
+    private int _eventsDetached;
 
     /// <inheritdoc />
     public string ServerName { get; }
@@ -23,125 +24,141 @@ internal sealed class NamedPulseServer : INamedPulseServer
     /// 构造命名服务器实例
     /// </summary>
     /// <param name="serverName">服务器名称（唯一标识）</param>
-    /// <param name="messageEngine">消息引擎</param>
-    /// <param name="channelManager">通道管理器</param>
-    /// <param name="transportIntegrationManager">传输集成管理器</param>
-    /// <param name="loggerFactory">日志工厂</param>
-    /// <param name="options">服务器配置选项</param>
-    public NamedPulseServer(
-        string serverName,
-        ITieredMessageEngine messageEngine,
-        IServerChannelManager channelManager,
-        ITransportIntegrationManager transportIntegrationManager,
-        ILoggerFactory loggerFactory,
-        IOptions<PulseServerOptions> options)
+    /// <param name="runtime">该命名服务器独占的运行时组合根。</param>
+    public NamedPulseServer(string serverName, ServerRuntime runtime)
     {
         if (string.IsNullOrWhiteSpace(serverName))
             throw new ArgumentException("Server name cannot be null or whitespace", nameof(serverName));
 
         ServerName = serverName;
 
-        // 创建内部服务器实例
-        _innerServer = new PulseServer(
-            messageEngine,
-            channelManager,
-            transportIntegrationManager,
-            loggerFactory,
-            options);
+        _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+        _runtime.StateChanged += OnRuntimeStateChanged;
+        _runtime.ClientConnected += OnRuntimeClientConnected;
+        _runtime.ClientDisconnected += OnRuntimeClientDisconnected;
     }
+
+    internal ServerRuntime Runtime => _runtime;
 
     // === IPulseServer 接口委托实现 ===
 
     /// <inheritdoc />
-    public ServerState State => _innerServer.State;
+    public ServerState State => _runtime.State;
 
     /// <inheritdoc />
-    public bool IsRunning => _innerServer.IsRunning;
+    public bool IsRunning => _runtime.IsRunning;
 
     /// <inheritdoc />
-    public int ActiveConnectionCount => _innerServer.ActiveConnectionCount;
+    public int ActiveConnectionCount => _runtime.ActiveConnectionCount;
 
     /// <inheritdoc />
-    public event EventHandler<ServerStateChangedEventArgs>? StateChanged
-    {
-        add => _innerServer.StateChanged += value;
-        remove => _innerServer.StateChanged -= value;
-    }
+    public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
 
     /// <inheritdoc />
-    public event EventHandler<ClientConnectedEventArgs>? ClientConnected
-    {
-        add => _innerServer.ClientConnected += value;
-        remove => _innerServer.ClientConnected -= value;
-    }
+    public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
 
     /// <inheritdoc />
-    public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected
-    {
-        add => _innerServer.ClientDisconnected += value;
-        remove => _innerServer.ClientDisconnected -= value;
-    }
+    public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken = default)
-        => _innerServer.StartAsync(cancellationToken);
+        => _runtime.StartAsync(cancellationToken);
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken = default)
-        => _innerServer.StopAsync(cancellationToken);
+        => _runtime.StopAsync(cancellationToken);
 
     /// <inheritdoc />
     public IReadOnlyDictionary<string, TransportInfo> GetTransports()
-        => _innerServer.GetTransports();
+        => _runtime.GetTransports();
 
     /// <inheritdoc />
     public TransportInfo? GetDefaultTransport()
-        => _innerServer.GetDefaultTransport();
+        => _runtime.GetDefaultTransport();
 
     /// <inheritdoc />
     public IReadOnlyList<ConnectionInfo> GetActiveConnections()
-        => _innerServer.GetActiveConnections();
+        => _runtime.GetActiveConnections();
 
     /// <inheritdoc />
     public Task<int> BroadcastAsync(ReadOnlyMemory<byte> data, Func<TransportContext, bool>? filter = null, CancellationToken cancellationToken = default)
-        => _innerServer.BroadcastAsync(data, filter, cancellationToken);
+        => _runtime.BroadcastAsync(data, filter, cancellationToken);
 
     /// <inheritdoc />
     public Task<bool> SendAsync(string connectionId, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
-        => _innerServer.SendAsync(connectionId, data, cancellationToken);
+        => _runtime.SendAsync(connectionId, data, cancellationToken);
 
     // === Transport Channel Management (双向RPC支持) ===
 
     /// <inheritdoc />
     public ITransportChannel? GetChannel(string connectionId)
-        => _innerServer.GetChannel(connectionId);
+        => _runtime.GetChannel(connectionId);
 
     /// <inheritdoc />
     public IReadOnlyList<ITransportChannel> GetAllChannels()
-        => _innerServer.GetAllChannels();
+        => _runtime.GetAllChannels();
 
     /// <inheritdoc />
-    public ITransportChannelPool ChannelPool => _innerServer.ChannelPool;
+    public ITransportChannelPool ChannelPool => _runtime.ChannelPool;
 
     /// <inheritdoc />
     public IReadOnlyList<ServiceInfo> GetRegisteredServices()
-        => _innerServer.GetRegisteredServices();
+        => _runtime.GetRegisteredServices();
 
     /// <inheritdoc />
     public ServerPerformanceMetrics GetPerformanceMetrics()
-        => _innerServer.GetPerformanceMetrics();
+        => _runtime.GetPerformanceMetrics();
 
     /// <inheritdoc />
     public void ResetPerformanceMetrics()
-        => _innerServer.ResetPerformanceMetrics();
+        => _runtime.ResetPerformanceMetrics();
 
     // === Disposal ===
 
     /// <inheritdoc />
     public void Dispose()
-        => _innerServer.Dispose();
+    {
+        try
+        {
+            _runtime.Dispose();
+        }
+        finally
+        {
+            DetachRuntimeEvents();
+        }
+    }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
-        => await _innerServer.DisposeAsync();
+    {
+        try
+        {
+            await _runtime.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            DetachRuntimeEvents();
+        }
+    }
+
+    private void OnRuntimeStateChanged(object? sender, ServerStateChangedEventArgs args)
+        => StateChanged?.Invoke(this, args);
+
+    private void OnRuntimeClientConnected(object? sender, ClientConnectedEventArgs args)
+        => ClientConnected?.Invoke(this, args);
+
+    private void OnRuntimeClientDisconnected(object? sender, ClientDisconnectedEventArgs args)
+        => ClientDisconnected?.Invoke(this, args);
+
+    private void DetachRuntimeEvents()
+    {
+        if (Interlocked.Exchange(ref _eventsDetached, 1) != 0)
+        {
+            return;
+        }
+
+        _runtime.StateChanged -= OnRuntimeStateChanged;
+        _runtime.ClientConnected -= OnRuntimeClientConnected;
+        _runtime.ClientDisconnected -= OnRuntimeClientDisconnected;
+    }
 }

@@ -6,10 +6,12 @@ using PulseRPC.Server.Hubs; using PulseRPC.Server.Services; using PulseRPC.Serve
 namespace PulseRPC.Server.Services;
 
 /// <summary>
-/// 通用的 IPulseService 启动托管服务
-/// 负责在应用启动时发现并启动所有实现了 IPulseService 的服务
+/// 旧版单实例 IPulseService 托管适配器。
 /// </summary>
 /// <typeparam name="TService">需要启动的服务类型</typeparam>
+[Obsolete(
+    "Register managed state with AddPulseService<TService> and resolve it through IServiceAccessor<TService>. PulseServiceManager owns startup and disposal.",
+    false)]
 public class PulseServiceHostedService<TService> : IHostedService
     where TService : class, IPulseService
 {

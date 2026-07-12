@@ -26,12 +26,17 @@ public sealed class PulseServiceManager : IAsyncDisposable
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<PulseServiceManager> _logger;
     private readonly PulseServiceManagerOptions _options;
+    private readonly IServiceInstanceLeaseLifetime? _serviceInstanceLeaseLifetime;
 
     // 服务注册表：ServiceType -> ServiceRegistration
     private readonly ConcurrentDictionary<string, ServiceTypeRegistration> _registrations = new();
 
     // 服务实例缓存：ServiceAddress -> Service Instance
     private readonly ConcurrentDictionary<string, IPulseService> _instances = new();
+
+    // 已从活跃实例表摘除、但尚未成功 Dispose 的实例。清理失败时必须继续由 Manager
+    // 持有所有权，阻止同地址的新实例在旧实例释放完成前被激活。
+    private readonly ConcurrentDictionary<string, IPulseService> _instancesPendingCleanup = new();
 
     // 正在创建中的服务（用于避免竞态条件下的重复创建）
     // Key: ServiceAddress, Value: 创建任务
@@ -43,6 +48,8 @@ public sealed class PulseServiceManager : IAsyncDisposable
 
     // 实例创建属于 Manager 生命周期；单个调用方取消只能停止自己的等待，不能取消其它调用方共享的激活。
     private readonly CancellationTokenSource _lifetimeCts = new();
+    private readonly object _disposeLock = new();
+    private Task? _disposeTask;
     private int _disposeState;
 
     // 自动启动服务的 ServiceAddress 列表
@@ -61,6 +68,8 @@ public sealed class PulseServiceManager : IAsyncDisposable
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _options = options ?? new PulseServiceManagerOptions();
+        _serviceInstanceLeaseLifetime =
+            serviceProvider.GetService(typeof(IServiceInstanceLeaseLifetime)) as IServiceInstanceLeaseLifetime;
     }
 
     /// <summary>
@@ -116,7 +125,14 @@ public sealed class PulseServiceManager : IAsyncDisposable
     /// </summary>
     public async Task StartAutoStartServicesAsync(CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+        using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _lifetimeCts.Token);
+        var operationToken = combinedCts.Token;
         _logger.LogInformation("Starting {Count} auto-start services", _autoStartServices.Count);
+        var startedServices = new List<string>();
+        List<Exception>? cleanupFailures = null;
 
         foreach (var serviceAddress in _autoStartServices)
         {
@@ -125,21 +141,62 @@ public sealed class PulseServiceManager : IAsyncDisposable
             var serviceId = parts[1];
             try
             {
-                var service = await GetOrCreateServiceAsync(serviceType, serviceId, cancellationToken);
-                await service.StartAsync(cancellationToken);
+                var service = await GetOrCreateServiceAsync(
+                        serviceType,
+                        serviceId,
+                        operationToken)
+                    .ConfigureAwait(false);
+                await service.StartAsync(operationToken).ConfigureAwait(false);
+                startedServices.Add(serviceAddress);
 
                 _logger.LogInformation("Auto-started service: {ServiceAddress}", serviceAddress);
             }
             catch (Exception ex)
             {
-                await RemoveServiceAsync(serviceType, serviceId, CancellationToken.None).ConfigureAwait(false);
+                var currentCleanupFailure = await CleanupAutoStartServiceAsync(
+                        serviceType,
+                        serviceId)
+                    .ConfigureAwait(false);
+                if (currentCleanupFailure is not null)
+                {
+                    (cleanupFailures ??= new List<Exception>()).Add(currentCleanupFailure);
+                }
+
                 _logger.LogError(ex, "Failed to auto-start service: {ServiceAddress}", serviceAddress);
 
                 if (!_options.ContinueOnAutoStartFailure)
                 {
+                    for (var index = startedServices.Count - 1; index >= 0; index--)
+                    {
+                        var startedParts = startedServices[index].Split(':', 2);
+                        var rollbackFailure = await CleanupAutoStartServiceAsync(
+                                startedParts[0],
+                                startedParts[1])
+                            .ConfigureAwait(false);
+                        if (rollbackFailure is not null)
+                        {
+                            (cleanupFailures ??= new List<Exception>()).Add(rollbackFailure);
+                        }
+                    }
+
+                    if (cleanupFailures is { Count: > 0 })
+                    {
+                        cleanupFailures.Insert(0, ex);
+                        throw new AggregateException(
+                            "Auto-start failed and rollback cleanup was incomplete.",
+                            cleanupFailures);
+                    }
+
                     throw;
                 }
             }
+        }
+
+        if (cleanupFailures is { Count: > 0 })
+        {
+            throw new AggregateException(
+                "One or more failed auto-start services could not be cleaned up.",
+                cleanupFailures);
         }
     }
 
@@ -167,60 +224,94 @@ public sealed class PulseServiceManager : IAsyncDisposable
         string serviceId,
         CancellationToken cancellationToken = default)
     {
-        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
         cancellationToken.ThrowIfCancellationRequested();
         var serviceAddress = $"{serviceType}:{serviceId}";
-        var operationGate = _serviceOperationGates.GetOrAdd(
-            serviceAddress,
-            static _ => new SemaphoreSlim(1, 1));
-        Task<IPulseService> creationTask;
+        SemaphoreSlim operationGate;
+        lock (_disposeLock)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+            operationGate = _serviceOperationGates.GetOrAdd(
+                serviceAddress,
+                static _ => new SemaphoreSlim(1, 1));
+        }
+        Lazy<Task<IPulseService>>? creation = null;
+        IPulseService? immediateService = null;
+        var createdPendingEntry = false;
+        var joinedPendingCreation = false;
+
         await operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
-
-            if (_instances.TryGetValue(serviceAddress, out var existingService))
+            // Publishing the pending Lazy and transitioning Dispose state share one lock. Dispose
+            // therefore observes every activation that passed this second check, including a Lazy
+            // whose value has not started executing yet.
+            lock (_disposeLock)
             {
-                ServiceActivationScope.MarkActivated();
-                return existingService;
-            }
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
 
-            if (_pendingCreations.TryGetValue(serviceAddress, out var pendingCreation))
-            {
-                Interlocked.Increment(ref _totalRaceConditionsAvoided);
-                _logger.LogDebug(
-                    "Waiting for pending service creation: {ServiceAddress}",
-                    serviceAddress);
-                creationTask = pendingCreation.Value;
-            }
-            else
-            {
-                if (!_registrations.TryGetValue(serviceType, out var registration))
-                {
-                    throw new InvalidOperationException($"Service type '{serviceType}' is not registered");
-                }
-
-                ValidateServiceId(registration, serviceId);
-                var creation = new Lazy<Task<IPulseService>>(
-                    () => CreateAndRegisterServiceAsync(
-                        serviceAddress,
-                        registration,
-                        serviceId,
-                        _lifetimeCts.Token),
-                    LazyThreadSafetyMode.ExecutionAndPublication);
-                if (!_pendingCreations.TryAdd(serviceAddress, creation))
+                if (_instancesPendingCleanup.ContainsKey(serviceAddress))
                 {
                     throw new InvalidOperationException(
-                        $"Service operation serialization failed for '{serviceAddress}'.");
+                        $"Service '{serviceAddress}' is pending cleanup. Retry removal before activating a replacement.");
                 }
 
-                creationTask = creation.Value;
-                _ = RemovePendingCreationWhenCompleteAsync(serviceAddress, creation);
+                if (_instances.TryGetValue(serviceAddress, out var existingService))
+                {
+                    immediateService = existingService;
+                }
+                else if (_pendingCreations.TryGetValue(serviceAddress, out var pendingCreation))
+                {
+                    creation = pendingCreation;
+                    joinedPendingCreation = true;
+                }
+                else
+                {
+                    if (!_registrations.TryGetValue(serviceType, out var registration))
+                    {
+                        throw new InvalidOperationException($"Service type '{serviceType}' is not registered");
+                    }
+
+                    ValidateServiceId(registration, serviceId);
+                    creation = new Lazy<Task<IPulseService>>(
+                        () => CreateAndRegisterServiceAsync(
+                            serviceAddress,
+                            registration,
+                            serviceId,
+                            _lifetimeCts.Token),
+                        LazyThreadSafetyMode.ExecutionAndPublication);
+                    if (!_pendingCreations.TryAdd(serviceAddress, creation))
+                    {
+                        throw new InvalidOperationException(
+                            $"Service operation serialization failed for '{serviceAddress}'.");
+                    }
+
+                    createdPendingEntry = true;
+                }
             }
         }
         finally
         {
             operationGate.Release();
+        }
+
+        if (immediateService is not null)
+        {
+            ServiceActivationScope.MarkActivated();
+            return immediateService;
+        }
+
+        if (joinedPendingCreation)
+        {
+            Interlocked.Increment(ref _totalRaceConditionsAvoided);
+            _logger.LogDebug(
+                "Waiting for pending service creation: {ServiceAddress}",
+                serviceAddress);
+        }
+
+        var creationTask = creation!.Value;
+        if (createdPendingEntry)
+        {
+            _ = RemovePendingCreationWhenCompleteAsync(serviceAddress, creation);
         }
 
         ServiceActivationScope.Observe(creationTask);
@@ -248,6 +339,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
 
         // 创建实例。按需服务必须完整启动后才能发布到缓存，避免其它请求观察到 Starting/Faulted 实例。
         IPulseService? service = null;
+        var published = false;
         try
         {
             service = registration.Factory(_serviceProvider, serviceId)
@@ -259,12 +351,30 @@ public sealed class PulseServiceManager : IAsyncDisposable
                 await service.StartAsync(cancellationToken).ConfigureAwait(false);
             }
 
-            if (!_instances.TryAdd(serviceAddress, service))
+            IPulseService? raceWinner = null;
+            lock (_disposeLock)
+            {
+                // A synchronous factory can ignore cancellation and finish after DisposeAsync has
+                // transitioned the Manager state. The final state check and cache publication must
+                // be atomic with that transition.
+                ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!_instances.TryAdd(serviceAddress, service))
+                {
+                    raceWinner = _instances[serviceAddress];
+                }
+                else
+                {
+                    published = true;
+                }
+            }
+
+            if (raceWinner is not null)
             {
                 await service.DisposeAsync().ConfigureAwait(false);
                 Interlocked.Increment(ref _totalRaceConditionsAvoided);
                 ServiceActivationScope.MarkActivated();
-                return _instances[serviceAddress];
+                return raceWinner;
             }
 
             Interlocked.Increment(ref _totalCreated);
@@ -276,15 +386,21 @@ public sealed class PulseServiceManager : IAsyncDisposable
         }
         catch
         {
-            await ServiceActivationScope.MarkFailedAsync().ConfigureAwait(false);
             if (service is not null)
             {
+                if (published)
+                {
+                    _instances.TryRemove(
+                        new KeyValuePair<string, IPulseService>(serviceAddress, service));
+                }
+
                 try
                 {
                     await service.DisposeAsync().ConfigureAwait(false);
                 }
                 catch (Exception disposeException)
                 {
+                    _instancesPendingCleanup.TryAdd(serviceAddress, service);
                     _logger.LogError(
                         disposeException,
                         "Failed to dispose service after activation failure: {ServiceAddress}",
@@ -292,6 +408,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
                 }
             }
 
+            await ServiceActivationScope.MarkFailedAsync().ConfigureAwait(false);
             throw;
         }
     }
@@ -316,6 +433,19 @@ public sealed class PulseServiceManager : IAsyncDisposable
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
         cancellationToken.ThrowIfCancellationRequested();
+        var result = await RemoveServiceCoreAsync(
+                serviceType,
+                serviceId,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return result.Disposed && result.StopException is null;
+    }
+
+    private async ValueTask<ServiceRemovalResult> RemoveServiceCoreAsync(
+        string serviceType,
+        string serviceId,
+        CancellationToken cancellationToken)
+    {
         var serviceAddress = $"{serviceType}:{serviceId}";
         var operationGate = _serviceOperationGates.GetOrAdd(
             serviceAddress,
@@ -335,17 +465,29 @@ public sealed class PulseServiceManager : IAsyncDisposable
                 }
                 catch
                 {
-                    return false;
+                    // Activation failure may have retained an instance whose Dispose failed.
+                    // Continue into the pending-cleanup lookup before deciding there is no owner.
                 }
             }
 
-            if (!_instances.TryRemove(serviceAddress, out var service))
+            if (!_instancesPendingCleanup.TryGetValue(serviceAddress, out var service))
             {
-                return false;
+                if (!_instances.TryRemove(serviceAddress, out service))
+                {
+                    return ServiceRemovalResult.NotFound;
+                }
+
+                if (!_instancesPendingCleanup.TryAdd(serviceAddress, service))
+                {
+                    // Same-address operations are serialized, so this indicates an invariant
+                    // violation. Restore discoverability rather than losing cleanup ownership.
+                    _instances.TryAdd(serviceAddress, service);
+                    throw new InvalidOperationException(
+                        $"Cleanup ownership already exists for service '{serviceAddress}'.");
+                }
             }
 
-            var stopSucceeded = true;
-            var disposeSucceeded = false;
+            Exception? stopException = null;
             if (service.State == ServiceLifecycleState.Running)
             {
                 try
@@ -354,7 +496,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
                 }
                 catch (Exception ex)
                 {
-                    stopSucceeded = false;
+                    stopException = ex;
                     _logger.LogError(ex, "Error stopping service before removal: {ServiceAddress}", serviceAddress);
                 }
             }
@@ -362,29 +504,100 @@ public sealed class PulseServiceManager : IAsyncDisposable
             try
             {
                 await service.DisposeAsync().ConfigureAwait(false);
-                disposeSucceeded = true;
-                Interlocked.Increment(ref _totalDisposed);
-
-                _logger.LogInformation("Removed service instance: {ServiceAddress}", serviceAddress);
-                return stopSucceeded;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error disposing service during removal: {ServiceAddress}", serviceAddress);
-                return false;
+                return new ServiceRemovalResult(
+                    Found: true,
+                    Disposed: false,
+                    StopException: stopException,
+                    DisposeException: ex);
             }
-            finally
-            {
-                if (disposeSucceeded)
-                {
-                    await ReleaseActorLeaseAsync(serviceType, serviceId).ConfigureAwait(false);
-                }
-            }
+
+            _instancesPendingCleanup.TryRemove(
+                new KeyValuePair<string, IPulseService>(serviceAddress, service));
+            Interlocked.Increment(ref _totalDisposed);
+            await ReleaseActorLeaseAsync(serviceType, serviceId).ConfigureAwait(false);
+
+            _logger.LogInformation("Removed service instance: {ServiceAddress}", serviceAddress);
+            return new ServiceRemovalResult(
+                Found: true,
+                Disposed: true,
+                StopException: stopException,
+                DisposeException: null);
         }
         finally
         {
             operationGate.Release();
         }
+    }
+
+    private async ValueTask<Exception?> CleanupAutoStartServiceAsync(
+        string serviceType,
+        string serviceId)
+    {
+        var firstAttempt = await RemoveServiceCoreAsync(
+                serviceType,
+                serviceId,
+                CancellationToken.None)
+            .ConfigureAwait(false);
+        if (!firstAttempt.Found)
+        {
+            return null;
+        }
+
+        if (firstAttempt.Disposed)
+        {
+            return firstAttempt.StopException is null
+                ? null
+                : new InvalidOperationException(
+                    $"Auto-start rollback stopped '{serviceType}:{serviceId}' with an error before disposal completed.",
+                    firstAttempt.StopException);
+        }
+
+        // A failed Dispose remains in _instancesPendingCleanup. Retry once immediately so
+        // transient cleanup failures do not leak ownership across a failed Host start.
+        var secondAttempt = await RemoveServiceCoreAsync(
+                serviceType,
+                serviceId,
+                CancellationToken.None)
+            .ConfigureAwait(false);
+        if (secondAttempt.Disposed)
+        {
+            var stopException = secondAttempt.StopException ?? firstAttempt.StopException;
+            return stopException is null
+                ? null
+                : new InvalidOperationException(
+                    $"Auto-start rollback stopped '{serviceType}:{serviceId}' with an error before disposal completed.",
+                    stopException);
+        }
+
+        var failures = new List<Exception>();
+        if (firstAttempt.StopException is not null)
+        {
+            failures.Add(firstAttempt.StopException);
+        }
+
+        if (firstAttempt.DisposeException is not null)
+        {
+            failures.Add(firstAttempt.DisposeException);
+        }
+
+        if (secondAttempt.StopException is not null &&
+            !ReferenceEquals(secondAttempt.StopException, firstAttempt.StopException))
+        {
+            failures.Add(secondAttempt.StopException);
+        }
+
+        if (secondAttempt.DisposeException is not null)
+        {
+            failures.Add(secondAttempt.DisposeException);
+        }
+
+        return new AggregateException(
+            $"Auto-start rollback could not dispose '{serviceType}:{serviceId}'; cleanup ownership was retained for retry.",
+            failures);
     }
 
     /// <summary>
@@ -416,18 +629,42 @@ public sealed class PulseServiceManager : IAsyncDisposable
         };
 
     /// <inheritdoc/>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+        lock (_disposeLock)
         {
-            return;
+            if (_disposeTask is null)
+            {
+                Volatile.Write(ref _disposeState, 1);
+                _disposeTask = DisposeCoreAsync();
+            }
+
+            return new ValueTask(_disposeTask);
+        }
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await Task.Yield();
+
+        _logger.LogInformation(
+            "Disposing PulseServiceManager with {ActiveCount} active and {CleanupCount} pending-cleanup instances",
+            _instances.Count,
+            _instancesPendingCleanup.Count);
+
+        try
+        {
+            await _lifetimeCts.CancelAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Manager lifetime cancellation callbacks failed during shutdown");
         }
 
-        _logger.LogInformation("Disposing PulseServiceManager with {Count} active instances", _instances.Count);
-
-        _lifetimeCts.Cancel();
+        // DisposeAsync transitions _disposeState under _disposeLock, while GetOrCreate publishes
+        // every Lazy under the same lock. Force all Lazies here: a creation that passed the second
+        // state check can no longer escape the shutdown snapshot merely because Value had not run.
         var pendingTasks = _pendingCreations.Values
-            .Where(static creation => creation.IsValueCreated)
             .Select(static creation => creation.Value)
             .ToArray();
         try
@@ -439,52 +676,70 @@ public sealed class PulseServiceManager : IAsyncDisposable
             // 单个创建任务会自行释放未发布实例；Manager 关闭继续回收已发布实例。
         }
 
-        var services = _instances.ToArray();
-        _instances.Clear();
-
-        foreach (var entry in services)
+        List<Exception>? cleanupFailures = null;
+        var serviceAddresses = _instances.Keys
+            .Concat(_instancesPendingCleanup.Keys)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        foreach (var serviceAddress in serviceAddresses)
         {
-            var service = entry.Value;
-            var disposeSucceeded = false;
-            if (service.State == ServiceLifecycleState.Running)
+            var separator = serviceAddress.IndexOf(':');
+            if (separator <= 0)
             {
-                try
-                {
-                    await service.StopAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error stopping service during manager shutdown: {ServiceAddress}",
-                        service.ServiceAddress);
-                }
+                (cleanupFailures ??= new List<Exception>()).Add(
+                    new InvalidOperationException($"Invalid managed service address '{serviceAddress}'."));
+                continue;
             }
 
-            try
+            var serviceType = serviceAddress[..separator];
+            var serviceId = serviceAddress[(separator + 1)..];
+            var firstAttempt = await RemoveServiceCoreAsync(
+                    serviceType,
+                    serviceId,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+            var finalAttempt = firstAttempt;
+            if (firstAttempt.Found && !firstAttempt.Disposed)
             {
-                await service.DisposeAsync().ConfigureAwait(false);
-                disposeSucceeded = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error disposing service: {ServiceAddress}",
-                    service.ServiceAddress);
+                finalAttempt = await RemoveServiceCoreAsync(
+                        serviceType,
+                        serviceId,
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
             }
 
-            if (disposeSucceeded)
+            if (finalAttempt.Found && !finalAttempt.Disposed)
             {
-                var separator = entry.Key.IndexOf(':');
-                if (separator > 0)
+                var failures = new List<Exception>();
+                if (firstAttempt.DisposeException is not null)
                 {
-                    await ReleaseActorLeaseAsync(
-                        entry.Key[..separator],
-                        entry.Key[(separator + 1)..]).ConfigureAwait(false);
+                    failures.Add(firstAttempt.DisposeException);
                 }
+
+                if (finalAttempt.DisposeException is not null)
+                {
+                    failures.Add(finalAttempt.DisposeException);
+                }
+
+                (cleanupFailures ??= new List<Exception>()).Add(
+                    new AggregateException(
+                        $"PulseServiceManager could not dispose '{serviceAddress}'; cleanup ownership was retained.",
+                        failures));
             }
+        }
+
+        if (cleanupFailures is { Count: > 0 })
+        {
+            throw new AggregateException(
+                "PulseServiceManager shutdown left services pending cleanup.",
+                cleanupFailures);
         }
 
         _registrations.Clear();
         _autoStartServices.Clear();
         _pendingCreations.Clear();
+        _instances.Clear();
+        _instancesPendingCleanup.Clear();
         _serviceOperationGates.Clear();
         _lifetimeCts.Dispose();
 
@@ -493,15 +748,16 @@ public sealed class PulseServiceManager : IAsyncDisposable
 
     private async ValueTask ReleaseActorLeaseAsync(string serviceType, string serviceId)
     {
-        var lifetime = _serviceProvider.GetService(typeof(IServiceInstanceLeaseLifetime)) as IServiceInstanceLeaseLifetime;
-        if (lifetime is null)
+        if (_serviceInstanceLeaseLifetime is null)
         {
             return;
         }
 
         try
         {
-            await lifetime.ReleaseAsync(serviceType, serviceId, CancellationToken.None).ConfigureAwait(false);
+            await _serviceInstanceLeaseLifetime
+                .ReleaseAsync(serviceType, serviceId, CancellationToken.None)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -569,6 +825,19 @@ public sealed class PulseServiceManager : IAsyncDisposable
         // 使用编译后的工厂（首次调用编译并缓存，后续直接使用委托）
         var typedFactory = CompiledConstructorFactory.GetOrCreateFactory<TService>();
         return (sp, serviceId) => typedFactory(sp, serviceId);
+    }
+
+    private readonly record struct ServiceRemovalResult(
+        bool Found,
+        bool Disposed,
+        Exception? StopException,
+        Exception? DisposeException)
+    {
+        public static ServiceRemovalResult NotFound { get; } = new(
+            Found: false,
+            Disposed: false,
+            StopException: null,
+            DisposeException: null);
     }
 }
 

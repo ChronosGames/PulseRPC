@@ -1,11 +1,12 @@
 namespace PulseRPC.Server.Configuration;
 
 /// <summary>
-/// 队列满时的背压策略
+/// 未接入服务器消息主路径的历史背压策略。
 /// </summary>
 /// <remarks>
-/// 定义当消息队列达到容量上限时如何处理新消息
+/// 固定 shard 队列当前采用有界、立即拒绝语义；此枚举不会改变运行时行为。
 /// </remarks>
+[Obsolete("This enum is not wired to the fixed-shard message engine. Queue-full behavior is bounded immediate rejection.", false)]
 public enum BackpressureStrategy
 {
     /// <summary>

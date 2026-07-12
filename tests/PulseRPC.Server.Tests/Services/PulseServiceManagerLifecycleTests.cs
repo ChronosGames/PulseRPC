@@ -71,6 +71,43 @@ public sealed class PulseServiceManagerLifecycleTests
     }
 
     [Fact]
+    public async Task DisposeManager_MustObservePendingActivationBeforeItCanPublish()
+    {
+        await using var provider = new ServiceCollection().BuildServiceProvider();
+        var manager = new PulseServiceManager(
+            provider,
+            NullLogger<PulseServiceManager>.Instance);
+        var factoryEntered = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var releaseFactory = new ManualResetEventSlim();
+        var service = new PendingAutoStartService();
+        manager.Register<PendingAutoStartService>((_, _) =>
+        {
+            factoryEntered.TrySetResult(true);
+            releaseFactory.Wait();
+            return service;
+        });
+
+        var activation = Task.Run(async () => await manager.GetOrCreateServiceAsync(
+            nameof(PendingAutoStartService),
+            "default"));
+        await factoryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        var disposal = manager.DisposeAsync().AsTask();
+        disposal.IsCompleted.Should().BeFalse(
+            "Dispose must join a pending Lazy even before its factory has produced the activation task");
+
+        releaseFactory.Set();
+        await FluentActions.Awaiting(() => activation)
+            .Should().ThrowAsync<ObjectDisposedException>();
+        await disposal.WaitAsync(TimeSpan.FromSeconds(5));
+
+        manager.GetService(nameof(PendingAutoStartService), "default").Should().BeNull();
+        manager.GetStatistics().ActiveInstances.Should().Be(0);
+        service.DisposeCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task RemoveService_WaitsForPendingActivationAndRemovesPublishedInstance()
     {
         await using var provider = new ServiceCollection().BuildServiceProvider();
@@ -200,7 +237,7 @@ public sealed class PulseServiceManagerLifecycleTests
     }
 
     [Fact]
-    public async Task RemoveService_WhenDisposeFails_DoesNotReleaseLease()
+    public async Task RemoveService_WhenDisposeFails_RetainsOwnershipUntilRetrySucceeds()
     {
         var leaseLifetime = new RecordingActorLeaseLifetime();
         var services = new ServiceCollection();
@@ -209,7 +246,7 @@ public sealed class PulseServiceManagerLifecycleTests
         await using var manager = new PulseServiceManager(
             provider,
             NullLogger<PulseServiceManager>.Instance);
-        var service = new ControlledService("actor-1", failOnDispose: true);
+        var service = new ControlledService("actor-1", disposeFailuresBeforeSuccess: 1);
         service.ReleaseStart();
         manager.Register<ControlledService>((_, _) => service);
         await manager.GetOrCreateServiceAsync(nameof(ControlledService), "actor-1");
@@ -220,6 +257,17 @@ public sealed class PulseServiceManagerLifecycleTests
         service.DisposeCount.Should().Be(1);
         leaseLifetime.ReleaseCount.Should().Be(0,
             "未确认实例释放时必须让旧 lease 自然过期，避免产生双 owner");
+
+        var replacement = async () => await manager.GetOrCreateServiceAsync(
+            nameof(ControlledService),
+            "actor-1");
+        await replacement.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*pending cleanup*");
+
+        (await manager.RemoveServiceAsync(nameof(ControlledService), "actor-1"))
+            .Should().BeTrue("a later removal retries the retained cleanup owner");
+        service.DisposeCount.Should().Be(2);
+        leaseLifetime.ReleaseCount.Should().Be(1);
     }
 
     [PulseService(
@@ -229,7 +277,7 @@ public sealed class PulseServiceManagerLifecycleTests
     {
         private readonly bool _failOnStart;
         private readonly bool _failOnStop;
-        private readonly bool _failOnDispose;
+        private readonly int _disposeFailuresBeforeSuccess;
         private readonly bool _blockOnStop;
         private readonly TaskCompletionSource<bool> _startEntered =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -245,7 +293,7 @@ public sealed class PulseServiceManagerLifecycleTests
             string serviceId,
             bool failOnStart = false,
             bool failOnStop = false,
-            bool failOnDispose = false,
+            int disposeFailuresBeforeSuccess = 0,
             bool blockOnStop = false)
             : base(
                 nameof(ControlledService),
@@ -254,7 +302,7 @@ public sealed class PulseServiceManagerLifecycleTests
         {
             _failOnStart = failOnStart;
             _failOnStop = failOnStop;
-            _failOnDispose = failOnDispose;
+            _disposeFailuresBeforeSuccess = disposeFailuresBeforeSuccess;
             _blockOnStop = blockOnStop;
             if (failOnStart)
             {
@@ -289,8 +337,8 @@ public sealed class PulseServiceManagerLifecycleTests
 
         public override async ValueTask DisposeAsync()
         {
-            Interlocked.Increment(ref _disposeCount);
-            if (_failOnDispose)
+            var attempt = Interlocked.Increment(ref _disposeCount);
+            if (attempt <= _disposeFailuresBeforeSuccess)
             {
                 throw new InvalidOperationException("dispose failed");
             }
@@ -310,6 +358,36 @@ public sealed class PulseServiceManagerLifecycleTests
             {
                 throw new InvalidOperationException("stop failed");
             }
+        }
+    }
+
+    [PulseService(
+        StartupType = ServiceStartupType.AutoStart,
+        InstanceScope = ServiceInstanceScope.Singleton)]
+    private sealed class PendingAutoStartService : IPulseService
+    {
+        private int _disposeCount;
+
+        public string ServiceType => nameof(PendingAutoStartService);
+
+        public string ServiceId => "default";
+
+        public string ServiceAddress => $"{ServiceType}:{ServiceId}";
+
+        public ServiceLifecycleState State => ServiceLifecycleState.Created;
+
+        public int DisposeCount => Volatile.Read(ref _disposeCount);
+
+        public Task StartAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task StopAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public ValueTask DisposeAsync()
+        {
+            Interlocked.Increment(ref _disposeCount);
+            return ValueTask.CompletedTask;
         }
     }
 

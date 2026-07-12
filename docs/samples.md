@@ -1,14 +1,26 @@
 # 示例项目
 
-示例按“当前可运行入口”和“历史探索代码”区分。运行前优先执行仓库根目录的 `dotnet build PulseRPC.sln`，确认当前 SDK 和项目引用可用。
+示例按“唯一黄金路径”“专项示例”和“历史探索代码”区分。
 
-## 推荐示例
+## 唯一黄金路径
+
+首次运行只使用三项目 HelloRPC：
+
+```bash
+dotnet build samples/HelloRPC/HelloRPC.sln
+```
+
+| 示例 | 用途 | 阅读入口 |
+| --- | --- | --- |
+| HelloRPC | Contracts / Server / Client 三项目真实 TCP RPC；由 CI 端到端运行 | [samples/HelloRPC/README.md](../samples/HelloRPC/README.md) |
+
+## 专项示例
 
 | 示例 | 用途 | 阅读入口 |
 | --- | --- | --- |
 | ChatApp | 实时聊天/游戏房间、服务隔离、控制台与 Unity 客户端 | [samples/ChatApp/README.md](../samples/ChatApp/README.md) |
 | JwtAuthentication | 连接级 JWT 登录、连接身份写入、后续 RPC 鉴权示例 | [samples/JwtAuthentication](../samples/JwtAuthentication/) |
-| HubFactoryExample | Hub 工厂用法 | [samples/HubFactoryExample](../samples/HubFactoryExample/) |
+| HubFactoryExample | 历史项目名；代码已迁移为无状态 Hub + `IServiceAccessor` | [samples/HubFactoryExample](../samples/HubFactoryExample/) |
 | ServiceFactoryExample | `AddPulseService` / `IServiceAccessor` 服务实例生命周期 | [samples/ServiceFactoryExample](../samples/ServiceFactoryExample/) |
 | JsonTranscoding | PulseRPC Hub 与显式 ASP.NET JSON 网关；不声称自动 wire 转码 | [samples/JsonTranscoding/README.md](../samples/JsonTranscoding/README.md) |
 

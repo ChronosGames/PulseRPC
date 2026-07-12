@@ -4,13 +4,15 @@ using PulseRPC.Server.Services.Scheduling;
 namespace PulseRPC.Server.Processing.Engine;
 
 /// <summary>
-/// Extension methods for integrating ServiceThreadScheduler into MessageEngine.
+/// Legacy helper retained for compatibility. The fixed-shard MessageEngine does not
+/// resolve or invoke IServiceScheduler.
 /// </summary>
+[Obsolete("IServiceScheduler is not connected to the fixed-shard server runtime. Configure MessageWorkerShardCount and MessageQueueCapacityPerShard on PulseServerOptions.", false)]
 public static class SchedulerIntegrationExtensions
 {
     /// <summary>
-    /// Wrap a service invocation with scheduler-based execution if scheduler is available.
-    /// This should be called after L2 batch processing, before actual service invocation.
+    /// Invokes a delegate through a manually supplied standalone scheduler.
+    /// This helper is not part of the MessageEngine pipeline.
     /// </summary>
     /// <param name="scheduler">The service scheduler (optional, null-safe).</param>
     /// <param name="serviceContext">The service context containing ServiceId.</param>
@@ -18,6 +20,7 @@ public static class SchedulerIntegrationExtensions
     /// <param name="serviceInvocation">The actual service method invocation.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>Task representing the scheduled or direct invocation.</returns>
+    [Obsolete("This helper is not invoked by MessageEngine. Use the fixed-shard runtime configuration for RPC dispatch.", false)]
     public static async Task InvokeWithSchedulerAsync(
         this IServiceScheduler? scheduler,
         IServiceContext? serviceContext,
@@ -47,41 +50,10 @@ public static class SchedulerIntegrationExtensions
 }
 
 /// <summary>
-/// Integration notes for MessageEngine modification (T028):
-///
-/// In the message processing pipeline (after L2 batch processing), add:
-///
-/// <code>
-/// // In CreateMessageHandler() or message processing method:
-/// private async Task ProcessMessageAsync(Message message)
-/// {
-///     // ... existing L1, L2, L3 processing ...
-///
-///     // Extract service metadata (from source generator)
-///     var serviceName = GetServiceNameForMessage(message); // From generated metadata
-///     var serviceContext = GetServiceContextForConnection(message.ConnectionId);
-///
-///     // Get scheduler from DI (injected in constructor)
-///     var scheduler = _serviceProvider.GetService&lt;IServiceScheduler&gt;();
-///
-///     // Wrap service invocation with scheduler
-///     await scheduler.InvokeWithSchedulerAsync(
-///         serviceContext,
-///         serviceName,
-///         async () =>
-///         {
-///             // Actual service method dispatch (existing logic)
-///             await _messageDispatcher.DispatchAsync(message);
-///         });
-/// }
-/// </code>
-///
-/// Key integration points:
-/// 1. Inject IServiceScheduler? (nullable) in MessageEngine constructor
-/// 2. Store IServiceScheduler field: private readonly IServiceScheduler? _scheduler;
-/// 3. Call InvokeWithSchedulerAsync() before service dispatch
-/// 4. Maintain backward compatibility (null scheduler = direct invocation)
+/// Historical placeholder retained for binary compatibility. It does not describe
+/// the current fixed-shard engine and must not be used as integration guidance.
 /// </summary>
+[Obsolete("Historical integration notes only; IServiceScheduler is not connected to MessageEngine.", false)]
 public static class EngineIntegrationNotes
 {
     // Documentation class - see XML comments above for integration instructions

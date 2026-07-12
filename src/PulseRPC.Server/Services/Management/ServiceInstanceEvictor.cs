@@ -72,6 +72,12 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     /// <inheritdoc/>
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        if (!_options.EnableInstanceEviction)
+        {
+            _logger.LogInformation("Service instance eviction is disabled");
+            return Task.CompletedTask;
+        }
+
         lock (_lifecycleLock)
         {
             if (_runTask is not null)

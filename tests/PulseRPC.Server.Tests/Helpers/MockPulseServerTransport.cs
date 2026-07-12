@@ -114,6 +114,9 @@ public class MockServerTransport : IServerTransport
     public Func<CancellationToken, Task>? CloseHandler { get; set; }
 
     private int _remainingFailedSendAttempts;
+    private int _disposeCount;
+
+    public int DisposeCount => Volatile.Read(ref _disposeCount);
 
     public event EventHandler<TransportStateEventArgs>? StateChanged;
     public event EventHandler<TransportDataEventArgs>? DataReceived;
@@ -152,6 +155,7 @@ public class MockServerTransport : IServerTransport
 
     public void Dispose()
     {
+        Interlocked.Increment(ref _disposeCount);
         State = PulseRPC.Shared.ConnectionState.Disconnected;
     }
 

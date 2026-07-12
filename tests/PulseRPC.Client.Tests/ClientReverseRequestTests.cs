@@ -11,6 +11,8 @@ using Xunit;
 
 namespace PulseRPC.Client.Tests;
 
+#pragma warning disable CS0618 // Direct internal-channel compatibility coverage.
+
 /// <summary>
 /// [P-4] 客户端反向 Ask 分发单元测试：验证 <see cref="TransportChannel"/> 收到
 /// <see cref="MessageType.ReverseRequest"/> 后，调用已注册处理器并以 Response/Error 回显 MessageId 应答。
@@ -205,3 +207,4 @@ public sealed class ClientReverseRequestTests
         }
     }
 }
+#pragma warning restore CS0618

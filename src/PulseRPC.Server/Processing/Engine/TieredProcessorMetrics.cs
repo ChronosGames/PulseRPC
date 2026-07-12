@@ -7,6 +7,7 @@ namespace PulseRPC.Server.Processing.Engine;
 /// <summary>
 /// 分层消息处理器性能指标
 /// </summary>
+[Obsolete("Per-connection tiered processors are no longer used. Use EngineStatistics and RuntimeQueueMetrics.", false)]
 public sealed class TieredProcessorMetrics
 {
     // L1 层指标

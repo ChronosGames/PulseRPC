@@ -35,6 +35,8 @@ public sealed class ServiceCallContext
     /// </summary>
     public PulseRPC.Shared.IServerTransport? Transport { get; }
 
+    internal PulseRPC.Server.Transport.IServerChannel? ExpectedChannel { get; init; }
+
     public ServiceCallContext(
         string connectionId,
         Guid messageId,

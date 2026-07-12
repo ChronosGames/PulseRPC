@@ -30,6 +30,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("// PulseClient Factory Pattern Extensions - Generated Implementation");
         sb.AppendLine("#nullable enable");
         sb.AppendLine("#pragma warning disable CS1591");
+        sb.AppendLine("#pragma warning disable CS0618 // Compatibility signatures reference obsolete option DTOs.");
         sb.AppendLine();
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Collections.Generic;");
@@ -132,6 +133,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (string.IsNullOrEmpty(connectionId)) throw new ArgumentException(\"连接ID不能为空\", nameof(connectionId));");
+        sb.AppendLine("            if (options != null) throw new NotSupportedException(\"ServiceProxyOptions is not consumed when connectionId is explicit. Pass null.\");");
         sb.AppendLine();
         sb.AppendLine("            var serviceType = typeof(T);");
         sb.AppendLine("            var connection = client.Connections.GetConnection(connectionId);");
@@ -194,6 +196,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
+        sb.AppendLine("            if (options != null) throw new NotSupportedException(\"EventListenerOptions is not consumed by generated registration. Pass null.\");");
         sb.AppendLine();
         sb.AppendLine("            var listenerType = typeof(T);");
         sb.AppendLine("            var tokens = new List<ISubscriptionToken>();");
@@ -263,6 +266,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (string.IsNullOrEmpty(connectionId)) throw new ArgumentException(\"连接ID不能为空\", nameof(connectionId));");
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
+        sb.AppendLine("            if (options != null) throw new NotSupportedException(\"EventListenerOptions is not consumed by generated registration. Pass null.\");");
         sb.AppendLine();
         sb.AppendLine("            var listenerType = typeof(T);");
         sb.AppendLine("            var connectionContext = client.Connections.GetConnection(connectionId);");

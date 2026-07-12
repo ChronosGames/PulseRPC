@@ -123,6 +123,11 @@ jobs:
             package=$(find ./publish -maxdepth 1 -name "${project}.*.nupkg" ! -name "*.snupkg" -print -quit)
             test -n "$package"
             unzip -Z1 "$package" | grep -Fx "README.md"
+            unzip -p "$package" README.md | grep -F "samples/HelloRPC"
+            if unzip -p "$package" README.md | grep -Eq "samples/(ChatApp|JwtAuthentication|HubFactoryExample|ServiceFactoryExample|JsonTranscoding)"; then
+              echo "Package ${project} README advertises a competing quickstart path."
+              exit 1
+            fi
           done
 
   verify-samples:
@@ -132,6 +137,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - name: Verify the HelloRPC golden path
+        shell: bash
+        run: bash ./.github/scripts/verify-hello-rpc.sh
       - run: dotnet build -c Release ./samples/ChatApp/ChatApp.Server/ChatApp.Server.csproj --warnaserror
       - run: dotnet build -c Release ./samples/JwtAuthentication/JwtAuthApp.Server/JwtAuthApp.Server.csproj --warnaserror
       - run: dotnet build -c Release ./samples/JwtAuthentication/JwtAuthApp.Client/JwtAuthApp.Client.csproj --warnaserror

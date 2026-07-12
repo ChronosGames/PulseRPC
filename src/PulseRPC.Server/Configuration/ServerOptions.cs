@@ -3,6 +3,7 @@
 /// <summary>
 /// 服务器配置选项
 /// </summary>
+[Obsolete("This options model is not connected to IPulseServer. Use PulseServerOptions.", false)]
 public class ServerOptions
 {
     /// <summary>

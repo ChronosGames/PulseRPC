@@ -10,6 +10,7 @@ using PulseRPC.Memory;
 using PulseRPC.Messaging;
 using PulseRPC.Scheduling;
 using PulseRPC.Server.Contexts;
+using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Processing.Memory;
 using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Server.Processing;
@@ -26,59 +27,40 @@ using MessageProcessedEventArgs = PulseRPC.Server.Processing.Engine.MessageProce
 namespace PulseRPC.Server.Processing.Engine;
 
 /// <summary>
-/// 高性能消息引擎
-/// 基于技术规格说明书实现的统一高性能消息处理架构
-///
-/// 核心特性：
-/// • 三级缓冲架构：L1(零拷贝环形缓冲区) → L2(自适应批处理) → L3(优先级调度)
-/// • 编译时消息分发：零反射开销的消息路由
-/// • 自适应性能调优：负载感知的参数动态调整
-/// • 分层内存管理：NUMA感知的多级内存池
-/// • 丰富监控指标：实时性能追踪和诊断
+/// 固定分片消息引擎。连接注册时以 round-robin 绑定到固定 worker shard；
+/// 每个 shard 使用单消费者有界队列，队列满时立即拒绝，不创建每连接 worker，
+/// 也不运行 adaptive 或 L3 调度循环。
 /// </summary>
-internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITieredMessageEngine
+internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
 {
-    #region 技术规格常量
-
-    /// <summary>
-    /// 高性能消息引擎技术规格 - 基于技术规格说明书定义
-    /// </summary>
-    public static class Specifications
-    {
-        public const int MAX_L1_ENQUEUE_NS = 100;        // L1入队最大100纳秒
-        public const int L1_BUFFER_SIZE = 4096;          // L1缓冲区大小 (2^12)
-        public const int L2_QUEUE_CAPACITY = 256;        // L2队列容量
-        public const int L3_QUEUE_CAPACITY = 128;        // L3队列容量
-        public const int MIN_BATCH_INTERVAL_MS = 1;      // 最小批处理间隔
-        public const int MAX_BATCH_INTERVAL_MS = 10;     // 最大批处理间隔
-        public const int ADAPTIVE_BATCH_SIZE_MIN = 8;    // 最小批大小
-        public const int ADAPTIVE_BATCH_SIZE_MAX = 128;  // 最大批大小
-    }
-
-    #endregion
-
     #region 核心组件和字段
 
     private readonly IMessageDispatcher _messageDispatcher;
     private readonly IServiceProvider _serviceProvider;
-    private readonly MessageEngineConfiguration _options;
     private readonly ILogger<MessageEngine> _logger;
-    private readonly IServiceScheduler? _scheduler;
     private readonly IServerChannelManager _channelManager;
     private readonly IResponseProcessor _responseProcessor;
-    private readonly TieredMessageProcessorOptions _messageProcessorOptions;
     private readonly ConcurrentDictionary<Guid, RequestCancellation> _requestCancellations = new();
 
-    // 三级缓冲架构核心组件 - 使用TieredMessageProcessor实现
-    private ConcurrentDictionary<string, TieredMessageProcessor> _tieredProcessors;
+    // 固定 shard：连接只保存轻量 generation/lease，不再按连接创建 worker、队列和调度器。
+    private readonly MessageWorkerShard[] _workerShards;
+    private readonly ConcurrentDictionary<string, MessageConnectionLease> _connections = new();
+    private int _nextShardIndex = -1;
 
     // 性能监控和统计
     private EngineMetrics _metrics;
-    private PerformanceMonitor _performanceMonitor;
 
     // 生命周期管理
     private CancellationTokenSource _cancellationTokenSource;
-    private volatile bool _isDisposed;
+    private readonly object _lifecycleLock = new();
+    private readonly ConcurrentDictionary<long, Task> _connectionDeactivationTasks = new();
+    private long _connectionDeactivationTaskId;
+    private bool _acceptingConnections;
+    private Task? _startTask;
+    private Task? _stopTask;
+    private Task? _disposeTask;
+    private bool _dispatcherStopRequested;
+    private bool _responseStopRequested;
 
     #endregion
 
@@ -90,49 +72,103 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     public MessageEngine(
         IMessageDispatcher messageDispatcher,
         IServiceProvider serviceProvider,
-        IOptions<MessageEngineConfiguration> configuration,
+        IOptions<PulseServerOptions> configuration,
         ILogger<MessageEngine> logger,
         IServerChannelManager serverChannelManager,
-        IResponseProcessor responseProcessor,
-        IServiceScheduler? scheduler = null)
+        IResponseProcessor responseProcessor)
     {
         _messageDispatcher = messageDispatcher ?? throw new ArgumentNullException(nameof(messageDispatcher));
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
-        _options = configuration.Value ?? throw new ArgumentNullException(nameof(configuration));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _scheduler = scheduler;
         _channelManager =  serverChannelManager ?? throw new ArgumentNullException(nameof(serverChannelManager));
         _responseProcessor = responseProcessor ?? throw new ArgumentNullException(nameof(responseProcessor));
+        var options = configuration?.Value ?? throw new ArgumentNullException(nameof(configuration));
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MessageWorkerShardCount, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MessageQueueCapacityPerShard, 1);
 
         _cancellationTokenSource = new CancellationTokenSource();
 
-        // 创建TieredMessageProcessor配置
-        _messageProcessorOptions = new TieredMessageProcessorOptions
-        {
-            L1BufferSize = Specifications.L1_BUFFER_SIZE,
-            L2QueueCapacity = Specifications.L2_QUEUE_CAPACITY,
-            BatchChannelCapacity = Specifications.L3_QUEUE_CAPACITY,
-            MaxBatchSize = Specifications.ADAPTIVE_BATCH_SIZE_MAX,
-            L2MaxBatchSize = Specifications.ADAPTIVE_BATCH_SIZE_MAX,
-            EnableAdaptiveBatching = true,
-            EnableDetailedLogging = false,
-            NormalMessageDropThreshold = 0.8,
-            CriticalMessageTimeoutUs = Specifications.MAX_L1_ENQUEUE_NS / 1000, // 转换为微秒
-            L2BackpressureWaitMs = Specifications.MIN_BATCH_INTERVAL_MS
-        };
-
-        // 初始化TieredMessageProcessor
-        _tieredProcessors = new ConcurrentDictionary<string, TieredMessageProcessor>();
-
         // 初始化监控组件
         _metrics = new EngineMetrics();
-        _performanceMonitor = new PerformanceMonitor(_metrics, _logger);
 
-        _logger.LogInformation("MessageEngine初始化完成: L1Size={L1Size}", Specifications.L1_BUFFER_SIZE);
+        var engineId = $"engine-{Guid.NewGuid():N}";
+        var handler = CreateMessageHandler();
+        var shards = new List<MessageWorkerShard>(options.MessageWorkerShardCount);
+        var connectedSubscribed = false;
+        var disconnectedSubscribed = false;
+        var messageSubscribed = false;
+        try
+        {
+            for (var index = 0; index < options.MessageWorkerShardCount; index++)
+            {
+                shards.Add(new MessageWorkerShard(
+                $"{engineId}/shard-{index}",
+                options.MessageQueueCapacityPerShard,
+                handler,
+                OnMessageSlotFinalized,
+                _logger));
+            }
 
-        _channelManager.ChannelConnected += OnChannelConnected;
-        _channelManager.ChannelDisconnected += OnChannelDisconnected;
-        _channelManager.ChannelMessageParsed += OnChannelMessageParsed;
+            _workerShards = shards.ToArray();
+
+            SafeLog(() => _logger.LogInformation(
+                "MessageEngine初始化完成: WorkerShards={WorkerShards}, QueueCapacityPerShard={QueueCapacityPerShard}",
+                _workerShards.Length,
+                options.MessageQueueCapacityPerShard));
+
+            _channelManager.ChannelConnected += OnChannelConnected;
+            connectedSubscribed = true;
+            _channelManager.ChannelDisconnected += OnChannelDisconnected;
+            disconnectedSubscribed = true;
+            _channelManager.ChannelMessageParsed += OnChannelMessageParsed;
+            messageSubscribed = true;
+        }
+        catch
+        {
+            if (messageSubscribed)
+            {
+                try { _channelManager.ChannelMessageParsed -= OnChannelMessageParsed; } catch { }
+            }
+
+            if (disconnectedSubscribed)
+            {
+                try { _channelManager.ChannelDisconnected -= OnChannelDisconnected; } catch { }
+            }
+
+            if (connectedSubscribed)
+            {
+                try { _channelManager.ChannelConnected -= OnChannelConnected; } catch { }
+            }
+
+            try
+            {
+                Task.WhenAll(shards.Select(shard => shard.DisposeAsync().AsTask()))
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            finally
+            {
+                _cancellationTokenSource.Dispose();
+            }
+
+            throw;
+        }
+    }
+
+    internal IReadOnlyList<string> WorkerShardIds => _workerShards.Select(shard => shard.ShardId).ToArray();
+    internal int TrackedConnectionDeactivationCount => _connectionDeactivationTasks.Count;
+    internal int PendingRequestCancellationCount => _requestCancellations.Count;
+
+    internal bool TryGetWorkerShardIndex(string connectionId, out int shardIndex)
+    {
+        if (_connections.TryGetValue(connectionId, out var connectionLease))
+        {
+            shardIndex = connectionLease.ShardIndex;
+            return true;
+        }
+
+        shardIndex = -1;
+        return false;
     }
 
     /// <summary>
@@ -156,7 +192,8 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                     Payload = messageSlot.Payload, // 零拷贝传递
                     Priority = messageSlot.Priority,
                     EnqueueTime = messageSlot.EnqueueTime,
-                    Status = messageSlot.Status
+                    Status = messageSlot.Status,
+                    ConnectionLease = messageSlot.ConnectionLease
                 };
 
                 // 使用现有的消息处理逻辑
@@ -184,22 +221,97 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     /// <summary>
     /// 启动消息引擎
     /// </summary>
-    public async Task StartAsync(CancellationToken cancellationToken = default)
+    public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("启动MessageEngine");
+        lock (_lifecycleLock)
+        {
+            if (_disposeTask is not null)
+            {
+                return Task.FromException(new ObjectDisposedException(nameof(MessageEngine)));
+            }
 
+            if (_stopTask is not null)
+            {
+                return Task.FromException(new InvalidOperationException("MessageEngine cannot be restarted after stop."));
+            }
+
+            _startTask ??= StartCoreAsync(cancellationToken);
+            return _startTask;
+        }
+    }
+
+    private async Task StartCoreAsync(CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _cancellationTokenSource.Token);
+        var dispatcherStarted = false;
+        var responseStarted = false;
+
+        _logger.LogInformation("启动MessageEngine");
         try
         {
             _metrics.EngineStartTime = DateTime.UtcNow;
 
-            await _messageDispatcher.StartAsync(cancellationToken);
-            await _responseProcessor.StartAsync(cancellationToken);
+            await _messageDispatcher.StartAsync(combinedCts.Token).ConfigureAwait(false);
+            dispatcherStarted = true;
+            responseStarted = true;
+            await _responseProcessor.StartAsync(combinedCts.Token).ConfigureAwait(false);
+            combinedCts.Token.ThrowIfCancellationRequested();
+
+            lock (_lifecycleLock)
+            {
+                if (_stopTask is not null)
+                {
+                    throw new OperationCanceledException("MessageEngine stopped while starting.");
+                }
+
+                _acceptingConnections = true;
+            }
 
             _logger.LogInformation("MessageEngine启动成功");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "MessageEngine启动失败");
+
+            bool stopOwnsRollback;
+            lock (_lifecycleLock)
+            {
+                _acceptingConnections = false;
+                stopOwnsRollback = _stopTask is not null;
+            }
+
+            if (!stopOwnsRollback)
+            {
+                if (responseStarted)
+                {
+                    try
+                    {
+                        await StopResponseProcessorOnceAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        _logger.LogError(rollbackException,
+                            "回滚MessageEngine响应处理器失败");
+                    }
+                }
+
+                if (dispatcherStarted)
+                {
+                    try
+                    {
+                        await StopDispatcherOnceAsync().ConfigureAwait(false);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        _logger.LogError(rollbackException,
+                            "回滚MessageEngine消息分发器失败");
+                    }
+                }
+            }
+
             throw;
         }
     }
@@ -212,36 +324,72 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         string connectionId,
         MessagePacketHolder messagePacket,
         MessagePriority priority = MessagePriority.Normal)
+        => TryEnqueueMessageCore(
+            connectionId,
+            messagePacket,
+            priority,
+            sourceChannel: null,
+            requireLogicalConnection: true);
+
+    public bool TryEnqueueMessage(
+        IServerChannel sourceChannel,
+        MessagePacketHolder messagePacket,
+        MessagePriority priority = MessagePriority.Normal)
+    {
+        ArgumentNullException.ThrowIfNull(sourceChannel);
+        return TryEnqueueMessageCore(
+            sourceChannel.ConnectionId,
+            messagePacket,
+            priority,
+            sourceChannel,
+            requireLogicalConnection: false);
+    }
+
+    private bool TryEnqueueMessageCore(
+        string connectionId,
+        MessagePacketHolder messagePacket,
+        MessagePriority priority,
+        IServerChannel? sourceChannel,
+        bool requireLogicalConnection = false)
     {
         var startTicks = Stopwatch.GetTimestamp();
+        MessageConnectionLease? connectionLease = null;
+        RequestCancellation? requestCancellation = null;
+        var leaseAcquired = false;
+        var ownershipTransferred = false;
 
         try
         {
-            // 更新连接活动时间
-            // if (_activeConnections.TryGetValue(connectionId, out var context))
-            // {
-            //     context.LastActivity = DateTime.UtcNow;
-            // }
+            if (!_connections.TryGetValue(connectionId, out connectionLease) ||
+                (requireLogicalConnection && connectionLease.Channel is not null) ||
+                (sourceChannel is not null && !ReferenceEquals(connectionLease.Channel, sourceChannel)) ||
+                !connectionLease.TryAcquire())
+            {
+                return RejectSlot(messagePacket);
+            }
 
-            // 构造包含完整元数据的 MessageSlot
-            // P1-8：载荷所有权（池化缓冲）随 slot.PayloadOwner 流转，必须在终结点归还。
+            leaseAcquired = true;
+
             if (messagePacket.Header.Type == MessageType.Cancel)
             {
-                HandleCancelMessage(connectionId, messagePacket.Header.MessageId);
+                HandleCancelMessage(connectionLease, messagePacket.Header.MessageId);
+                connectionLease.Release();
+                leaseAcquired = false;
                 messagePacket.Dispose();
                 return true;
             }
 
-            RequestCancellation? requestCancellation = null;
             if (messagePacket.Header.Type == MessageType.Request)
             {
                 requestCancellation = new RequestCancellation(
-                    connectionId,
+                    connectionLease,
                     CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token));
 
                 if (!_requestCancellations.TryAdd(messagePacket.Header.MessageId, requestCancellation))
                 {
                     requestCancellation.Dispose();
+                    connectionLease.Release();
+                    leaseAcquired = false;
                     return RejectSlot(messagePacket);
                 }
             }
@@ -255,30 +403,21 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 PayloadOwner = messagePacket,    // 所有权移交给 slot
                 Priority = priority,
                 EnqueueTime = startTicks,
-                Status = MessageStatus.Pending
+                Status = MessageStatus.Pending,
+                ConnectionLease = connectionLease
             };
 
-            // 传递给 TieredMessageProcessor
-            if (!_tieredProcessors.TryGetValue(connectionId, out var processor))
-            {
-                RemoveRequestCancellation(messagePacket.Header.MessageId);
-                return RejectSlot(slot.PayloadOwner);
-            }
-
-            var success = processor.TryEnqueueMessageSlot(slot);
-            if (!success)
+            if (!_workerShards[connectionLease.ShardIndex].TryEnqueue(slot))
             {
                 _metrics.BackpressureEvents.Add(1);
-                // 背压处理：根据优先级决定策略（内部各丢弃分支负责归还）
-                var handled = HandleBackpressure(slot);
-                if (!handled)
-                {
-                    RemoveRequestCancellation(messagePacket.Header.MessageId);
-                }
-
-                return handled;
+                _metrics.MessagesDropped.Add(1);
+                leaseAcquired = false;
+                FinalizeRejectedSlot(slot);
+                return false;
             }
 
+            ownershipTransferred = true;
+            leaseAcquired = false;
             _metrics.L1MessagesEnqueued.Add(1);
             _metrics.RecordEnqueueLatency(Stopwatch.GetTimestamp() - startTicks);
 
@@ -286,9 +425,31 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         }
         catch (Exception ex)
         {
-            RemoveRequestCancellation(messagePacket.Header.MessageId);
             _metrics.EnqueueErrors.Add(1);
-            _logger.LogWarning(ex, "消息入队失败: ConnectionId={ConnectionId}", connectionId);
+            try
+            {
+                _logger.LogWarning(ex, "消息入队失败: ConnectionId={ConnectionId}", connectionId);
+            }
+            catch
+            {
+                // Logging must not interrupt lease and payload-owner rollback.
+            }
+
+            if (ownershipTransferred)
+            {
+                return true;
+            }
+
+            if (requestCancellation != null)
+            {
+                RemoveRequestCancellation(messagePacket.Header.MessageId);
+            }
+
+            if (leaseAcquired)
+            {
+                connectionLease?.Release();
+            }
+
             return RejectSlot(messagePacket);
         }
     }
@@ -305,81 +466,69 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         return false;
     }
 
-    /// <summary>
-    /// 处理背压情况
-    /// </summary>
-    private bool HandleBackpressure(MessageSlot slot)
+    private void FinalizeRejectedSlot(MessageSlot slot)
     {
-        switch (slot.Priority)
+        try
         {
-            case MessagePriority.Critical:
-                // 关键消息：阻塞等待直到入队成功或超时
-                return TryEnqueueWithRetry(slot, TimeSpan.FromMilliseconds(10), 3);
-
-            case MessagePriority.High:
-                // 高优先级：短暂重试
-                return TryEnqueueWithRetry(slot, TimeSpan.FromMilliseconds(1), 1);
-
-            case MessagePriority.Normal:
-                // 普通消息：检查负载，决定是否丢弃
-                var utilization = _tieredProcessors.TryGetValue(slot.ConnectionId, out var processor)
-                    ? processor.GetStatus().L1BufferUtilization
-                    : 0;
-                if (utilization > 0.9)
-                {
-                    _logger.LogWarning("L1利用率过高({Utilization:P}), 丢弃普通消息: MessageId={MessageId}",
-                        utilization, slot.MessageId);
-                    _metrics.MessagesDropped.Add(1);
-                    return RejectSlot(slot.PayloadOwner);
-                }
-                return TryEnqueueWithRetry(slot, TimeSpan.FromMicroseconds(100), 1);
-
-            case MessagePriority.Low:
-                // 低优先级：直接丢弃
-                _logger.LogDebug("低优先级消息被丢弃: MessageId={MessageId}", slot.MessageId);
-                _metrics.MessagesDropped.Add(1);
-                return RejectSlot(slot.PayloadOwner);
-
-            default:
-                _metrics.MessagesDropped.Add(1);
-                return RejectSlot(slot.PayloadOwner);
+            slot.PayloadOwner?.Dispose();
         }
-    }
-
-    /// <summary>
-    /// 尝试重试入队
-    /// </summary>
-    private bool TryEnqueueWithRetry(MessageSlot slot, TimeSpan delay, int maxRetries)
-    {
-        for (var i = 0; i < maxRetries; i++)
+        finally
         {
-            if (_tieredProcessors.TryGetValue(slot.ConnectionId, out var processor) && processor.TryEnqueueMessageSlot(slot))
+            try
             {
-                if (i > 0)
-                {
-                    _metrics.RetrySuccesses?.Add(1);
-                }
-                return true;
+                OnMessageSlotFinalized(slot);
             }
-
-            Thread.Sleep(delay);
+            finally
+            {
+                slot.ConnectionLease?.Release();
+            }
         }
-
-        _logger.LogWarning("消息入队重试{RetryCount}次后失败: MessageId={MessageId}, ConnectionId={ConnectionId}",
-            maxRetries, slot.MessageId, slot.ConnectionId);
-        _metrics.MessagesDropped.Add(1);
-        return RejectSlot(slot.PayloadOwner);
     }
 
     /// <summary>
     /// 注册连接上下文
     /// </summary>
     public void RegisterConnection(string connectionId)
+        => RegisterConnection(connectionId, channel: null);
+
+    public void RegisterConnection(IServerChannel channel)
     {
-        // 创建消息处理委托
-        var messageHandler = CreateMessageHandler();
-        _tieredProcessors.AddOrUpdate(connectionId, (x) => new TieredMessageProcessor(x, _messageProcessorOptions, messageHandler, _logger), (x, y) => y);
-        _metrics.ActiveConnections.Set(_tieredProcessors.Count);
+        ArgumentNullException.ThrowIfNull(channel);
+        RegisterConnection(channel.ConnectionId, channel);
+    }
+
+    private void RegisterConnection(string connectionId, IServerChannel? channel)
+    {
+        lock (_lifecycleLock)
+        {
+            if (!_acceptingConnections)
+            {
+                _logger.LogDebug("消息引擎正在停止，忽略连接注册: ConnectionId={ConnectionId}", connectionId);
+                return;
+            }
+
+            if (_connections.TryGetValue(connectionId, out var existingLease))
+            {
+                if (channel is null || ReferenceEquals(existingLease.Channel, channel))
+                {
+                    return;
+                }
+
+                _connections.TryRemove(
+                    new KeyValuePair<string, MessageConnectionLease>(connectionId, existingLease));
+                TrackConnectionDeactivationLocked(existingLease);
+            }
+
+            var shardIndex = (int)((uint)Interlocked.Increment(ref _nextShardIndex) % (uint)_workerShards.Length);
+            var connectionLease = new MessageConnectionLease(
+                connectionId,
+                shardIndex,
+                _workerShards[shardIndex].ShutdownToken,
+                _logger,
+                channel);
+            _connections[connectionId] = connectionLease;
+            _metrics.ActiveConnections.Set(_connections.Count);
+        }
 
         _logger.LogDebug("连接已注册: ConnectionId={ConnectionId}", connectionId);
     }
@@ -388,46 +537,83 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     /// 注销连接
     /// </summary>
     public void UnregisterConnection(string connectionId)
+        => UnregisterConnection(connectionId, channel: null, requireLogicalConnection: true);
+
+    public void UnregisterConnection(IServerChannel channel)
     {
-        if (_tieredProcessors.TryRemove(connectionId, out var processor))
+        ArgumentNullException.ThrowIfNull(channel);
+        UnregisterConnection(channel.ConnectionId, channel, requireLogicalConnection: false);
+    }
+
+    private void UnregisterConnection(
+        string connectionId,
+        IServerChannel? channel,
+        bool requireLogicalConnection = false)
+    {
+        lock (_lifecycleLock)
         {
-            _metrics.ActiveConnections.Set(_tieredProcessors.Count);
-            _logger.LogDebug("连接已注销: ConnectionId={ConnectionId}, Duration={Duration}ms",
-                connectionId, (DateTime.UtcNow - processor.ConnectedAt).TotalMilliseconds);
+            if (_connections.TryGetValue(connectionId, out var connectionLease) &&
+                (!requireLogicalConnection || connectionLease.Channel is null) &&
+                (channel is null || ReferenceEquals(connectionLease.Channel, channel)) &&
+                _connections.TryRemove(
+                    new KeyValuePair<string, MessageConnectionLease>(connectionId, connectionLease)))
+            {
+                TrackConnectionDeactivationLocked(connectionLease);
+                _metrics.ActiveConnections.Set(_connections.Count);
+                _logger.LogDebug("连接已注销: ConnectionId={ConnectionId}", connectionId);
+            }
         }
     }
 
     private void OnChannelConnected(object? sender, ChannelEventArgs e)
     {
-        RegisterConnection(e.Channel.ConnectionId);
+        RegisterConnection(e.Channel);
     }
 
     private void OnChannelDisconnected(object? sender, ChannelEventArgs e)
-    {
-        CancelConnectionRequests(e.Channel.ConnectionId);
-        UnregisterConnection(e.Channel.ConnectionId);
-    }
+        => UnregisterConnection(e.Channel);
 
     private void OnChannelMessageParsed(object? sender, PulseRPC.Server.Transport.MessageParsedEventArgs eventArgs)
     {
         // 将消息路由到引擎
         // 传递完整消息包而非仅 Payload
-        var priority = DetermineMessagePriority(eventArgs.MessagePacket.Header);
+        var header = eventArgs.MessagePacket.Header;
+        var priority = DetermineMessagePriority(header);
 
-        var success = TryEnqueueMessage(
+        var success = TryEnqueueMessageCore(
             eventArgs.ConnectionId,
             eventArgs.MessagePacket, // 传递完整结构
-            priority);
+            priority,
+            sender as IServerChannel);
 
         if (success)
         {
-            _logger.LogTrace("[消息路由] {ConnectionId} 消息已成功路由到引擎: 服务={ServiceName}, 方法={MethodName}, MessageId={MessageId}",
-                eventArgs.ConnectionId, eventArgs.MessagePacket.Header.ServiceName,
-                eventArgs.MessagePacket.Header.MethodName, eventArgs.MessagePacket.Header.MessageId);
+            try
+            {
+                _logger.LogTrace(
+                    "[消息路由] {ConnectionId} 消息已成功路由到引擎: 服务={ServiceName}, 方法={MethodName}, MessageId={MessageId}",
+                    eventArgs.ConnectionId,
+                    header.ServiceName,
+                    header.MethodName,
+                    header.MessageId);
+            }
+            catch
+            {
+                // The holder now belongs to a shard; this handler must not signal failure upstream.
+            }
         }
         else
         {
-            _logger.LogWarning("[消息路由] {ConnectionId} 消息入队失败，尝试回退处理", eventArgs.ConnectionId);
+            try
+            {
+                _logger.LogWarning(
+                    "[消息路由] {ConnectionId} 消息入队失败",
+                    eventArgs.ConnectionId);
+            }
+            catch
+            {
+                // Rejection already returned the holder; logging cannot change ownership.
+            }
         }
     }
 
@@ -450,9 +636,6 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     #endregion
 
     #region 核心处理逻辑
-
-    // 注意：三层架构（L1→L2→L3）现在由TieredMessageProcessor内部处理
-    // 所有相关的处理逻辑已经被封装在TieredMessageProcessor中
 
     /// <summary>
     /// 处理单个消息
@@ -494,7 +677,11 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 object? dispatchResult = null;
 
                 // ✅ 设置 PulseContext（统一请求上下文）
-                var channel = _channelManager.GetChannel(envelope.ConnectionId);
+                // A queued request belongs to one exact connection generation. Looking the
+                // channel up by ID here can expose a late old request to a newly reconnected
+                // client's authentication context.
+                var channel = envelope.ConnectionLease?.Channel
+                    ?? _channelManager.GetChannel(envelope.ConnectionId);
                 PulseContext.ContextScope contextScope = default;
                 var hasContext = false;
 
@@ -540,27 +727,9 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
 
                 try
                 {
-                    if (_scheduler != null)
-                    {
-                        // 获取服务上下文（用于调度）
-                        var serviceContext = GetServiceContextForConnection(envelope.ConnectionId ?? string.Empty);
-                        await _scheduler.InvokeWithSchedulerAsync(
-                            serviceContext,
-                            serviceName,
-                            async () =>
-                            {
-                                dispatchResult = await DispatchWithHostPolicyAsync(
-                                    envelope,
-                                    dispatchToken);
-                            },
-                            dispatchToken);
-                    }
-                    else
-                    {
-                        dispatchResult = await DispatchWithHostPolicyAsync(
-                            envelope,
-                            dispatchToken);
-                    }
+                    dispatchResult = await DispatchWithHostPolicyAsync(
+                        envelope,
+                        dispatchToken);
                 }
                 finally
                 {
@@ -585,7 +754,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 // 如果分发失败（例如 Hub 方法抛出业务异常），仍需通知 ResponseProcessor
                 // 把 Error 响应回传给客户端；否则客户端会一直等待直到请求超时（见 §11 回归发现）。
                 envelope.Status = MessageStatus.Failed;
-                TriggerMessageProcessedEvent(envelope, null, dispatchEx);
+                await TriggerMessageProcessedEventAsync(envelope, null, dispatchEx);
 
                 return new MessageResponse
                 {
@@ -608,8 +777,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)
             };
 
-            // 触发消息处理完成事件（fire-and-forget）
-            TriggerMessageProcessedEvent(envelope, result, null);
+            await TriggerMessageProcessedEventAsync(envelope, result, null);
 
             return response;
         }
@@ -647,18 +815,15 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 ProcessingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime)
             };
 
-            // 触发消息处理失败事件（fire-and-forget）
-            TriggerMessageProcessedEvent(envelope, null, ex);
+            await TriggerMessageProcessedEventAsync(envelope, null, ex);
 
             return response;
         }
         finally
         {
             linkedRequestCts?.Dispose();
-            if (envelope.Header.Type == MessageType.Request)
-            {
-                RemoveRequestCancellation(envelope.MessageId);
-            }
+            // RequestCancellation 由 MessageSlot 的统一终结点移除，覆盖处理完成、Deadline 和关闭排空，
+            // 也避免旧 slot 在 MessageId 重用窗口误删新请求状态。
         }
     }
 
@@ -673,32 +838,32 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
             cancellationToken).ConfigureAwait(false);
     }
 
-    private void HandleCancelMessage(string connectionId, Guid messageId)
+    private void HandleCancelMessage(MessageConnectionLease connectionLease, Guid messageId)
     {
         if (!_requestCancellations.TryGetValue(messageId, out var requestCancellation))
         {
-            _logger.LogDebug("收到未匹配的取消帧: ConnectionId={ConnectionId}, MessageId={MessageId}", connectionId, messageId);
+            _logger.LogDebug("收到未匹配的取消帧: ConnectionId={ConnectionId}, MessageId={MessageId}",
+                connectionLease.ConnectionId,
+                messageId);
             return;
         }
 
-        if (!string.Equals(requestCancellation.ConnectionId, connectionId, StringComparison.Ordinal))
+        if (!ReferenceEquals(requestCancellation.ConnectionLease, connectionLease))
         {
-            _logger.LogWarning("拒绝跨连接取消请求: SourceConnectionId={SourceConnectionId}, OwnerConnectionId={OwnerConnectionId}, MessageId={MessageId}",
-                connectionId, requestCancellation.ConnectionId, messageId);
+            _logger.LogWarning("拒绝跨 connection generation 取消请求: ConnectionId={ConnectionId}, MessageId={MessageId}",
+                connectionLease.ConnectionId,
+                messageId);
             return;
         }
 
-        requestCancellation.Cancel();
-    }
-
-    private void CancelConnectionRequests(string connectionId)
-    {
-        foreach (var kvp in _requestCancellations)
+        try
         {
-            if (string.Equals(kvp.Value.ConnectionId, connectionId, StringComparison.Ordinal))
-            {
-                kvp.Value.Cancel();
-            }
+            requestCancellation.Cancel();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "取消请求时回调异常: ConnectionId={ConnectionId}, MessageId={MessageId}",
+                connectionLease.ConnectionId, messageId);
         }
     }
 
@@ -710,11 +875,35 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         }
     }
 
-    /// <summary>
-    /// 触发消息处理完成事件（fire-and-forget 以避免阻塞消息处理流程）
-    /// </summary>
-    private void TriggerMessageProcessedEvent(MessageEnvelope envelope, object? result, Exception? exception)
+    private void OnMessageSlotFinalized(MessageSlot slot)
     {
+        if (slot.Header?.Type == MessageType.Request)
+        {
+            RemoveRequestCancellation(slot.MessageId);
+        }
+    }
+
+    /// <summary>
+    /// 将消息处理结果提交到有界响应队列，并传播背压。
+    /// </summary>
+    private async ValueTask TriggerMessageProcessedEventAsync(
+        MessageEnvelope envelope,
+        object? result,
+        Exception? exception)
+    {
+        var connectionLease = envelope.ConnectionLease;
+        if (connectionLease is not null &&
+            (!connectionLease.IsActive ||
+             !_connections.TryGetValue(envelope.ConnectionId, out var currentLease) ||
+             !ReferenceEquals(currentLease, connectionLease)))
+        {
+            _logger.LogDebug(
+                "跳过旧 connection generation 的响应: ConnectionId={ConnectionId}, MessageId={MessageId}",
+                envelope.ConnectionId,
+                envelope.MessageId);
+            return;
+        }
+
         try
         {
             // 创建 ServiceCallContext 以匹配新的 MessageProcessedEventArgs 构造函数
@@ -728,7 +917,10 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 messageType: envelope.Header.Type,
                 receivedTime: envelope.ReceivedTime,
                 processorId: envelope.ProcessorId,
-                flags: envelope.Header.Flags);
+                flags: envelope.Header.Flags)
+            {
+                ExpectedChannel = connectionLease?.Channel
+            };
 
             var processingTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp() - envelope.EnqueueTime);
 
@@ -740,9 +932,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 success: exception == null,
                 exception: exception);
 
-            // Fire-and-forget: 异步提交到 ResponseProcessor 队列，不等待完成
-            // 这避免阻塞消息处理流程，ResponseProcessor 会通过内部队列处理背压
-            _= _responseProcessor.ProcessMessageResultAsync(eventArgs);
+            await _responseProcessor.ProcessMessageResultAsync(eventArgs).ConfigureAwait(false);
 
             _logger.LogTrace("触发MessageProcessed事件: ConnectionId={ConnectionId}, MessageId={MessageId}, Success={Success}",
                 envelope.ConnectionId, envelope.MessageId, exception == null);
@@ -754,29 +944,6 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
         }
     }
 
-    /// <summary>
-    /// 获取连接的服务上下文（用于调度）
-    /// </summary>
-    private IServiceContext? GetServiceContextForConnection(string connectionId)
-    {
-        // if (_tieredProcessors.TryGetValue(connectionId, out var context))
-        // {
-        //     // 如果尚未创建ServiceContext，创建一个默认的
-        //     if (context.ServiceContext == null)
-        //     {
-        //         // 注意：ServiceName在这里不可用，将在调度器调用时传入
-        //         context.ServiceContext = new ServiceExecutionContext(
-        //             connectionId,
-        //             serviceName: "Unknown", // 将在InvokeWithSchedulerAsync中使用传入的serviceName
-        //             serviceId: null // 将在认证后设置
-        //         );
-        //     }
-        //     return context.ServiceContext;
-        // }
-
-        return null;
-    }
-
     #endregion
 
     #region 性能监控
@@ -786,13 +953,8 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     /// </summary>
     public EngineStatistics GetStatistics()
     {
-        var processorStatuses = _tieredProcessors.Values
-            .Select(processor => processor.GetStatus())
-            .ToArray();
-        var l1BufferUtilization = processorStatuses.Length == 0
-            ? 0
-            : processorStatuses.Average(status => status.L1BufferUtilization);
-        _metrics.SetCurrentL1Utilization(l1BufferUtilization);
+        var queueUtilization = _workerShards.Average(shard => shard.Utilization);
+        _metrics.SetCurrentL1Utilization(queueUtilization);
         var latency = _metrics.GetLatencySnapshot();
 
         return new EngineStatistics
@@ -800,7 +962,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
             UpTime = DateTime.UtcNow - _metrics.EngineStartTime,
 
             // L1统计
-            L1BufferUtilization = l1BufferUtilization,
+            L1BufferUtilization = queueUtilization,
             L1MessagesEnqueued = _metrics.L1MessagesEnqueued.Value,
             L1BackpressureEvents = _metrics.BackpressureEvents.Value,
 
@@ -819,26 +981,11 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
             LatencySampleCount = latency.Count,
 
             // 连接统计
-            ActiveConnections = _tieredProcessors.Count,
+            ActiveConnections = _connections.Count,
 
             // 内存统计
-            MemoryPoolStatistics = null // 内存池统计现在由TieredMessageProcessor管理
+            MemoryPoolStatistics = null
         };
-    }
-
-    #endregion
-
-    #region IBatchProcessor实现
-
-    /// <summary>
-    /// 批处理参数更新回调（来自AdaptiveBatchScheduler）
-    /// </summary>
-    public void OnParametersUpdated(int newBatchInterval, int newBatchSize)
-    {
-        _logger.LogDebug("批处理参数更新: NewInterval={NewInterval}ms, NewBatchSize={NewBatchSize}", newBatchInterval, newBatchSize);
-
-        // 这里可以根据新参数调整处理策略
-        // 例如调整L1到L2的转移频率等
     }
 
     #endregion
@@ -848,45 +995,206 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     /// <summary>
     /// 停止消息引擎
     /// </summary>
-    public async Task StopAsync()
+    public Task StopAsync()
     {
-        _logger.LogInformation("停止MessageEngine");
+        lock (_lifecycleLock)
+        {
+            return GetOrCreateStopTaskLocked();
+        }
+    }
 
-        await _cancellationTokenSource.CancelAsync();
+    private Task GetOrCreateStopTaskLocked()
+    {
+        if (_stopTask != null)
+        {
+            return _stopTask;
+        }
 
-        await _messageDispatcher.StopAsync();
-        await _responseProcessor.StopAsync();
+        _acceptingConnections = false;
 
-        _logger.LogInformation("MessageEngine已停止");
+        foreach (var connectionLease in _connections.Values)
+        {
+            TrackConnectionDeactivationLocked(connectionLease);
+        }
+
+        _connections.Clear();
+        _metrics.ActiveConnections.Set(0);
+
+        var connectionDeactivations = _connectionDeactivationTasks.Values.ToArray();
+        _stopTask = StopCoreAsync(connectionDeactivations, _startTask);
+        return _stopTask;
+    }
+
+    private async Task StopCoreAsync(Task[] connectionDeactivations, Task? startTask)
+    {
+        SafeLog(() => _logger.LogInformation("停止MessageEngine"));
+
+        try
+        {
+            await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // 外部取消回调失败不能中断 shard 释放，否则有界队列和 worker 会继续存活。
+            SafeLog(() => _logger.LogError(ex, "停止MessageEngine时取消回调异常"));
+        }
+
+        if (startTask is not null)
+        {
+            try
+            {
+                await startTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                // Start failure is observed by its caller; stop owns the remaining rollback.
+            }
+        }
+
+        await Task.WhenAll(connectionDeactivations).ConfigureAwait(false);
+
+        // 先关闭响应输入以解除 shard 在有界响应队列上的等待，再等待 worker 退出。
+        var responseStopTask = StopResponseProcessorSafelyAsync();
+        await Task.WhenAll(_workerShards.Select(shard => shard.DisposeAsync().AsTask())).ConfigureAwait(false);
+
+        Exception? dispatcherStopException = null;
+        try
+        {
+            await StopDispatcherOnceAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            dispatcherStopException = ex;
+            SafeLog(() => _logger.LogError(ex, "停止消息分发器失败"));
+        }
+
+        var responseStopException = await responseStopTask.ConfigureAwait(false);
+        if (dispatcherStopException is not null && responseStopException is not null)
+        {
+            throw new AggregateException(
+                "停止MessageEngine下游组件失败",
+                dispatcherStopException,
+                responseStopException);
+        }
+
+        if (dispatcherStopException is not null)
+        {
+            throw new AggregateException("停止消息分发器失败", dispatcherStopException);
+        }
+
+        if (responseStopException is not null)
+        {
+            throw new AggregateException("停止响应处理器失败", responseStopException);
+        }
+
+        SafeLog(() => _logger.LogInformation("MessageEngine已停止"));
+    }
+
+    private async Task<Exception?> StopResponseProcessorSafelyAsync()
+    {
+        try
+        {
+            await StopResponseProcessorOnceAsync().ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            SafeLog(() => _logger.LogError(ex, "停止响应处理器失败"));
+            return ex;
+        }
+    }
+
+    private static void SafeLog(Action logAction)
+    {
+        try
+        {
+            logAction();
+        }
+        catch
+        {
+            // Worker, queue and downstream cleanup must not depend on a logger provider.
+        }
+    }
+
+    private Task StopDispatcherOnceAsync()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_dispatcherStopRequested)
+            {
+                return Task.CompletedTask;
+            }
+
+            _dispatcherStopRequested = true;
+            return _messageDispatcher.StopAsync();
+        }
+    }
+
+    private Task StopResponseProcessorOnceAsync()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_responseStopRequested)
+            {
+                return Task.CompletedTask;
+            }
+
+            _responseStopRequested = true;
+            return _responseProcessor.StopAsync();
+        }
     }
 
     /// <summary>
     /// 异步资源释放
     /// </summary>
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync()
     {
-        if (_isDisposed) return;
-
-        _logger.LogInformation("释放MessageEngine资源");
-
-        await StopAsync();
-
-        // 释放TieredMessageProcessor
-        await Task.WhenAll(_tieredProcessors.Values.Select(x => x.DisposeAsync().AsTask()));
-
-        foreach (var kvp in _requestCancellations)
+        lock (_lifecycleLock)
         {
-            if (_requestCancellations.TryRemove(kvp.Key, out var requestCancellation))
+            if (_disposeTask == null)
             {
-                requestCancellation.Dispose();
+                _disposeTask = DisposeCoreAsync(GetOrCreateStopTaskLocked());
             }
+
+            return new ValueTask(_disposeTask);
         }
+    }
 
-        _cancellationTokenSource.Dispose();
+    private async Task DisposeCoreAsync(Task stopTask)
+    {
+        SafeLog(() => _logger.LogInformation("释放MessageEngine资源"));
 
-        _isDisposed = true;
+        try
+        {
+            await stopTask.ConfigureAwait(false);
+        }
+        finally
+        {
+            foreach (var kvp in _requestCancellations)
+            {
+                if (_requestCancellations.TryRemove(kvp.Key, out var requestCancellation))
+                {
+                    try
+                    {
+                        requestCancellation.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        SafeLog(() => _logger.LogError(
+                            ex,
+                            "释放请求取消状态失败: MessageId={MessageId}",
+                            kvp.Key));
+                    }
+                }
+            }
 
-        _logger.LogInformation("MessageEngine资源释放完成");
+            try { _channelManager.ChannelConnected -= OnChannelConnected; } catch { }
+            try { _channelManager.ChannelDisconnected -= OnChannelDisconnected; } catch { }
+            try { _channelManager.ChannelMessageParsed -= OnChannelMessageParsed; } catch { }
+            _cancellationTokenSource.Dispose();
+
+            SafeLog(() => _logger.LogInformation("MessageEngine资源释放完成"));
+        }
     }
 
     /// <summary>
@@ -894,52 +1202,132 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     /// </summary>
     public void Dispose()
     {
-        DisposeAsync().AsTask().Wait();
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    private void TrackConnectionDeactivationLocked(MessageConnectionLease connectionLease)
+    {
+        var taskId = Interlocked.Increment(ref _connectionDeactivationTaskId);
+        var task = DeactivateConnectionAsync(connectionLease);
+        _connectionDeactivationTasks[taskId] = task;
+
+        _ = task.ContinueWith(
+            completedTask =>
+            {
+                _connectionDeactivationTasks.TryRemove(taskId, out _);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private async Task DeactivateConnectionAsync(MessageConnectionLease connectionLease)
+    {
+        try
+        {
+            await connectionLease.DeactivateAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "停用连接消息租约失败: ConnectionId={ConnectionId}",
+                connectionLease.ConnectionId);
+        }
     }
 
     #endregion
 
     #region 辅助方法
 
-    /// <summary>
-    /// 生成消息ID
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static string GenerateMessageId()
-    {
-        return Guid.NewGuid().ToString("N")[..16]; // 16字符短ID
-    }
-
     private sealed class RequestCancellation : IDisposable
     {
         private readonly CancellationTokenSource _cts;
+        private readonly object _gate = new();
+        private Task? _cancelTask;
+        private bool _cancellationCompleted;
+        private bool _disposeRequested;
+        private bool _disposed;
 
-        public RequestCancellation(string connectionId, CancellationTokenSource cts)
+        public RequestCancellation(MessageConnectionLease connectionLease, CancellationTokenSource cts)
         {
-            ConnectionId = connectionId;
+            ConnectionLease = connectionLease;
             _cts = cts;
         }
 
-        public string ConnectionId { get; }
+        public MessageConnectionLease ConnectionLease { get; }
 
         public CancellationToken CancellationToken => _cts.Token;
 
         public bool IsCancellationRequested => _cts.IsCancellationRequested;
 
         public void Cancel()
+            => GetOrCreateCancelTask().GetAwaiter().GetResult();
+
+        private Task GetOrCreateCancelTask()
         {
+            lock (_gate)
+            {
+                if (_disposed)
+                {
+                    return Task.CompletedTask;
+                }
+
+                _cancelTask ??= CancelCoreAsync();
+                return _cancelTask;
+            }
+        }
+
+        private async Task CancelCoreAsync()
+        {
+            await Task.Yield();
             try
             {
-                _cts.Cancel();
+                await _cts.CancelAsync().ConfigureAwait(false);
             }
-            catch (ObjectDisposedException)
+            finally
             {
+                var dispose = false;
+                lock (_gate)
+                {
+                    _cancellationCompleted = true;
+                    if (_disposeRequested && !_disposed)
+                    {
+                        _disposed = true;
+                        dispose = true;
+                    }
+                }
+
+                if (dispose)
+                {
+                    _cts.Dispose();
+                }
             }
         }
 
         public void Dispose()
         {
-            _cts.Dispose();
+            var dispose = false;
+            lock (_gate)
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                if (_cancelTask is not null && !_cancellationCompleted)
+                {
+                    _disposeRequested = true;
+                    return;
+                }
+
+                _disposed = true;
+                dispose = true;
+            }
+
+            if (dispose)
+            {
+                _cts.Dispose();
+            }
         }
     }
 
@@ -997,11 +1385,14 @@ public struct MessageEnvelope
     /// 处理器ID
     /// </summary>
     public int ProcessorId { get; set; }
+
+    internal MessageConnectionLease? ConnectionLease { get; set; }
 }
 
 /// <summary>
 /// 消息批次 - L2处理的基本单位
 /// </summary>
+[Obsolete("The fixed-shard message engine does not create L2 message batches.", false)]
 public struct MessageBatch
 {
     public string BatchId { get; set; }
@@ -1012,6 +1403,7 @@ public struct MessageBatch
 /// <summary>
 /// 响应批次 - L3处理的基本单位
 /// </summary>
+[Obsolete("The fixed-shard message engine does not create L3 response batches.", false)]
 public struct ResponseBatch
 {
     public string BatchId { get; set; }
@@ -1035,6 +1427,7 @@ public class MessageResponse
 /// <summary>
 /// 连接上下文
 /// </summary>
+[Obsolete("This context model is not connected to the runtime. Use PulseContext and IPulseServer connection queries.", false)]
 public class ConnectionContext
 {
     public string ConnectionId { get; set; } = "";
@@ -1216,6 +1609,7 @@ public class Gauge<T> where T : struct, IConvertible
 /// <summary>
 /// 负载均衡策略
 /// </summary>
+[Obsolete("Server message workers use fixed round-robin shard assignment. This type has no runtime behavior.", false)]
 public class LoadBalancingStrategy(LoadBalancingMode mode)
 {
     private readonly LoadBalancingMode _mode = mode;
@@ -1225,6 +1619,7 @@ public class LoadBalancingStrategy(LoadBalancingMode mode)
 /// <summary>
 /// 性能监控器
 /// </summary>
+[Obsolete("This monitor is not connected to MessageEngine. Use EngineStatistics and RuntimeQueueMetrics.", false)]
 public class PerformanceMonitor
 {
     private readonly EngineMetrics _metrics;
@@ -1251,6 +1646,7 @@ public class PerformanceMonitor
 /// <summary>
 /// 性能快照
 /// </summary>
+[Obsolete("This snapshot is not produced by MessageEngine. Use EngineStatistics.", false)]
 public class PerformanceSnapshot
 {
     public DateTime Timestamp { get; set; }

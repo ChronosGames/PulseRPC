@@ -3,16 +3,13 @@ using System;
 namespace PulseRPC.Client.Channels;
 
 /// <summary>
-/// TransportChannel 配置选项
+/// Legacy internal-channel options retained for compatibility.
 /// </summary>
 /// <remarks>
-/// <para>推荐使用 <see cref="PulseRPC.Client.Configuration.ChannelPresets"/> 预设配置。</para>
-/// <code>
-/// // 使用预设
-/// var options = ChannelPresets.LowLatency;
-/// var options = ChannelPresets.HighReliability;
-/// </code>
+/// Public connection creation does not accept this type. Configure the effective
+/// <c>ConnectionDescriptor.TransportOptions</c> instead.
 /// </remarks>
+[Obsolete("No public client connection path accepts this type. Configure ConnectionDescriptor.TransportOptions instead.", false)]
 public class TransportChannelOptions
 {
     #region 核心配置

@@ -16,6 +16,7 @@ namespace PulseRPC.Server.Processing.Engine;
 /// 消息引擎配置 - 替代 HighThroughputProcessorOptions
 /// 根据优化计划书 5.1.1 传输层重命名策略
 /// </summary>
+[Obsolete("This options model is not used. Configure MessageWorkerShardCount and MessageQueueCapacityPerShard on PulseServerOptions.", false)]
 public class MessageEngineConfiguration
 {
     /// <summary>
@@ -117,6 +118,7 @@ public class MessageEngineConfiguration
 /// <summary>
 /// 负载均衡模式
 /// </summary>
+[Obsolete("Server message workers use fixed round-robin shard assignment. This mode is not used.", false)]
 public enum LoadBalancingMode
 {
     RoundRobin,
@@ -128,6 +130,7 @@ public enum LoadBalancingMode
 /// <summary>
 /// 高性能消息处理委托
 /// </summary>
+[Obsolete("This delegate is not used by the server runtime.", false)]
 public delegate ValueTask<object?> MessageHandlerDelegate(
     object message,
     CancellationToken cancellationToken);
@@ -135,6 +138,7 @@ public delegate ValueTask<object?> MessageHandlerDelegate(
 /// <summary>
 /// 静态泛型消息分发器注册接口
 /// </summary>
+[Obsolete("This dispatcher surface is not connected to the server runtime. Use generated IServiceRoutingTable dispatch.", false)]
 public interface IStaticMessageDispatcher
 {
     /// <summary>
@@ -168,6 +172,7 @@ public interface IStaticMessageDispatcher
 /// <summary>
 /// 消息序列化器接口 - 用于消息的序列化和反序列化
 /// </summary>
+[Obsolete("This serializer surface is not connected to the server runtime. Use ISerializerProvider.", false)]
 public interface IMessageSerializer
 {
     ValueTask<object> DeserializeAsync(byte[] messageBytes);
@@ -177,6 +182,7 @@ public interface IMessageSerializer
 /// <summary>
 /// 默认消息序列化器 - 基于MemoryPack
 /// </summary>
+[Obsolete("This serializer is not connected to the server runtime. Use ISerializerProvider.", false)]
 public class DefaultMessageSerializer : IMessageSerializer
 {
     private readonly ISerializerProvider _serializerProvider;

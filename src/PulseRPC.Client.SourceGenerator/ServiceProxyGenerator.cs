@@ -640,6 +640,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 sb.AppendLine($"        /// </summary>");
                 sb.AppendLine($"        public static Task<{fullTypeName}Stub> Get{serviceName}StubAsync(this IPulseClient self, string connectionId, ServiceProxyOptions? options = null, CancellationToken cancellationToken = default)");
                 sb.AppendLine("        {");
+                sb.AppendLine("            if (options != null) throw new NotSupportedException(\"ServiceProxyOptions is not consumed when connectionId is explicit. Pass null.\");");
                 sb.AppendLine("            var connection = self.Connections.GetConnection(connectionId);");
                 sb.AppendLine("            if (connection == null)");
                 sb.AppendLine("            {");

@@ -8,17 +8,153 @@ using PulseRPC.Server.Processing.Engine;
 using PulseRPC.Server.Transport;
 using PulseRPC.Server.Health; using PulseRPC.Server.Processing; using PulseRPC.Server.Channels; using PulseRPC.Server.Services; using PulseRPC.Server.Services.Scheduling;
 using PulseRPC.Shared;
-using BackpressurePolicyCore = PulseRPC.Server.Services.BackpressurePolicy;
 using EndPoint = System.Net.EndPoint;
 
 namespace PulseRPC.Server;
 
 /// <summary>
-/// Default RPC server implementation providing a single, clear API entry point
-/// for transport, connection, and message pipeline management.
+/// Default RPC server facade. All runtime behavior is owned by one internal
+/// <see cref="ServerRuntime"/> shared by the standard, named, and factory entry points.
 /// </summary>
 public sealed class PulseServer : IPulseServer
 {
+    private readonly ServerRuntime _runtime;
+    private int _eventsDetached;
+
+    public PulseServer(
+        ITieredMessageEngine? messageEngine = null,
+        IServerChannelManager? channelManager = null,
+        ITransportIntegrationManager? transportIntegrationManager = null,
+        ILoggerFactory? loggerFactory = null,
+        IOptions<PulseServerOptions>? options = null)
+        : this(ServerRuntimeComponentFactory.CreateRuntime(
+            messageEngine,
+            channelManager,
+            transportIntegrationManager,
+            loggerFactory,
+            options))
+    {
+    }
+
+    internal PulseServer(ServerRuntime runtime)
+    {
+        _runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
+        _runtime.StateChanged += OnRuntimeStateChanged;
+        _runtime.ClientConnected += OnRuntimeClientConnected;
+        _runtime.ClientDisconnected += OnRuntimeClientDisconnected;
+    }
+
+    internal ServerRuntime Runtime => _runtime;
+
+    public ServerState State => _runtime.State;
+    public bool IsRunning => _runtime.IsRunning;
+    public int ActiveConnectionCount => _runtime.ActiveConnectionCount;
+
+    public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
+    public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
+    public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
+
+    public Task StartAsync(CancellationToken cancellationToken = default)
+        => _runtime.StartAsync(cancellationToken);
+
+    public Task StopAsync(CancellationToken cancellationToken = default)
+        => _runtime.StopAsync(cancellationToken);
+
+    public IReadOnlyDictionary<string, TransportInfo> GetTransports()
+        => _runtime.GetTransports();
+
+    public TransportInfo? GetDefaultTransport()
+        => _runtime.GetDefaultTransport();
+
+    public IReadOnlyList<ConnectionInfo> GetActiveConnections()
+        => _runtime.GetActiveConnections();
+
+    public Task<int> BroadcastAsync(
+        ReadOnlyMemory<byte> data,
+        Func<TransportContext, bool>? filter = null,
+        CancellationToken cancellationToken = default)
+        => _runtime.BroadcastAsync(data, filter, cancellationToken);
+
+    public Task<bool> SendAsync(
+        string connectionId,
+        ReadOnlyMemory<byte> data,
+        CancellationToken cancellationToken = default)
+        => _runtime.SendAsync(connectionId, data, cancellationToken);
+
+    public ITransportChannel? GetChannel(string connectionId)
+        => _runtime.GetChannel(connectionId);
+
+    public IReadOnlyList<ITransportChannel> GetAllChannels()
+        => _runtime.GetAllChannels();
+
+    [Obsolete("Use GetChannel/GetAllChannels. Runtime channels are owned by PulseServer; pool mutation is not supported.", false)]
+    public ITransportChannelPool ChannelPool => _runtime.ChannelPool;
+
+    public IReadOnlyList<ServiceInfo> GetRegisteredServices()
+        => _runtime.GetRegisteredServices();
+
+    public ServerPerformanceMetrics GetPerformanceMetrics()
+        => _runtime.GetPerformanceMetrics();
+
+    public void ResetPerformanceMetrics()
+        => _runtime.ResetPerformanceMetrics();
+
+    public void Dispose()
+    {
+        try
+        {
+            _runtime.Dispose();
+        }
+        finally
+        {
+            DetachRuntimeEvents();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await _runtime.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            DetachRuntimeEvents();
+        }
+    }
+
+    private void OnRuntimeStateChanged(object? sender, ServerStateChangedEventArgs args)
+        => StateChanged?.Invoke(this, args);
+
+    private void OnRuntimeClientConnected(object? sender, ClientConnectedEventArgs args)
+        => ClientConnected?.Invoke(this, args);
+
+    private void OnRuntimeClientDisconnected(object? sender, ClientDisconnectedEventArgs args)
+        => ClientDisconnected?.Invoke(this, args);
+
+    private void DetachRuntimeEvents()
+    {
+        if (Interlocked.Exchange(ref _eventsDetached, 1) != 0)
+        {
+            return;
+        }
+
+        _runtime.StateChanged -= OnRuntimeStateChanged;
+        _runtime.ClientConnected -= OnRuntimeClientConnected;
+        _runtime.ClientDisconnected -= OnRuntimeClientDisconnected;
+    }
+}
+
+/// <summary>
+/// Coordinates one server runtime: listener lifecycle, message engine stop order,
+/// and its single authoritative channel registry. DI owns final component disposal;
+/// public server facades delegate lifecycle operations to this type.
+/// </summary>
+internal sealed class ServerRuntime : IPulseServer
+{
+    [ThreadStatic]
+    private static ServerRuntime? s_userCallbackPublisher;
+
     private readonly ILoggerFactory _loggerFactory;
     private readonly PulseServerOptions _options;
     private readonly IServerChannelManager _channelManager;
@@ -27,11 +163,10 @@ public sealed class PulseServer : IPulseServer
 
     // Pipeline components
     private readonly ITieredMessageEngine _messageEngine;
-    private readonly BackpressurePolicyCore? _backpressurePolicy;
 
     private readonly ConcurrentDictionary<string, IServerListener> _listeners = new();
     private readonly ConcurrentDictionary<string, TransportChannelConfiguration> _transports = new();
-    private readonly ITransportChannelPool _channelPool = new TransportChannelPool();
+    private readonly ITransportChannelPool _channelPool;
 
     private volatile ServerState _state = ServerState.Stopped;
     private readonly Lock _stateLock = new();
@@ -40,6 +175,10 @@ public sealed class PulseServer : IPulseServer
     private readonly ConcurrentDictionary<long, Task> _connectionTasks = new();
     private bool _acceptingConnections;
     private long _connectionTaskId;
+    private Task? _startTask;
+    private Task? _stopTask;
+    private Task? _disposeTask;
+    private bool _disposed;
 
     // Performance tracking
     private long _totalConnectionsAccepted;
@@ -48,13 +187,15 @@ public sealed class PulseServer : IPulseServer
     public ServerState State => _state;
     public bool IsRunning => _state == ServerState.Running;
     public int ActiveConnectionCount => _channelManager.ConnectionCount;
+    internal IServerChannelManager ChannelRegistry => _channelManager;
+    internal ITieredMessageEngine MessageEngine => _messageEngine;
 
     // Events
     public event EventHandler<ServerStateChangedEventArgs>? StateChanged;
     public event EventHandler<ClientConnectedEventArgs>? ClientConnected;
     public event EventHandler<ClientDisconnectedEventArgs>? ClientDisconnected;
 
-    public PulseServer(
+    public ServerRuntime(
         ITieredMessageEngine? messageEngine = null,
         IServerChannelManager? channelManager = null,
         ITransportIntegrationManager? transportIntegrationManager = null,
@@ -70,11 +211,11 @@ public sealed class PulseServer : IPulseServer
 
         _messageEngine = messageEngine ?? throw new ArgumentNullException(nameof(messageEngine));
         _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
+        _channelPool = new ServerChannelPoolView(_channelManager);
         _transportIntegrationManager = transportIntegrationManager ?? throw new ArgumentNullException(nameof(transportIntegrationManager));
         _channelManager.ChannelDisconnected += OnChannelDisconnected;
 
         // Initialize pipeline components (if options configured)
-        _backpressurePolicy = new BackpressurePolicyCore(_options.BackpressurePolicy);
 
         // Add configured transports
         foreach (var transport in _options.Transports)
@@ -82,65 +223,122 @@ public sealed class PulseServer : IPulseServer
             _transports.TryAdd(transport.Name, transport);
         }
 
-        _logger.LogInformation("PulseServer initialized with {TransportCount} transports", _transports.Count);
+        SafeLog(() => _logger.LogInformation(
+            "PulseServer initialized with {TransportCount} transports",
+            _transports.Count));
     }
 
     // === Lifecycle Management ===
 
-    public async Task StartAsync(CancellationToken cancellationToken = default)
+    public Task StartAsync(CancellationToken cancellationToken = default)
     {
-        using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdownCts.Token);
-
+        Task startTask;
+        ServerStateChangedEventArgs? stateChange;
         lock (_stateLock)
         {
-            if (_state is ServerState.Running or ServerState.Starting)
+            ObjectDisposedException.ThrowIf(_disposed, nameof(ServerRuntime));
+
+            if (_stopTask is not null)
             {
-                _logger.LogWarning("Server is already running or starting");
-                return;
+                return Task.FromException(
+                    new InvalidOperationException("A stopped server runtime cannot be restarted."));
             }
 
-            ChangeState(ServerState.Starting);
+            if (_startTask is not null)
+            {
+                return _startTask;
+            }
+
+            stateChange = SetStateLocked(ServerState.Starting);
+            lock (_connectionTaskLock)
+            {
+                _acceptingConnections = true;
+            }
+
+            _startTask = StartCoreAsync(cancellationToken);
+            startTask = _startTask;
         }
 
-        lock (_connectionTaskLock)
-        {
-            _acceptingConnections = true;
-        }
+        PublishStateChange(stateChange);
+        return startTask;
+    }
+
+    private async Task StartCoreAsync(CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _shutdownCts.Token);
 
         try
         {
-            _logger.LogInformation("Starting server with {TransportCount} transports", _transports.Count);
+            SafeLog(() => _logger.LogInformation(
+                "Starting server with {TransportCount} transports",
+                _transports.Count));
 
             if (_transports.Count == 0)
             {
                 throw new InvalidOperationException("No transports configured");
             }
 
-            // Start pipeline components
-            await _messageEngine.StartAsync(combinedCts.Token);
+            await _messageEngine.StartAsync(combinedCts.Token).ConfigureAwait(false);
 
             // Start all transports in parallel
             var startTasks = _transports.Values.Select(config =>
                 StartTransportAsync(config, combinedCts.Token)).ToArray();
 
-            await Task.WhenAll(startTasks);
+            await Task.WhenAll(startTasks).ConfigureAwait(false);
 
-            ChangeState(ServerState.Running);
-            _logger.LogInformation("Server started successfully with {ListenerCount} active listeners", _listeners.Count);
+            ServerStateChangedEventArgs? stateChange;
+            lock (_stateLock)
+            {
+                combinedCts.Token.ThrowIfCancellationRequested();
+                if (_stopTask is not null || _disposed || _state != ServerState.Starting)
+                {
+                    throw new OperationCanceledException(
+                        "Server runtime stopped while starting.",
+                        combinedCts.Token);
+                }
+
+                stateChange = SetStateLocked(ServerState.Running);
+            }
+
+            PublishStateChange(stateChange);
+            SafeLog(() => _logger.LogInformation(
+                "Server started successfully with {ListenerCount} active listeners",
+                _listeners.Count));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start server");
-            ChangeState(ServerState.Stopped);
-
+            SafeLog(() => _logger.LogError(ex, "Failed to start server"));
             lock (_connectionTaskLock)
             {
                 _acceptingConnections = false;
             }
 
-            // Cleanup started listeners
-            await StopAllListenersAsync();
-            await WaitForConnectionTasksAsync();
+            bool shutdownOwnsRollback;
+            lock (_stateLock)
+            {
+                shutdownOwnsRollback = _state == ServerState.Stopping || _disposed;
+            }
+
+            if (!shutdownOwnsRollback)
+            {
+                await StopAllListenersAsync().ConfigureAwait(false);
+                await WaitForConnectionTasksAsync().ConfigureAwait(false);
+                StopAcceptingChannelsAndCloseAll();
+                try
+                {
+                    await _messageEngine.StopAsync().ConfigureAwait(false);
+                }
+                catch (Exception stopException)
+                {
+                    _logger.LogError(stopException, "Failed to roll back the message engine after server start failure");
+                }
+
+                ChangeState(ServerState.Stopped);
+            }
+
             throw;
         }
     }
@@ -157,8 +355,24 @@ public sealed class PulseServer : IPulseServer
             // Subscribe to events
             listener.ConnectionAccepted += OnConnectionAccepted;
 
-            // Start listener
-            await listener.StartAsync(cancellationToken);
+            try
+            {
+                await listener.StartAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                listener.ConnectionAccepted -= OnConnectionAccepted;
+                try
+                {
+                    await SafeStopListenerAsync(listener).ConfigureAwait(false);
+                }
+                catch (Exception cleanupException)
+                {
+                    _logger.LogDebug(cleanupException, "Failed to clean up listener after start failure: {Name}", config.Name);
+                }
+
+                throw;
+            }
 
             // Add to collection
             if (_listeners.TryAdd(config.Name, listener))
@@ -168,7 +382,7 @@ public sealed class PulseServer : IPulseServer
             }
             else
             {
-                await SafeStopListenerAsync(listener);
+                await SafeStopListenerAsync(listener).ConfigureAwait(false);
                 throw new InvalidOperationException($"Listener already exists: {config.Name}");
             }
         }
@@ -180,43 +394,89 @@ public sealed class PulseServer : IPulseServer
         }
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken = default)
+    public Task StopAsync(CancellationToken cancellationToken = default)
     {
+        Task stopTask;
+        ServerStateChangedEventArgs? stateChange;
         lock (_stateLock)
         {
-            if (_state is ServerState.Stopped or ServerState.Stopping)
+            if (_stopTask is not null)
             {
-                return;
+                return ReferenceEquals(s_userCallbackPublisher, this)
+                    ? Task.CompletedTask
+                    : _stopTask;
             }
 
-            ChangeState(ServerState.Stopping);
-        }
+            if (_state == ServerState.Stopped)
+            {
+                return Task.CompletedTask;
+            }
 
-        try
-        {
-            _logger.LogInformation("Stopping server...");
-
+            stateChange = SetStateLocked(ServerState.Stopping);
             lock (_connectionTaskLock)
             {
                 _acceptingConnections = false;
             }
 
-            // Trigger shutdown
-            await _shutdownCts.CancelAsync();
+            _stopTask = StopCoreAsync(cancellationToken);
+            stopTask = _stopTask;
+        }
 
-            // Stop all listeners
-            await StopAllListenersAsync();
-            await WaitForConnectionTasksAsync();
+        PublishStateChange(stateChange);
+        return ReferenceEquals(s_userCallbackPublisher, this)
+            ? Task.CompletedTask
+            : stopTask;
+    }
 
-            // Stop pipeline components
-            await _messageEngine.StopAsync();
+    private async Task StopCoreAsync(CancellationToken cancellationToken)
+    {
+        await Task.Yield();
+        _ = cancellationToken;
+
+        try
+        {
+                SafeLog(() => _logger.LogInformation("Stopping server..."));
+
+            try
+            {
+                await _shutdownCts.CancelAsync().ConfigureAwait(false);
+            }
+            catch (Exception cancellationException)
+            {
+                    SafeLog(() => _logger.LogError(
+                        cancellationException,
+                        "Server shutdown cancellation callback failed"));
+            }
+
+            Task? startTask;
+            lock (_stateLock)
+            {
+                startTask = _startTask;
+            }
+
+            if (startTask is not null)
+            {
+                try
+                {
+                    await startTask.ConfigureAwait(false);
+                }
+                catch
+                {
+                    // StartCore performs its own rollback; shutdown still joins the remaining components.
+                }
+            }
+
+            await StopAllListenersAsync().ConfigureAwait(false);
+            await WaitForConnectionTasksAsync().ConfigureAwait(false);
+            StopAcceptingChannelsAndCloseAll();
+            await _messageEngine.StopAsync().ConfigureAwait(false);
 
             ChangeState(ServerState.Stopped);
-            _logger.LogInformation("Server stopped successfully");
+            SafeLog(() => _logger.LogInformation("Server stopped successfully"));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during server shutdown");
+            SafeLog(() => _logger.LogError(ex, "Error during server shutdown"));
             ChangeState(ServerState.Stopped);
             throw;
         }
@@ -238,7 +498,7 @@ public sealed class PulseServer : IPulseServer
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error stopping some listeners");
+            SafeLog(() => _logger.LogError(ex, "Error stopping some listeners"));
         }
     }
 
@@ -248,11 +508,11 @@ public sealed class PulseServer : IPulseServer
         {
             listener.ConnectionAccepted -= OnConnectionAccepted;
             await SafeStopListenerAsync(listener);
-            _logger.LogInformation("Listener stopped: {Name}", name);
+            SafeLog(() => _logger.LogInformation("Listener stopped: {Name}", name));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error stopping listener: {Name}", name);
+            SafeLog(() => _logger.LogError(ex, "Error stopping listener: {Name}", name));
         }
     }
 
@@ -322,7 +582,18 @@ public sealed class PulseServer : IPulseServer
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Error closing connection accepted during shutdown: {ConnectionId}", transport.Id);
+            try
+            {
+                _logger.LogDebug(ex, "Error closing connection accepted during shutdown: {ConnectionId}", transport.Id);
+            }
+            catch
+            {
+                // Cleanup must not depend on a custom logger implementation.
+            }
+        }
+        finally
+        {
+            DisposeRejectedTransport(transport);
         }
     }
 
@@ -338,26 +609,54 @@ public sealed class PulseServer : IPulseServer
 
             channel = _channelManager.AddChannel(e.Transport);
 
-            ClientConnected?.Invoke(this, new ClientConnectedEventArgs(channel));
+            var previousPublisher = s_userCallbackPublisher;
+            s_userCallbackPublisher = this;
+            try
+            {
+                ClientConnected?.Invoke(this, new ClientConnectedEventArgs(channel));
+            }
+            finally
+            {
+                s_userCallbackPublisher = previousPublisher;
+            }
 
             _logger.LogInformation("Connection accepted: {ConnectionId}", e.Transport.Id);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing new connection: {ConnectionId}", e.Transport.Id);
+            try
+            {
+                _logger.LogError(ex, "Error processing new connection: {ConnectionId}", e.Transport.Id);
+            }
+            catch
+            {
+                // Logging must not prevent cleanup of an unpublished/failed connection.
+            }
 
             if (channel != null)
             {
-                _channelManager.RemoveChannel(channel.Id);
+                RemoveChannelIfCurrent(channel);
+                try
+                {
+                    await e.Transport.CloseAsync().ConfigureAwait(false);
+                }
+                catch (Exception closeEx)
+                {
+                    try
+                    {
+                        _logger.LogDebug(
+                            closeEx,
+                            "Error closing failed published connection: {ConnectionId}",
+                            e.Transport.Id);
+                    }
+                    catch
+                    {
+                    }
+                }
             }
-
-            try
+            else
             {
-                await e.Transport.CloseAsync().ConfigureAwait(false);
-            }
-            catch (Exception closeEx)
-            {
-                _logger.LogDebug(closeEx, "Error closing failed connection: {ConnectionId}", e.Transport.Id);
+                await CloseRejectedConnectionAsync(e.Transport).ConfigureAwait(false);
             }
         }
     }
@@ -366,7 +665,16 @@ public sealed class PulseServer : IPulseServer
     {
         try
         {
-            ClientDisconnected?.Invoke(this, new ClientDisconnectedEventArgs(e.Channel));
+            var previousPublisher = s_userCallbackPublisher;
+            s_userCallbackPublisher = this;
+            try
+            {
+                ClientDisconnected?.Invoke(this, new ClientDisconnectedEventArgs(e.Channel));
+            }
+            finally
+            {
+                s_userCallbackPublisher = previousPublisher;
+            }
         }
         catch (Exception ex)
         {
@@ -572,48 +880,245 @@ public sealed class PulseServer : IPulseServer
 
     private void ChangeState(ServerState newState)
     {
-        var oldState = _state;
-        if (oldState == newState) return;
-
+        ServerStateChangedEventArgs? stateChange;
         lock (_stateLock)
         {
-            _state = newState;
+            stateChange = SetStateLocked(newState);
         }
 
-        _logger.LogInformation("Server state changed: {OldState} -> {NewState}", oldState, newState);
-        StateChanged?.Invoke(this, new ServerStateChangedEventArgs(oldState, newState));
+        PublishStateChange(stateChange);
+    }
+
+    private ServerStateChangedEventArgs? SetStateLocked(ServerState newState)
+    {
+        var oldState = _state;
+        if (oldState == newState)
+        {
+            return null;
+        }
+
+        _state = newState;
+        return new ServerStateChangedEventArgs(oldState, newState);
+    }
+
+    private void PublishStateChange(ServerStateChangedEventArgs? args)
+    {
+        if (args is null)
+        {
+            return;
+        }
+
+        SafeLog(() => _logger.LogInformation(
+            "Server state changed: {OldState} -> {NewState}",
+            args.OldState,
+            args.NewState));
+        var handlers = StateChanged;
+        if (handlers is null)
+        {
+            return;
+        }
+
+        var previousPublisher = s_userCallbackPublisher;
+        s_userCallbackPublisher = this;
+        try
+        {
+            foreach (EventHandler<ServerStateChangedEventArgs> handler in handlers.GetInvocationList())
+            {
+                try
+                {
+                    handler(this, args);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "StateChanged handler failed: {OldState} -> {NewState}",
+                        args.OldState,
+                        args.NewState);
+                }
+            }
+        }
+        finally
+        {
+            s_userCallbackPublisher = previousPublisher;
+        }
+    }
+
+    private bool RemoveChannelIfCurrent(IServerChannel channel)
+    {
+        if (_channelManager is IServerChannelRegistryLifetime registryLifetime)
+        {
+            return registryLifetime.RemoveChannel(channel);
+        }
+
+        return ReferenceEquals(_channelManager.GetChannel(channel.Id), channel) &&
+               _channelManager.RemoveChannel(channel.Id);
+    }
+
+    private void StopAcceptingChannelsAndCloseAll()
+    {
+        if (_channelManager is IServerChannelRegistryLifetime registryLifetime)
+        {
+            registryLifetime.StopAcceptingChannelsAndCloseAll();
+            return;
+        }
+
+        foreach (var channel in _channelManager.GetAllChannels().ToArray())
+        {
+            if (ReferenceEquals(_channelManager.GetChannel(channel.Id), channel))
+            {
+                _channelManager.RemoveChannel(channel.Id);
+            }
+        }
     }
 
     // === Disposal ===
 
     public void Dispose()
     {
-        if (_state == ServerState.Running)
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Task disposeTask;
+        lock (_stateLock)
+        {
+            if (_disposeTask is null)
+            {
+                _disposed = true;
+                _disposeTask = DisposeCoreAsync();
+            }
+
+            disposeTask = _disposeTask;
+        }
+
+        // A synchronous Dispose call from this runtime's StateChanged callback cannot
+        // wait for the disposal task whose progress currently depends on that callback.
+        // Disposal has already been started/cached above; let the outer lifecycle call join it.
+        return ReferenceEquals(s_userCallbackPublisher, this)
+            ? ValueTask.CompletedTask
+            : new ValueTask(disposeTask);
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        await Task.Yield();
+        Task? stopTask = null;
+        var stopUnstartedEngine = false;
+        lock (_stateLock)
+        {
+            if (_stopTask is not null || _state != ServerState.Stopped)
+            {
+                stopTask = StopAsync();
+            }
+            else if (_startTask is null)
+            {
+                stopUnstartedEngine = true;
+            }
+        }
+
+        if (stopTask is not null)
         {
             try
             {
-                StopAsync().Wait(TimeSpan.FromSeconds(10));
+                await stopTask.ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error stopping server during disposal");
+                SafeLog(() => _logger.LogError(ex, "Error stopping server during disposal"));
             }
         }
 
-        _channelManager.ChannelDisconnected -= OnChannelDisconnected;
-        _shutdownCts.Dispose();
-        GC.SuppressFinalize(this);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_state == ServerState.Running)
+        if (stopUnstartedEngine)
         {
-            await StopAsync();
+            try
+            {
+                await _messageEngine.StopAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                SafeLog(() => _logger.LogError(
+                    ex,
+                    "Error stopping an unstarted message engine during disposal"));
+            }
         }
 
+        StopAcceptingChannelsAndCloseAll();
         _channelManager.ChannelDisconnected -= OnChannelDisconnected;
         _shutdownCts.Dispose();
         GC.SuppressFinalize(this);
     }
+
+    private void DisposeRejectedTransport(IServerTransport transport)
+    {
+        try
+        {
+            transport.Dispose();
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                _logger.LogDebug(ex, "Error disposing unpublished connection: {ConnectionId}", transport.Id);
+            }
+            catch
+            {
+                // Cleanup is best-effort after a transport itself violates IDisposable.
+            }
+        }
+    }
+
+    private static void SafeLog(Action logAction)
+    {
+        try
+        {
+            logAction();
+        }
+        catch
+        {
+            // Listener, channel and engine cleanup must not depend on a logger provider.
+        }
+    }
+}
+
+/// <summary>
+/// Compatibility view over the runtime channel registry. It intentionally owns
+/// no collection, so <see cref="IPulseServer.ChannelPool"/> cannot diverge from
+/// <see cref="IServerChannelManager"/>.
+/// </summary>
+internal sealed class ServerChannelPoolView(IServerChannelManager channelManager) : ITransportChannelPool
+{
+    private readonly IServerChannelManager _channelManager =
+        channelManager ?? throw new ArgumentNullException(nameof(channelManager));
+
+    public void Register(string connectionId, ITransportChannel channel)
+    {
+        throw new NotSupportedException(
+            "IPulseServer owns runtime channels. Register transports through the configured server listener.");
+    }
+
+    public bool Unregister(string connectionId)
+        => throw new NotSupportedException(
+            "IPulseServer owns runtime channels. Closing a connection is not exposed through the legacy pool view.");
+
+    public ITransportChannel? GetChannel(string connectionId)
+        => _channelManager.GetChannel(connectionId) as ITransportChannel;
+
+    public IReadOnlyCollection<ITransportChannel> GetAllChannels()
+        => _channelManager.GetAllChannels().OfType<ITransportChannel>().ToArray();
+
+    public IReadOnlyCollection<string> GetAllConnectionIds()
+        => _channelManager.GetAllChannels()
+            .OfType<ITransportChannel>()
+            .Select(channel => channel.ConnectionId)
+            .ToArray();
+
+    public bool Contains(string connectionId)
+        => GetChannel(connectionId) is not null;
+
+    public int Count => _channelManager.GetAllChannels().Count(channel => channel is ITransportChannel);
+
+    public void Clear()
+        => throw new NotSupportedException(
+            "IPulseServer owns runtime channels. Stop the server to release all connections.");
 }

@@ -223,7 +223,6 @@ public sealed class ThreeNodeTcpTopology : IAsyncDisposable
         services.AddSingleton<IActorLeaseStore>(_leaseStore);
         services.AddPulseServer(server =>
         {
-            server.UsePreset(ServerPreset.LowLatency);
             server.AddTcp($"cluster-{nodeId}", _ports[nodeId]);
         });
         services.AddPulseClustering(

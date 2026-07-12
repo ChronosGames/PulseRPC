@@ -26,6 +26,7 @@ namespace PulseRPC.Server.Services;
 /// Console.WriteLine($"Total Removed: {metrics.TotalRemoved}");
 /// </code>
 /// </example>
+[Obsolete("Use PulseServiceManager.GetStatistics() and IServiceAccessor<TService>.ActiveCount.", false)]
 public interface IPulseServiceFactoryMetrics
 {
     /// <summary>

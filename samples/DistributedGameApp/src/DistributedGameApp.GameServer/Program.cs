@@ -85,12 +85,9 @@ builder.Services.AddPulseRpcServer(builder.Configuration, new ServerBootstrapper
         // Hub 是无状态的，通过 IServiceAccessor 访问有状态的 Service
         services.AddSingleton<IGameHub, GameHub>();
 
-        // 注册 GameServerInternalHub：先注册具体类型，再将接口映射到同一实例
+        // GameServerInternalHub 无状态；使用标准 DI 单例，不创建独立 IPulseService 生命周期。
         services.AddSingleton<GameServerInternalHub>();
         services.AddSingleton<IGameServerInternalHub>(sp => sp.GetRequiredService<GameServerInternalHub>());
-
-        // 启动 IPulseService
-        services.AddHostedService<PulseRPC.Server.Services.PulseServiceHostedService<GameServerInternalHub>>();
 
         // 添加后台服务：定期刷新服务列表
         services.AddSingleton<ServiceDiscoveryRefreshService>(sp =>

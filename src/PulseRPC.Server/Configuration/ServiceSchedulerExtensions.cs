@@ -13,11 +13,15 @@ namespace PulseRPC.Server.Configuration;
 /// </summary>
 public static class ServiceSchedulerExtensions
 {
+    private const string SchedulerObsoleteMessage =
+        "AddServiceScheduler starts a standalone scheduler that is not consumed by MessageEngine. Configure PulseServerOptions.MessageWorkerShardCount and MessageQueueCapacityPerShard instead.";
+
     /// <summary>
     /// Add ServiceThreadScheduler to the service collection with default configuration.
     /// </summary>
     /// <param name="services">The service collection.</param>
     /// <returns>The service collection for chaining.</returns>
+    [Obsolete(SchedulerObsoleteMessage, false)]
     public static IServiceCollection AddServiceScheduler(this IServiceCollection services)
     {
         return AddServiceScheduler(services, _ => { });
@@ -29,6 +33,7 @@ public static class ServiceSchedulerExtensions
     /// <param name="services">The service collection.</param>
     /// <param name="configureOptions">Action to configure scheduler options.</param>
     /// <returns>The service collection for chaining.</returns>
+    [Obsolete(SchedulerObsoleteMessage, false)]
     public static IServiceCollection AddServiceScheduler(
         this IServiceCollection services,
         Action<SchedulerConfiguration> configureOptions)
@@ -65,6 +70,7 @@ public static class ServiceSchedulerExtensions
     /// <param name="configuration">The configuration section containing scheduler settings.</param>
     /// <param name="sectionName">The configuration section name (default: "Scheduler").</param>
     /// <returns>The service collection for chaining.</returns>
+    [Obsolete(SchedulerObsoleteMessage, false)]
     public static IServiceCollection AddServiceScheduler(
         this IServiceCollection services,
         IConfiguration configuration,
@@ -206,78 +212,10 @@ internal sealed class ServiceSchedulerHostedService : IHostedService
 }
 
 /// <summary>
-/// Usage example for service registration.
+/// Historical documentation placeholder retained for binary compatibility.
+/// The standalone scheduler is not connected to the current MessageEngine.
 /// </summary>
-/// <example>
-/// <code>
-/// // In Program.cs or Startup.cs:
-///
-/// // ========== Scheduler Registration ==========
-///
-/// // Option 1: Default configuration
-/// services.AddServiceScheduler();
-///
-/// // Option 2: Custom configuration
-/// services.AddServiceScheduler(config =>
-/// {
-///     config.InitialThreadCount = 4;
-///     config.MaxThreadCount = 8;
-///     config.ChannelCapacity = 512;
-///     config.EnableMetrics = true;
-/// });
-///
-/// // Option 3: Configuration from appsettings.json
-/// services.AddServiceScheduler(Configuration);
-///
-/// // ========== Health Monitor Registration ==========
-///
-/// // Option 1: Default health monitoring
-/// services.AddServiceHealthMonitor();
-///
-/// // Option 2: Custom health monitoring
-/// services.AddServiceHealthMonitor(options =>
-/// {
-///     options.FailureThreshold = 5;      // Trigger circuit breaker after 5 failures
-///     options.RecoveryThreshold = 3;     // Recover after 3 successes
-///     options.CooldownPeriod = TimeSpan.FromMinutes(1);
-///     options.IdleTimeout = TimeSpan.FromMinutes(10);
-/// });
-///
-/// // Option 3: Configuration from appsettings.json
-/// services.AddServiceHealthMonitor(Configuration);
-///
-/// // ========== Complete Setup with Health Monitoring ==========
-/// services.AddServiceHealthMonitor(options =>
-/// {
-///     options.FailureThreshold = 5;
-///     options.CooldownPeriod = TimeSpan.FromMinutes(2);
-/// });
-/// services.AddServiceScheduler(config =>
-/// {
-///     config.InitialThreadCount = 4;
-/// });
-///
-/// // appsettings.json:
-/// {
-///   "Scheduler": {
-///     "InitialThreadCount": 4,
-///     "MaxThreadCount": 8,
-///     "ChannelCapacity": 1024,
-///     "ThreadIdleTimeout": "00:00:30",
-///     "EnablePriorityDroppingWhenFull": true,
-///     "EnableMetrics": true
-///   },
-///   "HealthMonitor": {
-///     "FailureThreshold": 5,
-///     "DegradedThreshold": 3,
-///     "RecoveryThreshold": 3,
-///     "CooldownPeriod": "00:01:00",
-///     "IdleTimeout": "00:10:00",
-///     "CheckInterval": "00:00:30"
-///   }
-/// }
-/// </code>
-/// </example>
+[Obsolete("Historical scheduler example only; AddServiceScheduler is not connected to MessageEngine.", false)]
 public static class RegistrationExamples
 {
     // Documentation class - see XML documentation above for usage examples

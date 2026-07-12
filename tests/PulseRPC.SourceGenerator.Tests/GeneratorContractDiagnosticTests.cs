@@ -226,6 +226,47 @@ public class GeneratorContractDiagnosticTests
         AssertClientSourcesAreCSharp9(result);
     }
 
+    [Fact]
+    public void GeneratedCompatibilityOptionsMustFailFastInsteadOfBeingIgnored()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using PulseRPC;
+
+            namespace GeneratedOptionsContract;
+
+            [Channel("TestServer")]
+            public interface IGeneratedOptionsHub : IPulseHub
+            {
+                Task<string> EchoAsync(string value);
+            }
+
+            [Channel("CLIENT")]
+            public interface IGeneratedOptionsReceiver : IPulseHub
+            {
+                Task OnChangedAsync(string value);
+            }
+
+            [PulseClientGeneration(typeof(IGeneratedOptionsHub))]
+            public partial class ClientRegistrar
+            {
+            }
+            """;
+        var compilation = CreateRuntimeAwareCompilation(source, "GeneratedCompatibilityOptionsCompilation");
+        var result = RunClientGeneratorAndUpdateCompilation(compilation, out var outputCompilation);
+        var generated = JoinGeneratedText(result);
+
+        generated.Should().Contain(
+            "ServiceProxyOptions is not consumed when connectionId is explicit. Pass null.");
+        generated.Should().Contain(
+            "EventListenerOptions is not consumed by generated registration. Pass null.");
+        generated.Should().Contain("#pragma warning disable CS0618");
+        outputCompilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("generated compatibility checks must compile");
+        AssertClientSourcesAreCSharp9(result);
+    }
+
     private static CSharpCompilation CreateRuntimeAwareCompilation(
         string source,
         string assemblyName,

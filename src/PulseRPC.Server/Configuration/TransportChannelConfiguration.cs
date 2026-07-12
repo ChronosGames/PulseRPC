@@ -62,6 +62,7 @@ public class TransportChannelConfiguration
 /// <summary>
 /// 服务器配置构建器
 /// </summary>
+[Obsolete("This builder is not connected to IPulseServer. Use AddPulseServer(options => ...) instead.", false)]
 public class ServerConfigurationBuilder
 {
     private readonly List<TransportChannelConfiguration> _transports = new();

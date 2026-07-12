@@ -12,6 +12,8 @@ using Xunit;
 
 namespace PulseRPC.Client.Tests;
 
+#pragma warning disable CS0618 // Direct internal-channel compatibility coverage.
+
 public sealed class HubAddressedTransportChannelTests
 {
     [Theory]
@@ -86,3 +88,4 @@ public sealed class HubAddressedTransportChannelTests
         Assert.Equal((ushort)0x4322, header.ProtocolId);
     }
 }
+#pragma warning restore CS0618
