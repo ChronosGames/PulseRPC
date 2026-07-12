@@ -305,6 +305,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport, IAbortableClie
     {
         _handshakeAccepted = false;
         _handshakeCompleted = false;
+        ResetWireHandshake();
         _handshakeRejectReason = null;
         while (_handshakeSemaphore.Wait(0))
         {
@@ -328,10 +329,17 @@ public class TcpClientTransport : TcpTransport, IClientTransport, IAbortableClie
                     response.Accepted, response.ServerProtocolVersion, response.Reason ?? "N/A");
 
                 var versionAccepted = response.ServerProtocolVersion == ProtocolConstants.CurrentProtocolVersion;
-                _handshakeAccepted = response.Accepted && versionAccepted;
-                _handshakeRejectReason = versionAccepted
-                    ? response.Reason
-                    : $"服务端协议版本 {response.ServerProtocolVersion} 与客户端要求的破坏性 v{ProtocolConstants.CurrentProtocolVersion} 不一致";
+                var wireAccepted = false;
+                string? wireReason = null;
+                if (response.Accepted && versionAccepted)
+                    wireAccepted = TryCompleteWireHandshake(response.Extensions, out wireReason);
+
+                _handshakeAccepted = response.Accepted && versionAccepted && wireAccepted;
+                _handshakeRejectReason = !versionAccepted
+                    ? $"服务端协议版本 {response.ServerProtocolVersion} 与客户端要求的破坏性 v{ProtocolConstants.CurrentProtocolVersion} 不一致"
+                    : !response.Accepted
+                        ? response.Reason
+                        : wireReason;
 
                 if (_handshakeAccepted)
                 {

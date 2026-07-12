@@ -135,7 +135,6 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
             serializerProvider: _serializerProvider,
             authenticationProvider: _authenticationProvider,
             loadBalancingStrategy: _loadBalancingStrategy,
-            loadBalancingOptions: _loadBalancingOptions,
             connectionPoolOptions: _connectionPoolOptions,
             retryPolicy: _retryPolicy,
             clientOptions: _clientOptions);
@@ -191,10 +190,14 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
                 "WithLoadBalancing 的 options 参数当前尚未被负载均衡器消费；仅 strategy 参数会生效。");
         }
 
-        if (_loadBalancingStrategy is LoadBalancingStrategy.WeightedRoundRobin or LoadBalancingStrategy.ConsistentHash)
+        if (_clientOptions.LoadBalancing == null)
         {
-            throw new NotSupportedException(
-                $"负载均衡策略 {_loadBalancingStrategy} 仍是 experimental，当前没有稳定的权重或 sticky key 契约，不能静默退化为其它算法。");
+            throw new InvalidOperationException("负载均衡配置不能为空");
+        }
+
+        if (_clientOptions.LoadBalancing.ConsistentHashVirtualNodes is < 1 or > 4096)
+        {
+            throw new InvalidOperationException("一致性哈希虚拟节点数必须在 1 到 4096 之间");
         }
     }
 

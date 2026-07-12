@@ -14,7 +14,7 @@ namespace PulseRPC.Client;
 /// <summary>
 /// 连接管理器实现 - 统一管理连接的创建、销毁、路由和生命周期
 /// </summary>
-public sealed class ConnectionManager : IConnectionManager
+public sealed class ConnectionManager : IContextualConnectionManager
 {
     private readonly ILogger<ConnectionManager> _logger;
     private readonly ISerializerProvider _serializerProvider;
@@ -327,6 +327,15 @@ public sealed class ConnectionManager : IConnectionManager
     /// 根据服务名称路由到最佳连接
     /// </summary>
     public Task<IClientChannel?> RouteAsync(string serviceName, CancellationToken cancellationToken = default)
+        => RouteAsync(serviceName, new LoadBalancingContext(), cancellationToken);
+
+    /// <summary>
+    /// 根据服务名称和稳定路由上下文选择最佳连接
+    /// </summary>
+    public Task<IClientChannel?> RouteAsync(
+        string serviceName,
+        LoadBalancingContext context,
+        CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -358,8 +367,23 @@ public sealed class ConnectionManager : IConnectionManager
         }
 
         // 2. 使用负载均衡器选择最佳连接
-        var selected = _loadBalancer.SelectConnection(candidates, LoadBalancingHint.None);
+        var selected = _loadBalancer is IContextualLoadBalancer contextualLoadBalancer
+            ? contextualLoadBalancer.SelectConnection(candidates, context)
+            : SelectWithoutContext(candidates, context);
         return Task.FromResult(selected);
+    }
+
+    private IClientChannel? SelectWithoutContext(
+        IReadOnlyList<IClientChannel> candidates,
+        LoadBalancingContext context)
+    {
+        if (context.Hint != LoadBalancingHint.None || !string.IsNullOrWhiteSpace(context.StickyKey))
+        {
+            throw new NotSupportedException(
+                $"Load balancer '{_loadBalancer.GetType().FullName}' does not support contextual load balancing.");
+        }
+
+        return _loadBalancer.SelectConnection(candidates, LoadBalancingHint.None);
     }
 
     /// <summary>

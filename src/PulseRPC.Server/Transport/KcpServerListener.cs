@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using PulseRPC.Shared;
 using PulseRPC.Shared.Kcp;
+using PulseRPC.Shared.Security;
 namespace PulseRPC.Server.Transport;
 
 /// <summary>
@@ -26,6 +27,9 @@ public class KcpServerTransport : IServerTransport
     private Task? _updateTask;
     private bool _disposed;
     private readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
+    private readonly object _sendSync = new();
+    private readonly TransportWireSession _wireSession;
+    internal byte[] HandshakeConfirmation { get; }
 
     public string Id => _id;
     public TransportType Type => TransportType.KCP;
@@ -43,7 +47,36 @@ public class KcpServerTransport : IServerTransport
     /// <summary>
     /// 创建KCP服务端连接
     /// </summary>
-    public KcpServerTransport(string id, Socket sharedSocket, IPEndPoint remoteEndpoint, uint conv, KcpTransportOptions? options = null, ILogger? logger = null)
+    public KcpServerTransport(
+        string id,
+        Socket sharedSocket,
+        IPEndPoint remoteEndpoint,
+        uint conv,
+        KcpTransportOptions? options = null,
+        ILogger? logger = null)
+        : this(
+            id,
+            sharedSocket,
+            remoteEndpoint,
+            conv,
+            CreatePlainSession(options),
+            Array.Empty<byte>(),
+            options,
+            logger)
+    {
+        if (options is { UseCompression: true } or { UseEncryption: true })
+            throw new InvalidOperationException("启用 KCP wire 变换时必须通过 KcpServerListener 完成能力协商。");
+    }
+
+    internal KcpServerTransport(
+        string id,
+        Socket sharedSocket,
+        IPEndPoint remoteEndpoint,
+        uint conv,
+        TransportWireSession wireSession,
+        byte[] handshakeConfirmation,
+        KcpTransportOptions? options = null,
+        ILogger? logger = null)
     {
         _id = id;
         _sharedSocket = sharedSocket;
@@ -53,6 +86,8 @@ public class KcpServerTransport : IServerTransport
         _logger = logger ?? NullLogger.Instance;
         _connectedAt = DateTime.UtcNow;
         _lastActivityAt = DateTime.UtcNow;
+        _wireSession = wireSession;
+        HandshakeConfirmation = handshakeConfirmation;
 
         // 创建KCP实例
         _kcp = new KcpCore(conv, OnKcpOutput, _logger);
@@ -64,6 +99,20 @@ public class KcpServerTransport : IServerTransport
 
         _logger.LogInformation("创建KCP服务端连接: {ConnectionId} 从 {RemoteEndPoint}",
             _id, remoteEndpoint);
+    }
+
+    private static TransportWireSession CreatePlainSession(KcpTransportOptions? options)
+    {
+        var effectiveOptions = options ?? new KcpTransportOptions();
+        TransportWireNegotiator.ValidateOptions(effectiveOptions);
+        return TransportWireSession.Create(
+            effectiveOptions,
+            PulseRPC.Abstractions.Transport.Security.TransportWireCapabilities.None,
+            effectiveOptions.CompressionThreshold,
+            0,
+            Array.Empty<byte>(),
+            Array.Empty<byte>(),
+            isClient: false);
     }
 
     /// <summary>
@@ -104,8 +153,15 @@ public class KcpServerTransport : IServerTransport
         {
             _logger.LogDebug("KCP连接 {ConnectionId} 发送数据: {Size} bytes", _id, data.Length);
 
-            // 直接发送数据到KCP
-            var result = _kcp.Send(data.Span);
+            int result;
+            lock (_sendSync)
+            {
+                var payload = _wireSession.Encode(data.Span);
+                var wireData = new byte[payload.Data.Length + 1];
+                wireData[0] = payload.Flags;
+                payload.Data.CopyTo(wireData, 1);
+                result = _kcp.Send(wireData);
+            }
 
             // 立即更新KCP状态以确保数据及时发送
             if (result == 0)
@@ -238,11 +294,14 @@ public class KcpServerTransport : IServerTransport
                 if (messageSize <= 0)
                     break;
 
-                if (messageSize > _options.MaxPacketSize)
+                var maxWirePacketSize = _wireSession.HasTransforms
+                    ? checked(_options.MaxPacketSize + TransportWireSession.MaxEnvelopeOverhead + 1)
+                    : checked(_options.MaxPacketSize + 1);
+                if (messageSize > maxWirePacketSize)
                 {
                     _logger.LogError(
                         "[KCP应用层] {ConnectionId} 拒绝接收超限消息: Size={Size}, MaxPacketSize={MaxPacketSize}",
-                        _id, messageSize, _options.MaxPacketSize);
+                        _id, messageSize, maxWirePacketSize);
                     ChangeState(PulseRPC.Shared.ConnectionState.Disconnected,
                         $"接收消息大小 {messageSize} 超过限制 {_options.MaxPacketSize}");
                     break;
@@ -254,8 +313,14 @@ public class KcpServerTransport : IServerTransport
                 if (size <= 0)
                     break;
 
+                if (size < 2)
+                    throw new InvalidDataException("KCP wire v3 业务帧过短。");
+                var flags = receivedData[0];
+                if ((flags & ~(TransportWireSession.CompressedFlag | TransportWireSession.EncryptedFlag)) != 0)
+                    throw new InvalidDataException($"KCP wire v3 未知帧标志 0x{flags:X2}。");
+                var decoded = _wireSession.Decode(receivedData.AsSpan(1, size - 1), flags);
                 _lastActivityAt = DateTime.UtcNow; // 更新活动时间
-                DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData, size));
+                DataReceived?.Invoke(this, new TransportDataEventArgs(decoded));
             }
 
             if (receiveAttempts >= maxReceiveAttempts)
@@ -266,6 +331,7 @@ public class KcpServerTransport : IServerTransport
         catch (Exception ex)
         {
             _logger.LogError(ex, "[KCP应用层] {ConnectionId} 处理KCP接收数据异常", _id);
+            ChangeState(PulseRPC.Shared.ConnectionState.Disconnected, "KCP wire 帧验证失败", ex);
         }
     }
 
@@ -395,6 +461,7 @@ public class KcpServerTransport : IServerTransport
             // 释放其他资源
             _cts.Dispose();
             _stopwatch.Stop();
+            _wireSession.Dispose();
 
             _logger.LogDebug("已释放KCP连接资源: {ConnectionId}", _id);
         }
@@ -629,12 +696,14 @@ public class KcpServerListener : IServerListener
                     // 查找或创建连接
                     if (!_connections.TryGetValue(clientId, out var connection))
                     {
-                        // wire v2 握手固定为 conv(4) + protocol version(1)。旧 4 字节握手不再兼容。
-                        if (recvSize == sizeof(uint) + sizeof(byte) &&
-                            buffer[sizeof(uint)] == ProtocolConstants.CurrentProtocolVersion)
+                        if (KcpWireHandshake.TryParseRequest(
+                                buffer.AsSpan(0, recvSize),
+                                out var handshakeConv,
+                                out var extensions) &&
+                            handshakeConv == conv)
                         {
                             _logger.LogInformation("[UDP接收] 收到新的握手包: ClientId={ClientId}, Conv={Conv}", clientId, conv);
-                            HandleNewHandshake(clientId, clientEp, conv);
+                            HandleNewHandshake(clientId, clientEp, conv, extensions);
                         }
                         else
                         {
@@ -644,11 +713,13 @@ public class KcpServerListener : IServerListener
                     }
                     else
                     {
-                        if (recvSize == sizeof(uint) + sizeof(byte) &&
-                            conv == connection.ConversationId &&
-                            buffer[sizeof(uint)] == ProtocolConstants.CurrentProtocolVersion)
+                        if (KcpWireHandshake.TryParseRequest(
+                                buffer.AsSpan(0, recvSize),
+                                out var handshakeConv,
+                                out _) &&
+                            handshakeConv == connection.ConversationId)
                         {
-                            SendHandshakeConfirmation(clientEp, conv);
+                            SendHandshakeConfirmation(clientEp, connection.HandshakeConfirmation);
                         }
                         else
                         {
@@ -706,12 +777,29 @@ public class KcpServerListener : IServerListener
     /// <summary>
     /// 处理新的握手请求
     /// </summary>
-    private void HandleNewHandshake(string clientId, IPEndPoint clientEp, uint conv)
+    private void HandleNewHandshake(string clientId, IPEndPoint clientEp, uint conv, string extensions)
     {
         try
         {
             _logger.LogDebug("收到KCP握手包: ClientId={ClientId}, Conv={Conv}, RemoteEndpoint={RemoteEndpoint}",
                 clientId, conv, clientEp);
+
+            if (!TransportWireNegotiator.TryAcceptServerOffer(
+                    _options,
+                    extensions,
+                    out var responseExtensions,
+                    out var wireSession,
+                    out var reason))
+            {
+                var rejection = KcpWireHandshake.CreateResponse(conv, false, reason, null);
+                SendHandshakeConfirmation(clientEp, rejection);
+                _logger.LogWarning(
+                    "拒绝 KCP wire v3 能力协商: ClientId={ClientId}, Conv={Conv}, Reason={Reason}",
+                    clientId,
+                    conv,
+                    reason);
+                return;
+            }
 
             if (_conversationOwners.TryGetValue(conv, out var existingOwner)
                 && !string.Equals(existingOwner, clientId, StringComparison.Ordinal))
@@ -731,7 +819,16 @@ public class KcpServerListener : IServerListener
             }
 
             // 创建新连接
-            var connection = new KcpServerTransport(clientId, _socket, clientEp, conv, _options, _logger);
+            var confirmation = KcpWireHandshake.CreateResponse(conv, true, null, responseExtensions);
+            var connection = new KcpServerTransport(
+                clientId,
+                _socket,
+                clientEp,
+                conv,
+                wireSession!,
+                confirmation,
+                _options,
+                _logger);
 
             if (_connections.TryAdd(clientId, connection))
             {
@@ -744,7 +841,7 @@ public class KcpServerListener : IServerListener
                 // 发送握手确认包
                 try
                 {
-                    SendHandshakeConfirmation(clientEp, conv);
+                    SendHandshakeConfirmation(clientEp, confirmation);
 
                     // 触发连接接受事件
                     ConnectionAccepted?.Invoke(this, new ServerConnectionEventArgs(connection));
@@ -774,17 +871,13 @@ public class KcpServerListener : IServerListener
         }
     }
 
-    private void SendHandshakeConfirmation(IPEndPoint clientEndpoint, uint conversationId)
+    private void SendHandshakeConfirmation(IPEndPoint clientEndpoint, byte[] confirmation)
     {
-        var confirmation = new byte[sizeof(uint) + sizeof(byte)];
-        BitConverter.GetBytes(conversationId).CopyTo(confirmation, 0);
-        confirmation[sizeof(uint)] = ProtocolConstants.CurrentProtocolVersion;
         var sentBytes = _socket.SendTo(confirmation, clientEndpoint);
         _logger.LogDebug(
-            "已发送KCP wire v{Version}握手确认: Remote={RemoteEndpoint}, Conv={Conv}, Bytes={Bytes}",
+            "已发送KCP wire v{Version}握手确认: Remote={RemoteEndpoint}, Bytes={Bytes}",
             ProtocolConstants.CurrentProtocolVersion,
             clientEndpoint,
-            conversationId,
             sentBytes);
     }
 

@@ -47,7 +47,7 @@ public sealed class KcpServerTransportTests
     }
 
     [Fact]
-    public async Task Listener_RejectsLegacyHandshakeAndAcceptsWireV2Handshake()
+    public async Task Listener_RejectsLegacyHandshakeAndAcceptsWireV3Handshake()
     {
         using var listener = new KcpServerListener(0);
         var accepted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -64,18 +64,19 @@ public sealed class KcpServerTransportTests
         await Task.Delay(150);
         Assert.False(accepted.Task.IsCompleted);
 
-        var handshake = new byte[sizeof(uint) + sizeof(byte)];
-        BitConverter.GetBytes(ConversationId).CopyTo(handshake, 0);
-        handshake[sizeof(uint)] = ProtocolConstants.CurrentProtocolVersion;
+        var handshake = CreateHandshake(ConversationId);
         client.SendTo(handshake, serverEndpoint);
 
         await accepted.Task.WaitAsync(TimeSpan.FromSeconds(3));
         Assert.True(client.Poll(1_000_000, SelectMode.SelectRead));
-        var response = new byte[64];
+        var response = new byte[256];
         EndPoint sender = new IPEndPoint(IPAddress.Any, 0);
         var responseSize = client.ReceiveFrom(response, ref sender);
-        Assert.Equal(handshake.Length, responseSize);
-        Assert.Equal(handshake, response[..responseSize]);
+        Assert.True(responseSize > handshake.Length);
+        Assert.Equal(ConversationId, BitConverter.ToUInt32(response, 0));
+        Assert.Equal(ProtocolConstants.CurrentProtocolVersion, response[4]);
+        Assert.Equal(2, response[5]);
+        Assert.Equal(1, response[6]);
     }
 
     [Fact]
@@ -125,9 +126,13 @@ public sealed class KcpServerTransportTests
 
     private static byte[] CreateHandshake(uint conversationId)
     {
-        var handshake = new byte[sizeof(uint) + sizeof(byte)];
+        var extensions = System.Text.Encoding.UTF8.GetBytes("prpc-wire-v3|0|1024|0|");
+        var handshake = new byte[8 + extensions.Length];
         BitConverter.GetBytes(conversationId).CopyTo(handshake, 0);
-        handshake[sizeof(uint)] = ProtocolConstants.CurrentProtocolVersion;
+        handshake[4] = ProtocolConstants.CurrentProtocolVersion;
+        handshake[5] = 1;
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(handshake.AsSpan(6, 2), (ushort)extensions.Length);
+        extensions.CopyTo(handshake, 8);
         return handshake;
     }
 
@@ -182,7 +187,9 @@ public sealed class KcpServerTransportTests
 
         public void Send(byte[] payload)
         {
-            Assert.Equal(0, _sender.Send(payload));
+            var wirePayload = new byte[payload.Length + 1];
+            payload.CopyTo(wirePayload, 1);
+            Assert.Equal(0, _sender.Send(wirePayload));
             _sender.Update(0);
         }
 

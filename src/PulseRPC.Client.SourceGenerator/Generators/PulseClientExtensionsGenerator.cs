@@ -104,7 +104,7 @@ public static class PulseClientExtensionsGenerator
             sb.AppendLine($"            if (typeof({fullTypeName}).IsAssignableFrom(serviceType))");
             sb.AppendLine("            {");
             sb.AppendLine($"                // 通过连接管理器路由到最佳连接");
-            sb.AppendLine($"                var channel = await client.Connections.RouteAsync(\"{interfaceName}\", cancellationToken);");
+            sb.AppendLine($"                var channel = await client.Connections.RouteWithOptionsAsync(\"{interfaceName}\", options, cancellationToken);");
             sb.AppendLine("                if (channel == null)");
             sb.AppendLine("                {");
             sb.AppendLine($"                    throw new InvalidOperationException($\"无法找到 {interfaceName} 服务的可用连接\");");

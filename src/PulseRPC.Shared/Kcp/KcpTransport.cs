@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Shared.Security;
 
 namespace PulseRPC.Shared.Kcp;
 
@@ -27,6 +28,8 @@ public abstract class KcpTransport : ITransport
     protected IPEndPoint? _localEndpoint;
     protected Task? _updateTask;
     protected bool _disposed;
+    private TransportWireOffer _wireOffer;
+    private TransportWireSession? _wireSession;
 
     // KCP时间戳管理
     protected readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
@@ -45,12 +48,7 @@ public abstract class KcpTransport : ITransport
     public KcpTransport(KcpTransportOptions? options = null, ILogger? logger = null)
     {
         _options = options ?? new KcpTransportOptions();
-#pragma warning disable CS0618
-        if (_options.UseCompression || _options.UseEncryption)
-        {
-            throw new NotSupportedException("KCP wire compression/encryption 尚未实现，不能启用对应传输选项。");
-        }
-#pragma warning restore CS0618
+        TransportWireNegotiator.ValidateOptions(_options);
         _logger = logger ?? NullLogger.Instance;
 
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
@@ -92,8 +90,14 @@ public abstract class KcpTransport : ITransport
             await _sendLock.WaitAsync(linkedCts.Token);
             lockTaken = true;
 
-            // 直接发送数据到KCP
-            var result = _kcp.Send(data.Span);
+            var payload = _wireSession?.Encode(data.Span)
+                ?? new TransportWirePayload(data.ToArray(), 0);
+            var wireData = new byte[payload.Data.Length + 1];
+            wireData[0] = payload.Flags;
+            payload.Data.CopyTo(wireData, 1);
+
+            // wire v3 的 KCP 消息首字节固定携带帧标志。
+            var result = _kcp.Send(wireData);
 
             // 立即更新KCP状态以确保数据及时发送
             if (result == 0)
@@ -298,11 +302,14 @@ public abstract class KcpTransport : ITransport
                 if (messageSize <= 0)
                     break;
 
-                if (messageSize > _options.MaxPacketSize)
+                var maxWirePacketSize = _wireSession?.HasTransforms == true
+                    ? checked(_options.MaxPacketSize + TransportWireSession.MaxEnvelopeOverhead + 1)
+                    : checked(_options.MaxPacketSize + 1);
+                if (messageSize > maxWirePacketSize)
                 {
                     _logger.LogError(
                         "KCP基类拒绝接收超限消息: Size={Size}, MaxPacketSize={MaxPacketSize}",
-                        messageSize, _options.MaxPacketSize);
+                        messageSize, maxWirePacketSize);
                     ChangeState(ConnectionState.Failed,
                         $"接收消息大小 {messageSize} 超过限制 {_options.MaxPacketSize}");
                     break;
@@ -313,13 +320,49 @@ public abstract class KcpTransport : ITransport
                 if (size <= 0)
                     break;
 
-                DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData, size));
+                if (size < 2)
+                    throw new InvalidDataException("KCP wire v3 业务帧过短。");
+                var flags = receivedData[0];
+                if ((flags & ~(TransportWireSession.CompressedFlag | TransportWireSession.EncryptedFlag)) != 0)
+                    throw new InvalidDataException($"KCP wire v3 未知帧标志 0x{flags:X2}。");
+                if (_wireSession == null && flags != 0)
+                    throw new InvalidDataException("KCP 未协商 wire 变换却收到变换帧。");
+                var decoded = _wireSession?.Decode(receivedData.AsSpan(1, size - 1), flags)
+                    ?? receivedData.AsSpan(1, size - 1).ToArray();
+                DataReceived?.Invoke(this, new TransportDataEventArgs(decoded));
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "KCP基类处理接收数据异常");
+            ChangeState(ConnectionState.Failed, "KCP wire 帧验证失败", ex);
         }
+    }
+
+    internal byte[] CreateWireHandshakePacket()
+    {
+        _wireOffer = TransportWireNegotiator.CreateClientOffer(_options);
+        return KcpWireHandshake.CreateRequest(
+            _options.ConversationId,
+            TransportWireNegotiator.SerializeOffer(_wireOffer));
+    }
+
+    internal bool TryCompleteWireHandshake(string extensions, out string? reason)
+    {
+        var accepted = TransportWireNegotiator.TryCompleteClient(
+            _options, _wireOffer, extensions, out var session, out reason);
+        if (accepted)
+        {
+            _wireSession?.Dispose();
+            _wireSession = session;
+        }
+        return accepted;
+    }
+
+    internal void ResetWireHandshake()
+    {
+        _wireSession?.Dispose();
+        _wireSession = null;
     }
 
     /// <summary>
@@ -422,6 +465,7 @@ public abstract class KcpTransport : ITransport
             }
 
             _logger.LogDebug("KCP传输资源已释放");
+            _wireSession?.Dispose();
         }
         catch (Exception ex)
         {

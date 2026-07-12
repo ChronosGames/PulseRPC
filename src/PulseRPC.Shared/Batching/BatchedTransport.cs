@@ -2,6 +2,7 @@
 using System.Net;
 using System.Threading.Channels;
 using PulseRPC.Shared;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Abstractions.Transport.Batching;
 
@@ -28,6 +29,7 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
     private readonly BatchedTransportOptions _options;
     private readonly TransportBackpressureController _backpressureController;
     private readonly TransportMetrics? _metrics;
+    private readonly IRuntimeQueueMetricsRegistration _queueMetrics;
 
     // Channel 和处理
     private readonly Channel<SendRequest> _sendChannel;
@@ -95,6 +97,11 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
         _sendChannel = Channel.CreateBounded<SendRequest>(channelOptions);
         _writer = _sendChannel.Writer;
         _reader = _sendChannel.Reader;
+        _queueMetrics = RuntimeQueueMetrics.Register(
+            "transport.batch.send",
+            _options.TransportId,
+            _options.QueueCapacity,
+            () => _reader.Count);
 
         _pendingRequests = new List<SendRequest>(_options.BatchThreshold);
         _cts = new CancellationTokenSource();
@@ -197,6 +204,7 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
         var queueDepth = _sendChannel.Reader.Count;
         if (_backpressureController.ShouldReject(queueDepth, _options.BackpressureStrategy))
         {
+            _queueMetrics.RecordRejectedEnqueue();
             _metrics?.RecordSendRejected();
 
             if (_options.BackpressureStrategy == TransportBackpressureStrategy.Reject)
@@ -218,10 +226,22 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
         {
             if (_options.BackpressureStrategy == TransportBackpressureStrategy.Block)
             {
-                await _writer.WriteAsync(request, cancellationToken).ConfigureAwait(false);
+                if (!_writer.TryWrite(request))
+                {
+                    _queueMetrics.Observe();
+                    var waitStart = Stopwatch.GetTimestamp();
+                    await _writer.WriteAsync(request, cancellationToken).ConfigureAwait(false);
+                    _queueMetrics.RecordEnqueueWait(TimeSpan.FromSeconds(
+                        (double)(Stopwatch.GetTimestamp() - waitStart) / Stopwatch.Frequency));
+                }
+                else
+                {
+                    _queueMetrics.Observe();
+                }
             }
             else if (!_writer.TryWrite(request))
             {
+                _queueMetrics.RecordRejectedEnqueue();
                 _metrics?.RecordSendRejected();
                 if (_options.BackpressureStrategy == TransportBackpressureStrategy.Reject)
                 {
@@ -232,6 +252,10 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
                 }
 
                 return false;
+            }
+            else
+            {
+                _queueMetrics.Observe();
             }
 
             // 等待发送完成
@@ -265,6 +289,7 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
         {
             await foreach (var request in _reader.ReadAllAsync().ConfigureAwait(false))
             {
+                _queueMetrics.Observe();
                 lock (_batchLock)
                 {
                     _pendingRequests.Add(request);
@@ -427,6 +452,7 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
         {
             _cts.Dispose();
             _metrics?.Dispose();
+            _queueMetrics.Dispose();
         }
     }
 }

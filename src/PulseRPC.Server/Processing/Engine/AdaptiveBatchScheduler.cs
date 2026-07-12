@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server.Processing.Engine;
 
@@ -497,45 +498,25 @@ internal sealed class MovingAverageMetrics
 /// </summary>
 internal sealed class LatencyTracker
 {
-    private readonly Queue<long> _latencies = new();
-    private readonly int _maxSamples = 100;
-    private readonly Lock _lock = new();
+    private readonly LatencyHistogram _histogram = new();
 
     public void RecordLatency(TimeSpan latency)
     {
-        lock (_lock)
-        {
-            if (_latencies.Count >= _maxSamples)
-            {
-                _latencies.Dequeue();
-            }
-            _latencies.Enqueue(latency.Ticks);
-        }
+        _histogram.Record(latency);
     }
 
     public TimeSpan GetAverageLatency()
     {
-        lock (_lock)
-        {
-            if (_latencies.Count == 0) return TimeSpan.Zero;
-
-            var avgTicks = _latencies.Sum() / _latencies.Count;
-            return TimeSpan.FromTicks(avgTicks);
-        }
+        var snapshot = _histogram.GetSnapshot();
+        return snapshot.Count == 0
+            ? TimeSpan.Zero
+            : TimeSpan.FromTicks(snapshot.TotalTicks / snapshot.Count);
     }
 
     public TimeSpan GetPercentileLatency(double percentile)
     {
-        lock (_lock)
-        {
-            if (_latencies.Count == 0) return TimeSpan.Zero;
-
-            var sortedLatencies = _latencies.OrderBy(x => x).ToArray();
-            int index = (int)(sortedLatencies.Length * percentile);
-            if (index >= sortedLatencies.Length) index = sortedLatencies.Length - 1;
-
-            return TimeSpan.FromTicks(sortedLatencies[index]);
-        }
+        return TimeSpan.FromMilliseconds(
+            _histogram.GetSnapshot().GetPercentileMilliseconds(percentile));
     }
 }
 

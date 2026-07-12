@@ -122,24 +122,7 @@ public sealed class DiagnosticEndpoints
         var queueStats = new
         {
             timestamp = DateTime.UtcNow,
-            l1_queue = new
-            {
-                depth = metrics.L1QueueDepth,
-                capacity = (long?)null,
-                saturation = (double?)null
-            },
-            l2_queue = new
-            {
-                depth = metrics.L2QueueDepth,
-                capacity = (long?)null,
-                saturation = (double?)null
-            },
-            l3_queue = new
-            {
-                depth = metrics.L3QueueDepth,
-                capacity = (long?)null,
-                saturation = (double?)null
-            }
+            queues = metrics.Queues
         };
 
         if (_getQueueStats != null)

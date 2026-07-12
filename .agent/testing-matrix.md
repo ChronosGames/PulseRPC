@@ -22,6 +22,8 @@ dotnet build PulseRPC.sln
 | --- | --- |
 | 文档结构/链接 | 链接搜索 + `dotnet build PulseRPC.sln` |
 | 公共 API | build + Client.Tests + Server.Tests + PublicAPI 检查 |
+| 包边界 analyzer | SourceGenerator.Tests + Abstractions/Shared build + pack |
+| 客户端负载均衡 | Client.Tests + SourceGenerator.Tests + Client PublicAPI 检查 |
 | 生成器 | SourceGenerator.Tests + 相关运行时测试 |
 | 协议号 | SourceGenerator.Tests + Server.Tests |
 | TCP/KCP | Client.Tests + Server.Tests + BenchmarkApp smoke |

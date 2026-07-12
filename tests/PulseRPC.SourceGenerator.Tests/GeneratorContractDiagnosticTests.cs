@@ -195,6 +195,37 @@ public class GeneratorContractDiagnosticTests
             .Should().BeEmpty("服务端 Receiver 重载代理必须真实编译");
     }
 
+    [Fact]
+    public void ServiceFactoryMustForwardLoadBalancingOptionsToContextualRouting()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using PulseRPC;
+
+            namespace ContextualRoutingContract;
+
+            [Channel("TestServer")]
+            public interface IContextualHub : IPulseHub
+            {
+                Task<string> EchoAsync(string value);
+            }
+
+            [PulseClientGeneration(typeof(IContextualHub))]
+            public partial class ClientRegistrar
+            {
+            }
+            """;
+        var compilation = CreateRuntimeAwareCompilation(source, "ContextualRoutingClientCompilation");
+        var result = RunClientGeneratorAndUpdateCompilation(compilation, out var outputCompilation);
+
+        JoinGeneratedText(result).Should().Contain(
+            "RouteWithOptionsAsync(\"IContextualHub\", options, cancellationToken)");
+        outputCompilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("生成的服务工厂必须把 StickyKey 和路由提示传入连接管理器");
+        AssertClientSourcesAreCSharp9(result);
+    }
+
     private static CSharpCompilation CreateRuntimeAwareCompilation(
         string source,
         string assemblyName,

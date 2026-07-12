@@ -44,6 +44,11 @@ public sealed class ClientOptions
     public bool EnableStatistics { get; set; } = true;
 
     /// <summary>
+    /// Strongly typed connection load-balancing settings.
+    /// </summary>
+    public ConnectionLoadBalancingOptions LoadBalancing { get; set; } = new();
+
+    /// <summary>
     /// 自动清理间隔（高级选项，一般无需修改）
     /// </summary>
     public TimeSpan AutoCleanupInterval { get; set; } = TimeSpan.FromMinutes(5);

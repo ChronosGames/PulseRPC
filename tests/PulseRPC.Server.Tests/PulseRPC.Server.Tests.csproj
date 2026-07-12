@@ -33,6 +33,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\PulseRPC.Server\PulseRPC.Server.csproj" />
+    <ProjectReference Include="..\..\src\PulseRPC.Client\PulseRPC.Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -38,13 +38,13 @@ const PulseRPC.RoleTypes.External = "External" -> string!
 const PulseRPC.RoleTypes.GM = "GM" -> string!
 const PulseRPC.RoleTypes.Internal = "Internal" -> string!
 const PulseRPC.RoleTypes.System = "System" -> string!
-const PulseRPC.Shared.ProtocolConstants.CurrentProtocolVersion = 2 -> byte
+const PulseRPC.Shared.ProtocolConstants.CurrentProtocolVersion = 3 -> byte
 const PulseRPC.Shared.ProtocolConstants.HandshakeMessageId = 65535 -> ushort
 const PulseRPC.Shared.ProtocolConstants.HandshakeRequestFlag = 32768 -> ushort
 const PulseRPC.Shared.ProtocolConstants.HandshakeResponseFlag = 32769 -> ushort
 const PulseRPC.Shared.ProtocolConstants.HandshakeTimeoutMs = 5000 -> int
 const PulseRPC.Shared.ProtocolConstants.MessageHeaderWireVersion = 2 -> byte
-const PulseRPC.Shared.ProtocolConstants.MinSupportedProtocolVersion = 2 -> byte
+const PulseRPC.Shared.ProtocolConstants.MinSupportedProtocolVersion = 3 -> byte
 const PulseRPC.Shared.ProtocolConstants.ProtocolMagic = 20562 -> ushort
 override PulseRPC.Client.ConnectionDescriptor.ToString() -> string!
 override PulseRPC.Client.EndpointAddress.Equals(object? obj) -> bool

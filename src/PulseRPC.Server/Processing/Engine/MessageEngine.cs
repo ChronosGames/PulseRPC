@@ -18,6 +18,7 @@ using PulseRPC.Server.Processing.Serialization;
 using PulseRPC.Server.Security;
 using PulseRPC.Server.Transport;
 using PulseRPC.Shared;
+using PulseRPC.Diagnostics;
 using MessageStatus = PulseRPC.Server.Processing.Memory.MessageStatus;
 using MessageParsedEventArgs = PulseRPC.Server.Transport.MessageParsedEventArgs;
 using MessageProcessedEventArgs = PulseRPC.Server.Processing.Engine.MessageProcessedEventArgs;
@@ -792,6 +793,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
             ? 0
             : processorStatuses.Average(status => status.L1BufferUtilization);
         _metrics.SetCurrentL1Utilization(l1BufferUtilization);
+        var latency = _metrics.GetLatencySnapshot();
 
         return new EngineStatistics
         {
@@ -809,8 +811,12 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
 
             // 性能指标
             CurrentThroughput = _metrics.GetCurrentThroughput(),
-            AverageLatencyMs = _metrics.GetAverageLatencyMs(),
-            P99LatencyMs = _metrics.GetP99LatencyMs(),
+            AverageLatencyMs = latency.AverageMilliseconds,
+            P50LatencyMs = latency.GetPercentileMilliseconds(0.50),
+            P95LatencyMs = latency.GetPercentileMilliseconds(0.95),
+            P99LatencyMs = latency.GetPercentileMilliseconds(0.99),
+            MaxLatencyMs = TimeSpan.FromTicks(latency.MaxTicks).TotalMilliseconds,
+            LatencySampleCount = latency.Count,
 
             // 连接统计
             ActiveConnections = _tieredProcessors.Count,
@@ -1059,7 +1065,11 @@ public class EngineStatistics
     // 性能指标
     public double CurrentThroughput { get; set; }
     public double AverageLatencyMs { get; set; }
+    public double P50LatencyMs { get; set; }
+    public double P95LatencyMs { get; set; }
     public double P99LatencyMs { get; set; }
+    public double MaxLatencyMs { get; set; }
+    public long LatencySampleCount { get; set; }
 
     // 连接统计
     public int ActiveConnections { get; set; }
@@ -1073,13 +1083,9 @@ public class EngineStatistics
 /// </summary>
 public class EngineMetrics
 {
-    private const int LatencySampleCapacity = 1024;
-    private readonly object _latencyLock = new();
-    private readonly double[] _latencySamples = new double[LatencySampleCapacity];
+    private readonly LatencyHistogram _latencyHistogram = new();
     private long _enqueueLatencyTicks;
     private long _enqueueLatencySamples;
-    private int _latencySampleCount;
-    private int _nextLatencySample;
     private double _currentL1Utilization;
 
     public DateTime EngineStartTime { get; set; } = DateTime.UtcNow;
@@ -1116,42 +1122,25 @@ public class EngineMetrics
     }
 
     public double GetAverageLatencyMs()
-    {
-        lock (_latencyLock)
-        {
-            if (_latencySampleCount == 0)
-            {
-                return 0;
-            }
+        => GetLatencySnapshot().AverageMilliseconds;
 
-            double total = 0;
-            for (var index = 0; index < _latencySampleCount; index++)
-            {
-                total += _latencySamples[index];
-            }
+    public double GetP50LatencyMs()
+        => GetLatencySnapshot().GetPercentileMilliseconds(0.50);
 
-            return total / _latencySampleCount;
-        }
-    }
+    public double GetP95LatencyMs()
+        => GetLatencySnapshot().GetPercentileMilliseconds(0.95);
 
     public double GetP99LatencyMs()
-    {
-        lock (_latencyLock)
-        {
-            if (_latencySampleCount == 0)
-            {
-                return 0;
-            }
+        => GetLatencySnapshot().GetPercentileMilliseconds(0.99);
 
-            var snapshot = new double[_latencySampleCount];
-            Array.Copy(_latencySamples, snapshot, _latencySampleCount);
-            Array.Sort(snapshot);
-            var percentileIndex = Math.Min(
-                snapshot.Length - 1,
-                (int)Math.Ceiling(snapshot.Length * 0.99) - 1);
-            return snapshot[percentileIndex];
-        }
-    }
+    public double GetMaxLatencyMs()
+        => TimeSpan.FromTicks(GetLatencySnapshot().MaxTicks).TotalMilliseconds;
+
+    public long GetLatencySampleCount()
+        => GetLatencySnapshot().Count;
+
+    internal LatencyHistogramSnapshot GetLatencySnapshot()
+        => _latencyHistogram.GetSnapshot();
 
     public void RecordEnqueueLatency(long ticks)
     {
@@ -1171,15 +1160,7 @@ public class EngineMetrics
             throw new ArgumentOutOfRangeException(nameof(time));
         }
 
-        lock (_latencyLock)
-        {
-            _latencySamples[_nextLatencySample] = time.TotalMilliseconds;
-            _nextLatencySample = (_nextLatencySample + 1) % LatencySampleCapacity;
-            if (_latencySampleCount < LatencySampleCapacity)
-            {
-                _latencySampleCount++;
-            }
-        }
+        _latencyHistogram.Record(time);
     }
 
     internal void SetCurrentL1Utilization(double utilization)

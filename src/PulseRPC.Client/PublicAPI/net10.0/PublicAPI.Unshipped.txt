@@ -1,1 +1,25 @@
 #nullable enable
+PulseRPC.Client.Configuration.ClientOptions.LoadBalancing.get -> PulseRPC.Client.Configuration.ConnectionLoadBalancingOptions!
+PulseRPC.Client.Configuration.ClientOptions.LoadBalancing.set -> void
+PulseRPC.Client.Configuration.ConnectionLoadBalancingOptions
+PulseRPC.Client.Configuration.ConnectionLoadBalancingOptions.ConnectionLoadBalancingOptions() -> void
+PulseRPC.Client.Configuration.ConnectionLoadBalancingOptions.ConsistentHashVirtualNodes.get -> int
+PulseRPC.Client.Configuration.ConnectionLoadBalancingOptions.ConsistentHashVirtualNodes.set -> void
+PulseRPC.Client.Configuration.ConnectionLoadBalancingOptions.WeightProvider.get -> PulseRPC.Client.Configuration.IConnectionWeightProvider?
+PulseRPC.Client.Configuration.ConnectionLoadBalancingOptions.WeightProvider.set -> void
+PulseRPC.Client.Configuration.IConnectionWeightProvider
+PulseRPC.Client.Configuration.IConnectionWeightProvider.GetWeight(PulseRPC.Client.IClientChannel! connection) -> int
+PulseRPC.Client.Configuration.LoadBalancingContext
+PulseRPC.Client.Configuration.LoadBalancingContext.Hint.get -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingContext.LoadBalancingContext() -> void
+PulseRPC.Client.Configuration.LoadBalancingContext.LoadBalancingContext(PulseRPC.Client.Configuration.LoadBalancingHint hint = PulseRPC.Client.Configuration.LoadBalancingHint.None, string? stickyKey = null) -> void
+PulseRPC.Client.Configuration.LoadBalancingContext.StickyKey.get -> string?
+PulseRPC.Client.Configuration.ServiceProxyOptions.StickyKey.get -> string?
+PulseRPC.Client.Configuration.ServiceProxyOptions.StickyKey.set -> void
+PulseRPC.Client.ConnectionManager.RouteAsync(string! serviceName, PulseRPC.Client.Configuration.LoadBalancingContext context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel?>!
+PulseRPC.Client.ConnectionRoutingExtensions
+PulseRPC.Client.IContextualConnectionManager
+PulseRPC.Client.IContextualConnectionManager.RouteAsync(string! serviceName, PulseRPC.Client.Configuration.LoadBalancingContext context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel?>!
+PulseRPC.Client.IContextualLoadBalancer
+PulseRPC.Client.IContextualLoadBalancer.SelectConnection(System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>! connections, PulseRPC.Client.Configuration.LoadBalancingContext context) -> PulseRPC.Client.IClientChannel?
+static PulseRPC.Client.ConnectionRoutingExtensions.RouteWithOptionsAsync(this PulseRPC.Client.IConnectionManager! connectionManager, string! serviceName, PulseRPC.Client.Configuration.ServiceProxyOptions? options = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel?>!

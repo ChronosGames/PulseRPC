@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using PulseRPC.Client.Transport;
@@ -11,7 +12,6 @@ namespace PulseRPC.Client.Tests;
 public sealed class KcpClientTransportTests
 {
     private const uint ConversationId = 0x10203040;
-    private const int HandshakeSize = sizeof(uint) + sizeof(byte);
 
     [Theory]
     [InlineData(64)]
@@ -67,7 +67,7 @@ public sealed class KcpClientTransportTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var serverTask = Task.Run(async () =>
         {
-            var buffer = new byte[64];
+            var buffer = new byte[1024];
             var received = await serverSocket.ReceiveFromAsync(
                 buffer,
                 SocketFlags.None,
@@ -75,7 +75,7 @@ public sealed class KcpClientTransportTests
                 cts.Token);
             await Task.Delay(250, cts.Token);
             await serverSocket.SendToAsync(
-                CreateHandshake(ConversationId),
+                CreateHandshakeResponse(buffer.AsSpan(0, received.ReceivedBytes)),
                 SocketFlags.None,
                 received.RemoteEndPoint,
                 cts.Token);
@@ -151,7 +151,7 @@ public sealed class KcpClientTransportTests
         var clientPorts = new List<int>();
         var serverTask = Task.Run(async () =>
         {
-            var buffer = new byte[64];
+            var buffer = new byte[1024];
             for (var attempt = 0; attempt < 2; attempt++)
             {
                 var received = await serverSocket.ReceiveFromAsync(
@@ -163,7 +163,7 @@ public sealed class KcpClientTransportTests
                 if (attempt == 1)
                 {
                     await serverSocket.SendToAsync(
-                        CreateHandshake(ConversationId),
+                        CreateHandshakeResponse(buffer.AsSpan(0, received.ReceivedBytes)),
                         SocketFlags.None,
                         received.RemoteEndPoint,
                         cts.Token);
@@ -204,7 +204,7 @@ public sealed class KcpClientTransportTests
 
     private static async Task RunServerAsync(Socket socket, byte[] payload, CancellationToken cancellationToken)
     {
-        var handshakeBuffer = new byte[64];
+        var handshakeBuffer = new byte[1024];
         EndPoint anyEndpoint = new IPEndPoint(IPAddress.Any, 0);
         var handshake = await socket.ReceiveFromAsync(
             handshakeBuffer,
@@ -212,13 +212,13 @@ public sealed class KcpClientTransportTests
             anyEndpoint,
             cancellationToken);
 
-        Assert.Equal(HandshakeSize, handshake.ReceivedBytes);
+        Assert.True(handshake.ReceivedBytes > sizeof(uint) + sizeof(byte));
         Assert.Equal(ConversationId, BitConverter.ToUInt32(handshakeBuffer, 0));
         Assert.Equal(ProtocolConstants.CurrentProtocolVersion, handshakeBuffer[sizeof(uint)]);
 
         var remoteEndpoint = handshake.RemoteEndPoint;
         await socket.SendToAsync(
-            CreateHandshake(ConversationId),
+            CreateHandshakeResponse(handshakeBuffer.AsSpan(0, handshake.ReceivedBytes)),
             SocketFlags.None,
             remoteEndpoint,
             cancellationToken);
@@ -229,7 +229,9 @@ public sealed class KcpClientTransportTests
         Assert.Equal(0, sender.NoDelay(1, 5, 2, true));
         Assert.Equal(0, sender.SetWindowSize(32, 128));
         Assert.Equal(0, sender.SetMtu(1400));
-        Assert.Equal(0, sender.Send(payload));
+        var wirePayload = new byte[payload.Length + 1];
+        payload.CopyTo(wirePayload, 1);
+        Assert.Equal(0, sender.Send(wirePayload));
 
         var stopwatch = Stopwatch.StartNew();
         while (!cancellationToken.IsCancellationRequested)
@@ -252,31 +254,42 @@ public sealed class KcpClientTransportTests
         TimeSpan delay,
         CancellationToken cancellationToken)
     {
-        var buffer = new byte[64];
+        var buffer = new byte[1024];
         var received = await socket.ReceiveFromAsync(
             buffer,
             SocketFlags.None,
             new IPEndPoint(IPAddress.Any, 0),
             cancellationToken);
-        Assert.Equal(HandshakeSize, received.ReceivedBytes);
+        Assert.True(received.ReceivedBytes > sizeof(uint) + sizeof(byte));
         if (delay > TimeSpan.Zero)
         {
             await Task.Delay(delay, cancellationToken);
         }
 
         await socket.SendToAsync(
-            CreateHandshake(ConversationId),
+            CreateHandshakeResponse(buffer.AsSpan(0, received.ReceivedBytes)),
             SocketFlags.None,
             received.RemoteEndPoint,
             cancellationToken);
     }
 
-    private static byte[] CreateHandshake(uint conversationId)
+    private static byte[] CreateHandshakeResponse(ReadOnlySpan<byte> request)
     {
-        var handshake = new byte[HandshakeSize];
-        BitConverter.GetBytes(conversationId).CopyTo(handshake, 0);
-        handshake[sizeof(uint)] = ProtocolConstants.CurrentProtocolVersion;
-        return handshake;
+        Assert.Equal(ConversationId, BinaryPrimitives.ReadUInt32LittleEndian(request));
+        Assert.Equal(ProtocolConstants.CurrentProtocolVersion, request[4]);
+        Assert.Equal(1, request[5]);
+        var extensionLength = BinaryPrimitives.ReadUInt16LittleEndian(request.Slice(6, 2));
+        Assert.Equal(8 + extensionLength, request.Length);
+
+        var response = new byte[11 + extensionLength];
+        BinaryPrimitives.WriteUInt32LittleEndian(response, ConversationId);
+        response[4] = ProtocolConstants.CurrentProtocolVersion;
+        response[5] = 2;
+        response[6] = 1;
+        BinaryPrimitives.WriteUInt16LittleEndian(response.AsSpan(7, 2), 0);
+        BinaryPrimitives.WriteUInt16LittleEndian(response.AsSpan(9, 2), extensionLength);
+        request.Slice(8, extensionLength).CopyTo(response.AsSpan(11));
+        return response;
     }
 
     private static byte[] CreatePayload(int length)

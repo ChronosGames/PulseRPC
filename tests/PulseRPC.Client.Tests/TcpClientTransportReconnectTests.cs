@@ -68,10 +68,13 @@ public sealed class TcpClientTransportReconnectTests
         Assert.Equal(ProtocolConstants.ProtocolMagic, BinaryPrimitives.ReadUInt16LittleEndian(requestHeader));
         Assert.Equal(ProtocolConstants.HandshakeMessageId, BinaryPrimitives.ReadUInt16LittleEndian(requestHeader.AsSpan(6, 2)));
         Assert.Equal(ProtocolConstants.HandshakeRequestFlag, BinaryPrimitives.ReadUInt16LittleEndian(requestHeader.AsSpan(8, 2)));
+        var request = HandshakeMessage.FromBytes(requestBody);
 
-        var response = new HandshakeResponse(
+        var response = HandshakeResponse.WithExtensions(
             accepted: true,
-            serverProtocolVersion: ProtocolConstants.CurrentProtocolVersion).ToBytes();
+            serverProtocolVersion: ProtocolConstants.CurrentProtocolVersion,
+            reason: null,
+            extensions: request.Extensions).ToBytes();
         var responseHeader = new byte[FrameHeader.Size];
         BinaryPrimitives.WriteUInt16LittleEndian(responseHeader, ProtocolConstants.ProtocolMagic);
         BinaryPrimitives.WriteInt32LittleEndian(responseHeader.AsSpan(2, 4), response.Length);

@@ -1,2 +1,24 @@
 #nullable enable
+PulseRPC.Server.Extensions.PipelineMetrics.LatencyAverage.get -> double
+PulseRPC.Server.Extensions.PipelineMetrics.LatencyAverage.init -> void
+PulseRPC.Server.Extensions.PipelineMetrics.LatencyCount.get -> long
+PulseRPC.Server.Extensions.PipelineMetrics.LatencyCount.init -> void
+PulseRPC.Server.Extensions.PipelineMetrics.LatencyMax.get -> double
+PulseRPC.Server.Extensions.PipelineMetrics.LatencyMax.init -> void
+PulseRPC.Server.Extensions.PipelineMetrics.LatencyMin.get -> double
+PulseRPC.Server.Extensions.PipelineMetrics.LatencyMin.init -> void
+PulseRPC.Server.Extensions.PipelineMetrics.Queues.get -> System.Collections.Generic.IReadOnlyList<PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot!>!
+PulseRPC.Server.Extensions.PipelineMetrics.Queues.init -> void
+PulseRPC.Server.Processing.Engine.EngineMetrics.GetLatencySampleCount() -> long
+PulseRPC.Server.Processing.Engine.EngineMetrics.GetMaxLatencyMs() -> double
+PulseRPC.Server.Processing.Engine.EngineMetrics.GetP50LatencyMs() -> double
+PulseRPC.Server.Processing.Engine.EngineMetrics.GetP95LatencyMs() -> double
+PulseRPC.Server.Processing.Engine.EngineStatistics.LatencySampleCount.get -> long
+PulseRPC.Server.Processing.Engine.EngineStatistics.LatencySampleCount.set -> void
+PulseRPC.Server.Processing.Engine.EngineStatistics.MaxLatencyMs.get -> double
+PulseRPC.Server.Processing.Engine.EngineStatistics.MaxLatencyMs.set -> void
+PulseRPC.Server.Processing.Engine.EngineStatistics.P50LatencyMs.get -> double
+PulseRPC.Server.Processing.Engine.EngineStatistics.P50LatencyMs.set -> void
+PulseRPC.Server.Processing.Engine.EngineStatistics.P95LatencyMs.get -> double
+PulseRPC.Server.Processing.Engine.EngineStatistics.P95LatencyMs.set -> void
 override PulseRPC.Server.Transport.TcpServerTransport.Dispose() -> void

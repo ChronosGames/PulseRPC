@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server.Extensions;
 
@@ -17,7 +18,7 @@ public sealed class PipelineMetricsCollector
     private long _activeConnections;
 
     // Latency tracking (lock-free histogram)
-    private readonly ConcurrentDictionary<int, long> _latencyBuckets = new();
+    private readonly LatencyHistogram _latencyHistogram = new();
 
     // Queue depth tracking
     private long _l1QueueDepth;
@@ -51,8 +52,9 @@ public sealed class PipelineMetricsCollector
         if (isTimeout)
             Interlocked.Increment(ref _totalTimeouts);
 
-        // Record latency in histogram buckets
-        RecordLatency(durationMs);
+        if (durationMs < 0 || double.IsNaN(durationMs) || double.IsInfinity(durationMs))
+            throw new ArgumentOutOfRangeException(nameof(durationMs));
+        _latencyHistogram.Record(TimeSpan.FromMilliseconds(durationMs));
     }
 
     /// <summary>
@@ -103,6 +105,7 @@ public sealed class PipelineMetricsCollector
             }
         }
 
+        var latency = _latencyHistogram.GetSnapshot();
         return new PipelineMetrics
         {
             TotalRequests = totalRequests,
@@ -112,13 +115,18 @@ public sealed class PipelineMetricsCollector
             ActiveConnections = activeConnections,
             RequestsPerSecond = requestsPerSecond,
             ErrorRate = totalRequests > 0 ? (double)totalErrors / totalRequests : 0,
-            LatencyP50 = CalculatePercentile(0.50),
-            LatencyP75 = CalculatePercentile(0.75),
-            LatencyP95 = CalculatePercentile(0.95),
-            LatencyP99 = CalculatePercentile(0.99),
+            LatencyCount = latency.Count,
+            LatencyAverage = latency.AverageMilliseconds,
+            LatencyMin = TimeSpan.FromTicks(latency.MinTicks).TotalMilliseconds,
+            LatencyMax = TimeSpan.FromTicks(latency.MaxTicks).TotalMilliseconds,
+            LatencyP50 = latency.GetPercentileMilliseconds(0.50),
+            LatencyP75 = latency.GetPercentileMilliseconds(0.75),
+            LatencyP95 = latency.GetPercentileMilliseconds(0.95),
+            LatencyP99 = latency.GetPercentileMilliseconds(0.99),
             L1QueueDepth = Interlocked.Read(ref _l1QueueDepth),
             L2QueueDepth = Interlocked.Read(ref _l2QueueDepth),
             L3QueueDepth = Interlocked.Read(ref _l3QueueDepth),
+            Queues = RuntimeQueueMetrics.GetSnapshots(),
             CpuUsagePercent = GetCpuUsage(),
             MemoryUsageMB = GetMemoryUsage()
         };
@@ -160,47 +168,37 @@ public sealed class PipelineMetricsCollector
         sb.AppendLine("# TYPE pulserpc_latency_p99_ms gauge");
         sb.AppendLine($"pulserpc_latency_p99_ms {metrics.LatencyP99:F2}");
 
-        return sb.ToString();
-    }
-
-    private void RecordLatency(double durationMs)
-    {
-        // Use logarithmic buckets: 0-1ms, 1-2ms, 2-5ms, 5-10ms, 10-20ms, 20-50ms, 50-100ms, 100+ms
-        int bucket = durationMs switch
+        var histogram = _latencyHistogram.GetSnapshot();
+        sb.AppendLine("# HELP pulserpc_latency_ms RPC latency histogram");
+        sb.AppendLine("# TYPE pulserpc_latency_ms histogram");
+        long cumulative = 0;
+        for (var index = 0; index < histogram.BucketCounts.Length; index++)
         {
-            < 1 => 0,
-            < 2 => 1,
-            < 5 => 2,
-            < 10 => 5,
-            < 20 => 10,
-            < 50 => 20,
-            < 100 => 50,
-            _ => 100
-        };
+            if (histogram.UpperBoundsTicks[index] == long.MaxValue)
+                break;
+            cumulative += histogram.BucketCounts[index];
+            var upperMs = TimeSpan.FromTicks(histogram.UpperBoundsTicks[index]).TotalMilliseconds;
+            sb.AppendLine($"pulserpc_latency_ms_bucket{{le=\"{upperMs:R}\"}} {cumulative}");
+        }
+        sb.AppendLine($"pulserpc_latency_ms_bucket{{le=\"+Inf\"}} {histogram.Count}");
+        sb.AppendLine($"pulserpc_latency_ms_sum {TimeSpan.FromTicks(histogram.TotalTicks).TotalMilliseconds:R}");
+        sb.AppendLine($"pulserpc_latency_ms_count {histogram.Count}");
 
-        _latencyBuckets.AddOrUpdate(bucket, 1, (_, count) => count + 1);
-    }
-
-    private double CalculatePercentile(double percentile)
-    {
-        // Simplified percentile calculation from histogram
-        // For production, consider using HdrHistogram library
-        var totalCount = _latencyBuckets.Values.Sum();
-        if (totalCount == 0) return 0;
-
-        var targetCount = (long)(totalCount * percentile);
-        long runningCount = 0;
-
-        foreach (var bucket in _latencyBuckets.OrderBy(kvp => kvp.Key))
+        foreach (var queue in metrics.Queues)
         {
-            runningCount += bucket.Value;
-            if (runningCount >= targetCount)
-            {
-                return bucket.Key;
-            }
+            var name = queue.QueueName.Replace("\\", "\\\\").Replace("\"", "\\\"");
+            var instance = queue.InstanceId.Replace("\\", "\\\\").Replace("\"", "\\\"");
+            var labels = $"queue=\"{name}\",instance=\"{instance}\"";
+            sb.AppendLine($"pulserpc_queue_capacity{{{labels}}} {queue.Capacity}");
+            sb.AppendLine($"pulserpc_queue_depth{{{labels}}} {queue.Depth}");
+            sb.AppendLine($"pulserpc_queue_saturation{{{labels}}} {queue.Saturation:R}");
+            sb.AppendLine($"pulserpc_queue_high_watermark{{{labels}}} {queue.HighWatermark}");
+            sb.AppendLine($"pulserpc_queue_saturation_events_total{{{labels}}} {queue.SaturationEvents}");
+            sb.AppendLine($"pulserpc_queue_enqueue_wait_total{{{labels}}} {queue.EnqueueWaitCount}");
+            sb.AppendLine($"pulserpc_queue_rejected_total{{{labels}}} {queue.RejectedEnqueues}");
         }
 
-        return 100; // Max bucket
+        return sb.ToString();
     }
 
     private double GetCpuUsage()
@@ -241,7 +239,7 @@ public sealed class PipelineMetricsCollector
         Interlocked.Exchange(ref _totalTimeouts, 0);
         Interlocked.Exchange(ref _activeRequests, 0);
         Interlocked.Exchange(ref _activeConnections, 0);
-        _latencyBuckets.Clear();
+        _latencyHistogram.Reset();
         _lastRequestCount = 0;
         _lastResetTime = DateTime.UtcNow;
     }
@@ -259,6 +257,10 @@ public sealed class PipelineMetrics
     public long ActiveConnections { get; init; }
     public double RequestsPerSecond { get; init; }
     public double ErrorRate { get; init; }
+    public long LatencyCount { get; init; }
+    public double LatencyAverage { get; init; }
+    public double LatencyMin { get; init; }
+    public double LatencyMax { get; init; }
     public double LatencyP50 { get; init; }
     public double LatencyP75 { get; init; }
     public double LatencyP95 { get; init; }
@@ -266,6 +268,7 @@ public sealed class PipelineMetrics
     public long L1QueueDepth { get; init; }
     public long L2QueueDepth { get; init; }
     public long L3QueueDepth { get; init; }
+    public IReadOnlyList<RuntimeQueueMetricsSnapshot> Queues { get; init; } = Array.Empty<RuntimeQueueMetricsSnapshot>();
     public double CpuUsagePercent { get; init; }
     public long MemoryUsageMB { get; init; }
 }

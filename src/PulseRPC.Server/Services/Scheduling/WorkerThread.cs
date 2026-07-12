@@ -1,6 +1,8 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Diagnostics;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server.Services.Scheduling;
 
@@ -12,6 +14,7 @@ public sealed class WorkerThread : IAsyncDisposable
     private readonly Channel<WorkItem> _messageChannel;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
+    private readonly IRuntimeQueueMetricsRegistration _queueMetrics;
     private Task? _processingTask;
     private long _processedCount;
     private bool _isDisposed;
@@ -53,6 +56,9 @@ public sealed class WorkerThread : IAsyncDisposable
         {
             FullMode = BoundedChannelFullMode.Wait // Block when full (backpressure)
         });
+        _queueMetrics = RuntimeQueueMetrics.Register(
+            "scheduler.worker", threadId.ToString(), channelCapacity,
+            () => _messageChannel.Reader.Count);
     }
 
     /// <summary>
@@ -79,7 +85,17 @@ public sealed class WorkerThread : IAsyncDisposable
         if (_isDisposed)
             throw new ObjectDisposedException(nameof(WorkerThread));
 
-        await _messageChannel.Writer.WriteAsync(workItem, cancellationToken);
+        if (!_messageChannel.Writer.TryWrite(workItem))
+        {
+            _queueMetrics.Observe();
+            var waitStart = Stopwatch.GetTimestamp();
+            await _messageChannel.Writer.WriteAsync(workItem, cancellationToken);
+            _queueMetrics.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
+        }
+        else
+        {
+            _queueMetrics.Observe();
+        }
     }
 
     /// <summary>
@@ -123,6 +139,7 @@ public sealed class WorkerThread : IAsyncDisposable
         {
             await foreach (var workItem in _messageChannel.Reader.ReadAllAsync(cancellationToken))
             {
+                _queueMetrics.Observe();
                 try
                 {
                     // Execute the work
@@ -163,6 +180,7 @@ public sealed class WorkerThread : IAsyncDisposable
 
         await StopAsync();
         _cts.Dispose();
+        _queueMetrics.Dispose();
         _isDisposed = true;
     }
 }

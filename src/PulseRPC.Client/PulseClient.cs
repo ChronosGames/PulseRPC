@@ -62,7 +62,6 @@ internal sealed class PulseClient : IPulseClient
         ISerializerProvider? serializerProvider = null,
         IAuthenticationProvider? authenticationProvider = null,
         LoadBalancingStrategy loadBalancingStrategy = LoadBalancingStrategy.RoundRobin,
-        IReadOnlyDictionary<string, object>? loadBalancingOptions = null,
         ConnectionPoolOptions? connectionPoolOptions = null,
         RetryPolicy? retryPolicy = null,
         ClientOptions? clientOptions = null)
@@ -79,7 +78,7 @@ internal sealed class PulseClient : IPulseClient
         _statistics.StartTime = _startTime;
 
         // 创建核心组件（简化后只需要 ConnectionManager 和 LoadBalancer）
-        _loadBalancer = CreateLoadBalancer(loadBalancingStrategy, loadBalancingOptions, logger);
+        _loadBalancer = CreateLoadBalancer(loadBalancingStrategy, _clientOptions.LoadBalancing, logger);
         _connectionManager = new ConnectionManager(serializerProvider, logger, _loadBalancer);
 
         _logger.LogInformation("PulseRPC 客户端已创建，初始连接数: {Count}", _initialConnections.Count);
@@ -335,11 +334,13 @@ internal sealed class PulseClient : IPulseClient
     /// </summary>
     private static ILoadBalancer CreateLoadBalancer(
         LoadBalancingStrategy strategy,
-        IReadOnlyDictionary<string, object>? options,
+        ConnectionLoadBalancingOptions options,
         ILoggerFactory loggerFactory)
     {
-        // 创建基于连接的负载均衡器
-        return new ConnectionLoadBalancer(strategy, loggerFactory.CreateLogger<ConnectionLoadBalancer>());
+        return new ConnectionLoadBalancer(
+            strategy,
+            options,
+            loggerFactory.CreateLogger<ConnectionLoadBalancer>());
     }
 
     /// <summary>

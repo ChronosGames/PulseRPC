@@ -1,1 +1,32 @@
 #nullable enable
+PulseRPC.Diagnostics.IRuntimeQueueMetricsRegistration
+PulseRPC.Diagnostics.IRuntimeQueueMetricsRegistration.GetSnapshot() -> PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot!
+PulseRPC.Diagnostics.IRuntimeQueueMetricsRegistration.Observe() -> void
+PulseRPC.Diagnostics.IRuntimeQueueMetricsRegistration.RecordEnqueueWait(System.TimeSpan duration) -> void
+PulseRPC.Diagnostics.IRuntimeQueueMetricsRegistration.RecordRejectedEnqueue() -> void
+PulseRPC.Diagnostics.RuntimeQueueMetrics
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.Capacity.get -> int
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.Capacity.set -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.Depth.get -> int
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.Depth.set -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.EnqueueWaitCount.get -> long
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.EnqueueWaitCount.set -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.EnqueueWaitDuration.get -> System.TimeSpan
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.EnqueueWaitDuration.set -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.HighWatermark.get -> int
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.HighWatermark.set -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.InstanceId.get -> string!
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.InstanceId.set -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.QueueName.get -> string!
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.QueueName.set -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.RejectedEnqueues.get -> long
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.RejectedEnqueues.set -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.RuntimeQueueMetricsSnapshot() -> void
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.Saturation.get -> double
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.SaturationEvents.get -> long
+PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot.SaturationEvents.set -> void
+static PulseRPC.Diagnostics.RuntimeQueueMetrics.GetSnapshots() -> System.Collections.Generic.IReadOnlyList<PulseRPC.Diagnostics.RuntimeQueueMetricsSnapshot!>!
+static PulseRPC.Diagnostics.RuntimeQueueMetrics.Register(string! queueName, string! instanceId, int capacity, System.Func<int>! getDepth) -> PulseRPC.Diagnostics.IRuntimeQueueMetricsRegistration!
+const PulseRPC.Shared.Tcp.FrameHeader.FlagEncrypted = 16 -> ushort
+PulseRPC.Shared.Tcp.FrameHeader.IsEncrypted.get -> bool

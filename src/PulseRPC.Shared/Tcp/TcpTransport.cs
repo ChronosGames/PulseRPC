@@ -2,17 +2,21 @@
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using PulseRPC.Shared.Security;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Shared.Tcp;
 
@@ -36,6 +40,7 @@ public readonly struct FrameHeader
     public const ushort FlagCompressed = 0x0002;
     public const ushort FlagChunked = 0x0004;
     public const ushort FlagEndOfChunk = 0x0008;
+    public const ushort FlagEncrypted = 0x0010;
 
     public FrameHeader(int length, ushort messageId)
         : this(length, messageId, FlagNone)
@@ -61,6 +66,7 @@ public readonly struct FrameHeader
     public bool IsChunked => (Flags & FlagChunked) != 0;
     public bool IsEndOfChunk => (Flags & FlagEndOfChunk) != 0;
     public bool IsCompressed => (Flags & FlagCompressed) != 0;
+    public bool IsEncrypted => (Flags & FlagEncrypted) != 0;
 }
 
 /// <summary>
@@ -156,6 +162,7 @@ public abstract class TcpTransport : ITransport
     private readonly Channel<TcpSendItem> _sendQueue;
     private readonly ArrayPool<byte> _sendBufferPool;
     private Task? _sendTask;
+    private readonly IRuntimeQueueMetricsRegistration _sendQueueMetrics;
 
     protected Socket? _socket;
     protected NetworkStream? _stream;
@@ -167,6 +174,8 @@ public abstract class TcpTransport : ITransport
     protected long _totalBytesReceived;
     protected bool _disposed;
     protected bool _handshakeCompleted;
+    private TransportWireOffer _wireOffer;
+    private TransportWireSession? _wireSession;
 
     public abstract string Id { get; }
     public TransportType Type => TransportType.TCP;
@@ -203,12 +212,7 @@ public abstract class TcpTransport : ITransport
         ArrayPool<byte> sendBufferPool)
     {
         _options = options ?? new TcpTransportOptions();
-#pragma warning disable CS0618
-        if (_options.UseCompression || _options.UseEncryption)
-        {
-            throw new NotSupportedException("TCP wire compression/encryption 尚未实现，不能启用对应传输选项。");
-        }
-#pragma warning restore CS0618
+        TransportWireNegotiator.ValidateOptions(_options);
         _logger = logger ?? NullLogger.Instance;
         _sendBufferPool = sendBufferPool ?? throw new ArgumentNullException(nameof(sendBufferPool));
         _receiveBuffer = new byte[_options.RecvBufferSize];
@@ -227,6 +231,11 @@ public abstract class TcpTransport : ITransport
             SingleWriter = false,  // 多线程入队
             AllowSynchronousContinuations = false
         });
+        _sendQueueMetrics = RuntimeQueueMetrics.Register(
+            "transport.tcp.send",
+            $"{GetType().Name}:{Guid.NewGuid():N}",
+            _options.SendQueueCapacity,
+            () => _sendQueue.Reader.Count);
     }
 
     /// <summary>
@@ -273,20 +282,34 @@ public abstract class TcpTransport : ITransport
             // 统一以单帧发送：传输层不再做应用层分片。
             // 租用「头部预留区 + 消息体」缓冲，消息体拷贝至头部之后，
             // 由单线程发送任务写入帧头并一次性写出（header+body 合并）。
-            buffer = _sendBufferPool.Rent(FrameHeader.Size + data.Length);
-            data.Span.CopyTo(buffer.AsSpan(FrameHeader.Size));
-            var item = new TcpSendItem(buffer, data.Length, _sendBufferPool);
+            var transformed = _wireSession?.HasTransforms == true;
+            var wirePayload = transformed
+                ? _wireSession!.Encode(data.Span)
+                : default;
+            var bodyLength = transformed ? wirePayload.Data.Length : data.Length;
+            buffer = _sendBufferPool.Rent(FrameHeader.Size + bodyLength);
+            if (transformed)
+                wirePayload.Data.CopyTo(buffer, FrameHeader.Size);
+            else
+                data.Span.CopyTo(buffer.AsSpan(FrameHeader.Size));
+            var frameFlags = transformed ? ToFrameFlags(wirePayload.Flags) : FrameHeader.FlagNone;
+            var item = new TcpSendItem(buffer, bodyLength, _sendBufferPool, flags: frameFlags);
 
             // 尝试同步入队（避免异步开销）
             if (_sendQueue.Writer.TryWrite(item))
             {
                 buffer = null;
+                _sendQueueMetrics.Observe();
             }
             else
             {
                 // 队列满时异步等待。只有成功入队后才转移缓冲区所有权。
+                _sendQueueMetrics.Observe();
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
+                var waitStart = Stopwatch.GetTimestamp();
                 await _sendQueue.Writer.WriteAsync(item, linkedCts.Token);
+                _sendQueueMetrics.RecordEnqueueWait(TimeSpan.FromSeconds(
+                    (double)(Stopwatch.GetTimestamp() - waitStart) / Stopwatch.Frequency));
                 buffer = null;
             }
 
@@ -320,13 +343,24 @@ public abstract class TcpTransport : ITransport
 
         try
         {
-            var header = new FrameHeader(data.Length, 0, FrameHeader.FlagNone);
+            if (_wireSession?.HasTransforms != true)
+            {
+                var plainHeader = new FrameHeader(data.Length, 0, FrameHeader.FlagNone);
+                var plainSuccess = await AsyncSpanHelper.SendSmallPacketAsync(
+                    _stream, _headerBuffer, data, plainHeader, cancellationToken);
+                if (plainSuccess)
+                    Interlocked.Add(ref _totalBytesSent, FrameHeader.Size + data.Length);
+                return plainSuccess;
+            }
+
+            var wirePayload = _wireSession.Encode(data.Span);
+            var header = new FrameHeader(wirePayload.Data.Length, 0, ToFrameFlags(wirePayload.Flags));
             var success = await AsyncSpanHelper.SendSmallPacketAsync(
-                _stream, _headerBuffer, data, header, cancellationToken);
+                _stream, _headerBuffer, wirePayload.Data, header, cancellationToken);
 
             if (success)
             {
-                Interlocked.Add(ref _totalBytesSent, FrameHeader.Size + data.Length);
+                Interlocked.Add(ref _totalBytesSent, FrameHeader.Size + wirePayload.Data.Length);
             }
             return success;
         }
@@ -356,6 +390,7 @@ public abstract class TcpTransport : ITransport
                 try
                 {
                     item = await _sendQueue.Reader.ReadAsync(_cts.Token);
+                    _sendQueueMetrics.Observe();
                 }
                 catch (OperationCanceledException)
                 {
@@ -460,12 +495,15 @@ public abstract class TcpTransport : ITransport
                 }
 
                 // 验证长度：以单包最大尺寸上限为界，允许大消息以单帧收发
-                if (header.Length <= 0 || header.Length > _options.MaxPacketSize)
+                var maxWirePacketSize = _wireSession?.HasTransforms == true
+                    ? checked(_options.MaxPacketSize + TransportWireSession.MaxEnvelopeOverhead)
+                    : _options.MaxPacketSize;
+                if (header.Length <= 0 || header.Length > maxWirePacketSize)
                 {
                     var remoteEndpoint = _socket?.RemoteEndPoint?.ToString() ?? "Unknown";
                     _logger.LogWarning(
                         "收到无效的消息长度: {Length} (允许上限 {Max}) 来自 {RemoteEndpoint}，断开连接",
-                        header.Length, _options.MaxPacketSize, remoteEndpoint);
+                        header.Length, maxWirePacketSize, remoteEndpoint);
                     break;  // 断开连接
                 }
 
@@ -498,6 +536,11 @@ public abstract class TcpTransport : ITransport
                 // 检查是否为握手消息
                 if (header.IsHandshake)
                 {
+                    if (header.IsCompressed || header.IsEncrypted)
+                    {
+                        _logger.LogWarning("握手帧不得压缩或加密，断开连接");
+                        break;
+                    }
                     await HandleHandshakeMessageAsync(header, new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length));
                     continue;
                 }
@@ -509,18 +552,42 @@ public abstract class TcpTransport : ITransport
                     break;
                 }
 
-                // 处理消息
-                if (header.IsChunked)
+                const ushort allowedBusinessFlags =
+                    FrameHeader.FlagCompressed | FrameHeader.FlagEncrypted | FrameHeader.FlagLargePacket;
+                if ((header.Flags & ~allowedBusinessFlags) != 0)
                 {
-                    await ProcessChunkedMessageAsync(header, new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length));
+                    _logger.LogWarning("收到未知 TCP 业务帧标志: 0x{Flags:X4}", header.Flags);
+                    break;
                 }
-                else
+
+                byte[]? decoded = null;
+                try
                 {
-                    var eventArgs = ownsMessageBuffer
+                    if (_wireSession?.HasTransforms == true)
+                    {
+                        decoded = _wireSession.Decode(
+                            new ReadOnlySpan<byte>(messageBuffer, 0, header.Length),
+                            ToWireFlags(header));
+                    }
+                }
+                catch (Exception ex) when (ex is InvalidDataException or CryptographicException)
+                {
+                    _logger.LogWarning(ex, "TCP wire 帧验证失败，断开连接");
+                    break;
+                }
+
+                if (_wireSession?.HasTransforms != true && (header.IsCompressed || header.IsEncrypted))
+                {
+                    _logger.LogWarning("未协商 wire 变换却收到变换帧，断开连接");
+                    break;
+                }
+
+                var eventArgs = decoded != null
+                    ? new TransportDataEventArgs(decoded)
+                    : ownsMessageBuffer
                         ? new TransportDataEventArgs(messageBuffer, header.Length)
                         : new TransportDataEventArgs(new ReadOnlyMemory<byte>(messageBuffer, 0, header.Length));
-                    DataReceived?.Invoke(this, eventArgs);
-                }
+                DataReceived?.Invoke(this, eventArgs);
             }
         }
         catch (OperationCanceledException)
@@ -606,7 +673,11 @@ public abstract class TcpTransport : ITransport
     {
         try
         {
-            var handshake = new HandshakeMessage(ProtocolConstants.CurrentProtocolVersion, clientName);
+            _wireOffer = TransportWireNegotiator.CreateClientOffer(_options);
+            var handshake = new HandshakeMessage(
+                ProtocolConstants.CurrentProtocolVersion,
+                clientName,
+                TransportWireNegotiator.SerializeOffer(_wireOffer));
             var handshakeData = handshake.ToBytes();
 
             var header = new FrameHeader(
@@ -629,11 +700,25 @@ public abstract class TcpTransport : ITransport
     /// <summary>
     /// 发送握手响应
     /// </summary>
-    protected async Task SendHandshakeResponseAsync(bool accepted, string? reason = null, CancellationToken cancellationToken = default)
+    protected Task SendHandshakeResponseAsync(
+        bool accepted,
+        string? reason = null,
+        CancellationToken cancellationToken = default)
+        => SendHandshakeResponseWithExtensionsAsync(accepted, reason, "{}", cancellationToken);
+
+    internal async Task SendHandshakeResponseWithExtensionsAsync(
+        bool accepted,
+        string? reason,
+        string? extensions,
+        CancellationToken cancellationToken = default)
     {
         try
         {
-            var response = new HandshakeResponse(accepted, ProtocolConstants.CurrentProtocolVersion, reason);
+            var response = HandshakeResponse.WithExtensions(
+                accepted,
+                ProtocolConstants.CurrentProtocolVersion,
+                reason,
+                extensions);
             var responseData = response.ToBytes();
 
             var header = new FrameHeader(
@@ -648,6 +733,71 @@ public abstract class TcpTransport : ITransport
         {
             _logger.LogError(ex, "发送握手响应失败");
         }
+    }
+
+    /// <summary>服务端验证客户端 wire v3 能力并创建会话。</summary>
+    internal bool TryAcceptWireHandshake(string extensions, out string responseExtensions, out string? reason)
+    {
+        var accepted = TransportWireNegotiator.TryAcceptServerOffer(
+            _options, extensions, out responseExtensions, out var session, out reason);
+        if (accepted)
+        {
+            _wireSession?.Dispose();
+            _wireSession = session;
+        }
+        return accepted;
+    }
+
+    /// <summary>客户端验证服务端选择，拒绝能力降级并创建会话。</summary>
+    internal bool TryCompleteWireHandshake(string extensions, out string? reason)
+    {
+        var accepted = TransportWireNegotiator.TryCompleteClient(
+            _options, _wireOffer, extensions, out var session, out reason);
+        if (accepted)
+        {
+            _wireSession?.Dispose();
+            _wireSession = session;
+        }
+        return accepted;
+    }
+
+    /// <summary>清除上一次连接固定的 wire 会话。</summary>
+    internal void ResetWireHandshake()
+    {
+        _wireSession?.Dispose();
+        _wireSession = null;
+    }
+
+    internal bool TryEncodeWirePayload(ReadOnlySpan<byte> data, out TransportWirePayload payload)
+    {
+        if (_wireSession?.HasTransforms == true)
+        {
+            payload = _wireSession.Encode(data);
+            return true;
+        }
+
+        payload = default;
+        return false;
+    }
+
+    internal static ushort ToFrameFlags(byte wireFlags)
+    {
+        ushort flags = FrameHeader.FlagNone;
+        if ((wireFlags & TransportWireSession.CompressedFlag) != 0)
+            flags |= FrameHeader.FlagCompressed;
+        if ((wireFlags & TransportWireSession.EncryptedFlag) != 0)
+            flags |= FrameHeader.FlagEncrypted;
+        return flags;
+    }
+
+    private static byte ToWireFlags(FrameHeader header)
+    {
+        byte flags = 0;
+        if (header.IsCompressed)
+            flags |= TransportWireSession.CompressedFlag;
+        if (header.IsEncrypted)
+            flags |= TransportWireSession.EncryptedFlag;
+        return flags;
     }
 
     /// <summary>
@@ -834,5 +984,7 @@ public abstract class TcpTransport : ITransport
         }
 
         _cts.Dispose();
+        _wireSession?.Dispose();
+        _sendQueueMetrics.Dispose();
     }
 }

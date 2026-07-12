@@ -123,15 +123,25 @@ public class TcpServerTransport : TcpTransport, IServerTransport
                                 handshake.ProtocolVersion <= ProtocolConstants.CurrentProtocolVersion;
 
                 string? reason = null;
+                string responseExtensions = "{}";
                 if (!accepted)
                 {
                     reason = $"不支持的协议版本 {handshake.ProtocolVersion}，支持的版本范围: " +
                              $"{ProtocolConstants.MinSupportedProtocolVersion}-{ProtocolConstants.CurrentProtocolVersion}";
                     _logger.LogWarning(reason + $", ConnectionId={_id}");
                 }
+                else
+                {
+                    accepted = TryAcceptWireHandshake(
+                        handshake.Extensions,
+                        out responseExtensions,
+                        out reason);
+                    if (!accepted)
+                        _logger.LogWarning("wire v3 协商失败: {Reason}, ConnectionId={ConnectionId}", reason, _id);
+                }
 
                 // 发送握手响应
-                await SendHandshakeResponseAsync(accepted, reason);
+                await SendHandshakeResponseWithExtensionsAsync(accepted, reason, responseExtensions);
 
                 if (accepted)
                 {

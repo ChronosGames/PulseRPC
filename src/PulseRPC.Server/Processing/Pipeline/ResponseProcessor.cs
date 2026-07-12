@@ -13,6 +13,7 @@ using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Server.Processing.Engine;
 using PulseRPC.Server.Transport;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server.Processing.Pipeline;
 
@@ -150,6 +151,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
     // 高性能通道用于响应处理
     private readonly ChannelWriter<ResponseTask> _responseWriter;
     private readonly ChannelReader<ResponseTask> _responseReader;
+    private readonly IRuntimeQueueMetricsRegistration _queueMetrics;
 
     // 序列化器缓存
     private readonly ConcurrentDictionary<string, ISerializer> _serializerCache = new();
@@ -204,6 +206,9 @@ internal sealed class ResponseProcessor : IResponseProcessor
          var responseChannel = Channel.CreateBounded<ResponseTask>(channelOptions);
          _responseWriter = responseChannel.Writer;
          _responseReader = responseChannel.Reader;
+         _queueMetrics = RuntimeQueueMetrics.Register(
+             "pipeline.response", Guid.NewGuid().ToString("N"),
+             _options.ChannelCapacity, () => _responseReader.Count);
      }
 
      public Task StartAsync(CancellationToken cancellationToken = default)
@@ -300,6 +305,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
 
          // 聚合所有线程的指标
          AggregateMetrics();
+         _queueMetrics.Dispose();
 
          _logger.LogInformation("响应处理器停止完成，总响应数: {TotalResponses}, 错误数: {TotalErrors}",
              _totalResponsesSent, _totalResponseErrors);
@@ -334,6 +340,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
          // 快速路径：尝试同步写入（零分配）
          if (_responseWriter.TryWrite(responseTask))
          {
+             _queueMetrics.Observe();
              return ValueTask.CompletedTask;
          }
 
@@ -383,6 +390,8 @@ internal sealed class ResponseProcessor : IResponseProcessor
      /// </summary>
      private async ValueTask ProcessMessageResultSlowPathAsync(ResponseTask responseTask)
      {
+         _queueMetrics.Observe();
+         var waitStart = Stopwatch.GetTimestamp();
          if (!await _responseWriter.WaitToWriteAsync(_shutdownCts.Token))
          {
              _logger.LogWarning("响应处理器通道已关闭");
@@ -391,12 +400,17 @@ internal sealed class ResponseProcessor : IResponseProcessor
 
          if (!_responseWriter.TryWrite(responseTask))
          {
+             _queueMetrics.RecordRejectedEnqueue();
              _logger.LogWarning("无法写入响应任务到通道，连接: {ConnectionId}, 消息ID: {MessageId}",
                  responseTask.ConnectionId, responseTask.MessageId);
 
              // 使用线程本地计数器（避免原子操作开销）
              var metrics = GetLocalMetrics();
              metrics.ResponseErrors++;
+         }
+         else
+         {
+             _queueMetrics.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
          }
      }
 
@@ -424,6 +438,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
                  {
                      batchBuffer[count++] = task;
                  }
+                 _queueMetrics.Observe();
 
                  // 批量处理（同步循环，减少异步状态机开销）
                  for (var i = 0; i < count; i++)

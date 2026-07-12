@@ -104,11 +104,13 @@ public sealed class TcpNodeTransportConnectionTests
         var bodyLength = BinaryPrimitives.ReadInt32LittleEndian(requestHeader.AsSpan(2, 4));
         var requestBody = new byte[bodyLength];
         await ReadExactlyAsync(stream, requestBody);
+        var request = HandshakeMessage.FromBytes(requestBody);
 
-        var response = new HandshakeResponse(
+        var response = HandshakeResponse.WithExtensions(
             accepted: true,
             serverProtocolVersion: ProtocolConstants.CurrentProtocolVersion,
-            reason: null).ToBytes();
+            reason: null,
+            extensions: request.Extensions).ToBytes();
         await WriteFrameAsync(
             stream,
             response,

@@ -294,6 +294,46 @@ var routed = await client.Connections.RouteAsync(nameof(IChatRoomHub));
 var health = await client.CheckHealthAsync();
 ```
 
+### 4. 加权与粘性路由
+
+`WeightedRoundRobin` 使用平滑加权轮询。默认权重源会在每次选择时读取 `ConnectionDescriptor.Weight`；需要根据实时容量、限流或健康快照动态调整时，实现线程安全的 `IConnectionWeightProvider`：
+
+```csharp
+using System.Collections.Concurrent;
+
+public sealed class CapacityWeightProvider : IConnectionWeightProvider
+{
+    private readonly ConcurrentDictionary<string, int> _weights = new();
+
+    public int GetWeight(IClientChannel connection)
+        => _weights.TryGetValue(connection.Id, out var weight) ? weight : 1;
+
+    public void Update(string connectionId, int weight)
+        => _weights[connectionId] = weight;
+}
+
+var weights = new CapacityWeightProvider();
+var client = new PulseClientBuilder()
+    .Configure(options => options.LoadBalancing.WeightProvider = weights)
+    .WithLoadBalancing(LoadBalancingStrategy.WeightedRoundRobin)
+    .Build();
+```
+
+权重必须大于零；提供者返回零或负数时选择会立即失败。连接成员或权重快照变化后，轮询状态会重新建立，不会沿用旧比例。
+
+`ConsistentHash` 的唯一稳定输入是调用级 `StickyKey`。生成的服务工厂会把 `ServiceProxyOptions` 传入上下文路由：
+
+```csharp
+var client = new PulseClientBuilder()
+    .WithLoadBalancing(LoadBalancingStrategy.ConsistentHash)
+    .Build();
+
+var chat = await client.GetServiceAsync<IChatRoomHub>(
+    new ServiceProxyOptions { StickyKey = $"tenant:{tenantId}" });
+```
+
+同一逻辑用户、租户或会话必须始终提供完全相同、非空且不含临时时间戳的 key。哈希使用连接 `Id` 和确定性虚拟节点；候选列表顺序不影响结果，新增连接只重映射落到新连接的区间。没有 `StickyKey`、连接 ID 重复，或自定义连接管理器无法保留上下文时会 fail-fast。`WithLoadBalancing(..., IReadOnlyDictionary<string, object>)` 仍不接受未定义的松散参数。
+
 ## 服务端推送客户端
 
 ### 1. 定义客户端接收契约

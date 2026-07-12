@@ -195,22 +195,29 @@ internal sealed class TcpNodeClient : TcpTransport
                     return false;
                 }
 
-                var buffer = ArrayPool<byte>.Shared.Rent(FrameHeader.Size + data.Length);
+                var transformed = TryEncodeWirePayload(data.Span, out var wirePayload);
+                var bodyLength = transformed ? wirePayload.Data.Length : data.Length;
+                var buffer = ArrayPool<byte>.Shared.Rent(FrameHeader.Size + bodyLength);
                 try
                 {
                     var header = buffer.AsSpan(0, FrameHeader.Size);
                     BinaryPrimitives.WriteUInt16LittleEndian(header, ProtocolConstants.ProtocolMagic);
-                    BinaryPrimitives.WriteInt32LittleEndian(header[2..], data.Length);
+                    BinaryPrimitives.WriteInt32LittleEndian(header[2..], bodyLength);
                     BinaryPrimitives.WriteUInt16LittleEndian(header[6..], 0);
-                    BinaryPrimitives.WriteUInt16LittleEndian(header[8..], FrameHeader.FlagNone);
-                    data.Span.CopyTo(buffer.AsSpan(FrameHeader.Size));
+                    BinaryPrimitives.WriteUInt16LittleEndian(
+                        header[8..],
+                        transformed ? ToFrameFlags(wirePayload.Flags) : FrameHeader.FlagNone);
+                    if (transformed)
+                        wirePayload.Data.CopyTo(buffer, FrameHeader.Size);
+                    else
+                        data.Span.CopyTo(buffer.AsSpan(FrameHeader.Size));
 
                     // 一旦取得写锁，不再用单个调用者的取消令牌中断半帧写入；连接级 Dispose
                     // 仍可通过 _cts 终止写操作。调用者取消会在响应等待阶段被观察。
                     await _stream.WriteAsync(
-                        new ReadOnlyMemory<byte>(buffer, 0, FrameHeader.Size + data.Length),
+                        new ReadOnlyMemory<byte>(buffer, 0, FrameHeader.Size + bodyLength),
                         _cts.Token).ConfigureAwait(false);
-                    Interlocked.Add(ref _totalBytesSent, FrameHeader.Size + data.Length);
+                    Interlocked.Add(ref _totalBytesSent, FrameHeader.Size + bodyLength);
                     return true;
                 }
                 finally
@@ -246,8 +253,11 @@ internal sealed class TcpNodeClient : TcpTransport
             }
 
             var response = HandshakeResponse.FromBytes(data.Span);
-            _handshakeCompleted = response.Accepted;
-            _handshakeCompletion.TrySetResult(response.Accepted);
+            var accepted = response.Accepted &&
+                           response.ServerProtocolVersion == ProtocolConstants.CurrentProtocolVersion &&
+                           TryCompleteWireHandshake(response.Extensions, out _);
+            _handshakeCompleted = accepted;
+            _handshakeCompletion.TrySetResult(accepted);
         }
         catch (Exception ex)
         {

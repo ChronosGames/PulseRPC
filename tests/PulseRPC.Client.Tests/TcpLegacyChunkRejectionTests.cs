@@ -107,11 +107,14 @@ public sealed class TcpLegacyChunkRejectionTests
 
         var handshakeHeader = await ReadFrameHeaderAsync(stream, cancellationToken);
         Assert.Equal(ProtocolConstants.HandshakeMessageId, handshakeHeader.MessageId);
-        _ = await ReadExactAsync(stream, handshakeHeader.Length, cancellationToken);
+        var handshakeBody = await ReadExactAsync(stream, handshakeHeader.Length, cancellationToken);
+        var handshake = HandshakeMessage.FromBytes(handshakeBody);
 
-        var handshakeResponse = new HandshakeResponse(
+        var handshakeResponse = HandshakeResponse.WithExtensions(
             accepted: true,
-            ProtocolConstants.CurrentProtocolVersion).ToBytes();
+            ProtocolConstants.CurrentProtocolVersion,
+            reason: null,
+            extensions: handshake.Extensions).ToBytes();
         await WriteFrameAsync(
             stream,
             handshakeResponse,

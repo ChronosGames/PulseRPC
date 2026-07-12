@@ -2,6 +2,7 @@
   "solution": {
     "path": "PulseRPC.sln",
     "projects": [
+      "src\\PulseRPC.Analyzers\\PulseRPC.Analyzers.csproj",
       "src\\PulseRPC.Abstractions\\PulseRPC.Abstractions.csproj",
       "src\\PulseRPC.Backplane.Redis\\PulseRPC.Backplane.Redis.csproj",
       "src\\PulseRPC.Shared\\PulseRPC.Shared.csproj",

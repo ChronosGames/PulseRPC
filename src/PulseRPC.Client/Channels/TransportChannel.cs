@@ -14,6 +14,7 @@ using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Shared;
 using PulseRPC.Client.Transport;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Client.Channels;
 
@@ -28,6 +29,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
     private readonly object _syncRoot = new object();
     private readonly ILogger<TransportChannel> _logger;
     private readonly Channel<NetworkMessage> _messageQueue;
+    private readonly IRuntimeQueueMetricsRegistration _messageQueueMetrics;
     private readonly Task[] _messageProcessingTasks;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
@@ -129,6 +131,11 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
         {
             FullMode = BoundedChannelFullMode.Wait
         });
+        _messageQueueMetrics = RuntimeQueueMetrics.Register(
+            "client.channel.receive",
+            transport.Id,
+            _options.MessageQueueCapacity,
+            () => _messageQueue.Reader.Count);
 
         _messageProcessingTasks = new Task[_options.MessageProcessingConcurrency];
         for (var i = 0; i < _options.MessageProcessingConcurrency; i++)
@@ -247,6 +254,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
                 try
                 {
                     var message = await _messageQueue.Reader.ReadAsync(_cts.Token);
+                    _messageQueueMetrics.Observe();
                     using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
                     timeoutCts.CancelAfter(_options.MessageProcessingTimeout);
 
@@ -396,11 +404,16 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
 
             if (!_messageQueue.Writer.TryWrite(message))
             {
+                _messageQueueMetrics.RecordRejectedEnqueue();
                 if (_logger.IsEnabled(LogLevel.Warning))
                 {
                     _logger.LogWarning("消息队列已满，丢弃消息: Type={MessageType}, MessageId={MessageId}",
                         message.Header.Type, message.Header.MessageId);
                 }
+            }
+            else
+            {
+                _messageQueueMetrics.Observe();
             }
         }
         catch (Exception ex)
@@ -1109,6 +1122,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
 
             // 释放零拷贝组件
             _responseManager?.Dispose();
+            _messageQueueMetrics.Dispose();
         }
         catch (Exception ex)
         {

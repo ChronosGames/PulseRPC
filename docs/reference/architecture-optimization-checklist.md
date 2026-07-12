@@ -13,11 +13,11 @@
 | 公开 API 契约 | Channel、服务清单、指标、过滤广播返回真实数据；未支持配置与策略 fail-fast | `PulseServerLifecycleTests`、`PulseClientBuilderContractTests` |
 | 客户端状态 | 状态事件在赋值前捕获 previous state | `PulseClientLifecycleTests` |
 | Discovery 稳定性 | watch/refresh/changed 竞态收敛，Infrastructure 全套连续 20 轮通过 | `DiscoveryClusterMembershipTests` + CI stress gate |
-| 跨端协议 | wire v2、协议号/重载、恶意 legacy chunk 与版本不匹配均明确验证或拒绝 | `MessageHeaderWireVersionTests`、`WireContractConsistencyTests`、`TcpLegacyChunkRejectionTests` |
+| 跨端协议 | transport wire v3、MessageHeader wire v2、协议号/重载、恶意 legacy chunk 与版本不匹配均明确验证或拒绝 | `MessageHeaderWireVersionTests`、`WireContractConsistencyTests`、`TcpLegacyChunkRejectionTests`、`TransportWireCodecTests` |
 
 - [x] 跨端 wire 契约：`MessageHeader` 使用显式 wire v2，旧帧按破坏性升级策略拒绝；客户端/服务端协议号、重载和序列化契约有一致性测试。
 - [x] 连接接入契约：服务端连接事件使用真实 `IServerChannel`，停机会等待创建失败的连接回滚和已接受的 Pong 发送；builder 传输选项与客户端 previous/current 状态事件均有行为测试。
-- [x] 未实现公开能力不再静默退化：鉴权/连接池/重试配置、abortive stop、WeightedRoundRobin、ConsistentHash、wire 压缩/加密会明确失败；管理面返回真实数据或明确 unavailable。
+- [x] 未实现公开能力不再静默退化：鉴权/连接池/重试配置会明确失败；wire 压缩/加密按 v3 能力协商严格启用；WeightedRoundRobin/ConsistentHash 已具备强类型输入契约，非法动态权重或缺失 sticky key 时同样 fail-fast；管理面返回真实数据或明确 unavailable。
 - [x] Actor 生命周期：同一地址的创建、发布、移除与迁移串行化；启动失败不会发布半初始化实例；lease 心跳、迁移清理和回收均有并发回归测试。
 - [x] Service/Hub 工厂生命周期：公开 `AddPulseHubFactory` 路径同样按 key 串行，统一调用 `StartAsync` / `StopAsync` / `DisposeAsync`，创建中实例不可见且失败实例必释放。
 - [x] 传输生命周期：TCP 发送等待底层写完成，后台 handler、重连、延迟关闭和节点接收观察任务可追踪；TCP/KCP 自动重连、KCP 延迟握手和来源端点校验有回归测试。
@@ -40,10 +40,10 @@
 
 ### P2：协议/API 演进
 
-- [ ] 若要支持 wire 压缩/加密，先定义能力协商、帧标志、阈值、密钥轮换与降级规则，再启用配置项。
-- [ ] 为 WeightedRoundRobin 定义动态权重来源，为 ConsistentHash 定义稳定 sticky key；完成前保持 fail-fast。
-- [ ] 增加包边界 analyzer，禁止 Abstractions 引入实现型依赖，并继续收敛重复术语与公开类型。
-- [ ] 将当前有界延迟样本升级为生产级 histogram，并为所有队列提供真实容量/饱和度数据源。
+- [x] transport wire v3 为 TCP/KCP 定义必需能力协商、显式帧标志、Brotli 阈值、AES-256-GCM envelope、方向密钥/序号、会话固定 key id 与旧 key 轮换窗口；能力不一致、缺失加密标志、篡改、重放和未知 key 均 fail-closed，并有真实 TCP/KCP 双向回归测试。
+- [x] WeightedRoundRobin 通过每次选择调用的 `IConnectionWeightProvider` 获取动态正权重并执行平滑加权轮询；ConsistentHash 通过 `ServiceProxyOptions.StickyKey` / `LoadBalancingContext` 使用确定性虚拟节点环，缺 key、非法权重、重复连接 ID 或上下文丢失均 fail-fast。
+- [x] `PulseRPC.Analyzers` 以 `PRPC2001`–`PRPC2003` 禁止 Abstractions 反向依赖、历史错位命名空间继续扩张及新增公开实现型类型；既有 Shipped API 仅作兼容豁免，并以正式术语文档统一 Hub/Service/Actor 与 Channel/Transport/Connection。
+- [x] 延迟统计使用固定内存、并发累计且可合并的 histogram，不再只保留最近 100–1024 个样本；Engine、分层处理器、自适应调度和 Pipeline 共享相同分桶语义，Prometheus 导出标准 bucket/sum/count。所有实际有界运行时队列注册真实 capacity/depth，并提供 saturation、高水位、饱和事件、入队等待和拒绝计数；诊断端点不再返回伪造的 L1/L2/L3 `null` 容量。
 
 ## 固定验证门禁
 

@@ -14,12 +14,12 @@ public static class ProtocolConstants
     /// <summary>
     /// 当前协议版本
     /// </summary>
-    public const byte CurrentProtocolVersion = 2;
+    public const byte CurrentProtocolVersion = 3;
 
     /// <summary>
     /// 支持的最小协议版本
     /// </summary>
-    public const byte MinSupportedProtocolVersion = 2;
+    public const byte MinSupportedProtocolVersion = 3;
 
     /// <summary>
     /// 当前 <see cref="PulseRPC.Messaging.MessageHeader"/> 对象线格式版本。
@@ -163,12 +163,38 @@ public readonly struct HandshakeResponse
     /// </summary>
     public readonly string Reason;
 
+    /// <summary>
+    /// 服务端选择的扩展信息（wire v3 使用）。
+    /// </summary>
+    public readonly string Extensions;
+
     public HandshakeResponse(bool accepted, byte serverProtocolVersion, string? reason = null)
     {
         Accepted = accepted;
         ServerProtocolVersion = serverProtocolVersion;
         Reason = reason ?? string.Empty;
+        Extensions = "{}";
     }
+
+    private HandshakeResponse(
+        bool accepted,
+        byte serverProtocolVersion,
+        string? reason,
+        string? extensions)
+    {
+        Accepted = accepted;
+        ServerProtocolVersion = serverProtocolVersion;
+        Reason = reason ?? string.Empty;
+        Extensions = extensions ?? "{}";
+    }
+
+    /// <summary>创建带 wire v3 扩展的握手响应。</summary>
+    public static HandshakeResponse WithExtensions(
+        bool accepted,
+        byte serverProtocolVersion,
+        string? reason,
+        string? extensions)
+        => new(accepted, serverProtocolVersion, reason, extensions);
 
     /// <summary>
     /// 序列化为字节数组
@@ -176,7 +202,8 @@ public readonly struct HandshakeResponse
     public byte[] ToBytes()
     {
         var reasonBytes = System.Text.Encoding.UTF8.GetBytes(Reason);
-        var buffer = new byte[1 + 1 + 2 + reasonBytes.Length];
+        var extensionsBytes = System.Text.Encoding.UTF8.GetBytes(Extensions);
+        var buffer = new byte[1 + 1 + 2 + reasonBytes.Length + 2 + extensionsBytes.Length];
         var offset = 0;
 
         // Accepted
@@ -190,6 +217,12 @@ public readonly struct HandshakeResponse
             buffer.AsSpan(offset, 2), (ushort)reasonBytes.Length);
         offset += 2;
         reasonBytes.CopyTo(buffer, offset);
+        offset += reasonBytes.Length;
+
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(
+            buffer.AsSpan(offset, 2), (ushort)extensionsBytes.Length);
+        offset += 2;
+        extensionsBytes.CopyTo(buffer, offset);
 
         return buffer;
     }
@@ -219,7 +252,23 @@ public readonly struct HandshakeResponse
             throw new ArgumentException("Invalid handshake response: incomplete reason");
 
         var reason = System.Text.Encoding.UTF8.GetString(buffer.Slice(offset, reasonLength));
+        offset += reasonLength;
 
-        return new HandshakeResponse(accepted, serverProtocolVersion, reason);
+        // 允许读取没有扩展字段的旧响应，便于给出明确的版本/能力拒绝原因。
+        if (buffer.Length == offset)
+            return new HandshakeResponse(accepted, serverProtocolVersion, reason);
+
+        if (buffer.Length < offset + 2)
+            throw new ArgumentException("Invalid handshake response: incomplete extensions length");
+
+        var extensionsLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(
+            buffer.Slice(offset, 2));
+        offset += 2;
+
+        if (buffer.Length != offset + extensionsLength)
+            throw new ArgumentException("Invalid handshake response: incomplete or trailing extensions");
+
+        var extensions = System.Text.Encoding.UTF8.GetString(buffer.Slice(offset, extensionsLength));
+        return WithExtensions(accepted, serverProtocolVersion, reason, extensions);
     }
 }

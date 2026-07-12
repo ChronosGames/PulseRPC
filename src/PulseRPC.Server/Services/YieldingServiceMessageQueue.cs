@@ -1,5 +1,7 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server;
 
@@ -69,6 +71,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
     private readonly string _serviceId;
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
+    private readonly IRuntimeQueueMetricsRegistration? _queueMetrics;
     private Task? _processingTask;
     private Task? _continuationTask;
     private ChannelWriter<(SendOrPostCallback, object?)>? _continuationWriter;
@@ -99,6 +102,9 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
                 SingleWriter = false,
                 FullMode = BoundedChannelFullMode.Wait
             });
+            _queueMetrics = RuntimeQueueMetrics.Register(
+                "service.yielding", $"{_serviceType}:{_serviceId}", capacity,
+                () => _queue.Reader.Count);
         }
         else
         {
@@ -144,7 +150,17 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
                     var item = new ContinuationQueueItem(callback, state);
 
                     // 转换器运行在独立任务中，可以安全等待主队列容量；continuation 不允许静默丢弃。
-                    await _queue.Writer.WriteAsync(item, _cts.Token).ConfigureAwait(false);
+                    if (!_queue.Writer.TryWrite(item))
+                    {
+                        _queueMetrics?.Observe();
+                        var waitStart = Stopwatch.GetTimestamp();
+                        await _queue.Writer.WriteAsync(item, _cts.Token).ConfigureAwait(false);
+                        _queueMetrics?.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
+                    }
+                    else
+                    {
+                        _queueMetrics?.Observe();
+                    }
                 }
             }
             catch (OperationCanceledException) when (_cts.IsCancellationRequested)
@@ -197,6 +213,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
         {
             await foreach (var item in _queue.Reader.ReadAllAsync(cancellationToken))
             {
+                _queueMetrics?.Observe();
                 try
                 {
                     if (item is MessageQueueItem messageItem)
@@ -263,7 +280,17 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
 
         try
         {
-            await _queue.Writer.WriteAsync(item, cancellationToken);
+            if (!_queue.Writer.TryWrite(item))
+            {
+                _queueMetrics?.Observe();
+                var waitStart = Stopwatch.GetTimestamp();
+                await _queue.Writer.WriteAsync(item, cancellationToken);
+                _queueMetrics?.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
+            }
+            else
+            {
+                _queueMetrics?.Observe();
+            }
             return true;
         }
         catch (ChannelClosedException)
@@ -350,6 +377,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
         // 取消处理任务（已经完成了，但还是取消一下）
         await _cts.CancelAsync();
         _cts.Dispose();
+        _queueMetrics?.Dispose();
 
         var metrics = GetMetrics();
         _logger.LogInformation(

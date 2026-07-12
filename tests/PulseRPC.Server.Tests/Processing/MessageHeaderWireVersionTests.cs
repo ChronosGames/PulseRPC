@@ -10,10 +10,10 @@ namespace PulseRPC.Server.Tests.Processing;
 public sealed class MessageHeaderWireVersionTests
 {
     [Fact]
-    public void BreakingV2Upgrade_MustRejectAllV1TransportHandshakes()
+    public void BreakingV3TransportUpgrade_MustRetainMessageHeaderV2()
     {
-        ProtocolConstants.CurrentProtocolVersion.Should().Be(2);
-        ProtocolConstants.MinSupportedProtocolVersion.Should().Be(2);
+        ProtocolConstants.CurrentProtocolVersion.Should().Be(3);
+        ProtocolConstants.MinSupportedProtocolVersion.Should().Be(3);
         ProtocolConstants.MessageHeaderWireVersion.Should().Be(2);
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server.Processing.Engine;
 
@@ -25,8 +26,7 @@ public sealed class TieredProcessorMetrics
     public PerformanceCounter ForcedEnqueues { get; } = new();
 
     // 延迟指标
-    private readonly RingBuffer<TimeSpan> _batchProcessingTimes = new(1000);
-    private readonly Lock _latencyLock = new();
+    private readonly LatencyHistogram _batchProcessingTimes = new();
 
     // 吞吐量计算
     private long _lastThroughputCalculation = Environment.TickCount64;
@@ -43,10 +43,7 @@ public sealed class TieredProcessorMetrics
     /// </summary>
     public void RecordBatchProcessingTime(TimeSpan processingTime)
     {
-        lock (_latencyLock)
-        {
-            _batchProcessingTimes.Add(processingTime);
-        }
+        _batchProcessingTimes.Record(processingTime);
     }
 
     /// <summary>
@@ -54,19 +51,10 @@ public sealed class TieredProcessorMetrics
     /// </summary>
     public TimeSpan GetAverageBatchProcessingTime()
     {
-        lock (_latencyLock)
-        {
-            if (_batchProcessingTimes.Count == 0)
-                return TimeSpan.Zero;
-
-            var total = TimeSpan.Zero;
-            for (int i = 0; i < _batchProcessingTimes.Count; i++)
-            {
-                total += _batchProcessingTimes[i];
-            }
-
-            return TimeSpan.FromTicks(total.Ticks / _batchProcessingTimes.Count);
-        }
+        var snapshot = _batchProcessingTimes.GetSnapshot();
+        return snapshot.Count == 0
+            ? TimeSpan.Zero
+            : TimeSpan.FromTicks(snapshot.TotalTicks / snapshot.Count);
     }
 
     /// <summary>
@@ -74,21 +62,8 @@ public sealed class TieredProcessorMetrics
     /// </summary>
     public TimeSpan GetP95BatchProcessingTime()
     {
-        lock (_latencyLock)
-        {
-            if (_batchProcessingTimes.Count == 0)
-                return TimeSpan.Zero;
-
-            var times = new TimeSpan[_batchProcessingTimes.Count];
-            for (int i = 0; i < _batchProcessingTimes.Count; i++)
-            {
-                times[i] = _batchProcessingTimes[i];
-            }
-
-            Array.Sort(times);
-            int p95Index = (int)(times.Length * 0.95);
-            return times[Math.Min(p95Index, times.Length - 1)];
-        }
+        return TimeSpan.FromMilliseconds(
+            _batchProcessingTimes.GetSnapshot().GetPercentileMilliseconds(0.95));
     }
 
     /// <summary>
@@ -128,10 +103,7 @@ public sealed class TieredProcessorMetrics
         MessagesDropped.Reset();
         ForcedEnqueues.Reset();
 
-        lock (_latencyLock)
-        {
-            _batchProcessingTimes.Clear();
-        }
+        _batchProcessingTimes.Reset();
 
         _lastThroughputCalculation = Environment.TickCount64;
         _lastProcessedCount = 0;

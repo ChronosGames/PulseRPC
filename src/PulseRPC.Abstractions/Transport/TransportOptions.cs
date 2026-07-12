@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.Threading.Tasks;
+using PulseRPC.Abstractions.Transport.Security;
 
 namespace PulseRPC.Shared;
 
@@ -79,14 +80,23 @@ public abstract class TransportOptions
     /// <summary>
     /// 是否使用压缩
     /// </summary>
-    [Obsolete("传输层压缩尚未实现；设置为 true 会在构造传输时抛出 NotSupportedException。")]
     public bool UseCompression { get; set; } = false;
+
+    /// <summary>
+    /// Brotli 压缩阈值。仅当原始消息达到该长度且压缩后确实更小时才压缩。
+    /// 握手双方取较大值作为本次连接的固定阈值。
+    /// </summary>
+    public int CompressionThreshold { get; set; } = 1024;
 
     /// <summary>
     /// 是否使用加密
     /// </summary>
-    [Obsolete("传输层加密尚未实现；设置为 true 会在构造传输时抛出 NotSupportedException。")]
     public bool UseEncryption { get; set; } = false;
+
+    /// <summary>
+    /// AES-256-GCM 密钥来源。启用 <see cref="UseEncryption"/> 时必须设置。
+    /// </summary>
+    public ITransportEncryptionKeyProvider? EncryptionKeyProvider { get; set; }
 
     /// <summary>
     /// 单个消息帧允许的最大字节数（消息体长度上限）。

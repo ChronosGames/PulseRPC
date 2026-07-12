@@ -11,6 +11,7 @@ using PulseRPC.Server.Processing.Memory;
 using PulseRPC.Server.Processing.Engine;
 using PulseRPC.Server.Services.Scheduling;
 using PulseRPC.Shared;
+using PulseRPC.Diagnostics;
 using MessageStatus = PulseRPC.Server.Processing.Memory.MessageStatus;
 
 namespace PulseRPC.Server.Processing.Engine;
@@ -59,6 +60,8 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
     private readonly Channel<TieredMessageBatch> _batchChannel;
     private readonly ChannelReader<TieredMessageBatch> _batchReader;
     private readonly ChannelWriter<TieredMessageBatch> _batchWriter;
+    private readonly IRuntimeQueueMetricsRegistration _l1QueueMetrics;
+    private readonly IRuntimeQueueMetricsRegistration _batchQueueMetrics;
 
     // 性能统计
     private readonly TieredProcessorMetrics _metrics;
@@ -113,6 +116,12 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
         _batchChannel = channel;
         _batchReader = channel.Reader;
         _batchWriter = channel.Writer;
+        _l1QueueMetrics = RuntimeQueueMetrics.Register(
+            "message-engine.l1", _processorId, _options.L1BufferSize,
+            () => _l1Buffer.GetStatistics().Count);
+        _batchQueueMetrics = RuntimeQueueMetrics.Register(
+            "message-engine.batch", _processorId, _options.BatchChannelCapacity,
+            () => _batchReader.Count);
 
         // 初始化性能指标
         _metrics = new TieredProcessorMetrics();
@@ -138,6 +147,7 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
         // 直接入队 MessageSlot，无需再创建
         if (_l1Buffer.TryEnqueue(slot))
         {
+            _l1QueueMetrics.Observe();
             _metrics.L1MessagesEnqueued.Add(1);
 
             // 信号通知：有新消息到达
@@ -161,6 +171,7 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
         }
 
         // L1满了，返回false让调用者处理背压
+        _l1QueueMetrics.RecordRejectedEnqueue();
         return false;
     }
 
@@ -205,6 +216,7 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
                     scratch[batchSize++] = slot;
                     _metrics.L1MessagesDequeued.Add(1);
                 }
+                _l1QueueMetrics.Observe();
 
                 if (batchSize > 0)
                 {
@@ -233,7 +245,17 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
                     };
 
                     // 发送到L2处理
-                    await _batchWriter.WriteAsync(batch, _cancellationTokenSource.Token);
+                    if (!_batchWriter.TryWrite(batch))
+                    {
+                        _batchQueueMetrics.Observe();
+                        var waitStart = Stopwatch.GetTimestamp();
+                        await _batchWriter.WriteAsync(batch, _cancellationTokenSource.Token);
+                        _batchQueueMetrics.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
+                    }
+                    else
+                    {
+                        _batchQueueMetrics.Observe();
+                    }
                     _metrics.BatchesCreated.Add(1);
 
                     // 记录批处理统计到L2调度器
@@ -270,6 +292,7 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
     {
         await foreach (var batch in _batchReader.ReadAllAsync(_cancellationTokenSource.Token))
         {
+            _batchQueueMetrics.Observe();
             try
             {
                 await ProcessBatch(batch);
@@ -480,6 +503,8 @@ internal sealed class TieredMessageProcessor : IAsyncDisposable
 
         // 释放取消令牌
         _cancellationTokenSource.Dispose();
+        _l1QueueMetrics.Dispose();
+        _batchQueueMetrics.Dispose();
 
         _logger.LogInformation("TieredMessageProcessor已关闭: ProcessorId={ProcessorId}", _processorId);
     }

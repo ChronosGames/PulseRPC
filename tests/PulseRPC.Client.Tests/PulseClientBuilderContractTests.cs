@@ -67,35 +67,61 @@ public class PulseClientBuilderContractTests
     [Theory]
     [InlineData(LoadBalancingStrategy.WeightedRoundRobin)]
     [InlineData(LoadBalancingStrategy.ConsistentHash)]
-    public void Build_WithUnimplementedLoadBalancingStrategy_MustFailExplicitly(
+    public void Build_WithAdvancedLoadBalancingStrategy_MustUseStrategy(
         LoadBalancingStrategy strategy)
     {
-        var builder = new PulseClientBuilder().WithLoadBalancing(strategy);
+        using var client = new PulseClientBuilder()
+            .WithLoadBalancing(strategy)
+            .Build();
 
-        var ex = Assert.Throws<NotSupportedException>(() => builder.Build());
-        Assert.Contains(strategy.ToString(), ex.Message);
+        Assert.Equal(strategy, client.LoadBalancer.Strategy);
     }
 
-    [Theory]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    public void Transport_WithUnsupportedWireTransform_MustFailAtConstruction(
-        bool compression,
-        bool encryption)
+    [Fact]
+    public void Build_WithDynamicWeightProvider_MustCreateContextualLoadBalancer()
+    {
+        using var client = new PulseClientBuilder()
+            .Configure(options => options.LoadBalancing.WeightProvider = new TestWeightProvider())
+            .WithLoadBalancing(LoadBalancingStrategy.WeightedRoundRobin)
+            .Build();
+
+        Assert.IsAssignableFrom<IContextualLoadBalancer>(client.LoadBalancer);
+    }
+
+    [Fact]
+    public void Build_WithInvalidConsistentHashVirtualNodeCount_MustFailExplicitly()
+    {
+        var builder = new PulseClientBuilder()
+            .Configure(options => options.LoadBalancing.ConsistentHashVirtualNodes = 0)
+            .WithLoadBalancing(LoadBalancingStrategy.ConsistentHash);
+
+        var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
+        Assert.Contains("虚拟节点", exception.Message);
+    }
+
+    [Fact]
+    public void Transport_WithCompression_MustBeConstructible()
     {
         var tcpOptions = new TcpTransportOptions
         {
-            UseCompression = compression,
-            UseEncryption = encryption
+            UseCompression = true
         };
         var kcpOptions = new KcpTransportOptions
         {
-            UseCompression = compression,
-            UseEncryption = encryption
+            UseCompression = true
         };
 
-        Assert.Throws<NotSupportedException>(() => new TcpClientTransport("tcp", tcpOptions));
-        Assert.Throws<NotSupportedException>(() => new KcpClientTransport("kcp", kcpOptions));
+        using var tcp = new TcpClientTransport("tcp", tcpOptions);
+        using var kcp = new KcpClientTransport("kcp", kcpOptions);
+    }
+
+    [Fact]
+    public void Transport_WithEncryptionButNoKeyProvider_MustFailAtConstruction()
+    {
+        Assert.Throws<InvalidOperationException>(() => new TcpClientTransport(
+            "tcp", new TcpTransportOptions { UseEncryption = true }));
+        Assert.Throws<InvalidOperationException>(() => new KcpClientTransport(
+            "kcp", new KcpTransportOptions { UseEncryption = true }));
     }
 
     private sealed class TestAuthenticationProvider : IAuthenticationProvider
@@ -120,5 +146,10 @@ public class PulseClientBuilderContractTests
                 Token = "test-token",
                 ExpiresAt = DateTime.UtcNow.AddMinutes(5)
             };
+    }
+
+    private sealed class TestWeightProvider : IConnectionWeightProvider
+    {
+        public int GetWeight(IClientChannel connection) => 1;
     }
 }

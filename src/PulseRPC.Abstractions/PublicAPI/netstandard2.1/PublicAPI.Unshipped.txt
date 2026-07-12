@@ -1,1 +1,19 @@
 #nullable enable
+PulseRPC.Abstractions.Transport.Security.ITransportEncryptionKeyProvider
+PulseRPC.Abstractions.Transport.Security.ITransportEncryptionKeyProvider.GetCurrentKey() -> PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey
+PulseRPC.Abstractions.Transport.Security.ITransportEncryptionKeyProvider.TryGetKey(uint keyId, out PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey key) -> bool
+PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey
+PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey.TransportEncryptionKey() -> void
+PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey.Key.get -> System.ReadOnlyMemory<byte>
+PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey.KeyId.get -> uint
+PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey.TransportEncryptionKey(uint keyId, System.ReadOnlyMemory<byte> key) -> void
+PulseRPC.Abstractions.Transport.Security.TransportWireCapabilities
+PulseRPC.Abstractions.Transport.Security.TransportWireCapabilities.Aes256GcmEncryption = 2 -> PulseRPC.Abstractions.Transport.Security.TransportWireCapabilities
+PulseRPC.Abstractions.Transport.Security.TransportWireCapabilities.BrotliCompression = 1 -> PulseRPC.Abstractions.Transport.Security.TransportWireCapabilities
+PulseRPC.Abstractions.Transport.Security.TransportWireCapabilities.None = 0 -> PulseRPC.Abstractions.Transport.Security.TransportWireCapabilities
+PulseRPC.Shared.TransportOptions.CompressionThreshold.get -> int
+PulseRPC.Shared.TransportOptions.CompressionThreshold.set -> void
+PulseRPC.Shared.TransportOptions.EncryptionKeyProvider.get -> PulseRPC.Abstractions.Transport.Security.ITransportEncryptionKeyProvider?
+PulseRPC.Shared.TransportOptions.EncryptionKeyProvider.set -> void
+readonly PulseRPC.Shared.HandshakeResponse.Extensions -> string!
+static PulseRPC.Shared.HandshakeResponse.WithExtensions(bool accepted, byte serverProtocolVersion, string? reason, string? extensions) -> PulseRPC.Shared.HandshakeResponse

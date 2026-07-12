@@ -27,7 +27,23 @@ public sealed class EngineMetricsTests
         metrics.RecordBatchProcessingTime(TimeSpan.FromMilliseconds(10));
 
         metrics.GetAverageLatencyMs().Should().BeApproximately(14d / 3d, 0.001);
-        metrics.GetP99LatencyMs().Should().Be(10);
+        metrics.GetP99LatencyMs().Should().BeInRange(10, 10.5);
+        metrics.GetLatencySampleCount().Should().Be(3);
+    }
+
+    [Fact]
+    public void Histogram_MustRetainAllSamplesBeyondLegacyRingCapacity()
+    {
+        var metrics = new EngineMetrics();
+
+        for (var index = 0; index < 10_000; index++)
+            metrics.RecordBatchProcessingTime(TimeSpan.FromMilliseconds(index % 100 + 1));
+
+        metrics.GetLatencySampleCount().Should().Be(10_000);
+        metrics.GetAverageLatencyMs().Should().BeApproximately(50.5, 0.001);
+        metrics.GetP50LatencyMs().Should().BeInRange(49, 53);
+        metrics.GetP95LatencyMs().Should().BeInRange(95, 100);
+        metrics.GetMaxLatencyMs().Should().Be(100);
     }
 
     [Fact]

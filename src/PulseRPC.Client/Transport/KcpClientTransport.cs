@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
 using PulseRPC.Shared;
 using PulseRPC.Shared.Kcp;
+using PulseRPC.Shared.Security;
 
 namespace PulseRPC.Client.Transport;
 
@@ -23,6 +24,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport, IAbortableClie
     private DateTime _connectedAt;
     private DateTime _lastActivityAt;
     private string _id;
+    private byte[]? _handshakePacket;
 
     public KcpClientTransport(string id, KcpTransportOptions? options = null, ILogger? logger = null)
         : base(options, logger)
@@ -155,6 +157,8 @@ public class KcpClientTransport : KcpTransport, IClientTransport, IAbortableClie
     /// </summary>
     private async Task PerformHandshakeWithRetryAsync(CancellationToken cancellationToken)
     {
+        ResetWireHandshake();
+        _handshakePacket = CreateWireHandshakePacket();
         var maxRetries = _options.HandshakeRetryCount;
         var baseDelay = 100; // 基础延迟100ms
 
@@ -265,8 +269,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport, IAbortableClie
 
         try
         {
-            var handshakeData = CreateHandshakePacket(_options.ConversationId);
-            _socket.SendTo(handshakeData, _remoteEndpoint!);
+            _socket.SendTo(_handshakePacket!, _remoteEndpoint!);
             await ReceiveHandshakeConfirmationAsync(timeoutCts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -293,7 +296,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport, IAbortableClie
     /// </summary>
     private async Task ReceiveHandshakeConfirmationAsync(CancellationToken cancellationToken)
     {
-        var receiveBuffer = new byte[64];
+        var receiveBuffer = new byte[1024];
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -324,12 +327,34 @@ public class KcpClientTransport : KcpTransport, IClientTransport, IAbortableClie
                     continue;
                 }
 
-                if (received != sizeof(uint) + sizeof(byte) ||
-                    BitConverter.ToUInt32(receiveBuffer, 0) != _options.ConversationId ||
-                    receiveBuffer[sizeof(uint)] != ProtocolConstants.CurrentProtocolVersion)
+                if (!KcpWireHandshake.TryParseResponse(
+                        receiveBuffer.AsSpan(0, received),
+                        out var conversationId,
+                        out var accepted,
+                        out var reason,
+                        out var extensions) ||
+                    conversationId != _options.ConversationId)
                 {
                     throw new HandshakeException(
                         $"KCP握手确认与 wire v{ProtocolConstants.CurrentProtocolVersion} 不兼容",
+                        HandshakeStage.WaitingConfirmation,
+                        _options.ConversationId,
+                        sender.ToString());
+                }
+
+                if (!accepted)
+                {
+                    throw new HandshakeException(
+                        $"KCP wire v3 握手被拒绝: {reason}",
+                        HandshakeStage.WaitingConfirmation,
+                        _options.ConversationId,
+                        sender.ToString());
+                }
+
+                if (!TryCompleteWireHandshake(extensions, out var wireReason))
+                {
+                    throw new HandshakeException(
+                        $"KCP wire v3 能力协商失败: {wireReason}",
                         HandshakeStage.WaitingConfirmation,
                         _options.ConversationId,
                         sender.ToString());
@@ -342,14 +367,6 @@ public class KcpClientTransport : KcpTransport, IClientTransport, IAbortableClie
                 await Task.Delay(10, cancellationToken).ConfigureAwait(false);
             }
         }
-    }
-
-    private static byte[] CreateHandshakePacket(uint conversationId)
-    {
-        var packet = new byte[sizeof(uint) + sizeof(byte)];
-        BitConverter.GetBytes(conversationId).CopyTo(packet, 0);
-        packet[sizeof(uint)] = ProtocolConstants.CurrentProtocolVersion;
-        return packet;
     }
 
     /// <summary>

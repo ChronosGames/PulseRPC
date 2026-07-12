@@ -1,5 +1,7 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server.Processing.Queues;
 
@@ -14,6 +16,7 @@ public sealed class ServiceMessageQueue : IAsyncDisposable
 
     // 消息队列（单通道 FIFO）
     private readonly Channel<Func<CancellationToken, ValueTask>> _messageQueue;
+    private readonly IRuntimeQueueMetricsRegistration? _queueMetrics;
 
     // 执行线程
     private Task? _executionTask;
@@ -47,6 +50,11 @@ public sealed class ServiceMessageQueue : IAsyncDisposable
                 SingleReader = true,
                 SingleWriter = false
             });
+        if (capacity > 0)
+        {
+            _queueMetrics = RuntimeQueueMetrics.Register(
+                "service.message", _queueId, capacity, () => _messageQueue.Reader.Count);
+        }
 
         _logger.LogDebug(
             "ServiceMessageQueue created - QueueId: {QueueId}, Capacity: {Capacity}",
@@ -69,7 +77,17 @@ public sealed class ServiceMessageQueue : IAsyncDisposable
 
         try
         {
-            await _messageQueue.Writer.WriteAsync(messageHandler, cancellationToken);
+            if (!_messageQueue.Writer.TryWrite(messageHandler))
+            {
+                _queueMetrics?.Observe();
+                var waitStart = Stopwatch.GetTimestamp();
+                await _messageQueue.Writer.WriteAsync(messageHandler, cancellationToken);
+                _queueMetrics?.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
+            }
+            else
+            {
+                _queueMetrics?.Observe();
+            }
             return true;
         }
         catch (ChannelClosedException)
@@ -89,6 +107,7 @@ public sealed class ServiceMessageQueue : IAsyncDisposable
             // 使用优化的 ReadAllAsync - .NET 内部高度优化的路径
             await foreach (var messageHandler in _messageQueue.Reader.ReadAllAsync(_cts.Token))
             {
+                _queueMetrics?.Observe();
                 _localTotalMessages++;
 
                 try
@@ -153,6 +172,7 @@ public sealed class ServiceMessageQueue : IAsyncDisposable
         }
 
         _cts.Dispose();
+        _queueMetrics?.Dispose();
     }
 }
 

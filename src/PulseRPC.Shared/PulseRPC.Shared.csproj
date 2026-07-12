@@ -21,6 +21,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
+    <ProjectReference Include="..\PulseRPC.Analyzers\PulseRPC.Analyzers.csproj"
+                      ReferenceOutputAssembly="false"
+                      OutputItemType="Analyzer"
+                      PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>

@@ -206,6 +206,29 @@ public interface ILoadBalancer
 }
 
 /// <summary>
+/// Companion interface for load balancers that consume a stable per-selection routing context.
+/// </summary>
+public interface IContextualLoadBalancer : ILoadBalancer
+{
+    /// <summary>Selects a healthy connection using the supplied routing context.</summary>
+    IClientChannel? SelectConnection(
+        IReadOnlyList<IClientChannel> connections,
+        LoadBalancingContext context);
+}
+
+/// <summary>
+/// Companion interface for connection managers that preserve per-call load-balancing context.
+/// </summary>
+public interface IContextualConnectionManager : IConnectionManager
+{
+    /// <summary>Routes a service request using the supplied routing context.</summary>
+    Task<IClientChannel?> RouteAsync(
+        string serviceName,
+        LoadBalancingContext context,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// 健康检查结果
 /// </summary>
 public sealed class HealthCheckResult

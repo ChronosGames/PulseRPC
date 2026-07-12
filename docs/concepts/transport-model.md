@@ -77,9 +77,25 @@ public interface ITransportConnection : IDisposable
 
 `SendAsync` 的完成语义是“本地传输已完成该帧的写出/交付给协议栈”：TCP 会等待底层 `NetworkStream.WriteAsync` 完成，KCP 会等待帧被 KCP 栈接收。它不表示远端业务方法已执行；需要业务执行结果时必须使用 Ask/响应或节点 wire v2 ACK。发送队列满时调用会等待、被取消或返回失败，不能把“成功进入队列”误报为发送完成。
 
-当前 TCP/KCP wire 压缩和加密尚未实现，`TransportOptions.UseCompression` / `UseEncryption` 设为 `true` 会在创建传输时明确抛出 `NotSupportedException`。线路安全应由受信网络边界及 TLS/mTLS 层提供。
+TCP/KCP transport wire v3 支持 Brotli 压缩和 AES-256-GCM 加密。`UseCompression` / `UseEncryption` 表示连接必需能力，而不是“尽力启用”：双方能力必须完全一致，否则握手失败，不能静默降级。握手帧本身始终明文；业务帧通过显式压缩/加密标志、原始长度、key id 和单调序号验证。
+
+压缩阈值由双方在握手中声明，本次连接取较大值；只有原始消息达到阈值且 Brotli 结果确实更小时才设置压缩标志。解压前先验证声明的原始长度不超过 `MaxPacketSize`。加密使用双方随机 nonce、方向标签和 32 字节主密钥派生独立的收发密钥与 nonce 前缀；AES-GCM tag、key id、序号、帧内外标志或原始长度任一异常都会关闭连接，已接收序号也不能重放。
+
+启用加密时必须提供 `ITransportEncryptionKeyProvider`。轮换采用“新连接切换、既有连接固定”的规则：先把新 key 发布为 current，同时让 `TryGetKey` 在轮换窗口内继续解析旧 key；旧连接排空后再移除旧 key。key id 必须非零，密钥必须恰好 32 字节。内置 wire 加密提供帧机密性和完整性，但预共享密钥不替代节点身份认证；跨不可信边界仍建议使用 TLS/mTLS。
+
+```csharp
+var options = new TcpTransportOptions
+{
+    UseCompression = true,
+    CompressionThreshold = 1024,
+    UseEncryption = true,
+    EncryptionKeyProvider = keyProvider
+};
+```
 
 `BatchedTransport` 的 reader、周期刷新和释放排空属于同一可追踪生命周期；`DisposeAsync` 会等待所有已接受请求得到发送结果。背压支持 `Block`、`DropNewest` 和 `Reject`；`DropOldest` 因无法在当前目标框架上可靠通知被淘汰请求，仍为实验枚举值并在构造时 fail-fast。
+
+所有实际有界运行时队列都会注册到 `RuntimeQueueMetrics`。快照直接读取底层 channel/ring buffer 的真实深度，并报告 capacity、saturation、高水位、饱和事件、入队等待和拒绝次数；同一数据同时通过 `PulseRPC.RuntimeQueues` meter 和服务端 `/diagnostics/queue-stats`、Prometheus 指标导出。队列销毁时注册同步移除，因此诊断结果不保留失效实例。
 
 客户端 `StopAsync` / `DisconnectAsync` 的 `graceful=false` 为真正的 abortive 路径：立即取消自动重连和通道后台任务，TCP 以 linger=0 关闭 socket，KCP 直接关闭 UDP socket；不发送 KCP 断开帧，也不排空待发队列。
 
@@ -135,7 +151,7 @@ public interface IServerListener : IDisposable
   - 基于 UDP 的可靠传输
   - 低延迟优化连接
   - 自定义拥塞控制
-  - wire v2 握手携带显式协议版本；确认包只接受协商服务器端点
+  - transport wire v3 握手携带显式协议版本、必需能力、阈值、key id 与会话 nonce；确认包只接受协商服务器端点
   - 握手接收使用整体超时窗口，不遗留超时的异步 UDP 接收
   - 自动重连复用已绑定 UDP socket；`MaxReconnectAttempts = 0` 表示无限重试
   - 丢包、乱序和 30 秒网络中断使用确定性故障注入验证重传恢复
@@ -152,7 +168,7 @@ public interface IServerListener : IDisposable
   - 基于 UDP 的可靠传输
   - 低延迟优化
   - 按完整消息大小接收，并以 `MaxPacketSize` 作为明确上限
-  - 仅接受 `conv + wire version` 的 v2 握手，破坏性拒绝旧 4 字节握手
+  - 仅接受带类型和长度边界的 wire v3 握手，破坏性拒绝旧 4/5 字节握手；重试复用同一 offer/nonce 和确认包
   - 自定义拥塞控制
   - 时间戳同步机制
 

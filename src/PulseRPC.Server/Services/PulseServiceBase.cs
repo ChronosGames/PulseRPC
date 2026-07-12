@@ -7,6 +7,8 @@ using PulseRPC.Server.Hubs; using PulseRPC.Server.Services; using PulseRPC.Serve
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Services.Scheduling;
 using PulseRPC.Shared;
+using System.Diagnostics;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server.Services;
 
@@ -56,6 +58,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
 {
     private readonly SemaphoreSlim _stateLock = new(1, 1);
     private readonly Channel<WorkItem>? _messageQueue;
+    private readonly IRuntimeQueueMetricsRegistration? _mailboxMetrics;
     private readonly IThreadAffinityScheduler? _affinityScheduler;
     private Task? _messageProcessingTask;
     private CancellationTokenSource? _processingCts;
@@ -226,9 +229,16 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                     SingleReader = true,
                     SingleWriter = false
                 },
-                itemDropped: item => item.Reject(new InvalidOperationException(
-                    $"Service mailbox is full and rejected a request ({ExecutionOptions.BackpressureMode}): " +
-                    ((IPulseService)this).ServiceAddress)));
+                itemDropped: item =>
+                {
+                    _mailboxMetrics?.RecordRejectedEnqueue();
+                    item.Reject(new InvalidOperationException(
+                        $"Service mailbox is full and rejected a request ({ExecutionOptions.BackpressureMode}): " +
+                        ((IPulseService)this).ServiceAddress));
+                });
+            _mailboxMetrics = RuntimeQueueMetrics.Register(
+                "service.mailbox", $"{ServiceType}:{ServiceId}", ExecutionOptions.QueueCapacity,
+                () => _messageQueue.Reader.Count);
         }
         // ThreadAffinity 模式使用共享调度器，不创建私有队列
 
@@ -432,7 +442,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 }
             };
 
-            await _messageQueue.Writer.WriteAsync(
+            await WriteMailboxAsync(
                 new WorkItem(wrapped, reentrant, exception => completion.TrySetException(exception)),
                 cancellationToken);
             await completion.Task;
@@ -544,7 +554,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 }
             };
 
-            await _messageQueue.Writer.WriteAsync(
+            await WriteMailboxAsync(
                 new WorkItem(wrapped, reentrant, exception => valueTaskSource.TrySetException(exception)),
                 cancellationToken);
 
@@ -739,6 +749,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
         _tickCts?.Dispose();
         _processingCts?.Dispose();
         _stateLock.Dispose();
+        _mailboxMetrics?.Dispose();
 
         GC.SuppressFinalize(this);
     }
@@ -762,6 +773,23 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
         }
     }
 
+    private async ValueTask WriteMailboxAsync(WorkItem item, CancellationToken cancellationToken)
+    {
+        if (_messageQueue == null)
+            throw new InvalidOperationException("Service mailbox is not configured.");
+
+        if (_messageQueue.Writer.TryWrite(item))
+        {
+            _mailboxMetrics?.Observe();
+            return;
+        }
+
+        var waitStart = Stopwatch.GetTimestamp();
+        _mailboxMetrics?.Observe();
+        await _messageQueue.Writer.WriteAsync(item, cancellationToken);
+        _mailboxMetrics?.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
+    }
+
     private async Task ProcessMessagesAsync(CancellationToken cancellationToken)
     {
         if (_messageQueue == null) return;
@@ -775,6 +803,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
         {
             await foreach (var item in _messageQueue.Reader.ReadAllAsync(cancellationToken))
             {
+                _mailboxMetrics?.Observe();
                 if (item.Reentrant)
                 {
                     // 读者：并发派发，不等待其完成即可继续读取下一项。

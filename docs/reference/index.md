@@ -13,13 +13,18 @@
 | `PulseRPC.Infrastructure` | 发现和集群成员通用基础设施 |
 | `PulseRPC.Infrastructure.*` | Consul、Etcd、Kubernetes 等后端 |
 | `PulseRPC.Backplane.Redis` | Redis Backplane 与 CAS + TTL Actor 租约存储 |
+| `PulseRPC.Analyzers` | 仓库构建期包边界门禁，不作为运行时包发布 |
 | `PulseRPC.*.SourceGenerator` | 客户端/服务端代码生成 |
+
+详细依赖方向、公开类型规则和统一术语见[包边界与核心术语](package-boundaries-and-terminology.md)。
 
 ## 常用配置入口
 
 | 入口 | 用途 |
 | --- | --- |
 | `PulseClientBuilder` | 创建客户端、添加连接、负载均衡、日志 |
+| `ClientOptions.LoadBalancing` | 配置动态连接权重来源和一致性哈希虚拟节点 |
+| `ServiceProxyOptions.StickyKey` | 为 ConsistentHash 提供稳定的用户/租户/会话 key |
 | `ConnectionConfig` / `ConnectionDescriptor` | 客户端连接描述 |
 | `AddPulseServer(...)` | 注册默认服务端 |
 | `AddNamedPulseServer(...)` | 注册命名服务端 |
@@ -55,6 +60,8 @@
 - 删除或重命名公共 API 需要明确迁移路径，优先使用 `[Obsolete]` 分阶段替代。
 
 ## 术语
+
+以下为快速索引；完整的 Hub/Service/Actor、Channel/Transport/Connection 分层定义见[包边界与核心术语](package-boundaries-and-terminology.md)。
 
 | 术语 | 含义 |
 | --- | --- |

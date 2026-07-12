@@ -1,6 +1,8 @@
 using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Diagnostics;
+using PulseRPC.Diagnostics;
 
 namespace PulseRPC.Server.Processing.Pipeline;
 
@@ -18,6 +20,7 @@ public sealed class BatchedNetworkWriter : IAsyncDisposable
     private readonly ChannelReader<WriteRequest> _reader;
     private readonly Timer _flushTimer;
     private readonly SemaphoreSlim _flushSemaphore;
+    private readonly IRuntimeQueueMetricsRegistration _queueMetrics;
 
     private readonly List<ReadOnlyMemory<byte>> _pendingBuffers;
     private readonly List<TaskCompletionSource<bool>> _pendingCompletions;
@@ -92,6 +95,9 @@ public sealed class BatchedNetworkWriter : IAsyncDisposable
         _writeChannel = Channel.CreateBounded<WriteRequest>(channelOptions);
         _writer = _writeChannel.Writer;
         _reader = _writeChannel.Reader;
+        _queueMetrics = RuntimeQueueMetrics.Register(
+            "pipeline.network-write", Guid.NewGuid().ToString("N"),
+            _options.ChannelCapacity, () => _reader.Count);
 
         _pendingBuffers = new List<ReadOnlyMemory<byte>>(_options.BatchThreshold);
         _pendingCompletions = new List<TaskCompletionSource<bool>>(_options.BatchThreshold);
@@ -138,7 +144,17 @@ public sealed class BatchedNetworkWriter : IAsyncDisposable
         try
         {
             // 写入请求到通道
-            await _writer.WriteAsync(request, cancellationToken);
+            if (!_writer.TryWrite(request))
+            {
+                _queueMetrics.Observe();
+                var waitStart = Stopwatch.GetTimestamp();
+                await _writer.WriteAsync(request, cancellationToken);
+                _queueMetrics.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
+            }
+            else
+            {
+                _queueMetrics.Observe();
+            }
             Interlocked.Increment(ref _totalWriteRequests);
 
             // 等待处理完成
@@ -185,6 +201,7 @@ public sealed class BatchedNetworkWriter : IAsyncDisposable
         {
             await foreach (var request in _reader.ReadAllAsync(cancellationToken))
             {
+                _queueMetrics.Observe();
                 lock (_batchLock)
                 {
                     _pendingBuffers.Add(request.Data);
@@ -413,6 +430,7 @@ public sealed class BatchedNetworkWriter : IAsyncDisposable
             _flushTimer?.Dispose();
             _flushSemaphore?.Dispose();
             _cancellationTokenSource?.Dispose();
+            _queueMetrics.Dispose();
         }
     }
 }

@@ -204,6 +204,12 @@ public sealed class ServiceProxyOptions
     public LoadBalancingHint LoadBalancingHint { get; set; } = LoadBalancingHint.None;
 
     /// <summary>
+    /// Stable key for <see cref="LoadBalancingStrategy.ConsistentHash"/> or a sticky load-balancing hint.
+    /// The same logical user, tenant, or session must supply the same non-empty value across calls.
+    /// </summary>
+    public string? StickyKey { get; set; }
+
+    /// <summary>
     /// 超时时间
     /// </summary>
     public TimeSpan? Timeout { get; set; }
@@ -394,4 +400,3 @@ public enum PoolingStrategy
     /// </summary>
     OnDemand
 }
-

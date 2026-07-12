@@ -54,8 +54,8 @@ public sealed class TcpTransportProviderTests
             var response = HandshakeResponse.FromBytes(await ReadExactAsync(stream, responseHeader.Length));
 
             response.Accepted.Should().BeFalse();
-            response.ServerProtocolVersion.Should().Be(2);
-            response.Reason.Should().Contain("支持的版本范围: 2-2");
+            response.ServerProtocolVersion.Should().Be(3);
+            response.Reason.Should().Contain("支持的版本范围: 3-3");
         }
         finally
         {
@@ -107,7 +107,10 @@ public sealed class TcpTransportProviderTests
             serverTransport = await accepted.Task.WaitAsync(TimeSpan.FromSeconds(3));
 
             await using var stream = client.GetStream();
-            var handshake = new HandshakeMessage(ProtocolConstants.CurrentProtocolVersion, "test").ToBytes();
+            var handshake = new HandshakeMessage(
+                ProtocolConstants.CurrentProtocolVersion,
+                "test",
+                "prpc-wire-v3|0|1024|0|").ToBytes();
             await WriteFrameAsync(
                 stream,
                 handshake,
