@@ -6,6 +6,7 @@ using PulseRPC.Benchmark.Client;
 using PulseRPC.Benchmark.Clustering;
 using PulseRPC.Benchmark.Models;
 using PulseRPC.Benchmark.Server;
+using PulseRPC.Benchmark.Architecture;
 
 var rootCommand = new RootCommand("PulseRPC 基准测试工具");
 
@@ -191,11 +192,70 @@ listCommand.SetAction((ParseResult _) =>
     Console.WriteLine("  download   - 测试服务端到客户端的数据传输带宽");
     Console.WriteLine("  stability  - 长时间运行测试，监控内存泄漏和连接稳定性");
     Console.WriteLine("  cluster-three-hop - 真实三节点 Gateway A -> B -> C TCP 端到端基准（独立命令）");
+    Console.WriteLine("  architecture-baseline - 传输与 Actor 高并发延迟、分配和背压基线（独立命令）");
 });
 
 rootCommand.Subcommands.Add(serverCommand);
 rootCommand.Subcommands.Add(clientCommand);
 rootCommand.Subcommands.Add(clusterCommand);
+
+// ============ 传输 / Actor 高并发架构基线 ============
+var architectureCommand = new Command("architecture-baseline")
+{
+    Description = "测量传输背压与 Actor 高并发延迟、分配，导出或比较 JSON 基线"
+};
+var architectureOperationsOption = new Option<int>("--operations")
+{
+    Description = "每个主要场景的操作数",
+    DefaultValueFactory = _ => 2000
+};
+var architectureConcurrencyOption = new Option<int>("--concurrency")
+{
+    Description = "并发 worker 数",
+    DefaultValueFactory = _ => Math.Clamp(Environment.ProcessorCount * 4, 8, 64)
+};
+var architectureRepetitionsOption = new Option<int>("--repetitions")
+{
+    Description = "正式基准重复次数（1-9），报告逐指标中位数；smoke 固定为 1",
+    DefaultValueFactory = _ => 3
+};
+var architectureSmokeOption = new Option<bool>("--smoke")
+{
+    Description = "使用最多 250 次操作 / 8 并发 / 1 轮快速验证"
+};
+var architectureOutputOption = new Option<string?>("--output")
+{
+    Description = "JSON 结果输出路径"
+};
+var architectureCompareOption = new Option<string?>("--compare")
+{
+    Description = "用于计算回归百分比的旧 JSON 基线"
+};
+var architectureRegressionOption = new Option<double>("--max-regression-percent")
+{
+    Description = "超过该百分比时以非零状态退出；0 仅报告不门禁",
+    DefaultValueFactory = _ => 0
+};
+architectureCommand.Options.Add(architectureOperationsOption);
+architectureCommand.Options.Add(architectureConcurrencyOption);
+architectureCommand.Options.Add(architectureRepetitionsOption);
+architectureCommand.Options.Add(architectureSmokeOption);
+architectureCommand.Options.Add(architectureOutputOption);
+architectureCommand.Options.Add(architectureCompareOption);
+architectureCommand.Options.Add(architectureRegressionOption);
+architectureCommand.SetAction(async (ParseResult parseResult, CancellationToken cancellationToken) =>
+{
+    await ArchitectureBaselineBenchmark.RunAsync(
+        parseResult.GetValue(architectureOperationsOption),
+        parseResult.GetValue(architectureConcurrencyOption),
+        parseResult.GetValue(architectureRepetitionsOption),
+        parseResult.GetValue(architectureSmokeOption),
+        parseResult.GetValue(architectureOutputOption),
+        parseResult.GetValue(architectureCompareOption),
+        parseResult.GetValue(architectureRegressionOption),
+        cancellationToken);
+});
+rootCommand.Subcommands.Add(architectureCommand);
 rootCommand.Subcommands.Add(listCommand);
 
 return await rootCommand.Parse(args).InvokeAsync();

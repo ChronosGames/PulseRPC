@@ -25,6 +25,7 @@ dotnet build PulseRPC.sln
 | 生成器 | SourceGenerator.Tests + 相关运行时测试 |
 | 协议号 | SourceGenerator.Tests + Server.Tests |
 | TCP/KCP | Client.Tests + Server.Tests + BenchmarkApp smoke |
+| 传输/Actor 并发性能 | `architecture-baseline --smoke`；同机回归使用固定 workload JSON 比较 |
 | 集群路由 | Server.Tests + Infrastructure.Tests |
 | 认证 | Server.Tests + JwtAuthentication 样例 build |
 | 样例 | 对应样例项目 build/run smoke |
@@ -32,4 +33,3 @@ dotnet build PulseRPC.sln
 ## 外部依赖
 
 Redis backplane 和部分集成测试可能需要 Docker/Testcontainers。没有外部依赖时，不要声称这些测试已通过；应说明未运行原因。
-

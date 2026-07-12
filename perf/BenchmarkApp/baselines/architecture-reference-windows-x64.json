@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "createdUtc": "2026-07-12T01:35:55.6611433+00:00",
+  "runtime": ".NET 10.0.9",
+  "operatingSystem": "Microsoft Windows 10.0.19045",
+  "architecture": "X64",
+  "processorCount": 16,
+  "processor": "AMD64 Family 23 Model 113 Stepping 0, AuthenticAMD",
+  "serverGc": false,
+  "configuration": {
+    "operations": 2000,
+    "concurrency": 32,
+    "repetitions": 3,
+    "smoke": false
+  },
+  "scenarios": [
+    {
+      "name": "transport-batched-block",
+      "operations": 2000,
+      "concurrency": 32,
+      "durationMs": 412.4142,
+      "operationsPerSecond": 4849.493543141822,
+      "allocatedBytesPerOperation": 584.908,
+      "latency": {
+        "count": 2000,
+        "averageMs": 6.5471563,
+        "p50Ms": 6.5836,
+        "p95Ms": 6.71681,
+        "p99Ms": 6.98211,
+        "maxMs": 7.2389
+      },
+      "backpressureWait": {
+        "count": 2000,
+        "averageMs": 6.340035300000008,
+        "p50Ms": 6.3768,
+        "p95Ms": 6.509,
+        "p99Ms": 6.777203,
+        "maxMs": 6.7855
+      }
+    },
+    {
+      "name": "actor-hot-lookup",
+      "operations": 200000,
+      "concurrency": 32,
+      "durationMs": 65.8299,
+      "operationsPerSecond": 3038133.127955534,
+      "allocatedBytesPerOperation": 112.01096,
+      "latency": {
+        "count": 200000,
+        "averageMs": 0.0002924645000003834,
+        "p50Ms": 0.0003,
+        "p95Ms": 0.0004,
+        "p99Ms": 0.0008,
+        "maxMs": 0.4038
+      },
+      "backpressureWait": {
+        "count": 0,
+        "averageMs": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0,
+        "maxMs": 0
+      }
+    },
+    {
+      "name": "actor-mailbox-block",
+      "operations": 2000,
+      "concurrency": 32,
+      "durationMs": 412.7048,
+      "operationsPerSecond": 4846.078843764357,
+      "allocatedBytesPerOperation": 1114.504,
+      "latency": {
+        "count": 2000,
+        "averageMs": 6.5505819,
+        "p50Ms": 6.5742,
+        "p95Ms": 6.785905,
+        "p99Ms": 7.011603999999999,
+        "maxMs": 7.0748
+      },
+      "backpressureWait": {
+        "count": 2000,
+        "averageMs": 6.343523299999993,
+        "p50Ms": 6.36805,
+        "p95Ms": 6.57391,
+        "p99Ms": 6.806103,
+        "maxMs": 6.867
+      }
+    },
+    {
+      "name": "actor-create-remove",
+      "operations": 5000,
+      "concurrency": 32,
+      "durationMs": 21.3604,
+      "operationsPerSecond": 234078.01352034605,
+      "allocatedBytesPerOperation": 4539.0208,
+      "latency": {
+        "count": 5000,
+        "averageMs": 0.1337021399999999,
+        "p50Ms": 0.0926,
+        "p95Ms": 0.1266,
+        "p99Ms": 1.917603,
+        "maxMs": 5.0181
+      },
+      "backpressureWait": {
+        "count": 0,
+        "averageMs": 0,
+        "p50Ms": 0,
+        "p95Ms": 0,
+        "p99Ms": 0,
+        "maxMs": 0
+      }
+    }
+  ]
+}

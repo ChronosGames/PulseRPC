@@ -190,7 +190,30 @@ dotnet run -c Release --project PulseRPC.Benchmark -- cluster-three-hop --smoke
 
 输出包含 `ops/s` 以及端到端延迟 `p50/p95/p99`。
 
-### 4. 导出结果
+### 4. 传输与 Actor 高并发架构基线
+
+该命令覆盖批处理传输的 `Block` 背压、热 Actor 查找、Actor mailbox 背压，以及并发创建/移除。两个背压场景使用固定 200 微秒的受限消费者来稳定制造队列压力，不代表真实网络 RTT。报告同时记录吞吐量、端到端 `p50/p95/p99/max`、进程级分配字节/操作，以及从提交到开始消费的等待分布。
+
+仓库参考负载固定为 2,000 次操作和 32 个 worker；正式模式默认重复 3 轮，并逐指标报告中位数：
+
+```bash
+dotnet run -c Release --project PulseRPC.Benchmark -- architecture-baseline \
+  --operations 2000 --concurrency 32 \
+  --output baselines/architecture-reference-windows-x64.json
+```
+
+在同一台空闲机器、相同 Runtime/OS/GC 配置下比较新结果：
+
+```bash
+dotnet run -c Release --project PulseRPC.Benchmark -- architecture-baseline \
+  --operations 2000 --concurrency 32 \
+  --compare baselines/architecture-reference-windows-x64.json \
+  --output architecture-current.json
+```
+
+`--max-regression-percent` 可在同机重复跑稳定后启用门禁；默认值 `0` 只报告差异。命令会拒绝 workload 或 schema 不一致的比较，并禁止在 Runtime、OS、CPU、进程架构或 GC 模式不同的环境中启用百分比门禁。分配量使用 `GC.GetTotalAllocatedBytes`，包含并发调度驱动开销，因此适合观察同环境趋势，不应当解释为单个 API 的纯分配量。CI 使用 `--smoke` 验证场景可运行，不把共享 runner 的易波动性能数值设为硬门禁。
+
+### 5. 导出结果
 
 添加 `--output` 参数将结果保存为 JSON 文件：
 
@@ -227,6 +250,18 @@ dotnet run -c release --project PulseRPC.Benchmark -- client latency --port 1234
 | `--iterations` | 10000 | 计量请求数 |
 | `--concurrency` | CPU 核数 | 并发请求数 |
 | `--smoke` | false | 启用短跑上限 |
+
+### 架构基线参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `--operations` | 2000 | 两个受限背压场景的操作数；非 smoke 时热查找至少 20 万次，生命周期至少 5,000 次 |
+| `--concurrency` | `CPU * 4`，限制为 8–64 | 并发 worker 数 |
+| `--repetitions` | 3 | 正式基准重复次数（1–9），报告逐指标中位数；smoke 固定为 1 |
+| `--smoke` | false | 将规模限制为最多 250 次操作和 8 并发 |
+| `--output` | - | JSON 结果输出路径 |
+| `--compare` | - | 旧 JSON 基线路径 |
+| `--max-regression-percent` | 0 | P95、分配、等待或吞吐回归超过阈值时失败；0 仅报告 |
 
 ## 测试场景说明
 

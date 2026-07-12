@@ -33,6 +33,11 @@ jobs:
       - run: dotnet restore ./PulseRPC.sln
       - run: dotnet build -c Debug ./PulseRPC.sln --no-restore --warnaserror
       - run: dotnet build -c Release ./PulseRPC.sln --no-restore --warnaserror
+      - name: Smoke transport and Actor concurrency benchmark
+        run: >-
+          dotnet run --project ./perf/BenchmarkApp/PulseRPC.Benchmark/PulseRPC.Benchmark.csproj
+          -c Release --no-build -- architecture-baseline --smoke
+          --output ./architecture-smoke.json
       # 收集构建产物供 Unity 使用
       - name: Collect build outputs
         run: |

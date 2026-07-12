@@ -35,7 +35,7 @@
 - [x] 完成真正的 abortive disconnect；`graceful=false` 会取消重连/后台任务并立即关闭 TCP/KCP socket，不排空待发队列。
 - [x] KCP 故障注入覆盖丢包、乱序和 30 秒模拟断网；无认证 token 的 NAT rebinding 会 fail-closed，防止 conversation ID 被新端点劫持。
 - [x] CI `run-tests` 使用带健康检查的真实 Redis 容器，Actor lease 集成测试在 CI 中不跳过。
-- [ ] 补充传输与 Actor 高并发基准，建立延迟、分配和背压等待的可比较基线。
+- [x] 传输与 Actor 高并发基准覆盖批处理背压、热实例查找、mailbox 背压和并发创建/移除；`architecture-baseline` 导出带环境/workload 元数据的 JSON，支持同机延迟、分配、吞吐和背压等待回归比较，CI 固定运行 smoke。
 - [x] `ServiceFactoryExample` 已重写为当前 `AddPulseService` / `IServiceAccessor` API；`JsonTranscoding` 已改为可构建的显式 ASP.NET JSON 网关样例。
 
 ### P2：协议/API 演进
