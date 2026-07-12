@@ -13,8 +13,8 @@ namespace PulseRPC.Server.Routing;
 /// <para>
 /// 按 <c>scopeKey</c>（通常为 <c>"{Hub}:{Key}"</c>，即目标 Actor 身份）分桶维护一个有界的
 /// <c>MessageId</c> 集合：同一 <c>(scopeKey, messageId)</c> 在窗口内第二次出现时 <see cref="TryReserve"/>
-/// 返回 <c>false</c>（应跳过执行），达成"效果幂等"。窗口同时受<strong>时间</strong>（<paramref name="window"/>）
-/// 与<strong>容量</strong>（<paramref name="maxEntriesPerScope"/>）双重约束，防止无界内存增长；
+/// 返回 <c>false</c>（应跳过执行），达成"效果幂等"。窗口同时受<strong>时间</strong>（<c>window</c>）
+/// 与<strong>容量</strong>（<c>maxEntriesPerScope</c>）双重约束，防止无界内存增长；
 /// 极晚到达的重复（超出窗口）不再保证去重——这是"有效一次"语义的既定边界（§10.3），而非缺陷。
 /// </para>
 /// <para>

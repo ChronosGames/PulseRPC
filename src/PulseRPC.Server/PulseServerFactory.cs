@@ -8,7 +8,7 @@ using PulseRPC.Server.Transport;
 using PulseRPC.Server.Processing.Engine;
 using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Server.Processing;
-using PulseRPC.Server.Transport;
+using PulseRPC.Server.Security;
 using PulseRPC.Serialization;
 using PulseRPC.Shared;
 
@@ -141,7 +141,8 @@ public static class PulseServerFactory
     {
         // 创建简单的服务提供者用于消息引擎
         var services = new ServiceCollection();
-        var serviceProvider = new MinimalServiceProvider();
+        var serviceProvider = new MinimalServiceProvider(
+            new ClientFacingGatePolicy(options.EnableClientFacingGate));
 
         // 创建传输集成管理器
         var transportProviders = new ITransportProvider[]
@@ -197,9 +198,21 @@ public static class PulseServerFactory
 /// </summary>
 internal sealed class MinimalServiceProvider : IServiceProvider
 {
+    private readonly IClientFacingGatePolicy _clientFacingGatePolicy;
+
+    public MinimalServiceProvider(IClientFacingGatePolicy clientFacingGatePolicy)
+    {
+        _clientFacingGatePolicy = clientFacingGatePolicy;
+    }
+
     public object? GetService(Type serviceType)
     {
-        // 工厂模式下返回 null，大多数场景下不需要 DI
+        if (serviceType == typeof(IClientFacingGatePolicy))
+            return _clientFacingGatePolicy;
+        if (serviceType == typeof(IServiceProvider))
+            return this;
+
+        // 工厂模式下其它服务返回 null，大多数场景下不需要 DI
         return null;
     }
 }

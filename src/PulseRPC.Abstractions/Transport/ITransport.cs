@@ -52,7 +52,8 @@ public interface ITransport : IDisposable
     event EventHandler<TransportDataEventArgs>? DataReceived;
 
     /// <summary>
-    /// 发送数据
+    /// 发送数据。返回 <c>true</c> 表示本地传输已完成写入（TCP）或已将数据交给协议栈（KCP）；
+    /// 不表示远端业务方法已经执行。取消、断连或发送失败返回 <c>false</c>。
     /// </summary>
     Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default);
 }

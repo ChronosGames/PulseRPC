@@ -252,7 +252,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("        /// <summary>");
         sb.AppendLine("        /// 在指定连接上注册事件监听器的工厂方法");
         sb.AppendLine("        /// </summary>");
-        sb.AppendLine("        public static async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(");
+        sb.AppendLine("        public static Task<ISubscriptionToken> RegisterEventListenerAsync<T>(");
         sb.AppendLine("            this IPulseClient client,");
         sb.AppendLine("            string connectionId,");
         sb.AppendLine("            T listener,");
@@ -288,9 +288,17 @@ public static class PulseClientExtensionsGenerator
             sb.AppendLine($"            // 检查是否实现了 {interfaceName}");
             sb.AppendLine($"            if (listener is {fullTypeName} {interfaceName.ToLower()}Listener)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                // 创建智能事件处理器（对于直接注册，需要获取通道连接）");
-            sb.AppendLine($"                // TODO: 实现通用连接获取逻辑");
-            sb.AppendLine($"                var token = new SubscriptionToken(Guid.NewGuid(), \"{interfaceName}\", typeof({fullTypeName}), () => {{ }});");
+            var namespaceName = fullTypeName!.Contains(".")
+                ? fullTypeName.Substring(0, fullTypeName.LastIndexOf('.'))
+                : string.Empty;
+            var dispatcherClassName = GetDispatcherClassName(interfaceName);
+            var fullDispatcherClassName = string.IsNullOrEmpty(namespaceName)
+                ? dispatcherClassName
+                : $"{namespaceName}.{dispatcherClassName}";
+
+            sb.AppendLine($"                var dispatcher = new {fullDispatcherClassName}({interfaceName.ToLower()}Listener);");
+            sb.AppendLine("                var channelToken = dispatcher.RegisterTo(connectionContext);");
+            sb.AppendLine($"                var token = new SubscriptionToken(Guid.NewGuid(), \"{interfaceName}\", typeof({fullTypeName}), () => {{ channelToken?.Dispose(); dispatcher?.Dispose(); }});");
             sb.AppendLine("                tokens.Add(token);");
             sb.AppendLine("            }");
             sb.AppendLine();
@@ -301,7 +309,7 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("                throw new ArgumentException($\"类型 {listenerType.Name} 未实现任何已注册的事件监听器接口。请确保它实现了使用 [PulseClientGeneration] 特性注册的接口。\", nameof(listener));");
         sb.AppendLine("            }");
         sb.AppendLine();
-        sb.AppendLine("            return tokens.Count == 1 ? tokens[0] : new CompositeSubscriptionToken(tokens);");
+        sb.AppendLine("            return Task.FromResult<ISubscriptionToken>(tokens.Count == 1 ? tokens[0] : new CompositeSubscriptionToken(tokens));");
         sb.AppendLine("        }");
         sb.AppendLine();
 

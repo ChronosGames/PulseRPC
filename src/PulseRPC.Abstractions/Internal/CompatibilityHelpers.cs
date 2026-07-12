@@ -7,7 +7,7 @@ namespace System;
 /// <summary>
 /// 兼容性帮助器 - 为 .NET Standard 2.1 提供现代 API 的兼容实现
 /// </summary>
-public static class CompatibilityHelpers
+internal static class CompatibilityHelpers
 {
     /// <summary>
     /// ObjectDisposedException.ThrowIf 的兼容实现

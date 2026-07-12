@@ -1,0 +1,24 @@
+#nullable enable
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.EnableWatch.get -> bool
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.EnableWatch.set -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.KubeConfigPath.get -> string?
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.KubeConfigPath.set -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.KubernetesDiscoveryOptions() -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.LabelSelector.get -> string!
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.LabelSelector.set -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.Namespace.get -> string?
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.Namespace.set -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.NodePort.get -> int
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.NodePort.set -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.UseInClusterConfig.get -> bool
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions.UseInClusterConfig.set -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryProvider
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryProvider.Changed -> System.Action?
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryProvider.DeregisterAsync(PulseRPC.Infrastructure.Discovery.DiscoveredNode self, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryProvider.Dispose() -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryProvider.FetchNodesAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<PulseRPC.Infrastructure.Discovery.DiscoveredNode>!>!
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryProvider.KubernetesDiscoveryProvider(Microsoft.Extensions.Options.IOptions<PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions!>! options, Microsoft.Extensions.Logging.ILogger<PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryProvider!>! logger) -> void
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryProvider.RegisterAsync(PulseRPC.Infrastructure.Discovery.DiscoveredNode self, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryServiceCollectionExtensions
+static PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryServiceCollectionExtensions.AddKubernetesDiscovery(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! localNodeId, string! advertiseHost, int advertisePort, System.Action<PulseRPC.Infrastructure.Kubernetes.KubernetesDiscoveryOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

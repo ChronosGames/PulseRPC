@@ -1,0 +1,717 @@
+#nullable enable
+abstract PulseRPC.Client.Health.HealthCheckerBase.CheckInternalAsync(PulseRPC.Client.Health.HealthCheckContext! context) -> System.Threading.Tasks.Task<PulseRPC.Client.Health.HealthCheckResult!>!
+abstract PulseRPC.Client.Health.HealthCheckerBase.Name.get -> string!
+abstract PulseRPC.Client.Health.HealthCheckerBase.SupportedTargetTypes.get -> System.Type![]!
+abstract PulseRPC.Client.Health.HealthCheckerBase<T>.CheckTargetAsync(T target, PulseRPC.Client.Health.HealthCheckContext! context) -> System.Threading.Tasks.Task<PulseRPC.Client.Health.HealthCheckResult!>!
+override PulseRPC.Client.Configuration.ConnectionConfig.ToString() -> string!
+override PulseRPC.Client.Health.HealthCheckerBase<T>.CheckInternalAsync(PulseRPC.Client.Health.HealthCheckContext! context) -> System.Threading.Tasks.Task<PulseRPC.Client.Health.HealthCheckResult!>!
+override PulseRPC.Client.Health.HealthCheckerBase<T>.SupportedTargetTypes.get -> System.Type![]!
+override PulseRPC.Client.Transport.KcpClientTransport.Dispose() -> void
+override PulseRPC.Client.Transport.KcpClientTransport.Id.get -> string!
+override PulseRPC.Client.Transport.TcpClientTransport.Dispose() -> void
+override PulseRPC.Client.Transport.TcpClientTransport.HandleHandshakeMessageAsync(PulseRPC.Shared.Tcp.FrameHeader header, System.ReadOnlyMemory<byte> data) -> System.Threading.Tasks.Task!
+override PulseRPC.Client.Transport.TcpClientTransport.Id.get -> string!
+PulseRPC.Client.Channels.ResponseContextManager
+PulseRPC.Client.Channels.ResponseContextManager.Dispose() -> void
+PulseRPC.Client.Channels.ResponseContextManager.PendingCount.get -> int
+PulseRPC.Client.Channels.ResponseContextManager.Register(PulseRPC.Channels.ResponseContext! context) -> void
+PulseRPC.Client.Channels.ResponseContextManager.ResponseContextManager(int shardCount = 16, System.TimeSpan defaultTimeout = default(System.TimeSpan)) -> void
+PulseRPC.Client.Channels.ResponseContextManager.TryCancel(System.Guid messageId, System.OperationCanceledException! exception, bool disposeRegistration = true) -> void
+PulseRPC.Client.Channels.ResponseContextManager.TryComplete(System.Guid messageId, byte[]! responseBody) -> bool
+PulseRPC.Client.Channels.ResponseContextManager.TryComplete(System.Guid messageId, System.ReadOnlyMemory<byte> responseBody) -> bool
+PulseRPC.Client.Channels.ResponseContextManager.TrySetException(System.Guid messageId, System.Exception! exception) -> bool
+PulseRPC.Client.Channels.SpanBufferWriterAdapter
+PulseRPC.Client.Channels.SpanBufferWriterAdapter.Advance(int count) -> void
+PulseRPC.Client.Channels.SpanBufferWriterAdapter.Clear() -> void
+PulseRPC.Client.Channels.SpanBufferWriterAdapter.GetMemory(int sizeHint = 0) -> System.Memory<byte>
+PulseRPC.Client.Channels.SpanBufferWriterAdapter.GetSpan(int sizeHint = 0) -> System.Span<byte>
+PulseRPC.Client.Channels.SpanBufferWriterAdapter.SpanBufferWriterAdapter(int initialCapacity) -> void
+PulseRPC.Client.Channels.SpanBufferWriterAdapter.WrittenCount.get -> int
+PulseRPC.Client.Channels.SpanBufferWriterAdapter.WrittenSpan.get -> System.ReadOnlySpan<byte>
+PulseRPC.Client.Channels.TransportChannelOptions
+PulseRPC.Client.Channels.TransportChannelOptions.DefaultTimeout.get -> System.TimeSpan
+PulseRPC.Client.Channels.TransportChannelOptions.DefaultTimeout.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.EnableAutoReconnect.get -> bool
+PulseRPC.Client.Channels.TransportChannelOptions.EnableAutoReconnect.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.EnableMessageCompression.get -> bool
+PulseRPC.Client.Channels.TransportChannelOptions.EnableMessageCompression.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.EnableMessageEncryption.get -> bool
+PulseRPC.Client.Channels.TransportChannelOptions.EnableMessageEncryption.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.HeartbeatInterval.get -> System.TimeSpan
+PulseRPC.Client.Channels.TransportChannelOptions.HeartbeatInterval.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.HeartbeatTimeout.get -> System.TimeSpan
+PulseRPC.Client.Channels.TransportChannelOptions.HeartbeatTimeout.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.ImmediateFlush.get -> bool
+PulseRPC.Client.Channels.TransportChannelOptions.ImmediateFlush.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.MaxReconnectAttempts.get -> int
+PulseRPC.Client.Channels.TransportChannelOptions.MaxReconnectAttempts.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.MaxRetryCount.get -> int
+PulseRPC.Client.Channels.TransportChannelOptions.MaxRetryCount.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.MessageCompressionThreshold.get -> int
+PulseRPC.Client.Channels.TransportChannelOptions.MessageCompressionThreshold.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.MessageProcessingConcurrency.get -> int
+PulseRPC.Client.Channels.TransportChannelOptions.MessageProcessingConcurrency.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.MessageProcessingTimeout.get -> System.TimeSpan
+PulseRPC.Client.Channels.TransportChannelOptions.MessageProcessingTimeout.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.MessageQueueCapacity.get -> int
+PulseRPC.Client.Channels.TransportChannelOptions.MessageQueueCapacity.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.ReconnectBaseDelay.get -> double
+PulseRPC.Client.Channels.TransportChannelOptions.ReconnectBaseDelay.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.RetryBaseDelay.get -> double
+PulseRPC.Client.Channels.TransportChannelOptions.RetryBaseDelay.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.SendBufferL1BatchSize.get -> int
+PulseRPC.Client.Channels.TransportChannelOptions.SendBufferL1BatchSize.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.SendBufferL2BatchSize.get -> int
+PulseRPC.Client.Channels.TransportChannelOptions.SendBufferL2BatchSize.set -> void
+PulseRPC.Client.Channels.TransportChannelOptions.TransportChannelOptions() -> void
+PulseRPC.Client.Channels.UnityCompatibleObjectPool<T>
+PulseRPC.Client.Channels.UnityCompatibleObjectPool<T>.Get() -> T!
+PulseRPC.Client.Channels.UnityCompatibleObjectPool<T>.Return(T! item) -> void
+PulseRPC.Client.Channels.UnityCompatibleObjectPool<T>.UnityCompatibleObjectPool(System.Func<T!>! createFunc, System.Action<T!>! resetAction, int maxCapacity = 32) -> void
+PulseRPC.Client.Configuration.ChannelPresets
+PulseRPC.Client.Configuration.ClientHealthCheckResult
+PulseRPC.Client.Configuration.ClientHealthCheckResult.CheckedAt.get -> System.DateTime
+PulseRPC.Client.Configuration.ClientHealthCheckResult.CheckedAt.set -> void
+PulseRPC.Client.Configuration.ClientHealthCheckResult.ClientHealthCheckResult() -> void
+PulseRPC.Client.Configuration.ClientHealthCheckResult.ConnectionResults.get -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.HealthCheckResult!>!
+PulseRPC.Client.Configuration.ClientHealthCheckResult.ConnectionResults.set -> void
+PulseRPC.Client.Configuration.ClientHealthCheckResult.OverallHealth.get -> PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.Configuration.ClientHealthCheckResult.OverallHealth.set -> void
+PulseRPC.Client.Configuration.ClientHealthCheckResult.ServiceDiscoveryHealth.get -> PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.Configuration.ClientHealthCheckResult.ServiceDiscoveryHealth.set -> void
+PulseRPC.Client.Configuration.ClientHealthCheckResult.TotalCheckTime.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ClientHealthCheckResult.TotalCheckTime.set -> void
+PulseRPC.Client.Configuration.ClientOptions
+PulseRPC.Client.Configuration.ClientOptions.AutoCleanupInterval.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ClientOptions.AutoCleanupInterval.set -> void
+PulseRPC.Client.Configuration.ClientOptions.ClientOptions() -> void
+PulseRPC.Client.Configuration.ClientOptions.DefaultTimeout.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ClientOptions.DefaultTimeout.set -> void
+PulseRPC.Client.Configuration.ClientOptions.EnableDebugMode.get -> bool
+PulseRPC.Client.Configuration.ClientOptions.EnableDebugMode.set -> void
+PulseRPC.Client.Configuration.ClientOptions.EnableStatistics.get -> bool
+PulseRPC.Client.Configuration.ClientOptions.EnableStatistics.set -> void
+PulseRPC.Client.Configuration.ClientOptions.MaxConcurrentConnections.get -> int
+PulseRPC.Client.Configuration.ClientOptions.MaxConcurrentConnections.set -> void
+PulseRPC.Client.Configuration.ClientOptions.Name.get -> string!
+PulseRPC.Client.Configuration.ClientOptions.Name.set -> void
+PulseRPC.Client.Configuration.ClientOptions.Settings.get -> System.Collections.Generic.Dictionary<string!, string!>!
+PulseRPC.Client.Configuration.ClientOptions.Settings.set -> void
+PulseRPC.Client.Configuration.ClientPresets
+PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientState.Error = 5 -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientState.Initializing = 1 -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientState.Running = 2 -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientState.Stopped = 4 -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientState.Stopping = 3 -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientState.Uninitialized = 0 -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.ClientStateChangedEventArgs() -> void
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.CurrentState.get -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.CurrentState.set -> void
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.Exception.get -> System.Exception?
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.Exception.set -> void
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.PreviousState.get -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.PreviousState.set -> void
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.Timestamp.get -> System.DateTime
+PulseRPC.Client.Configuration.ClientStateChangedEventArgs.Timestamp.set -> void
+PulseRPC.Client.Configuration.ClientStatistics
+PulseRPC.Client.Configuration.ClientStatistics.ActiveConnections.get -> int
+PulseRPC.Client.Configuration.ClientStatistics.ActiveConnections.set -> void
+PulseRPC.Client.Configuration.ClientStatistics.ClientName.get -> string?
+PulseRPC.Client.Configuration.ClientStatistics.ClientName.set -> void
+PulseRPC.Client.Configuration.ClientStatistics.ClientStatistics() -> void
+PulseRPC.Client.Configuration.ClientStatistics.FailedServiceRequests.get -> long
+PulseRPC.Client.Configuration.ClientStatistics.FailedServiceRequests.set -> void
+PulseRPC.Client.Configuration.ClientStatistics.StartTime.get -> System.DateTime
+PulseRPC.Client.Configuration.ClientStatistics.StartTime.set -> void
+PulseRPC.Client.Configuration.ClientStatistics.SuccessfulServiceRequests.get -> long
+PulseRPC.Client.Configuration.ClientStatistics.SuccessfulServiceRequests.set -> void
+PulseRPC.Client.Configuration.ClientStatistics.Timestamp.get -> System.DateTime
+PulseRPC.Client.Configuration.ClientStatistics.Timestamp.set -> void
+PulseRPC.Client.Configuration.ClientStatistics.TotalConnections.get -> int
+PulseRPC.Client.Configuration.ClientStatistics.TotalConnections.set -> void
+PulseRPC.Client.Configuration.ClientStatistics.TotalServiceRequests.get -> long
+PulseRPC.Client.Configuration.ClientStatistics.TotalServiceRequests.set -> void
+PulseRPC.Client.Configuration.ClientStatistics.Uptime.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ClientStatistics.Uptime.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig
+PulseRPC.Client.Configuration.ConnectionConfig.AutoReconnect.get -> bool
+PulseRPC.Client.Configuration.ConnectionConfig.AutoReconnect.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.ConnectionConfig() -> void
+PulseRPC.Client.Configuration.ConnectionConfig.ConnectTimeout.get -> System.TimeSpan?
+PulseRPC.Client.Configuration.ConnectionConfig.ConnectTimeout.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.Host.get -> string?
+PulseRPC.Client.Configuration.ConnectionConfig.Host.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.IdleTimeout.get -> System.TimeSpan?
+PulseRPC.Client.Configuration.ConnectionConfig.IdleTimeout.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.Lifetime.get -> PulseRPC.Client.Configuration.ConnectionLifetime
+PulseRPC.Client.Configuration.ConnectionConfig.Lifetime.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.Name.get -> string!
+PulseRPC.Client.Configuration.ConnectionConfig.Name.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.Options.get -> PulseRPC.Shared.TransportOptions?
+PulseRPC.Client.Configuration.ConnectionConfig.Options.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.Port.get -> int?
+PulseRPC.Client.Configuration.ConnectionConfig.Port.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.ServiceName.get -> string?
+PulseRPC.Client.Configuration.ConnectionConfig.ServiceName.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.Tags.get -> System.Collections.Generic.Dictionary<string!, string!>!
+PulseRPC.Client.Configuration.ConnectionConfig.Tags.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.ToDescriptor() -> PulseRPC.Client.ConnectionDescriptor!
+PulseRPC.Client.Configuration.ConnectionConfig.Transport.get -> PulseRPC.Shared.TransportType
+PulseRPC.Client.Configuration.ConnectionConfig.Transport.set -> void
+PulseRPC.Client.Configuration.ConnectionConfig.Validate() -> PulseRPC.Client.ConnectionValidationResult!
+PulseRPC.Client.Configuration.ConnectionLifetime
+PulseRPC.Client.Configuration.ConnectionLifetime.Persistent = 2 -> PulseRPC.Client.Configuration.ConnectionLifetime
+PulseRPC.Client.Configuration.ConnectionLifetime.Scoped = 3 -> PulseRPC.Client.Configuration.ConnectionLifetime
+PulseRPC.Client.Configuration.ConnectionLifetime.Session = 1 -> PulseRPC.Client.Configuration.ConnectionLifetime
+PulseRPC.Client.Configuration.ConnectionLifetime.Singleton = 0 -> PulseRPC.Client.Configuration.ConnectionLifetime
+PulseRPC.Client.Configuration.ConnectionLifetime.Transient = 4 -> PulseRPC.Client.Configuration.ConnectionLifetime
+PulseRPC.Client.Configuration.ConnectionLoadBalancer
+PulseRPC.Client.Configuration.ConnectionLoadBalancer.ConnectionLoadBalancer(PulseRPC.Client.Configuration.LoadBalancingStrategy strategy = PulseRPC.Client.Configuration.LoadBalancingStrategy.RoundRobin, Microsoft.Extensions.Logging.ILogger<PulseRPC.Client.Configuration.ConnectionLoadBalancer!>? logger = null) -> void
+PulseRPC.Client.Configuration.ConnectionLoadBalancer.GetStatistics() -> PulseRPC.Client.Configuration.LoadBalancerStatistics!
+PulseRPC.Client.Configuration.ConnectionLoadBalancer.ResetCounters() -> void
+PulseRPC.Client.Configuration.ConnectionLoadBalancer.SelectConnection(System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>! connections, PulseRPC.Client.Configuration.LoadBalancingHint hint = PulseRPC.Client.Configuration.LoadBalancingHint.None) -> PulseRPC.Client.IClientChannel?
+PulseRPC.Client.Configuration.ConnectionLoadBalancer.Strategy.get -> PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.Configuration.ConnectionPoolOptions
+PulseRPC.Client.Configuration.ConnectionPoolOptions.AcquireTimeout.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ConnectionPoolOptions.AcquireTimeout.set -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.ConnectionPoolOptions() -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.IdleTimeout.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ConnectionPoolOptions.IdleTimeout.set -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.MaxConnectionAge.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ConnectionPoolOptions.MaxConnectionAge.set -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.MaxSize.get -> int
+PulseRPC.Client.Configuration.ConnectionPoolOptions.MaxSize.set -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.MinSize.get -> int
+PulseRPC.Client.Configuration.ConnectionPoolOptions.MinSize.set -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.Strategy.get -> PulseRPC.Client.Configuration.PoolingStrategy
+PulseRPC.Client.Configuration.ConnectionPoolOptions.Strategy.set -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.ValidateOnAcquire.get -> bool
+PulseRPC.Client.Configuration.ConnectionPoolOptions.ValidateOnAcquire.set -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.ValidateWhileIdle.get -> bool
+PulseRPC.Client.Configuration.ConnectionPoolOptions.ValidateWhileIdle.set -> void
+PulseRPC.Client.Configuration.ConnectionPoolOptions.WarmUp.get -> bool
+PulseRPC.Client.Configuration.ConnectionPoolOptions.WarmUp.set -> void
+PulseRPC.Client.Configuration.EventListenerOptions
+PulseRPC.Client.Configuration.EventListenerOptions.AutoResubscribe.get -> bool
+PulseRPC.Client.Configuration.EventListenerOptions.AutoResubscribe.set -> void
+PulseRPC.Client.Configuration.EventListenerOptions.BufferSize.get -> int
+PulseRPC.Client.Configuration.EventListenerOptions.BufferSize.set -> void
+PulseRPC.Client.Configuration.EventListenerOptions.EventListenerOptions() -> void
+PulseRPC.Client.Configuration.EventListenerOptions.Name.get -> string?
+PulseRPC.Client.Configuration.EventListenerOptions.Name.set -> void
+PulseRPC.Client.Configuration.LoadBalancerStatistics
+PulseRPC.Client.Configuration.LoadBalancerStatistics.ActiveCounters.get -> int
+PulseRPC.Client.Configuration.LoadBalancerStatistics.ActiveCounters.set -> void
+PulseRPC.Client.Configuration.LoadBalancerStatistics.LoadBalancerStatistics() -> void
+PulseRPC.Client.Configuration.LoadBalancerStatistics.Strategy.get -> PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.Configuration.LoadBalancerStatistics.Strategy.set -> void
+PulseRPC.Client.Configuration.LoadBalancerStatistics.Timestamp.get -> System.DateTime
+PulseRPC.Client.Configuration.LoadBalancerStatistics.Timestamp.set -> void
+PulseRPC.Client.Configuration.LoadBalancerStatistics.TotalSelections.get -> long
+PulseRPC.Client.Configuration.LoadBalancerStatistics.TotalSelections.set -> void
+PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingHint.Distribute = 6 -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingHint.LeastConnections = 1 -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingHint.None = 0 -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingHint.PreferFast = 3 -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingHint.PreferLocal = 2 -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingHint.Sticky = 5 -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingHint.StickySession = 4 -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.Configuration.LoadBalancingStrategy.ConsistentHash = 4 -> PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.Configuration.LoadBalancingStrategy.LeastConnections = 2 -> PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.Configuration.LoadBalancingStrategy.Random = 0 -> PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.Configuration.LoadBalancingStrategy.RoundRobin = 1 -> PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.Configuration.LoadBalancingStrategy.WeightedRoundRobin = 3 -> PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.Configuration.PoolingStrategy
+PulseRPC.Client.Configuration.PoolingStrategy.Dynamic = 2 -> PulseRPC.Client.Configuration.PoolingStrategy
+PulseRPC.Client.Configuration.PoolingStrategy.FixedSize = 1 -> PulseRPC.Client.Configuration.PoolingStrategy
+PulseRPC.Client.Configuration.PoolingStrategy.None = 0 -> PulseRPC.Client.Configuration.PoolingStrategy
+PulseRPC.Client.Configuration.PoolingStrategy.OnDemand = 3 -> PulseRPC.Client.Configuration.PoolingStrategy
+PulseRPC.Client.Configuration.PulseClientBuilder
+PulseRPC.Client.Configuration.PulseClientBuilder.AddConnection(PulseRPC.Client.ConnectionDescriptor! descriptor) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.AddKcpConnection(string! id, string! name, string! host, int port, PulseRPC.Client.ConnectionStrategy strategy = PulseRPC.Client.ConnectionStrategy.Session, System.Collections.Generic.Dictionary<string!, string!>? tags = null) -> PulseRPC.Client.Configuration.PulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.AddServiceConnection(string! id, string! name, string! serviceName, PulseRPC.Shared.TransportType transport = PulseRPC.Shared.TransportType.TCP, PulseRPC.Client.ConnectionStrategy strategy = PulseRPC.Client.ConnectionStrategy.Session, System.Collections.Generic.Dictionary<string!, string!>? tags = null) -> PulseRPC.Client.Configuration.PulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.AddTcpConnection(string! id, string! name, string! host, int port, PulseRPC.Client.ConnectionStrategy strategy = PulseRPC.Client.ConnectionStrategy.Session, System.Collections.Generic.Dictionary<string!, string!>? tags = null) -> PulseRPC.Client.Configuration.PulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.Build() -> PulseRPC.Client.IPulseClient!
+PulseRPC.Client.Configuration.PulseClientBuilder.Configure(System.Action<PulseRPC.Client.Configuration.ClientOptions!>! configure) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.PulseClientBuilder() -> void
+PulseRPC.Client.Configuration.PulseClientBuilder.UseDefaults() -> PulseRPC.Client.Configuration.PulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.UseDevelopmentPreset() -> PulseRPC.Client.Configuration.PulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.UseGameClientPreset() -> PulseRPC.Client.Configuration.PulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.UseHighThroughputPreset() -> PulseRPC.Client.Configuration.PulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.WithAuthentication(PulseRPC.Authentication.IAuthenticationProvider! authenticationProvider) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.WithConnectionPooling(PulseRPC.Client.Configuration.ConnectionPoolOptions! poolOptions) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.WithLoadBalancing(PulseRPC.Client.Configuration.LoadBalancingStrategy strategy, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? options = null) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.WithLogging(Microsoft.Extensions.Logging.ILoggerFactory! loggerFactory) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.WithRetryPolicy(PulseRPC.Client.Configuration.RetryPolicy! retryPolicy) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.WithSerializer(PulseRPC.Serialization.ISerializerProvider! serializerProvider) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.PulseClientBuilder.WithTransportOptions(PulseRPC.Shared.TransportType transportType, PulseRPC.Shared.TransportOptions! options) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Configuration.RetryPolicy
+PulseRPC.Client.Configuration.RetryPolicy.MaxRetries.get -> int
+PulseRPC.Client.Configuration.RetryPolicy.MaxRetries.set -> void
+PulseRPC.Client.Configuration.RetryPolicy.MaxRetryInterval.get -> System.TimeSpan
+PulseRPC.Client.Configuration.RetryPolicy.MaxRetryInterval.set -> void
+PulseRPC.Client.Configuration.RetryPolicy.RetryInterval.get -> System.TimeSpan
+PulseRPC.Client.Configuration.RetryPolicy.RetryInterval.set -> void
+PulseRPC.Client.Configuration.RetryPolicy.RetryPolicy() -> void
+PulseRPC.Client.Configuration.RetryPolicy.UseExponentialBackoff.get -> bool
+PulseRPC.Client.Configuration.RetryPolicy.UseExponentialBackoff.set -> void
+PulseRPC.Client.Configuration.RetryPresets
+PulseRPC.Client.Configuration.ServiceConnectionOptions
+PulseRPC.Client.Configuration.ServiceConnectionOptions.AutoReconnect.get -> bool?
+PulseRPC.Client.Configuration.ServiceConnectionOptions.AutoReconnect.set -> void
+PulseRPC.Client.Configuration.ServiceConnectionOptions.ConnectTimeout.get -> System.TimeSpan?
+PulseRPC.Client.Configuration.ServiceConnectionOptions.ConnectTimeout.set -> void
+PulseRPC.Client.Configuration.ServiceConnectionOptions.PreferredTransport.get -> PulseRPC.Shared.TransportType?
+PulseRPC.Client.Configuration.ServiceConnectionOptions.PreferredTransport.set -> void
+PulseRPC.Client.Configuration.ServiceConnectionOptions.ServiceConnectionOptions() -> void
+PulseRPC.Client.Configuration.ServiceConnectionOptions.Strategy.get -> PulseRPC.Client.ConnectionStrategy?
+PulseRPC.Client.Configuration.ServiceConnectionOptions.Strategy.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.CacheTimeout.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.CacheTimeout.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.ConsulAddress.get -> string?
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.ConsulAddress.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.DnsDomain.get -> string?
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.DnsDomain.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.EnableCaching.get -> bool
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.EnableCaching.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.Enabled.get -> bool
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.Enabled.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.EnableFailover.get -> bool
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.EnableFailover.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.EnableWatch.get -> bool
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.EnableWatch.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.EtcdEndpoints.get -> string![]?
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.EtcdEndpoints.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.RefreshInterval.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.RefreshInterval.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.RetryCount.get -> int
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.RetryCount.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.RetryDelay.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.RetryDelay.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.ServiceDiscoveryOptions() -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.StaticEndpoints.get -> System.Collections.Generic.Dictionary<string!, string![]!>!
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.StaticEndpoints.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.TagFilters.get -> System.Collections.Generic.Dictionary<string!, string!>!
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.TagFilters.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.Timeout.get -> System.TimeSpan
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.Timeout.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.Type.get -> PulseRPC.Client.Configuration.ServiceDiscoveryType
+PulseRPC.Client.Configuration.ServiceDiscoveryOptions.Type.set -> void
+PulseRPC.Client.Configuration.ServiceDiscoveryType
+PulseRPC.Client.Configuration.ServiceDiscoveryType.Consul = 1 -> PulseRPC.Client.Configuration.ServiceDiscoveryType
+PulseRPC.Client.Configuration.ServiceDiscoveryType.Custom = 4 -> PulseRPC.Client.Configuration.ServiceDiscoveryType
+PulseRPC.Client.Configuration.ServiceDiscoveryType.Dns = 3 -> PulseRPC.Client.Configuration.ServiceDiscoveryType
+PulseRPC.Client.Configuration.ServiceDiscoveryType.Etcd = 2 -> PulseRPC.Client.Configuration.ServiceDiscoveryType
+PulseRPC.Client.Configuration.ServiceDiscoveryType.Static = 0 -> PulseRPC.Client.Configuration.ServiceDiscoveryType
+PulseRPC.Client.Configuration.ServiceProxyOptions
+PulseRPC.Client.Configuration.ServiceProxyOptions.ChannelName.get -> string?
+PulseRPC.Client.Configuration.ServiceProxyOptions.ChannelName.set -> void
+PulseRPC.Client.Configuration.ServiceProxyOptions.ConnectionId.get -> string?
+PulseRPC.Client.Configuration.ServiceProxyOptions.ConnectionId.set -> void
+PulseRPC.Client.Configuration.ServiceProxyOptions.LoadBalancingHint.get -> PulseRPC.Client.Configuration.LoadBalancingHint
+PulseRPC.Client.Configuration.ServiceProxyOptions.LoadBalancingHint.set -> void
+PulseRPC.Client.Configuration.ServiceProxyOptions.PreferredRegion.get -> string?
+PulseRPC.Client.Configuration.ServiceProxyOptions.PreferredRegion.set -> void
+PulseRPC.Client.Configuration.ServiceProxyOptions.RetryPolicy.get -> PulseRPC.Client.Configuration.RetryPolicy?
+PulseRPC.Client.Configuration.ServiceProxyOptions.RetryPolicy.set -> void
+PulseRPC.Client.Configuration.ServiceProxyOptions.ServiceProxyOptions() -> void
+PulseRPC.Client.Configuration.ServiceProxyOptions.Tags.get -> System.Collections.Generic.Dictionary<string!, string!>?
+PulseRPC.Client.Configuration.ServiceProxyOptions.Tags.set -> void
+PulseRPC.Client.Configuration.ServiceProxyOptions.Timeout.get -> System.TimeSpan?
+PulseRPC.Client.Configuration.ServiceProxyOptions.Timeout.set -> void
+PulseRPC.Client.Configuration.ServiceProxyOptions.UseCache.get -> bool
+PulseRPC.Client.Configuration.ServiceProxyOptions.UseCache.set -> void
+PulseRPC.Client.ConnectionManager
+PulseRPC.Client.ConnectionManager.CleanupIdleConnectionsAsync(System.TimeSpan? maxAge = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+PulseRPC.Client.ConnectionManager.ConnectAsync(PulseRPC.Client.Configuration.ConnectionConfig! config, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.ConnectionManager.ConnectAsync(PulseRPC.Client.ConnectionDescriptor! descriptor, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.ConnectionManager.ConnectionManager(PulseRPC.Serialization.ISerializerProvider? serializerProvider = null, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null, PulseRPC.Client.ILoadBalancer? loadBalancer = null) -> void
+PulseRPC.Client.ConnectionManager.Count.get -> int
+PulseRPC.Client.ConnectionManager.DisconnectAsync(string! connectionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.ConnectionManager.DisconnectAsync(System.Func<PulseRPC.Client.IClientChannel!, bool>! predicate, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.ConnectionManager.Dispose() -> void
+PulseRPC.Client.ConnectionManager.GetAllConnections() -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.ConnectionManager.GetConnection(string! connectionId) -> PulseRPC.Client.IClientChannel?
+PulseRPC.Client.ConnectionManager.GetConnectionsByTag(string! key, string? value = null) -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.ConnectionManager.GetServiceConnections(string! serviceName) -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.ConnectionManager.PerformHealthChecksAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<PulseRPC.Client.HealthCheckResult!>!>!
+PulseRPC.Client.ConnectionManager.RouteAsync(string! serviceName, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel?>!
+PulseRPC.Client.GatewayClientChannelExtensions
+PulseRPC.Client.Health.HealthCheckContext
+PulseRPC.Client.Health.HealthCheckContext.CancellationToken.get -> System.Threading.CancellationToken
+PulseRPC.Client.Health.HealthCheckContext.CheckerName.get -> string!
+PulseRPC.Client.Health.HealthCheckContext.HealthCheckContext(string! checkerName, object! target, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? parameters = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> void
+PulseRPC.Client.Health.HealthCheckContext.Parameters.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object!>!
+PulseRPC.Client.Health.HealthCheckContext.Target.get -> object!
+PulseRPC.Client.Health.HealthCheckerBase
+PulseRPC.Client.Health.HealthCheckerBase.CheckAsync(PulseRPC.Client.Health.HealthCheckContext! context) -> System.Threading.Tasks.Task<PulseRPC.Client.Health.HealthCheckResult!>!
+PulseRPC.Client.Health.HealthCheckerBase.HealthCheckerBase() -> void
+PulseRPC.Client.Health.HealthCheckerBase<T>
+PulseRPC.Client.Health.HealthCheckerBase<T>.CheckAsync(T target, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Health.HealthCheckResult!>!
+PulseRPC.Client.Health.HealthCheckerBase<T>.HealthCheckerBase() -> void
+PulseRPC.Client.Health.HealthCheckEventArgs
+PulseRPC.Client.Health.HealthCheckEventArgs.CheckerName.get -> string!
+PulseRPC.Client.Health.HealthCheckEventArgs.HealthCheckEventArgs(string! checkerName, object! target, PulseRPC.Client.Health.HealthCheckResult! result) -> void
+PulseRPC.Client.Health.HealthCheckEventArgs.Result.get -> PulseRPC.Client.Health.HealthCheckResult!
+PulseRPC.Client.Health.HealthCheckEventArgs.Target.get -> object!
+PulseRPC.Client.Health.HealthCheckResult
+PulseRPC.Client.Health.HealthCheckResult.CheckTime.get -> System.DateTime
+PulseRPC.Client.Health.HealthCheckResult.Data.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object!>!
+PulseRPC.Client.Health.HealthCheckResult.Description.get -> string!
+PulseRPC.Client.Health.HealthCheckResult.Exception.get -> System.Exception?
+PulseRPC.Client.Health.HealthCheckResult.HealthCheckResult(PulseRPC.Client.Health.HealthStatus status, string! description, System.TimeSpan responseTime, System.Exception? exception = null, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? data = null) -> void
+PulseRPC.Client.Health.HealthCheckResult.ResponseTime.get -> System.TimeSpan
+PulseRPC.Client.Health.HealthCheckResult.Status.get -> PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.Health.HealthStatus.Degraded = 2 -> PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.Health.HealthStatus.Healthy = 0 -> PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.Health.HealthStatus.Unhealthy = 1 -> PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.Health.HealthStatus.Unknown = 3 -> PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.Health.IHealthChecker
+PulseRPC.Client.Health.IHealthChecker.CheckAsync(PulseRPC.Client.Health.HealthCheckContext! context) -> System.Threading.Tasks.Task<PulseRPC.Client.Health.HealthCheckResult!>!
+PulseRPC.Client.Health.IHealthChecker.Name.get -> string!
+PulseRPC.Client.Health.IHealthChecker.SupportedTargetTypes.get -> System.Type![]!
+PulseRPC.Client.Health.IHealthChecker.SupportsTarget(System.Type! targetType) -> bool
+PulseRPC.Client.Health.IHealthChecker<T>
+PulseRPC.Client.Health.IHealthChecker<T>.CheckAsync(T target, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Health.HealthCheckResult!>!
+PulseRPC.Client.Health.IHealthCheckManager
+PulseRPC.Client.Health.IHealthCheckManager.CheckAllAsync(object! target, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyDictionary<string!, PulseRPC.Client.Health.HealthCheckResult!>!>!
+PulseRPC.Client.Health.IHealthCheckManager.CheckAsync(string! checkerName, object! target, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Health.HealthCheckResult!>!
+PulseRPC.Client.Health.IHealthCheckManager.ClearHistory() -> void
+PulseRPC.Client.Health.IHealthCheckManager.GetAllCheckers() -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.Health.IHealthChecker!>!
+PulseRPC.Client.Health.IHealthCheckManager.GetChecker(string! checkerName) -> PulseRPC.Client.Health.IHealthChecker?
+PulseRPC.Client.Health.IHealthCheckManager.GetHistory(string? checkerName = null, int maxCount = 100) -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.Health.HealthCheckEventArgs!>!
+PulseRPC.Client.Health.IHealthCheckManager.HealthCheckCompleted -> System.EventHandler<PulseRPC.Client.Health.HealthCheckEventArgs!>?
+PulseRPC.Client.Health.IHealthCheckManager.RegisterChecker(PulseRPC.Client.Health.IHealthChecker! checker) -> void
+PulseRPC.Client.Health.IHealthCheckManager.UnregisterChecker(string! checkerName) -> bool
+PulseRPC.Client.HealthCheckResult
+PulseRPC.Client.HealthCheckResult.CheckedAt.get -> System.DateTime
+PulseRPC.Client.HealthCheckResult.CheckedAt.set -> void
+PulseRPC.Client.HealthCheckResult.ConnectionId.get -> string!
+PulseRPC.Client.HealthCheckResult.ConnectionId.set -> void
+PulseRPC.Client.HealthCheckResult.Exception.get -> System.Exception?
+PulseRPC.Client.HealthCheckResult.Exception.set -> void
+PulseRPC.Client.HealthCheckResult.Health.get -> PulseRPC.Client.Health.HealthStatus
+PulseRPC.Client.HealthCheckResult.Health.set -> void
+PulseRPC.Client.HealthCheckResult.HealthCheckResult() -> void
+PulseRPC.Client.HealthCheckResult.Message.get -> string?
+PulseRPC.Client.HealthCheckResult.Message.set -> void
+PulseRPC.Client.HealthCheckResult.ResponseTime.get -> System.TimeSpan
+PulseRPC.Client.HealthCheckResult.ResponseTime.set -> void
+PulseRPC.Client.IConnectionManager
+PulseRPC.Client.IConnectionManager.CleanupIdleConnectionsAsync(System.TimeSpan? maxAge = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+PulseRPC.Client.IConnectionManager.ConnectAsync(PulseRPC.Client.Configuration.ConnectionConfig! config, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.IConnectionManager.ConnectAsync(PulseRPC.Client.ConnectionDescriptor! descriptor, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.IConnectionManager.Count.get -> int
+PulseRPC.Client.IConnectionManager.DisconnectAsync(string! connectionId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.IConnectionManager.DisconnectAsync(System.Func<PulseRPC.Client.IClientChannel!, bool>! predicate, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.IConnectionManager.GetAllConnections() -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.IConnectionManager.GetConnection(string! connectionId) -> PulseRPC.Client.IClientChannel?
+PulseRPC.Client.IConnectionManager.GetConnectionsByTag(string! key, string? value = null) -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.IConnectionManager.GetServiceConnections(string! serviceName) -> System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.IConnectionManager.PerformHealthChecksAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<PulseRPC.Client.HealthCheckResult!>!>!
+PulseRPC.Client.IConnectionManager.RouteAsync(string! serviceName, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel?>!
+PulseRPC.Client.ILoadBalancer
+PulseRPC.Client.ILoadBalancer.SelectConnection(System.Collections.Generic.IReadOnlyList<PulseRPC.Client.IClientChannel!>! connections, PulseRPC.Client.Configuration.LoadBalancingHint hint = PulseRPC.Client.Configuration.LoadBalancingHint.None) -> PulseRPC.Client.IClientChannel?
+PulseRPC.Client.ILoadBalancer.Strategy.get -> PulseRPC.Client.Configuration.LoadBalancingStrategy
+PulseRPC.Client.IPulseClient
+PulseRPC.Client.IPulseClient.CheckHealthAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Configuration.ClientHealthCheckResult!>!
+PulseRPC.Client.IPulseClient.ConnectAsync(PulseRPC.Client.ConnectionDescriptor! descriptor, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.IPulseClient.Connections.get -> PulseRPC.Client.IConnectionManager!
+PulseRPC.Client.IPulseClient.ConnectToServerAsync(string! host, int port, string? serverId = null, string? name = null, PulseRPC.Shared.TransportType transport = PulseRPC.Shared.TransportType.TCP, PulseRPC.Client.ConnectionStrategy strategy = PulseRPC.Client.ConnectionStrategy.Session, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel!>!
+PulseRPC.Client.IPulseClient.DisconnectAsync(string! connectionId, bool graceful = true, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.IPulseClient.DisconnectAsync(System.Func<PulseRPC.Client.IClientChannel!, bool>! predicate, bool graceful = true, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
+PulseRPC.Client.IPulseClient.GetStatistics() -> PulseRPC.Client.Configuration.ClientStatistics!
+PulseRPC.Client.IPulseClient.InitializeAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.IPulseClient.LoadBalancer.get -> PulseRPC.Client.ILoadBalancer!
+PulseRPC.Client.IPulseClient.State.get -> PulseRPC.Client.Configuration.ClientState
+PulseRPC.Client.IPulseClient.StateChanged -> System.EventHandler<PulseRPC.Client.Configuration.ClientStateChangedEventArgs!>!
+PulseRPC.Client.IPulseClient.StopAsync(bool graceful = true, System.TimeSpan? timeout = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.IPulseClientBuilder
+PulseRPC.Client.IPulseClientBuilder.AddConnection(PulseRPC.Client.ConnectionDescriptor! descriptor) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.IPulseClientBuilder.Build() -> PulseRPC.Client.IPulseClient!
+PulseRPC.Client.IPulseClientBuilder.Configure(System.Action<PulseRPC.Client.Configuration.ClientOptions!>! configure) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.IPulseClientBuilder.WithAuthentication(PulseRPC.Authentication.IAuthenticationProvider! authenticationProvider) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.IPulseClientBuilder.WithConnectionPooling(PulseRPC.Client.Configuration.ConnectionPoolOptions! poolOptions) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.IPulseClientBuilder.WithLoadBalancing(PulseRPC.Client.Configuration.LoadBalancingStrategy strategy, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? options = null) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.IPulseClientBuilder.WithLogging(Microsoft.Extensions.Logging.ILoggerFactory! loggerFactory) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.IPulseClientBuilder.WithRetryPolicy(PulseRPC.Client.Configuration.RetryPolicy! retryPolicy) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.IPulseClientBuilder.WithSerializer(PulseRPC.Serialization.ISerializerProvider! serializerProvider) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.IPulseClientBuilder.WithTransportOptions(PulseRPC.Shared.TransportType transportType, PulseRPC.Shared.TransportOptions! options) -> PulseRPC.Client.IPulseClientBuilder!
+PulseRPC.Client.Reliability.IRetryPolicy
+PulseRPC.Client.Reliability.IRetryPolicy.CalculateDelay(PulseRPC.Client.Reliability.RetryContext! context) -> System.TimeSpan
+PulseRPC.Client.Reliability.IRetryPolicy.ExecuteAsync(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task!>! operation, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Reliability.RetryResult<object?>!>!
+PulseRPC.Client.Reliability.IRetryPolicy.ExecuteAsync<T>(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<T>!>! operation, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Reliability.RetryResult<T>!>!
+PulseRPC.Client.Reliability.IRetryPolicy.MaxRetryCount.get -> int
+PulseRPC.Client.Reliability.IRetryPolicy.MaxTotalTime.get -> System.TimeSpan?
+PulseRPC.Client.Reliability.IRetryPolicy.Name.get -> string!
+PulseRPC.Client.Reliability.IRetryPolicy.RetryFailed -> System.EventHandler<PulseRPC.Client.Reliability.RetryEventArgs!>?
+PulseRPC.Client.Reliability.IRetryPolicy.RetryStarted -> System.EventHandler<PulseRPC.Client.Reliability.RetryEventArgs!>?
+PulseRPC.Client.Reliability.IRetryPolicy.RetrySucceeded -> System.EventHandler<PulseRPC.Client.Reliability.RetryEventArgs!>?
+PulseRPC.Client.Reliability.IRetryPolicy.ShouldRetry(PulseRPC.Client.Reliability.RetryContext! context) -> bool
+PulseRPC.Client.Reliability.IRetryPolicyBuilder
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.Build() -> PulseRPC.Client.Reliability.IRetryPolicy!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithBaseDelay(System.TimeSpan baseDelay) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithCustomDelayCalculator(System.Func<PulseRPC.Client.Reliability.RetryContext!, System.TimeSpan>! calculator) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithExceptionFilter(System.Func<System.Exception!, bool>! filter) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithExponentialBackoff(double multiplier = 2) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithFixedDelay() -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithJitter(double factor = 0.1) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithLinearBackoff(System.TimeSpan step) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithMaxDelay(System.TimeSpan maxDelay) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithMaxRetryCount(int maxRetryCount) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithMaxTotalTime(System.TimeSpan maxTotalTime) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.IRetryPolicyBuilder.WithRetryCondition(System.Func<PulseRPC.Client.Reliability.RetryContext!, bool>! evaluator) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryContext
+PulseRPC.Client.Reliability.RetryContext.AttemptNumber.get -> int
+PulseRPC.Client.Reliability.RetryContext.CancellationToken.get -> System.Threading.CancellationToken
+PulseRPC.Client.Reliability.RetryContext.Data.get -> System.Collections.Generic.Dictionary<string!, object!>!
+PulseRPC.Client.Reliability.RetryContext.LastAttemptTime.get -> System.DateTime
+PulseRPC.Client.Reliability.RetryContext.LastException.get -> System.Exception?
+PulseRPC.Client.Reliability.RetryContext.RetryContext(int attemptNumber, System.Exception? lastException, System.DateTime lastAttemptTime, System.TimeSpan totalElapsedTime, System.Threading.CancellationToken cancellationToken) -> void
+PulseRPC.Client.Reliability.RetryContext.TotalElapsedTime.get -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryEventArgs
+PulseRPC.Client.Reliability.RetryEventArgs.Context.get -> PulseRPC.Client.Reliability.RetryContext!
+PulseRPC.Client.Reliability.RetryEventArgs.NextDelay.get -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryEventArgs.RetryEventArgs(PulseRPC.Client.Reliability.RetryContext! context, System.TimeSpan nextDelay) -> void
+PulseRPC.Client.Reliability.RetryPolicy
+PulseRPC.Client.Reliability.RetryPolicy.CalculateDelay(PulseRPC.Client.Reliability.RetryContext! context) -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryPolicy.ExecuteAsync(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task!>! operation, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Reliability.RetryResult<object?>!>!
+PulseRPC.Client.Reliability.RetryPolicy.ExecuteAsync<T>(System.Func<System.Threading.CancellationToken, System.Threading.Tasks.Task<T>!>! operation, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Reliability.RetryResult<T>!>!
+PulseRPC.Client.Reliability.RetryPolicy.GetStatistics() -> PulseRPC.Client.Reliability.RetryPolicyStatistics!
+PulseRPC.Client.Reliability.RetryPolicy.MaxRetryCount.get -> int
+PulseRPC.Client.Reliability.RetryPolicy.MaxTotalTime.get -> System.TimeSpan?
+PulseRPC.Client.Reliability.RetryPolicy.Name.get -> string!
+PulseRPC.Client.Reliability.RetryPolicy.ResetStatistics() -> void
+PulseRPC.Client.Reliability.RetryPolicy.RetryFailed -> System.EventHandler<PulseRPC.Client.Reliability.RetryEventArgs!>?
+PulseRPC.Client.Reliability.RetryPolicy.RetryPolicy(PulseRPC.Client.Reliability.RetryPolicyConfiguration! configuration, Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> void
+PulseRPC.Client.Reliability.RetryPolicy.RetryStarted -> System.EventHandler<PulseRPC.Client.Reliability.RetryEventArgs!>?
+PulseRPC.Client.Reliability.RetryPolicy.RetrySucceeded -> System.EventHandler<PulseRPC.Client.Reliability.RetryEventArgs!>?
+PulseRPC.Client.Reliability.RetryPolicy.ShouldRetry(PulseRPC.Client.Reliability.RetryContext! context) -> bool
+PulseRPC.Client.Reliability.RetryPolicyBuilder
+PulseRPC.Client.Reliability.RetryPolicyBuilder.Build() -> PulseRPC.Client.Reliability.IRetryPolicy!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.RetryPolicyBuilder() -> void
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithBaseDelay(System.TimeSpan baseDelay) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithCustomDelayCalculator(System.Func<PulseRPC.Client.Reliability.RetryContext!, System.TimeSpan>! calculator) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithExceptionFilter(System.Func<System.Exception!, bool>! filter) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithExponentialBackoff(double multiplier = 2) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithFixedDelay() -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithJitter(double factor = 0.1) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithLinearBackoff(System.TimeSpan step) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithMaxDelay(System.TimeSpan maxDelay) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithMaxRetryCount(int maxRetryCount) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithMaxTotalTime(System.TimeSpan maxTotalTime) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyBuilder.WithRetryCondition(System.Func<PulseRPC.Client.Reliability.RetryContext!, bool>! evaluator) -> PulseRPC.Client.Reliability.IRetryPolicyBuilder!
+PulseRPC.Client.Reliability.RetryPolicyConfiguration
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.BackoffMultiplier.get -> double
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.BackoffMultiplier.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.BaseDelay.get -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.BaseDelay.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.CustomDelayCalculator.get -> System.Func<PulseRPC.Client.Reliability.RetryContext!, System.TimeSpan>?
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.CustomDelayCalculator.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.EnableJitter.get -> bool
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.EnableJitter.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.ExceptionFilter.get -> System.Func<System.Exception!, bool>?
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.ExceptionFilter.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.ExtendedConfiguration.get -> System.Collections.Generic.Dictionary<string!, object!>!
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.ExtendedConfiguration.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.JitterFactor.get -> double
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.JitterFactor.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.LinearStep.get -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.LinearStep.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.MaxDelay.get -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.MaxDelay.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.MaxRetryCount.get -> int
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.MaxRetryCount.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.MaxTotalTime.get -> System.TimeSpan?
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.MaxTotalTime.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.Name.get -> string!
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.Name.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.RetryConditionEvaluator.get -> System.Func<PulseRPC.Client.Reliability.RetryContext!, bool>?
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.RetryConditionEvaluator.set -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.RetryPolicyConfiguration() -> void
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.StrategyType.get -> PulseRPC.Client.Reliability.RetryStrategyType
+PulseRPC.Client.Reliability.RetryPolicyConfiguration.StrategyType.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics
+PulseRPC.Client.Reliability.RetryPolicyStatistics.AverageExecutionTime.get -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryPolicyStatistics.AverageExecutionTime.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.AverageRetries.get -> double
+PulseRPC.Client.Reliability.RetryPolicyStatistics.AverageRetries.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.ExceptionDistribution.get -> System.Collections.Generic.Dictionary<string!, long>!
+PulseRPC.Client.Reliability.RetryPolicyStatistics.ExceptionDistribution.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.FailedExecutions.get -> long
+PulseRPC.Client.Reliability.RetryPolicyStatistics.FailedExecutions.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.LastUpdated.get -> System.DateTime
+PulseRPC.Client.Reliability.RetryPolicyStatistics.LastUpdated.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.MaxExecutionTime.get -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryPolicyStatistics.MaxExecutionTime.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.MaxRetries.get -> int
+PulseRPC.Client.Reliability.RetryPolicyStatistics.MaxRetries.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.PolicyName.get -> string!
+PulseRPC.Client.Reliability.RetryPolicyStatistics.PolicyName.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.RetryDistribution.get -> System.Collections.Generic.Dictionary<int, long>!
+PulseRPC.Client.Reliability.RetryPolicyStatistics.RetryDistribution.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.RetryPolicyStatistics() -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.SuccessfulExecutions.get -> long
+PulseRPC.Client.Reliability.RetryPolicyStatistics.SuccessfulExecutions.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.SuccessRate.get -> double
+PulseRPC.Client.Reliability.RetryPolicyStatistics.TotalExecutions.get -> long
+PulseRPC.Client.Reliability.RetryPolicyStatistics.TotalExecutions.set -> void
+PulseRPC.Client.Reliability.RetryPolicyStatistics.TotalRetries.get -> long
+PulseRPC.Client.Reliability.RetryPolicyStatistics.TotalRetries.set -> void
+PulseRPC.Client.Reliability.RetryResult<T>
+PulseRPC.Client.Reliability.RetryResult<T>.AttemptCount.get -> int
+PulseRPC.Client.Reliability.RetryResult<T>.Exception.get -> System.Exception?
+PulseRPC.Client.Reliability.RetryResult<T>.IsSuccess.get -> bool
+PulseRPC.Client.Reliability.RetryResult<T>.Result.get -> T?
+PulseRPC.Client.Reliability.RetryResult<T>.RetryResult(System.Exception! exception, int attemptCount, System.TimeSpan totalTime) -> void
+PulseRPC.Client.Reliability.RetryResult<T>.RetryResult(T result, int attemptCount, System.TimeSpan totalTime) -> void
+PulseRPC.Client.Reliability.RetryResult<T>.TotalTime.get -> System.TimeSpan
+PulseRPC.Client.Reliability.RetryStrategyType
+PulseRPC.Client.Reliability.RetryStrategyType.Custom = 3 -> PulseRPC.Client.Reliability.RetryStrategyType
+PulseRPC.Client.Reliability.RetryStrategyType.ExponentialBackoff = 2 -> PulseRPC.Client.Reliability.RetryStrategyType
+PulseRPC.Client.Reliability.RetryStrategyType.FixedDelay = 0 -> PulseRPC.Client.Reliability.RetryStrategyType
+PulseRPC.Client.Reliability.RetryStrategyType.LinearBackoff = 1 -> PulseRPC.Client.Reliability.RetryStrategyType
+PulseRPC.Client.Transport.FirewallInfo
+PulseRPC.Client.Transport.FirewallInfo.ErrorMessage.get -> string?
+PulseRPC.Client.Transport.FirewallInfo.ErrorMessage.set -> void
+PulseRPC.Client.Transport.FirewallInfo.FirewallInfo() -> void
+PulseRPC.Client.Transport.FirewallInfo.Suggestions.get -> System.Collections.Generic.List<string!>!
+PulseRPC.Client.Transport.FirewallInfo.Suggestions.set -> void
+PulseRPC.Client.Transport.FirewallInfo.WindowsFirewallEnabled.get -> bool
+PulseRPC.Client.Transport.FirewallInfo.WindowsFirewallEnabled.set -> void
+PulseRPC.Client.Transport.KcpClientTransport
+PulseRPC.Client.Transport.KcpClientTransport.ChangeStateWithConnectionEvents(PulseRPC.Shared.ConnectionState newState, string? reason = null, System.Exception? exception = null) -> void
+PulseRPC.Client.Transport.KcpClientTransport.CloseAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.Transport.KcpClientTransport.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.Transport.KcpClientTransport.ConnectedAt.get -> System.DateTime
+PulseRPC.Client.Transport.KcpClientTransport.DisconnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.Transport.KcpClientTransport.KcpClientTransport(string! id, PulseRPC.Shared.KcpTransportOptions? options = null, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
+PulseRPC.Client.Transport.KcpClientTransport.LastActivityAt.get -> System.DateTime
+PulseRPC.Client.Transport.KcpClientTransport.TransportType.get -> PulseRPC.Shared.TransportType
+PulseRPC.Client.Transport.NetworkDiagnosticResult
+PulseRPC.Client.Transport.NetworkDiagnosticResult.DiagnosticTime.get -> System.DateTime
+PulseRPC.Client.Transport.NetworkDiagnosticResult.DiagnosticTime.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.ErrorMessage.get -> string?
+PulseRPC.Client.Transport.NetworkDiagnosticResult.ErrorMessage.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.FirewallInfo.get -> PulseRPC.Client.Transport.FirewallInfo!
+PulseRPC.Client.Transport.NetworkDiagnosticResult.FirewallInfo.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.GetSummary() -> string!
+PulseRPC.Client.Transport.NetworkDiagnosticResult.Host.get -> string!
+PulseRPC.Client.Transport.NetworkDiagnosticResult.Host.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.IsSuccessful.get -> bool
+PulseRPC.Client.Transport.NetworkDiagnosticResult.IsSuccessful.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.NetworkDiagnosticResult() -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.NetworkInterfaceInfo.get -> System.Collections.Generic.List<PulseRPC.Client.Transport.NetworkInterfaceInfo!>!
+PulseRPC.Client.Transport.NetworkDiagnosticResult.NetworkInterfaceInfo.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.PingResult.get -> PulseRPC.Client.Transport.PingResult!
+PulseRPC.Client.Transport.NetworkDiagnosticResult.PingResult.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.Port.get -> int
+PulseRPC.Client.Transport.NetworkDiagnosticResult.Port.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.SystemResourceInfo.get -> PulseRPC.Client.Transport.SystemResourceInfo!
+PulseRPC.Client.Transport.NetworkDiagnosticResult.SystemResourceInfo.set -> void
+PulseRPC.Client.Transport.NetworkDiagnosticResult.UdpConnectivityResult.get -> PulseRPC.Client.Transport.UdpConnectivityResult!
+PulseRPC.Client.Transport.NetworkDiagnosticResult.UdpConnectivityResult.set -> void
+PulseRPC.Client.Transport.NetworkDiagnostics
+PulseRPC.Client.Transport.NetworkDiagnostics.NetworkDiagnostics(Microsoft.Extensions.Logging.ILogger? logger = null) -> void
+PulseRPC.Client.Transport.NetworkDiagnostics.RunDiagnosticsAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.Transport.NetworkDiagnosticResult!>!
+PulseRPC.Client.Transport.NetworkInterfaceInfo
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Description.get -> string!
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Description.set -> void
+PulseRPC.Client.Transport.NetworkInterfaceInfo.IPAddresses.get -> System.Collections.Generic.List<string!>!
+PulseRPC.Client.Transport.NetworkInterfaceInfo.IPAddresses.set -> void
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Name.get -> string!
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Name.set -> void
+PulseRPC.Client.Transport.NetworkInterfaceInfo.NetworkInterfaceInfo() -> void
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Speed.get -> long
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Speed.set -> void
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Status.get -> string!
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Status.set -> void
+PulseRPC.Client.Transport.NetworkInterfaceInfo.SupportsMulticast.get -> bool
+PulseRPC.Client.Transport.NetworkInterfaceInfo.SupportsMulticast.set -> void
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Type.get -> string!
+PulseRPC.Client.Transport.NetworkInterfaceInfo.Type.set -> void
+PulseRPC.Client.Transport.PingResult
+PulseRPC.Client.Transport.PingResult.ErrorMessage.get -> string?
+PulseRPC.Client.Transport.PingResult.ErrorMessage.set -> void
+PulseRPC.Client.Transport.PingResult.Host.get -> string!
+PulseRPC.Client.Transport.PingResult.Host.set -> void
+PulseRPC.Client.Transport.PingResult.IsSuccessful.get -> bool
+PulseRPC.Client.Transport.PingResult.IsSuccessful.set -> void
+PulseRPC.Client.Transport.PingResult.PingResult() -> void
+PulseRPC.Client.Transport.PingResult.RoundTripTime.get -> long
+PulseRPC.Client.Transport.PingResult.RoundTripTime.set -> void
+PulseRPC.Client.Transport.PingResult.Status.get -> string!
+PulseRPC.Client.Transport.PingResult.Status.set -> void
+PulseRPC.Client.Transport.SystemResourceInfo
+PulseRPC.Client.Transport.SystemResourceInfo.ErrorMessage.get -> string?
+PulseRPC.Client.Transport.SystemResourceInfo.ErrorMessage.set -> void
+PulseRPC.Client.Transport.SystemResourceInfo.Is64BitProcess.get -> bool
+PulseRPC.Client.Transport.SystemResourceInfo.Is64BitProcess.set -> void
+PulseRPC.Client.Transport.SystemResourceInfo.OSVersion.get -> string!
+PulseRPC.Client.Transport.SystemResourceInfo.OSVersion.set -> void
+PulseRPC.Client.Transport.SystemResourceInfo.ProcessId.get -> int
+PulseRPC.Client.Transport.SystemResourceInfo.ProcessId.set -> void
+PulseRPC.Client.Transport.SystemResourceInfo.ProcessorCount.get -> int
+PulseRPC.Client.Transport.SystemResourceInfo.ProcessorCount.set -> void
+PulseRPC.Client.Transport.SystemResourceInfo.SystemResourceInfo() -> void
+PulseRPC.Client.Transport.SystemResourceInfo.ThreadCount.get -> int
+PulseRPC.Client.Transport.SystemResourceInfo.ThreadCount.set -> void
+PulseRPC.Client.Transport.SystemResourceInfo.WorkingSet.get -> long
+PulseRPC.Client.Transport.SystemResourceInfo.WorkingSet.set -> void
+PulseRPC.Client.Transport.TcpClientTransport
+PulseRPC.Client.Transport.TcpClientTransport.ChangeStateWithConnectionEvents(PulseRPC.Shared.ConnectionState newState, string? reason = null, System.Exception? exception = null) -> void
+PulseRPC.Client.Transport.TcpClientTransport.CloseAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.Transport.TcpClientTransport.ConnectAsync(string! host, int port, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.Transport.TcpClientTransport.ConnectedAt.get -> System.DateTime
+PulseRPC.Client.Transport.TcpClientTransport.DisconnectAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Client.Transport.TcpClientTransport.LastActivityAt.get -> System.DateTime
+PulseRPC.Client.Transport.TcpClientTransport.TcpClientTransport(string! id, PulseRPC.Shared.TcpTransportOptions? options = null, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
+PulseRPC.Client.Transport.TcpClientTransport.TransportType.get -> PulseRPC.Shared.TransportType
+PulseRPC.Client.Transport.UdpConnectivityResult
+PulseRPC.Client.Transport.UdpConnectivityResult.ErrorMessage.get -> string?
+PulseRPC.Client.Transport.UdpConnectivityResult.ErrorMessage.set -> void
+PulseRPC.Client.Transport.UdpConnectivityResult.Host.get -> string!
+PulseRPC.Client.Transport.UdpConnectivityResult.Host.set -> void
+PulseRPC.Client.Transport.UdpConnectivityResult.IsSuccessful.get -> bool
+PulseRPC.Client.Transport.UdpConnectivityResult.IsSuccessful.set -> void
+PulseRPC.Client.Transport.UdpConnectivityResult.Port.get -> int
+PulseRPC.Client.Transport.UdpConnectivityResult.Port.set -> void
+PulseRPC.Client.Transport.UdpConnectivityResult.SendTime.get -> long
+PulseRPC.Client.Transport.UdpConnectivityResult.SendTime.set -> void
+PulseRPC.Client.Transport.UdpConnectivityResult.UdpConnectivityResult() -> void
+static PulseRPC.Client.Configuration.ChannelPresets.Default.get -> PulseRPC.Client.Channels.TransportChannelOptions!
+static PulseRPC.Client.Configuration.ChannelPresets.HighReliability.get -> PulseRPC.Client.Channels.TransportChannelOptions!
+static PulseRPC.Client.Configuration.ChannelPresets.LowLatency.get -> PulseRPC.Client.Channels.TransportChannelOptions!
+static PulseRPC.Client.Configuration.ClientPresets.Default.get -> System.Action<PulseRPC.Client.Configuration.ClientOptions!>!
+static PulseRPC.Client.Configuration.ClientPresets.Development.get -> System.Action<PulseRPC.Client.Configuration.ClientOptions!>!
+static PulseRPC.Client.Configuration.ClientPresets.GameClient.get -> System.Action<PulseRPC.Client.Configuration.ClientOptions!>!
+static PulseRPC.Client.Configuration.ClientPresets.HighThroughput.get -> System.Action<PulseRPC.Client.Configuration.ClientOptions!>!
+static PulseRPC.Client.Configuration.ConnectionConfig.Kcp(string! name, string! host, int port, PulseRPC.Client.Configuration.ConnectionLifetime lifetime = PulseRPC.Client.Configuration.ConnectionLifetime.Session, System.Collections.Generic.Dictionary<string!, string!>? tags = null) -> PulseRPC.Client.Configuration.ConnectionConfig!
+static PulseRPC.Client.Configuration.ConnectionConfig.Service(string! name, string! serviceName, PulseRPC.Shared.TransportType transport = PulseRPC.Shared.TransportType.TCP, PulseRPC.Client.Configuration.ConnectionLifetime lifetime = PulseRPC.Client.Configuration.ConnectionLifetime.Session, System.Collections.Generic.Dictionary<string!, string!>? tags = null) -> PulseRPC.Client.Configuration.ConnectionConfig!
+static PulseRPC.Client.Configuration.ConnectionConfig.Tcp(string! name, string! host, int port, PulseRPC.Client.Configuration.ConnectionLifetime lifetime = PulseRPC.Client.Configuration.ConnectionLifetime.Session, System.Collections.Generic.Dictionary<string!, string!>? tags = null) -> PulseRPC.Client.Configuration.ConnectionConfig!
+static PulseRPC.Client.Configuration.ConnectionPoolOptions.Dynamic(int minSize, int maxSize, System.TimeSpan? idleTimeout = null) -> PulseRPC.Client.Configuration.ConnectionPoolOptions!
+static PulseRPC.Client.Configuration.ConnectionPoolOptions.FixedSize(int size, System.TimeSpan? idleTimeout = null) -> PulseRPC.Client.Configuration.ConnectionPoolOptions!
+static PulseRPC.Client.Configuration.PulseClientBuilder.CreateDefault(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> PulseRPC.Client.IPulseClient!
+static PulseRPC.Client.Configuration.PulseClientBuilder.CreateDevelopment(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> PulseRPC.Client.IPulseClient!
+static PulseRPC.Client.Configuration.PulseClientBuilder.CreateGameClient(Microsoft.Extensions.Logging.ILoggerFactory? loggerFactory = null) -> PulseRPC.Client.IPulseClient!
+static PulseRPC.Client.Configuration.RetryPresets.Aggressive.get -> PulseRPC.Client.Reliability.RetryPolicy!
+static PulseRPC.Client.Configuration.RetryPresets.Conservative.get -> PulseRPC.Client.Reliability.RetryPolicy!
+static PulseRPC.Client.Configuration.RetryPresets.Default.get -> PulseRPC.Client.Reliability.RetryPolicy!
+static PulseRPC.Client.Configuration.RetryPresets.None.get -> PulseRPC.Client.Reliability.RetryPolicy!
+static PulseRPC.Client.GatewayClientChannelExtensions.ForGatewayActor<THub>(this PulseRPC.Client.IClientChannel! channel, string! key) -> PulseRPC.Client.IClientChannel!
+static PulseRPC.Client.Health.HealthCheckResult.Degraded(string! description, System.TimeSpan responseTime, System.Exception? exception = null, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? data = null) -> PulseRPC.Client.Health.HealthCheckResult!
+static PulseRPC.Client.Health.HealthCheckResult.Healthy(string! description, System.TimeSpan responseTime, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? data = null) -> PulseRPC.Client.Health.HealthCheckResult!
+static PulseRPC.Client.Health.HealthCheckResult.Unhealthy(string! description, System.TimeSpan responseTime, System.Exception? exception = null, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? data = null) -> PulseRPC.Client.Health.HealthCheckResult!
+static PulseRPC.Client.Health.HealthCheckResult.Unknown(string! description, System.TimeSpan responseTime, System.Exception? exception = null, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? data = null) -> PulseRPC.Client.Health.HealthCheckResult!
+static PulseRPC.Client.Reliability.RetryPolicy.Default() -> PulseRPC.Client.Reliability.RetryPolicy!
+static PulseRPC.Client.Reliability.RetryPolicy.Exponential(int maxRetries = 3, System.TimeSpan? initialDelay = null, System.TimeSpan? maxDelay = null, double multiplier = 2, bool enableJitter = true) -> PulseRPC.Client.Reliability.RetryPolicy!
+static PulseRPC.Client.Reliability.RetryPolicy.Fixed(int maxRetries, System.TimeSpan delay) -> PulseRPC.Client.Reliability.RetryPolicy!
+static PulseRPC.Client.Reliability.RetryPolicy.Linear(int maxRetries = 3, System.TimeSpan? initialDelay = null, System.TimeSpan? step = null, System.TimeSpan? maxDelay = null) -> PulseRPC.Client.Reliability.RetryPolicy!
+static PulseRPC.Client.Reliability.RetryPolicy.NoRetry() -> PulseRPC.Client.Reliability.RetryPolicy!
+virtual PulseRPC.Client.Health.HealthCheckerBase.SupportsTarget(System.Type! targetType) -> bool

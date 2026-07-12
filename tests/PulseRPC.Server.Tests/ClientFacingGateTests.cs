@@ -1,5 +1,6 @@
 using System;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Security;
 using Xunit;
@@ -17,9 +18,10 @@ namespace PulseRPC.Server.Tests;
 /// </list>
 /// </summary>
 /// <remarks>
-/// <see cref="ClientFacingGate.EnforcementEnabled"/> 是进程级静态开关，测试通过 try/finally 显式
-/// 还原为默认值 <c>false</c>，避免影响同进程内的其它测试。
+/// <see cref="ClientFacingGate.EnforcementEnabled"/> 是旧调用路径的进程级兼容开关，测试通过
+/// try/finally 显式还原，避免影响同进程内的其它测试。
 /// </remarks>
+[Collection(ClientFacingGateTestCollection.Name)]
 public class ClientFacingGateTests
 {
     [Fact]
@@ -101,6 +103,162 @@ public class ClientFacingGateTests
 
             act.Should().NotThrow();
         });
+    }
+
+    [Fact]
+    public void Enforce_WithHostPolicyDisabled_MustOverrideLegacyStaticTrue()
+    {
+        WithEnforcementEnabled(() =>
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<IClientFacingGatePolicy>(new ClientFacingGatePolicy(false));
+            using var provider = services.BuildServiceProvider();
+            using var context = PulseContext.SetContext(CreateContext(CallSourceType.ExternalUser));
+
+            var act = () => ClientFacingGate.Enforce(
+                provider,
+                isClientFacing: false,
+                protocolId: 0x1234,
+                methodDisplayName: "IFoo.Bar");
+
+            act.Should().NotThrow();
+        });
+    }
+
+    [Fact]
+    public void Enforce_WithoutHostPolicy_MustFallBackToLegacyStaticTrue()
+    {
+        WithEnforcementEnabled(() =>
+        {
+            using var provider = new ServiceCollection().BuildServiceProvider();
+            using var context = PulseContext.SetContext(CreateContext(CallSourceType.ExternalUser));
+
+            var act = () => ClientFacingGate.Enforce(
+                provider,
+                isClientFacing: false,
+                protocolId: 0x1234,
+                methodDisplayName: "IFoo.Bar");
+
+            act.Should().Throw<ClientFacingAccessDeniedException>();
+        });
+    }
+
+    [Fact]
+    public void HostPolicyScope_MustNestRestoreAndOverrideSharedProviderPolicy()
+    {
+        var previous = ClientFacingGate.EnforcementEnabled;
+        ClientFacingGate.EnforcementEnabled = false;
+
+        try
+        {
+            var services = new ServiceCollection();
+            services.AddSingleton<IClientFacingGatePolicy>(new ClientFacingGatePolicy(false));
+            using var rootProvider = services.BuildServiceProvider();
+            var enabledProvider = new ClientFacingGateServiceProvider(
+                rootProvider,
+                new ClientFacingGatePolicy(enforcementEnabled: true));
+            var disabledProvider = new ClientFacingGateServiceProvider(
+                rootProvider,
+                new ClientFacingGatePolicy(enforcementEnabled: false));
+            using var context = PulseContext.SetContext(CreateContext(CallSourceType.ExternalUser));
+
+            Action enforceRoot = () => ClientFacingGate.Enforce(
+                rootProvider,
+                isClientFacing: false,
+                protocolId: 0x1234,
+                methodDisplayName: "IFoo.Bar");
+            Action enforceLegacy = () => ClientFacingGate.Enforce(
+                isClientFacing: false,
+                protocolId: 0x1234,
+                methodDisplayName: "IFoo.Bar");
+
+            enforceRoot.Should().NotThrow();
+            enforceLegacy.Should().NotThrow();
+
+            using (ClientFacingGate.EnterHostPolicyScope(enabledProvider))
+            {
+                enforceRoot.Should().Throw<ClientFacingAccessDeniedException>();
+                enforceLegacy.Should().Throw<ClientFacingAccessDeniedException>();
+
+                var explicitDisabled = () => ClientFacingGate.Enforce(
+                    disabledProvider,
+                    isClientFacing: false,
+                    protocolId: 0x1234,
+                    methodDisplayName: "IFoo.Bar");
+                explicitDisabled.Should().Throw<ClientFacingAccessDeniedException>(
+                    "活动宿主策略不能被共享或嵌套 provider 降级");
+
+                using (ClientFacingGate.EnterHostPolicyScope(disabledProvider))
+                {
+                    enforceRoot.Should().NotThrow();
+
+                    var explicitEnabled = () => ClientFacingGate.Enforce(
+                        enabledProvider,
+                        isClientFacing: false,
+                        protocolId: 0x1234,
+                        methodDisplayName: "IFoo.Bar");
+                    explicitEnabled.Should().NotThrow(
+                        "活动的 disabled 宿主策略应覆盖其它 provider 的配置");
+                }
+
+                enforceRoot.Should().Throw<ClientFacingAccessDeniedException>();
+            }
+
+            enforceRoot.Should().NotThrow();
+            enforceLegacy.Should().NotThrow();
+        }
+        finally
+        {
+            ClientFacingGate.EnforcementEnabled = previous;
+        }
+    }
+
+    [Fact]
+    public async Task CompletedHostPolicyScope_MustNotLeakIntoCapturedBackgroundContext()
+    {
+        var previous = ClientFacingGate.EnforcementEnabled;
+        ClientFacingGate.EnforcementEnabled = false;
+
+        try
+        {
+            using var rootProvider = new ServiceCollection().BuildServiceProvider();
+            var enabledProvider = new ClientFacingGateServiceProvider(
+                rootProvider,
+                new ClientFacingGatePolicy(enforcementEnabled: true));
+            using var context = PulseContext.SetContext(CreateContext(CallSourceType.ExternalUser));
+            var releaseBackground = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+            Task<bool> backgroundDenied;
+            using (ClientFacingGate.EnterHostPolicyScope(enabledProvider))
+            {
+                backgroundDenied = Task.Run(async () =>
+                {
+                    await releaseBackground.Task;
+                    try
+                    {
+                        ClientFacingGate.Enforce(
+                            rootProvider,
+                            isClientFacing: false,
+                            protocolId: 0x1234,
+                            methodDisplayName: "IFoo.Bar");
+                        return false;
+                    }
+                    catch (ClientFacingAccessDeniedException)
+                    {
+                        return true;
+                    }
+                });
+            }
+
+            releaseBackground.TrySetResult(true);
+            (await backgroundDenied).Should().BeFalse(
+                "已结束 dispatch 捕获的 ExecutionContext 不得继续携带宿主策略");
+        }
+        finally
+        {
+            ClientFacingGate.EnforcementEnabled = previous;
+        }
     }
 
     private static void WithEnforcementEnabled(Action action)

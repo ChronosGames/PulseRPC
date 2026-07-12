@@ -16,6 +16,7 @@ using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Server.Routing;
 using PulseRPC.Server.Security;
 using PulseRPC.Server.Services;
+using PulseRPC.Server.Services.Management;
 using PulseRPC.Server.Transport;
 
 namespace PulseRPC.Server.Clustering;
@@ -232,17 +233,19 @@ public sealed class ClusterInternalHub : IClusterInternalHub
             body,
             PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
 
+        var registry = _responseSerializerRegistry ?? ResponseSerializerRegistry.Instance;
+        if (registry != null &&
+            registry.TryGetSerializer(protocolId, out var serializer) &&
+            (result is not null || serializer is INullResponseSerializer))
+        {
+            var writer = new ArrayBufferWriter<byte>();
+            serializer.Serialize(result!, writer);
+            return writer.WrittenSpan.ToArray();
+        }
+
         if (result is null)
         {
             return Array.Empty<byte>();
-        }
-
-        var registry = _responseSerializerRegistry ?? ResponseSerializerRegistry.Instance;
-        if (registry != null && registry.TryGetSerializer(protocolId, out var serializer))
-        {
-            var writer = new ArrayBufferWriter<byte>();
-            serializer.Serialize(result, writer);
-            return writer.WrittenSpan.ToArray();
         }
 
         throw new InvalidOperationException(
@@ -257,28 +260,26 @@ public sealed class ClusterInternalHub : IClusterInternalHub
         var invocation = ParseAndValidateInvocation(envelope, negotiatedCapabilities);
         var routingTable = RequireRoutingTable();
         ValidateHubProtocol(routingTable, invocation.Hub, invocation.ProtocolId);
-        await ValidateLeaseAsync(invocation, PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
+        var placement = await ValidateLeaseAsync(
+            invocation,
+            PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
 
         using var callerScope = EnterInvocationScope(invocation);
-        var result = await routingTable.RouteByProtocolIdAsync(
-            _serviceProvider,
-            invocation.Hub,
-            invocation.ProtocolId,
-            invocation.Key,
-            invocation.Body,
-            PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
+        var result = await RouteVersionedActorAsync(invocation, routingTable, placement).ConfigureAwait(false);
+
+        var registry = _responseSerializerRegistry ?? ResponseSerializerRegistry.Instance;
+        if (registry != null &&
+            registry.TryGetSerializer(invocation.ProtocolId, out var serializer) &&
+            (result is not null || serializer is INullResponseSerializer))
+        {
+            var writer = new ArrayBufferWriter<byte>();
+            serializer.Serialize(result!, writer);
+            return writer.WrittenSpan.ToArray();
+        }
 
         if (result is null)
         {
             return Array.Empty<byte>();
-        }
-
-        var registry = _responseSerializerRegistry ?? ResponseSerializerRegistry.Instance;
-        if (registry != null && registry.TryGetSerializer(invocation.ProtocolId, out var serializer))
-        {
-            var writer = new ArrayBufferWriter<byte>();
-            serializer.Serialize(result, writer);
-            return writer.WrittenSpan.ToArray();
         }
 
         throw new InvalidOperationException(
@@ -335,7 +336,9 @@ public sealed class ClusterInternalHub : IClusterInternalHub
         var invocation = ParseAndValidateInvocation(envelope, negotiatedCapabilities);
         var routingTable = RequireRoutingTable();
         ValidateHubProtocol(routingTable, invocation.Hub, invocation.ProtocolId);
-        await ValidateLeaseAsync(invocation, PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
+        var placement = await ValidateLeaseAsync(
+            invocation,
+            PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
 
         var scopeKey = $"{invocation.Hub}:{invocation.Key}";
         if (invocation.MessageId != Guid.Empty &&
@@ -351,13 +354,7 @@ public sealed class ClusterInternalHub : IClusterInternalHub
         using var callerScope = EnterInvocationScope(invocation);
         try
         {
-            await routingTable.RouteByProtocolIdAsync(
-                _serviceProvider,
-                invocation.Hub,
-                invocation.ProtocolId,
-                invocation.Key,
-                invocation.Body,
-                PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
+            await RouteVersionedActorAsync(invocation, routingTable, placement).ConfigureAwait(false);
         }
         catch
         {
@@ -646,7 +643,7 @@ public sealed class ClusterInternalHub : IClusterInternalHub
         }
     }
 
-    private async ValueTask ValidateLeaseAsync(
+    private async ValueTask<ActorPlacement> ValidateLeaseAsync(
         NodeActorInvocationEnvelope invocation,
         CancellationToken cancellationToken)
     {
@@ -670,7 +667,85 @@ public sealed class ClusterInternalHub : IClusterInternalHub
                 $"Actor lease fencing rejected '{invocation.Hub}:{invocation.Key}' for local node '{_localNodeId}'.");
         }
 
-        _leaseHeartbeat?.Track(invocation.Hub, invocation.Key, placement.Value);
+        return placement.Value;
+    }
+
+    private async ValueTask<object?> RouteVersionedActorAsync(
+        NodeActorInvocationEnvelope invocation,
+        IServiceRoutingTable routingTable,
+        ActorPlacement placement)
+    {
+        using var activationScope = ServiceActivationScope.Enter(
+            onActivated: () => TrackActivatedLease(invocation, placement),
+            onActivationFailed: () => ReleaseFailedActivationAsync(invocation, placement));
+        try
+        {
+            var result = await routingTable.RouteByProtocolIdAsync(
+                _serviceProvider,
+                invocation.Hub,
+                invocation.ProtocolId,
+                invocation.Key,
+                invocation.Body,
+                PulseContext.Current?.CancellationToken ?? default).ConfigureAwait(false);
+            if (!activationScope.WasActivated)
+            {
+                TrackActivatedLease(invocation, placement);
+            }
+            return result;
+        }
+        catch
+        {
+            if (activationScope.ActivationFailed)
+            {
+                await activationScope.WaitForFailureCallbackAsync().ConfigureAwait(false);
+            }
+
+            throw;
+        }
+    }
+
+    private async ValueTask ReleaseFailedActivationAsync(
+        NodeActorInvocationEnvelope invocation,
+        ActorPlacement placement)
+    {
+        _leaseHeartbeat?.Untrack(invocation.Hub, invocation.Key, placement.LeaseId);
+        try
+        {
+            await _actorDirectory!.ReleaseAsync(
+                invocation.Hub,
+                invocation.Key,
+                _localNodeId,
+                placement.LeaseId,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Remote Actor activation failed and its lease could not be released (Hub={Hub}, Key={Key}, LeaseId={LeaseId}).",
+                invocation.Hub,
+                invocation.Key,
+                placement.LeaseId);
+        }
+    }
+
+    private void TrackActivatedLease(
+        NodeActorInvocationEnvelope invocation,
+        ActorPlacement placement)
+    {
+        try
+        {
+            _leaseHeartbeat?.Track(invocation.Hub, invocation.Key, placement);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Remote Actor activation succeeded but its lease heartbeat could not start (Hub={Hub}, Key={Key}, LeaseId={LeaseId}).",
+                invocation.Hub,
+                invocation.Key,
+                placement.LeaseId);
+        }
     }
 
     private IDisposable? EnterInvocationScope(NodeActorInvocationEnvelope invocation)

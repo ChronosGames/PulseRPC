@@ -1,11 +1,19 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
 
 namespace PulseRPC.Generator.Generators;
+
+internal enum ManualProtocolIdParseResult
+{
+    Absent,
+    Valid,
+    Invalid,
+}
 
 /// <summary>
 /// 协议号生成器 - 为 RPC 方法生成唯一的协议号（客户端版本）
@@ -95,6 +103,12 @@ public static class ProtocolIdGenerator
     /// <param name="method">方法符号</param>
     /// <returns>协议号，如果未指定则返回 0</returns>
     public static ushort GetManualProtocolId(IMethodSymbol method)
+        => TryGetManualProtocolId(method, out var protocolId) ? protocolId : (ushort)0;
+
+    private static bool TryGetManualProtocolId(IMethodSymbol method, out ushort protocolId)
+        => ParseManualProtocolId(method, out protocolId) == ManualProtocolIdParseResult.Valid;
+
+    private static ManualProtocolIdParseResult ParseManualProtocolId(IMethodSymbol method, out ushort protocolId)
     {
         foreach (var attribute in method.GetAttributes())
         {
@@ -105,19 +119,38 @@ public static class ProtocolIdGenerator
                 if (attribute.ConstructorArguments.Length > 0)
                 {
                     var value = attribute.ConstructorArguments[0].Value;
-                    if (value is ushort protocolId)
+                    if (value is ushort ushortValue)
                     {
-                        return protocolId;
+                        protocolId = ushortValue;
+                        return ManualProtocolIdParseResult.Valid;
                     }
                     if (value is int intValue && intValue >= 0 && intValue <= ushort.MaxValue)
                     {
-                        return (ushort)intValue;
+                        protocolId = (ushort)intValue;
+                        return ManualProtocolIdParseResult.Valid;
+                    }
+                    if (value is string hexValue)
+                    {
+                        var text = hexValue.Trim();
+                        if (text.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                        {
+                            text = text.Substring(2);
+                        }
+
+                        if (ushort.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out protocolId))
+                        {
+                            return ManualProtocolIdParseResult.Valid;
+                        }
                     }
                 }
+
+                protocolId = 0;
+                return ManualProtocolIdParseResult.Invalid;
             }
         }
 
-        return 0; // 未指定
+        protocolId = 0;
+        return ManualProtocolIdParseResult.Absent;
     }
 
     /// <summary>
@@ -166,7 +199,7 @@ public static class ProtocolIdGenerator
         for (var offset = 1; offset <= ushort.MaxValue; offset++)
         {
             var candidate = unchecked((ushort)(protocolId + offset));
-            if (!usedProtocolIds.Contains(candidate))
+            if (candidate != 0 && !usedProtocolIds.Contains(candidate))
             {
                 return candidate;
             }
@@ -191,53 +224,10 @@ public static class ProtocolIdGenerator
     /// <returns>唯一的协议号常量名</returns>
     public static string GetProtocolIdConstantName(IMethodSymbol method)
     {
-        var baseName = $"ProtocolId_{method.Name}";
-        
-        // 如果方法没有参数，直接返回基础名称
-        if (method.Parameters.Length == 0)
-        {
-            return baseName;
-        }
-
-        // 构建参数类型的简短描述
-        var paramParts = method.Parameters.Select(p => GetSimpleTypeName(p.Type)).ToArray();
-        var paramSuffix = string.Join("_", paramParts);
-
-        return $"{baseName}_{paramSuffix}";
-    }
-
-    /// <summary>
-    /// 获取类型的简化名称（用于生成常量名）
-    /// </summary>
-    private static string GetSimpleTypeName(ITypeSymbol type)
-    {
-        // 处理数组类型
-        if (type is IArrayTypeSymbol arrayType)
-        {
-            return GetSimpleTypeName(arrayType.ElementType) + "Array";
-        }
-
-        // 处理泛型类型
-        if (type is INamedTypeSymbol { IsGenericType: true } genericType)
-        {
-            var baseName = genericType.Name;
-            var typeArgs = string.Join("", genericType.TypeArguments.Select(GetSimpleTypeName));
-            return $"{baseName}Of{typeArgs}";
-        }
-
-        // 使用不带命名空间的类型名
-        var simpleName = type.Name;
-
-        // 移除常见的后缀以缩短名称
-        simpleName = simpleName
-            .Replace("Event", "Evt")
-            .Replace("Message", "Msg")
-            .Replace("Request", "Req")
-            .Replace("Response", "Rsp")
-            .Replace("Data", "")
-            .Replace("Info", "");
-
-        return simpleName;
+        var protocolId = TryGetManualProtocolId(method, out var manualId)
+            ? manualId
+            : GenerateProtocolId(method);
+        return $"ProtocolId_{MethodIdentity.CreateGeneratedIdentifier(method, protocolId)}";
     }
 
     /// <summary>
@@ -248,7 +238,7 @@ public static class ProtocolIdGenerator
     /// （与服务端 <c>AssignProtocolIdsForIncremental</c> 的可见域保持一致），请使用
     /// <see cref="AssignProtocolIds(IEnumerable{INamedTypeSymbol}, SourceProductionContext)"/> 重载。
     /// </remarks>
-    /// <returns>键为 "{InterfaceFullName}.{MethodName}" 的协议号字典</returns>
+    /// <returns>键为 wire 方法身份（声明接口、方法名、泛型 arity、排除 CancellationToken 后的完整参数类型及 ref-kind）的协议号字典</returns>
     public static Dictionary<string, ushort> AssignProtocolIds(
         INamedTypeSymbol interfaceSymbol,
         SourceProductionContext context)
@@ -270,25 +260,41 @@ public static class ProtocolIdGenerator
     /// 通过 <c>[Protocol(0xXXXX)]</c> 显式区分，而不是静默改号。
     /// </para>
     /// </remarks>
-    /// <returns>键为 "{InterfaceFullName}.{MethodName}" 的协议号字典</returns>
+    /// <returns>键为 wire 方法身份（声明接口、方法名、泛型 arity、排除 CancellationToken 后的完整参数类型及 ref-kind）的协议号字典</returns>
     public static Dictionary<string, ushort> AssignProtocolIds(
         IEnumerable<INamedTypeSymbol> interfaceSymbols,
         SourceProductionContext context)
     {
         var protocolIds = new Dictionary<string, ushort>();
         var usedIds = new Dictionary<ushort, (string service, string method)>();
+        var explicitlyAssignedMethods = new HashSet<string>();
+        var invalidMethodKeys = new HashSet<string>();
 
-        // 收集全部接口的方法（按声明接口+方法名去重，避免共享基接口的方法被重复处理为"冲突"）
+        // 收集全部 CLR 方法，并用 wire 身份检测只差 CancellationToken 的不可区分重载。
         var methods = new List<IMethodSymbol>();
-        var seenMethodKeys = new HashSet<string>();
+        var seenMethods = new Dictionary<string, IMethodSymbol>();
         foreach (var interfaceSymbol in interfaceSymbols)
         {
             foreach (var method in GetAllInterfaceMethods(interfaceSymbol))
             {
-                var methodKey = $"{method.ContainingType.ToDisplayString()}.{method.Name}";
-                if (seenMethodKeys.Add(methodKey))
+                var methodKey = MethodIdentity.CreateLookupKey(method);
+                if (seenMethods.TryGetValue(methodKey, out var existingMethod))
                 {
-                    methods.Add(method);
+                    if (!SymbolEqualityComparer.Default.Equals(existingMethod, method))
+                    {
+                        invalidMethodKeys.Add(methodKey);
+                        ReportWireSignatureCollision(context, method, existingMethod);
+                    }
+                    continue;
+                }
+
+                seenMethods.Add(methodKey, method);
+                methods.Add(method);
+
+                if (method.Parameters.Count(parameter => MethodIdentity.IsCancellationToken(parameter.Type)) > 1)
+                {
+                    invalidMethodKeys.Add(methodKey);
+                    ReportMultipleCancellationTokens(context, method);
                 }
             }
         }
@@ -297,11 +303,31 @@ public static class ProtocolIdGenerator
         foreach (var method in methods)
         {
             var declaringInterface = method.ContainingType.ToDisplayString();
-            var methodKey = $"{declaringInterface}.{method.Name}";
+            var methodKey = MethodIdentity.CreateLookupKey(method);
 
-            var manualId = GetManualProtocolId(method);
-            if (manualId != 0)
+            if (invalidMethodKeys.Contains(methodKey))
             {
+                continue;
+            }
+
+            var parseResult = ParseManualProtocolId(method, out var manualId);
+            if (parseResult == ManualProtocolIdParseResult.Invalid)
+            {
+                explicitlyAssignedMethods.Add(methodKey);
+                invalidMethodKeys.Add(methodKey);
+                ReportInvalidProtocolId(context, method);
+                continue;
+            }
+
+            if (parseResult == ManualProtocolIdParseResult.Valid)
+            {
+                explicitlyAssignedMethods.Add(methodKey);
+                if (manualId == 0)
+                {
+                    ReportReservedProtocolId(context, method, isManual: true);
+                    continue;
+                }
+
                 // 检查手动指定的协议号是否冲突
                 if (usedIds.TryGetValue(manualId, out var existing))
                 {
@@ -319,11 +345,19 @@ public static class ProtocolIdGenerator
         foreach (var method in methods)
         {
             var declaringInterface = method.ContainingType.ToDisplayString();
-            var methodKey = $"{declaringInterface}.{method.Name}";
+            var methodKey = MethodIdentity.CreateLookupKey(method);
 
-            if (!protocolIds.ContainsKey(methodKey))
+            if (!invalidMethodKeys.Contains(methodKey) &&
+                !explicitlyAssignedMethods.Contains(methodKey) &&
+                !protocolIds.ContainsKey(methodKey))
             {
                 var protocolId = GenerateProtocolId(method);
+
+                if (protocolId == 0)
+                {
+                    ReportReservedProtocolId(context, method, isManual: false);
+                    continue;
+                }
 
                 if (usedIds.TryGetValue(protocolId, out var existing))
                 {
@@ -338,6 +372,85 @@ public static class ProtocolIdGenerator
         }
 
         return protocolIds;
+    }
+
+    private static void ReportInvalidProtocolId(SourceProductionContext context, IMethodSymbol method)
+    {
+        var descriptor = new DiagnosticDescriptor(
+            "PRPC003",
+            "Invalid Protocol ID",
+            "Method {0}.{1} has an invalid [Protocol] value. Use a hexadecimal ushort such as [Protocol(\"0x1234\")].",
+            "PulseRPC.Client.SourceGenerator",
+            DiagnosticSeverity.Error,
+            true);
+
+        var attributeLocation = method.GetAttributes()
+            .FirstOrDefault(attribute => attribute.AttributeClass?.Name is "ProtocolAttribute" or "Protocol")?
+            .ApplicationSyntaxReference?.GetSyntax().GetLocation();
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            attributeLocation ?? method.Locations.FirstOrDefault(),
+            method.ContainingType.ToDisplayString(),
+            method.Name));
+    }
+
+    private static void ReportWireSignatureCollision(
+        SourceProductionContext context,
+        IMethodSymbol method,
+        IMethodSymbol existingMethod)
+    {
+        var descriptor = new DiagnosticDescriptor(
+            "PRPC005",
+            "RPC methods have the same wire signature",
+            "Methods {0} and {1} differ only by local-only CancellationToken parameters and therefore have the same wire signature. Remove one overload or rename it.",
+            "PulseRPC.Client.SourceGenerator",
+            DiagnosticSeverity.Error,
+            true);
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            method.Locations.FirstOrDefault(),
+            existingMethod.ToDisplayString(),
+            method.ToDisplayString()));
+    }
+
+    private static void ReportMultipleCancellationTokens(SourceProductionContext context, IMethodSymbol method)
+    {
+        var descriptor = new DiagnosticDescriptor(
+            "PRPC006",
+            "Multiple CancellationToken parameters are not supported",
+            "Method {0}.{1} declares more than one CancellationToken. RPC methods may declare at most one local cancellation token.",
+            "PulseRPC.Client.SourceGenerator",
+            DiagnosticSeverity.Error,
+            true);
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            method.Locations.FirstOrDefault(),
+            method.ContainingType.ToDisplayString(),
+            method.Name));
+    }
+
+    private static void ReportReservedProtocolId(
+        SourceProductionContext context,
+        IMethodSymbol method,
+        bool isManual)
+    {
+        var descriptor = new DiagnosticDescriptor(
+            "PRPC002",
+            "Protocol ID 0 is reserved",
+            isManual
+                ? "Method {0}.{1} explicitly uses protocol ID 0, which is reserved for non-RPC/control messages. Choose an ID from 0x0001 to 0xFFFF."
+                : "The generated protocol ID for method {0}.{1} is 0, which is reserved for non-RPC/control messages. Add [Protocol(\"0xXXXX\")] with an ID from 0x0001 to 0xFFFF.",
+            "PulseRPC.Client.SourceGenerator",
+            DiagnosticSeverity.Error,
+            true);
+
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            method.Locations.FirstOrDefault(),
+            method.ContainingType.ToDisplayString(),
+            method.Name));
     }
 
     /// <summary>
@@ -386,11 +499,6 @@ public static class ProtocolIdGenerator
     /// </summary>
     private static string GetMethodKey(IMethodSymbol method)
     {
-        var paramTypes = string.Join(",", method.Parameters
-            .Where(p => p.Type.ToDisplayString() != "System.Threading.CancellationToken" &&
-                       p.Type.ToDisplayString() != "CancellationToken")
-            .Select(p => p.Type.ToDisplayString()));
-        return $"{method.Name}({paramTypes})";
+        return MethodIdentity.CreateClrSignatureKey(method);
     }
 }
-

@@ -28,6 +28,12 @@ public sealed class ConnectionLoadBalancer : ILoadBalancer
         LoadBalancingStrategy strategy = LoadBalancingStrategy.RoundRobin,
         ILogger<ConnectionLoadBalancer>? logger = null)
     {
+        if (strategy is LoadBalancingStrategy.WeightedRoundRobin or LoadBalancingStrategy.ConsistentHash)
+        {
+            throw new NotSupportedException(
+                $"负载均衡策略 {strategy} 仍是 experimental，当前未提供稳定的权重或 sticky key 契约。");
+        }
+
         Strategy = strategy;
         _logger = logger ?? NullLogger<ConnectionLoadBalancer>.Instance;
     }
@@ -59,9 +65,9 @@ public sealed class ConnectionLoadBalancer : ILoadBalancer
             LoadBalancingStrategy.RoundRobin => SelectRoundRobin(healthyConnections),
             LoadBalancingStrategy.Random => SelectRandom(healthyConnections),
             LoadBalancingStrategy.LeastConnections => SelectLeastConnections(healthyConnections),
-            LoadBalancingStrategy.WeightedRoundRobin => SelectWeightedRoundRobin(healthyConnections),
-            LoadBalancingStrategy.ConsistentHash => SelectConsistentHash(healthyConnections, hint),
-            _ => SelectRoundRobin(healthyConnections) // 默认使用轮询
+            LoadBalancingStrategy.WeightedRoundRobin => throw new NotSupportedException("WeightedRoundRobin 尚未实现。"),
+            LoadBalancingStrategy.ConsistentHash => throw new NotSupportedException("ConsistentHash 尚未实现。"),
+            _ => throw new ArgumentOutOfRangeException(nameof(Strategy), effectiveStrategy, "未知负载均衡策略。")
         };
 
         if (selectedConnection != null)
@@ -131,32 +137,6 @@ public sealed class ConnectionLoadBalancer : ILoadBalancer
     }
 
     /// <summary>
-    /// 加权轮询选择
-    /// </summary>
-    private IClientChannel SelectWeightedRoundRobin(IReadOnlyList<IClientChannel> connections)
-    {
-        // TODO: 从连接标签或配置中读取权重信息
-        // 当前实现：忽略权重，使用普通轮询
-        _logger.LogDebug("加权轮询策略：当前使用简化实现（普通轮询）");
-        return SelectRoundRobin(connections);
-    }
-
-    /// <summary>
-    /// 一致性哈希选择
-    /// </summary>
-    private IClientChannel SelectConsistentHash(IReadOnlyList<IClientChannel> connections, LoadBalancingHint hint)
-    {
-        // TODO: 实现基于虚拟节点的一致性哈希环
-        // 当前实现：基于提示的简单哈希
-        var hashKey = hint.ToString() + DateTime.UtcNow.Ticks.ToString();
-        var hash = hashKey.GetHashCode();
-        var index = Math.Abs(hash) % connections.Count;
-
-        _logger.LogDebug("一致性哈希策略：选择连接索引 {Index}", index);
-        return connections[index];
-    }
-
-    /// <summary>
     /// 应用负载均衡提示
     /// </summary>
     private static LoadBalancingStrategy ApplyHint(LoadBalancingStrategy strategy, LoadBalancingHint hint)
@@ -183,16 +163,6 @@ public sealed class ConnectionLoadBalancer : ILoadBalancer
             ExtendedConnectionState.Idle => true,
             _ => false
         };
-    }
-
-    /// <summary>
-    /// 获取连接权重
-    /// </summary>
-    private static int GetConnectionWeight(IClientChannel connection)
-    {
-        // TODO: 从连接标签或配置中读取权重
-        // 当前实现：所有连接权重相等
-        return 1;
     }
 
     /// <summary>

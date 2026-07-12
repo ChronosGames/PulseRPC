@@ -5,7 +5,7 @@
 ## 前置条件
 
 - .NET SDK：以仓库根目录 `global.json` 为准，当前锁定 `10.0.100`，允许 roll-forward。
-- 运行时项目：优先参考 `samples/ChatApp`、`samples/JwtAuthentication`、`samples/JsonTranscoding`。
+- 运行时项目：优先参考 `samples/ChatApp`、`samples/JwtAuthentication`、`samples/HubFactoryExample`。
 - 消息模型：优先使用 MemoryPack，并为请求/响应类型标注 `[MemoryPackable]`。
 
 ## 安装包
@@ -156,7 +156,7 @@ cd samples/ChatApp/ChatApp.Client.Console
 dotnet run
 ```
 
-如果需要认证示例，请查看 `samples/JwtAuthentication`；如果需要 JSON 转码示例，请查看 `samples/JsonTranscoding`。
+如果需要认证示例，请查看 `samples/JwtAuthentication`。需要向 HTTP/JSON 调用方提供显式网关时，参考 `samples/JsonTranscoding`；该示例是应用层映射，不是自动的 PulseRPC wire 转码。
 
 ## 下一步
 

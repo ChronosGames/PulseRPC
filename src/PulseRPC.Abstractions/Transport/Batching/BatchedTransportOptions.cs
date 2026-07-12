@@ -27,6 +27,7 @@ public sealed class BatchedTransportOptions
     /// <summary>
     /// 启用自适应批处理（根据队列深度动态调整阈值）
     /// </summary>
+    [Obsolete("BatchedTransport 当前使用显式 BatchThreshold/BatchSizeThreshold；自适应调整尚未实现。")]
     public bool EnableAdaptiveBatching { get; set; } = true;
 
     // ═══════════════════════════════════════════════════════════════════════════

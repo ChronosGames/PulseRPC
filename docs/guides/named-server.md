@@ -8,8 +8,11 @@
 
 - ✅ 支持在同一进程中运行多个独立的服务器实例
 - ✅ 每个服务器拥有独立的配置和传输层
-- ✅ 使用 .NET Keyed Services 实现完全隔离
+- ✅ 使用 .NET Keyed Services 隔离 channel、消息引擎和 `ClientFacingGate` 策略
 - ✅ 符合 .NET 最佳实践
+
+命名服务器仍共享应用级 DI 服务和生成的路由表，并不是通用的多租户安全边界。每个服务器的
+`EnableClientFacingGate` 会按自身命名配置执行，不受其它服务器的解析或启动顺序影响。
 
 ## 使用方法
 

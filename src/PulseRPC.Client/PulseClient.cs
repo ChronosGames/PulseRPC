@@ -21,7 +21,7 @@ internal sealed class PulseClient : IPulseClient
     private readonly RetryPolicy? _retryPolicy;
 
     // 核心组件（简化后只保留 ConnectionManager 和 LoadBalancer）
-    private readonly IConnectionManager _connectionManager;
+    private readonly ConnectionManager _connectionManager;
     private readonly ILoadBalancer _loadBalancer;
 
     // 状态管理
@@ -152,10 +152,6 @@ internal sealed class PulseClient : IPulseClient
     public async Task StopAsync(bool graceful = true, TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (!graceful)
-        {
-            throw new NotSupportedException("客户端 abortive StopAsync 尚未实现；当前仅支持 graceful=true 的传输关闭。");
-        }
 
         ClientState previousState;
         lock (_stateLock)
@@ -175,9 +171,11 @@ internal sealed class PulseClient : IPulseClient
         {
             _logger.LogInformation("开始停止 PulseRPC 客户端，优雅停止: {Graceful}", graceful);
 
-            var stopTimeout = timeout ?? TimeSpan.FromSeconds(30);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(stopTimeout);
+            if (graceful)
+            {
+                cts.CancelAfter(timeout ?? TimeSpan.FromSeconds(30));
+            }
 
             // 断开所有连接
             var connections = _connectionManager.GetAllConnections();
@@ -185,7 +183,7 @@ internal sealed class PulseClient : IPulseClient
             {
                 try
                 {
-                    await _connectionManager.DisconnectAsync(connection.Id, cts.Token);
+                    await _connectionManager.DisconnectAsync(connection.Id, graceful, cts.Token);
                 }
                 catch (Exception ex)
                 {
@@ -264,12 +262,7 @@ internal sealed class PulseClient : IPulseClient
     public async Task DisconnectAsync(string connectionId, bool graceful = true, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (!graceful)
-        {
-            throw new NotSupportedException("客户端 abortive DisconnectAsync 尚未实现；当前仅支持 graceful=true 的传输关闭。");
-        }
-
-        await _connectionManager.DisconnectAsync(connectionId, cancellationToken);
+        await _connectionManager.DisconnectAsync(connectionId, graceful, cancellationToken);
     }
 
     /// <summary>
@@ -278,11 +271,6 @@ internal sealed class PulseClient : IPulseClient
     public async Task<int> DisconnectAsync(Func<IClientChannel, bool> predicate, bool graceful = true, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-        if (!graceful)
-        {
-            throw new NotSupportedException("客户端 abortive DisconnectAsync 尚未实现；当前仅支持 graceful=true 的传输关闭。");
-        }
-
         var connectionsToDisconnect = _connectionManager.GetAllConnections().Where(predicate).ToList();
 
         var disconnectTasks = connectionsToDisconnect.Select(async connection =>

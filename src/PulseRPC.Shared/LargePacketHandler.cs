@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -14,18 +13,34 @@ namespace PulseRPC.Shared;
 /// </summary>
 public sealed class LargePacketHandler : IDisposable
 {
+    private const int DefaultMaxPacketSize = 4 * 1024 * 1024;
+    private const int MaxChunkCount = 4096;
+
     private readonly NetworkBufferPool _bufferPool;
-    private readonly ArrayPool<byte> _arrayPool;
     private readonly int _maxConcurrentPackets;
+    private readonly int _maxPacketSize;
     private readonly Dictionary<int, StreamingPacketState> _activePackets;
     private readonly object _packetsLock = new object();
     private volatile bool _disposed;
 
     public LargePacketHandler(NetworkBufferPool? bufferPool = null, int maxConcurrentPackets = 64)
+        : this(bufferPool, maxConcurrentPackets, DefaultMaxPacketSize)
     {
+    }
+
+    internal LargePacketHandler(
+        NetworkBufferPool? bufferPool,
+        int maxConcurrentPackets,
+        int maxPacketSize)
+    {
+        if (maxConcurrentPackets <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxConcurrentPackets));
+        if (maxPacketSize <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxPacketSize));
+
         _bufferPool = bufferPool ?? NetworkBufferPool.Instance;
-        _arrayPool = ArrayPool<byte>.Shared;
         _maxConcurrentPackets = maxConcurrentPackets;
+        _maxPacketSize = maxPacketSize;
         _activePackets = new Dictionary<int, StreamingPacketState>(maxConcurrentPackets);
     }
 
@@ -36,8 +51,18 @@ public sealed class LargePacketHandler : IDisposable
     {
         completeData = default;
 
-        if (_disposed)
+        if (_disposed ||
+            chunkHeader.TotalChunks <= 0 ||
+            chunkHeader.TotalChunks > MaxChunkCount ||
+            chunkHeader.TotalChunks > _maxPacketSize ||
+            chunkHeader.ChunkIndex < 0 ||
+            chunkHeader.ChunkIndex >= chunkHeader.TotalChunks ||
+            chunkData.IsEmpty ||
+            chunkData.Length > _maxPacketSize ||
+            chunkHeader.ChunkSize != chunkData.Length)
+        {
             return false;
+        }
 
         lock (_packetsLock)
         {
@@ -50,8 +75,23 @@ public sealed class LargePacketHandler : IDisposable
             // 获取或创建包状态
             if (!_activePackets.TryGetValue(chunkHeader.ChunkId, out var packetState))
             {
-                packetState = new StreamingPacketState(chunkHeader.ChunkId, chunkHeader.TotalChunks, _bufferPool);
+                packetState = new StreamingPacketState(
+                    chunkHeader.ChunkId,
+                    chunkHeader.TotalChunks,
+                    _maxPacketSize,
+                    _bufferPool);
                 _activePackets[chunkHeader.ChunkId] = packetState;
+            }
+            else if (packetState.TotalChunks != chunkHeader.TotalChunks)
+            {
+                return false;
+            }
+
+            if (!packetState.CanAcceptChunk(chunkHeader.ChunkIndex, chunkData.Length))
+            {
+                _activePackets.Remove(chunkHeader.ChunkId);
+                packetState.Dispose();
+                return false;
             }
 
             // 添加分片
@@ -145,6 +185,7 @@ internal sealed class StreamingPacketState : IDisposable
 {
     private readonly int _chunkId;
     private readonly int _totalChunks;
+    private readonly int _maxPacketSize;
     private readonly NetworkBufferPool _bufferPool;
     private readonly BitArray _receivedChunks;
     private readonly object _lock = new object();
@@ -158,17 +199,37 @@ internal sealed class StreamingPacketState : IDisposable
     private bool _disposed;
 
     public DateTime StartTime { get; }
+    public int TotalChunks => _totalChunks;
 
-    public StreamingPacketState(int chunkId, int totalChunks, NetworkBufferPool bufferPool)
+    public StreamingPacketState(
+        int chunkId,
+        int totalChunks,
+        int maxPacketSize,
+        NetworkBufferPool bufferPool)
     {
         _chunkId = chunkId;
         _totalChunks = totalChunks;
+        _maxPacketSize = maxPacketSize;
         _bufferPool = bufferPool;
         _receivedChunks = new BitArray(totalChunks);
         _chunkOffsets = new int[totalChunks];
         _chunkSizes = new int[totalChunks];
         _receivedCount = 0;
         StartTime = DateTime.UtcNow;
+    }
+
+    public bool CanAcceptChunk(int chunkIndex, int chunkLength)
+    {
+        lock (_lock)
+        {
+            if (_disposed || chunkIndex < 0 || chunkIndex >= _totalChunks || chunkLength <= 0)
+                return false;
+
+            if (_receivedChunks[chunkIndex])
+                return true;
+
+            return chunkLength <= _maxPacketSize - _totalSize;
+        }
     }
 
     public bool AddChunk(int chunkIndex, ReadOnlySpan<byte> chunkData)
@@ -185,16 +246,15 @@ internal sealed class StreamingPacketState : IDisposable
             // 延迟分配缓冲区，直到收到第一个分片时才估算总大小
             if (_buffer == null)
             {
-                // 基于第一个分片大小估算总缓冲区大小
-                var estimatedSize = chunkData.Length * _totalChunks;
-                _buffer = _bufferPool.Rent(estimatedSize);
+                // 只按实际收到的字节租用，禁止由远端 TotalChunks 放大首次分配。
+                _buffer = _bufferPool.Rent(chunkData.Length);
             }
 
             // 扩展缓冲区（如果需要）
             var requiredSize = _totalSize + chunkData.Length;
             if (requiredSize > _buffer.Length)
             {
-                var newBuffer = _bufferPool.Rent(requiredSize * 2); // 预留空间避免频繁扩展
+                var newBuffer = _bufferPool.Rent(requiredSize);
                 Buffer.BlockCopy(_buffer, 0, newBuffer, 0, _totalSize);
                 _bufferPool.Return(_buffer);
                 _buffer = newBuffer;

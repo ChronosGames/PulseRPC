@@ -1,0 +1,32 @@
+#nullable enable
+PulseRPC.Backplane.Redis.PulseRedisActorLeaseServiceExtensions
+PulseRPC.Backplane.Redis.PulseRedisBackplaneServiceExtensions
+PulseRPC.Backplane.Redis.RedisActorLeaseStore
+PulseRPC.Backplane.Redis.RedisActorLeaseStore.ActivateAsync(string! hub, string! key, string! candidateNodeId, System.TimeSpan leaseDuration, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<PulseRPC.Clustering.ActorPlacement>
+PulseRPC.Backplane.Redis.RedisActorLeaseStore.RedisActorLeaseStore(StackExchange.Redis.IConnectionMultiplexer! connection, Microsoft.Extensions.Options.IOptions<PulseRPC.Backplane.Redis.RedisActorLeaseStoreOptions!>! options) -> void
+PulseRPC.Backplane.Redis.RedisActorLeaseStore.ReleaseAsync(string! hub, string! key, string! nodeId, string! leaseId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Backplane.Redis.RedisActorLeaseStore.RenewAsync(string! hub, string! key, string! nodeId, string! leaseId, System.TimeSpan leaseDuration, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<bool>
+PulseRPC.Backplane.Redis.RedisActorLeaseStore.ResolveAsync(string! hub, string! key, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<PulseRPC.Clustering.ActorPlacement?>
+PulseRPC.Backplane.Redis.RedisActorLeaseStoreOptions
+PulseRPC.Backplane.Redis.RedisActorLeaseStoreOptions.Database.get -> int
+PulseRPC.Backplane.Redis.RedisActorLeaseStoreOptions.Database.set -> void
+PulseRPC.Backplane.Redis.RedisActorLeaseStoreOptions.KeyPrefix.get -> string!
+PulseRPC.Backplane.Redis.RedisActorLeaseStoreOptions.KeyPrefix.set -> void
+PulseRPC.Backplane.Redis.RedisActorLeaseStoreOptions.RedisActorLeaseStoreOptions() -> void
+PulseRPC.Backplane.Redis.RedisBackplaneOptions
+PulseRPC.Backplane.Redis.RedisBackplaneOptions.KeyPrefix.get -> string!
+PulseRPC.Backplane.Redis.RedisBackplaneOptions.KeyPrefix.set -> void
+PulseRPC.Backplane.Redis.RedisBackplaneOptions.MemberEntryTimeToLive.get -> System.TimeSpan
+PulseRPC.Backplane.Redis.RedisBackplaneOptions.MemberEntryTimeToLive.set -> void
+PulseRPC.Backplane.Redis.RedisBackplaneOptions.RedisBackplaneOptions() -> void
+PulseRPC.Backplane.Redis.RedisPulseBackplane
+PulseRPC.Backplane.Redis.RedisPulseBackplane.AddMemberAsync(string! connectionId, PulseRPC.Routing.PulseAddress membership, string! ownerNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Backplane.Redis.RedisPulseBackplane.DisposeAsync() -> System.Threading.Tasks.ValueTask
+PulseRPC.Backplane.Redis.RedisPulseBackplane.PublishAsync(PulseRPC.Routing.PulseAddress fanoutAddress, ushort protocolId, System.ReadOnlyMemory<byte> body, string! originNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Backplane.Redis.RedisPulseBackplane.RedisPulseBackplane(StackExchange.Redis.IConnectionMultiplexer! connection, Microsoft.Extensions.Options.IOptions<PulseRPC.Backplane.Redis.RedisBackplaneOptions!>! options, Microsoft.Extensions.Logging.ILogger<PulseRPC.Backplane.Redis.RedisPulseBackplane!>! logger) -> void
+PulseRPC.Backplane.Redis.RedisPulseBackplane.RemoveMemberAsync(string! connectionId, PulseRPC.Routing.PulseAddress membership, string! ownerNodeId, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
+PulseRPC.Backplane.Redis.RedisPulseBackplane.ResolveAsync(PulseRPC.Routing.PulseAddress address, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask<System.Collections.Generic.IReadOnlyList<PulseRPC.Clustering.BackplaneMember>!>
+PulseRPC.Backplane.Redis.RedisPulseBackplane.Subscribe(PulseRPC.Clustering.BackplaneMessageHandler! handler) -> System.IDisposable!
+static PulseRPC.Backplane.Redis.PulseRedisActorLeaseServiceExtensions.AddRedisActorLeases(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<PulseRPC.Backplane.Redis.RedisActorLeaseStoreOptions!>? configureOptions = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static PulseRPC.Backplane.Redis.PulseRedisBackplaneServiceExtensions.AddRedisBackplane(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! connectionString, System.Action<PulseRPC.Backplane.Redis.RedisBackplaneOptions!>? configureOptions = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!
+static PulseRPC.Backplane.Redis.PulseRedisBackplaneServiceExtensions.AddRedisBackplane(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Func<System.IServiceProvider!, StackExchange.Redis.IConnectionMultiplexer!>! connectionFactory, System.Action<PulseRPC.Backplane.Redis.RedisBackplaneOptions!>? configureOptions = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

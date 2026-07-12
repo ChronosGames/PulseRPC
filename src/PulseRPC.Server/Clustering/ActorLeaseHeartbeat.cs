@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading;
 using PulseRPC.Clustering;
+using PulseRPC.Server.Services.Management;
 
 namespace PulseRPC.Server.Clustering;
 
@@ -32,12 +34,14 @@ public sealed class ActorLeaseHeartbeatOptions
 /// <remarks>
 /// 当 owner 节点失效或租约被抢占时，续租会失败并停止跟踪；之后新的请求会经 placement/directory 重新激活。
 /// </remarks>
-public sealed class ActorLeaseHeartbeat : IActorLeaseHeartbeat, IDisposable
+public sealed class ActorLeaseHeartbeat : IActorLeaseHeartbeat, IServiceInstanceLeaseLifetime, IDisposable
 {
     private readonly IActorDirectory _directory;
     private readonly TimeSpan _interval;
     private readonly ConcurrentDictionary<string, TrackedLease> _tracked = new(StringComparer.Ordinal);
+    private readonly object _lifecycleLock = new();
     private readonly Timer _timer;
+    private System.Threading.Tasks.Task? _renewTask;
     private int _renewing;
     private bool _disposed;
 
@@ -46,7 +50,7 @@ public sealed class ActorLeaseHeartbeat : IActorLeaseHeartbeat, IDisposable
     {
         _directory = directory ?? throw new ArgumentNullException(nameof(directory));
         _interval = options?.Interval > TimeSpan.Zero ? options.Interval : TimeSpan.FromSeconds(10);
-        _timer = new Timer(_ => _ = RenewAllAsync(), null, _interval, _interval);
+        _timer = new Timer(_ => ScheduleRenewal(), null, _interval, _interval);
     }
 
     /// <inheritdoc/>
@@ -71,15 +75,69 @@ public sealed class ActorLeaseHeartbeat : IActorLeaseHeartbeat, IDisposable
         var trackingKey = BuildKey(hub, key);
         if (_tracked.TryGetValue(trackingKey, out var current) && string.Equals(current.LeaseId, leaseId, StringComparison.Ordinal))
         {
-            _tracked.TryRemove(trackingKey, out _);
+            _tracked.TryRemove(new KeyValuePair<string, TrackedLease>(trackingKey, current));
         }
+    }
+
+    async ValueTask IServiceInstanceLeaseLifetime.ReleaseAsync(
+        string hub,
+        string key,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(hub) || string.IsNullOrEmpty(key))
+        {
+            return;
+        }
+
+        if (!_tracked.TryRemove(BuildKey(hub, key), out var lease))
+        {
+            return;
+        }
+
+        await _directory.ReleaseAsync(
+            lease.Hub,
+            lease.Key,
+            lease.NodeId,
+            lease.LeaseId,
+            cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>
     public void Dispose()
     {
-        _disposed = true;
-        _timer.Dispose();
+        System.Threading.Tasks.Task? renewTask;
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _timer.Change(Timeout.Infinite, Timeout.Infinite);
+            _timer.Dispose();
+            renewTask = _renewTask;
+        }
+
+        renewTask?.GetAwaiter().GetResult();
+    }
+
+    private void ScheduleRenewal()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            if (_renewTask is { IsCompleted: false })
+            {
+                return;
+            }
+
+            _renewTask = RenewAllAsync();
+        }
     }
 
     private async System.Threading.Tasks.Task RenewAllAsync()
@@ -107,7 +165,7 @@ public sealed class ActorLeaseHeartbeat : IActorLeaseHeartbeat, IDisposable
 
                 if (!renewed)
                 {
-                    _tracked.TryRemove(kvp.Key, out _);
+                    _tracked.TryRemove(kvp);
                 }
             }
         }

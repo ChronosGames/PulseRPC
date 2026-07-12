@@ -195,7 +195,10 @@ public static class ResponseSerializerGenerator
 
     private static void GenerateSerializerClass(StringBuilder sb, ResponseSerializerInfo info)
     {
-        sb.AppendLine($"        public sealed class {info.ClassName} : IResponseSerializer");
+        var serializerInterface = info.IsNullable
+            ? "INullResponseSerializer"
+            : "IResponseSerializer";
+        sb.AppendLine($"        public sealed class {info.ClassName} : {serializerInterface}");
         sb.AppendLine("        {");
         sb.AppendLine($"            public static {info.ClassName} Instance {{ get; }} = new();");
         sb.AppendLine();
@@ -212,35 +215,48 @@ public static class ResponseSerializerGenerator
             sb.AppendLine("            {");
             sb.AppendLine("                if (response is null)");
             sb.AppendLine("                {");
-            sb.AppendLine("                    throw new ArgumentNullException(nameof(response));");
+
+            var responseTypeName = info.ResponseTypeName!;
+            var runtimeTypeName = info.RuntimeTypeName!;
+
+            if (info.IsNullable)
+            {
+                sb.AppendLine($"                    {responseTypeName} typedNull = default;");
+                sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typedNull);");
+                sb.AppendLine("                    return;");
+            }
+            else
+            {
+                sb.AppendLine("                    throw new ArgumentNullException(nameof(response));");
+            }
             sb.AppendLine("                }");
             sb.AppendLine();
 
-            var responseTypeName = info.ResponseTypeName!;
-
             // 检测是否为元组类型，元组类型不能使用模式匹配
-            if (IsTupleType(responseTypeName))
+            if (IsTupleType(runtimeTypeName))
             {
                 // 对于元组类型，使用类型检查和转换
-                sb.AppendLine($"                if (response.GetType() == typeof({responseTypeName}))");
+                sb.AppendLine($"                if (response.GetType() == typeof({runtimeTypeName}))");
                 sb.AppendLine("                {");
-                sb.AppendLine($"                    var typed = ({responseTypeName})response;");
-                sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typed);");
+                sb.AppendLine($"                    var typed = ({runtimeTypeName})response;");
+                sb.AppendLine($"                    {responseTypeName} typedResponse = typed;");
+                sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typedResponse);");
                 sb.AppendLine("                    return;");
                 sb.AppendLine("                }");
             }
             else
             {
                 // 对于非元组类型，使用模式匹配
-                sb.AppendLine($"                if (response is {responseTypeName} typed)");
+                sb.AppendLine($"                if (response is {runtimeTypeName} typed)");
                 sb.AppendLine("                {");
-                sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typed);");
+                sb.AppendLine($"                    {responseTypeName} typedResponse = typed;");
+                sb.AppendLine("                    MemoryPackSerializer.Serialize(writer, typedResponse);");
                 sb.AppendLine("                    return;");
                 sb.AppendLine("                }");
             }
 
             sb.AppendLine();
-            sb.AppendLine($"                throw new InvalidCastException($\"期待类型 {{typeof({responseTypeName})}} 但接收到 {{response.GetType()}}\");");
+            sb.AppendLine($"                throw new InvalidCastException($\"期待类型 {{typeof({runtimeTypeName})}} 但接收到 {{response.GetType()}}\");");
             sb.AppendLine("            }");
             sb.AppendLine();
 
@@ -253,15 +269,18 @@ public static class ResponseSerializerGenerator
 
             sb.AppendLine("            public bool TryGetTypedSerializer<T>(out Action<T, IBufferWriter<byte>> serializer)");
             sb.AppendLine("            {");
-            sb.AppendLine($"                if (typeof(T) == typeof({responseTypeName}))");
-            sb.AppendLine("                {");
-            sb.AppendLine("                    serializer = static (value, bufferWriter) =>");
-            sb.AppendLine("                    {");
-            sb.AppendLine($"                        MemoryPackSerializer.Serialize(bufferWriter, Unsafe.As<T, {responseTypeName}>(ref value));");
-            sb.AppendLine("                    };");
-            sb.AppendLine("                    return true;");
-            sb.AppendLine("                }");
-            sb.AppendLine();
+            if (!info.IsNullable)
+            {
+                sb.AppendLine($"                if (typeof(T) == typeof({responseTypeName}))");
+                sb.AppendLine("                {");
+                sb.AppendLine("                    serializer = static (value, bufferWriter) =>");
+                sb.AppendLine("                    {");
+                sb.AppendLine($"                        MemoryPackSerializer.Serialize(bufferWriter, Unsafe.As<T, {responseTypeName}>(ref value));");
+                sb.AppendLine("                    };");
+                sb.AppendLine("                    return true;");
+                sb.AppendLine("                }");
+                sb.AppendLine();
+            }
             sb.AppendLine("                serializer = null!;");
             sb.AppendLine("                return false;");
             sb.AppendLine("            }");
@@ -308,26 +327,34 @@ public static class ResponseSerializerGenerator
                         $"Response type '{method.ResponseTypeFullName}' for {service.InterfaceName}.{method.MethodName} is not MemoryPack serializable.");
                 }
 
-                var className = $"{GetSafeIdentifier(service.ServiceName ?? service.InterfaceName)}_{GetSafeIdentifier(method.MethodName)}_ResponseSerializer";
+                var className = $"{GetSafeIdentifier(service.ServiceName ?? service.InterfaceName)}_{GetSafeIdentifier(method.GeneratedIdentifier)}_ResponseSerializer";
 
                 // responseType 为 null 表示 void 返回，否则为 MemoryPackable 类型
                 var responseType = string.IsNullOrWhiteSpace(method.ResponseTypeFullName) ? null : method.ResponseTypeFullName;
+                string? runtimeType = null;
+                var isNullable = false;
 
                 if (responseType != null && responseType.Length > 0)
                 {
                     var normalizedResponseType = responseType;
 
-                    // 移除末尾的可空标记
-                    if (normalizedResponseType.EndsWith("?", StringComparison.Ordinal))
+                    // 保留声明类型的可空标记用于 MemoryPack wire 格式，同时使用去掉外层 ? 的类型做运行时匹配。
+                    isNullable = normalizedResponseType.EndsWith("?", StringComparison.Ordinal);
+                    if (isNullable)
                     {
-                        normalizedResponseType = normalizedResponseType.Substring(0, normalizedResponseType.Length - 1);
+                        runtimeType = normalizedResponseType.Substring(0, normalizedResponseType.Length - 1);
+                    }
+                    else
+                    {
+                        runtimeType = normalizedResponseType;
                     }
 
                     // 对于元组类型，移除元素名称（如 guild, member 等）
                     // 例如：(GuildEntity? guild, GuildMember? member) -> (GuildEntity?, GuildMember?)
-                    if (IsTupleType(normalizedResponseType))
+                    if (IsTupleType(runtimeType))
                     {
-                        normalizedResponseType = StripTupleElementNames(normalizedResponseType);
+                        runtimeType = StripTupleElementNames(runtimeType);
+                        normalizedResponseType = isNullable ? runtimeType + "?" : runtimeType;
                     }
 
                     responseType = normalizedResponseType;
@@ -336,7 +363,9 @@ public static class ResponseSerializerGenerator
                 list.Add(new ResponseSerializerInfo(
                     className,
                     method.ProtocolId,
-                    responseType));
+                    responseType,
+                    runtimeType,
+                    isNullable));
             }
         }
 
@@ -790,12 +819,21 @@ public static class ResponseSerializerGenerator
         public string ClassName { get; }
         public ushort ProtocolId { get; }
         public string? ResponseTypeName { get; }
+        public string? RuntimeTypeName { get; }
+        public bool IsNullable { get; }
 
-        public ResponseSerializerInfo(string className, ushort protocolId, string? responseTypeName)
+        public ResponseSerializerInfo(
+            string className,
+            ushort protocolId,
+            string? responseTypeName,
+            string? runtimeTypeName,
+            bool isNullable)
         {
             ClassName = className;
             ProtocolId = protocolId;
             ResponseTypeName = responseTypeName;
+            RuntimeTypeName = runtimeTypeName;
+            IsNullable = isNullable;
         }
     }
 }

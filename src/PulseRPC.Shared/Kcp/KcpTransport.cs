@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Buffers;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Net;
@@ -14,7 +13,7 @@ namespace PulseRPC.Shared.Kcp;
 /// <summary>
 /// KCP传输基类
 /// </summary>
-public class KcpTransport : ITransport
+public abstract class KcpTransport : ITransport
 {
     protected KcpCore _kcp;
     protected Socket _socket;
@@ -32,7 +31,7 @@ public class KcpTransport : ITransport
     // KCP时间戳管理
     protected readonly System.Diagnostics.Stopwatch _stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
-    public virtual string Id => throw new NotImplementedException();
+    public abstract string Id { get; }
     public TransportType Type => TransportType.KCP;
     public bool IsConnected => _state == ConnectionState.Connected;
     public ConnectionState State => _state;
@@ -46,6 +45,12 @@ public class KcpTransport : ITransport
     public KcpTransport(KcpTransportOptions? options = null, ILogger? logger = null)
     {
         _options = options ?? new KcpTransportOptions();
+#pragma warning disable CS0618
+        if (_options.UseCompression || _options.UseEncryption)
+        {
+            throw new NotSupportedException("KCP wire compression/encryption 尚未实现，不能启用对应传输选项。");
+        }
+#pragma warning restore CS0618
         _logger = logger ?? NullLogger.Instance;
 
         _socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
@@ -71,11 +76,22 @@ public class KcpTransport : ITransport
             return false;
         }
 
+        if (data.IsEmpty || data.Length > _options.MaxPacketSize)
+        {
+            _logger.LogWarning(
+                "KCP基类拒绝发送无效大小的数据: Size={Size}, MaxPacketSize={MaxPacketSize}",
+                data.Length, _options.MaxPacketSize);
+            return false;
+        }
+
         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
 
-        await _sendLock.WaitAsync(linkedCts.Token);
+        var lockTaken = false;
         try
         {
+            await _sendLock.WaitAsync(linkedCts.Token);
+            lockTaken = true;
+
             // 直接发送数据到KCP
             var result = _kcp.Send(data.Span);
 
@@ -92,6 +108,10 @@ public class KcpTransport : ITransport
 
             return result == 0;
         }
+        catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+        {
+            return false;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "KCP基类发送数据失败");
@@ -99,7 +119,10 @@ public class KcpTransport : ITransport
         }
         finally
         {
-            _sendLock.Release();
+            if (lockTaken)
+            {
+                _sendLock.Release();
+            }
         }
     }
 
@@ -217,20 +240,25 @@ public class KcpTransport : ITransport
             // 使用正确的结束方法
             var recvSize = _socket.EndReceiveFrom(ar, ref remoteEp);
 
-            if (recvSize > 0)
+            if (recvSize > 0 && IsConnected)
             {
-                // 输入数据到KCP
-                _kcp.Input(new Span<byte>(buffer, 0, recvSize));
-
-                // 更新远程端点
-                if (_remoteEndpoint == null)
+                var sender = (IPEndPoint)remoteEp;
+                if (_remoteEndpoint is not null && !_remoteEndpoint.Equals(sender))
                 {
-                    _remoteEndpoint = (IPEndPoint)remoteEp;
+                    _logger.LogWarning(
+                        "忽略来自非协商端点的KCP数据包: Expected={Expected}, Actual={Actual}",
+                        _remoteEndpoint,
+                        sender);
+                }
+                else
+                {
+                    _remoteEndpoint ??= sender;
+                    _kcp.Input(new Span<byte>(buffer, 0, recvSize));
                 }
             }
 
             // 继续接收
-            if (!_disposed && !_cts.IsCancellationRequested && _socket.IsBound)
+            if (!_disposed && !_cts.IsCancellationRequested && IsConnected && _socket.IsBound)
             {
                 EndPoint newRemoteEp = new IPEndPoint(IPAddress.Any, 0);
                 _socket.BeginReceiveFrom(buffer, 0, buffer.Length, SocketFlags.None, ref newRemoteEp, OnUdpReceive, buffer);
@@ -264,24 +292,28 @@ public class KcpTransport : ITransport
     {
         try
         {
-            var buffer = ArrayPool<byte>.Shared.Rent(_options.RecvBufferSize);
-            try
+            while (true)
             {
-                while (true)
+                var messageSize = _kcp.PeekSize();
+                if (messageSize <= 0)
+                    break;
+
+                if (messageSize > _options.MaxPacketSize)
                 {
-                    var size = _kcp.Recv(buffer);
-                    if (size <= 0)
-                        break;
-
-                    var receivedData = new byte[size];
-                    Buffer.BlockCopy(buffer, 0, receivedData, 0, size);
-
-                    DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData, size));
+                    _logger.LogError(
+                        "KCP基类拒绝接收超限消息: Size={Size}, MaxPacketSize={MaxPacketSize}",
+                        messageSize, _options.MaxPacketSize);
+                    ChangeState(ConnectionState.Failed,
+                        $"接收消息大小 {messageSize} 超过限制 {_options.MaxPacketSize}");
+                    break;
                 }
-            }
-            finally
-            {
-                ArrayPool<byte>.Shared.Return(buffer);
+
+                var receivedData = new byte[messageSize];
+                var size = _kcp.Recv(receivedData);
+                if (size <= 0)
+                    break;
+
+                DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData, size));
             }
         }
         catch (Exception ex)

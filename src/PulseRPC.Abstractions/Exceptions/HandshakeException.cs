@@ -75,6 +75,7 @@ public class HandshakeException : Exception
     /// <summary>
     /// 序列化构造函数
     /// </summary>
+#pragma warning disable SYSLIB0051
     protected HandshakeException(SerializationInfo info, StreamingContext context) : base(info, context)
     {
         Stage = (HandshakeStage)info.GetInt32(nameof(Stage));
@@ -84,10 +85,12 @@ public class HandshakeException : Exception
         DiagnosticInfo = (Dictionary<string, object>)(info.GetValue(nameof(DiagnosticInfo), typeof(Dictionary<string, object>)) ?? new Dictionary<string, object>());
         TroubleshootingSuggestions = (List<string>)(info.GetValue(nameof(TroubleshootingSuggestions), typeof(List<string>)) ?? new List<string>());
     }
+#pragma warning restore SYSLIB0051
 
     /// <summary>
     /// 序列化
     /// </summary>
+#pragma warning disable CS0809
     [Obsolete]
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
@@ -99,6 +102,7 @@ public class HandshakeException : Exception
         info.AddValue(nameof(DiagnosticInfo), DiagnosticInfo);
         info.AddValue(nameof(TroubleshootingSuggestions), TroubleshootingSuggestions);
     }
+#pragma warning restore CS0809
 
     /// <summary>
     /// 添加诊断信息

@@ -42,6 +42,34 @@ public class ServerReverseCallTests
     }
 
     [Fact]
+    public async Task Dispose_MustWaitForInFlightPongSend()
+    {
+        var channel = CreateChannel(out var transport);
+        var sendEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSend = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        transport.SendHandler = async (_, _) =>
+        {
+            sendEntered.TrySetResult();
+            await releaseSend.Task;
+            return true;
+        };
+
+        var pingHeader = new MessageHeader(MessageType.Ping, string.Empty, string.Empty);
+        var ping = new MessagePacket(pingHeader, ReadOnlySpan<byte>.Empty);
+        var buffer = new byte[ping.EstimateSize()];
+        var written = ping.WriteTo(buffer);
+        transport.SimulateDataReceived(buffer.AsMemory(0, written));
+        await sendEntered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        var disposal = Task.Run(channel.Dispose);
+        await Task.Delay(50);
+        disposal.IsCompleted.Should().BeFalse("accepted background sends must finish before channel disposal returns");
+
+        releaseSend.TrySetResult();
+        await disposal.WaitAsync(TimeSpan.FromSeconds(3));
+    }
+
+    [Fact]
     public async Task InvokeClientAsync_SendsReverseRequest_AndCompletesWithClientResponse()
     {
         var channel = CreateChannel(out var transport);

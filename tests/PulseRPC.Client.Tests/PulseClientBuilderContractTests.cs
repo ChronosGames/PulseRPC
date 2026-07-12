@@ -4,6 +4,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using PulseRPC.Authentication;
 using PulseRPC.Client.Configuration;
+using PulseRPC.Client.Transport;
+using PulseRPC.Shared;
 using Xunit;
 
 namespace PulseRPC.Client.Tests;
@@ -60,6 +62,40 @@ public class PulseClientBuilderContractTests
             .Build();
 
         Assert.Equal(LoadBalancingStrategy.Random, client.LoadBalancer.Strategy);
+    }
+
+    [Theory]
+    [InlineData(LoadBalancingStrategy.WeightedRoundRobin)]
+    [InlineData(LoadBalancingStrategy.ConsistentHash)]
+    public void Build_WithUnimplementedLoadBalancingStrategy_MustFailExplicitly(
+        LoadBalancingStrategy strategy)
+    {
+        var builder = new PulseClientBuilder().WithLoadBalancing(strategy);
+
+        var ex = Assert.Throws<NotSupportedException>(() => builder.Build());
+        Assert.Contains(strategy.ToString(), ex.Message);
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void Transport_WithUnsupportedWireTransform_MustFailAtConstruction(
+        bool compression,
+        bool encryption)
+    {
+        var tcpOptions = new TcpTransportOptions
+        {
+            UseCompression = compression,
+            UseEncryption = encryption
+        };
+        var kcpOptions = new KcpTransportOptions
+        {
+            UseCompression = compression,
+            UseEncryption = encryption
+        };
+
+        Assert.Throws<NotSupportedException>(() => new TcpClientTransport("tcp", tcpOptions));
+        Assert.Throws<NotSupportedException>(() => new KcpClientTransport("kcp", kcpOptions));
     }
 
     private sealed class TestAuthenticationProvider : IAuthenticationProvider

@@ -131,7 +131,7 @@ public interface IPulseService : IAsyncDisposable
     /// </para>
     /// <list type="number">
     /// <item><description>状态变更：Created → Starting</description></item>
-    /// <item><description>执行 <see cref="OnStartingAsync"/> 钩子</description></item>
+    /// <item><description>执行 <see cref="IPulseServiceLifecycle.OnStartingAsync"/> 钩子</description></item>
     /// <item><description>状态变更：Starting → Running</description></item>
     /// </list>
     /// </remarks>
@@ -149,7 +149,7 @@ public interface IPulseService : IAsyncDisposable
     /// <list type="number">
     /// <item><description>状态变更：Running → Stopping</description></item>
     /// <item><description>等待队列中的消息处理完成（可配置超时）</description></item>
-    /// <item><description>执行 <see cref="OnStoppingAsync"/> 钩子</description></item>
+    /// <item><description>执行 <see cref="IPulseServiceLifecycle.OnStoppingAsync"/> 钩子</description></item>
     /// <item><description>状态变更：Stopping → Stopped</description></item>
     /// </list>
     /// </remarks>
@@ -225,7 +225,7 @@ public interface IPulseServiceHealthCheck : IPulseService
 /// 服务生命周期状态枚举
 /// </summary>
 /// <remarks>
-/// 注意：与 <see cref="PulseRPC.Server.Models.ServiceState"/> 不同，
+/// 注意：与 <see cref="PulseRPC.Server.ServiceState"/> 不同，
 /// 此枚举表示服务实例的运行时生命周期状态，而非服务注册状态。
 /// </remarks>
 public enum ServiceLifecycleState
@@ -293,4 +293,3 @@ public sealed class ServiceHealthCheckResult
     public static ServiceHealthCheckResult Unhealthy(string description, IReadOnlyDictionary<string, object>? data = null)
         => new() { IsHealthy = false, Description = description, Data = data };
 }
-

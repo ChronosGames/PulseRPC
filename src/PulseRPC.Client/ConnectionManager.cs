@@ -131,6 +131,12 @@ public sealed class ConnectionManager : IConnectionManager
     /// 断开连接
     /// </summary>
     public async Task DisconnectAsync(string connectionId, CancellationToken cancellationToken = default)
+        => await DisconnectAsync(connectionId, graceful: true, cancellationToken).ConfigureAwait(false);
+
+    internal async Task DisconnectAsync(
+        string connectionId,
+        bool graceful,
+        CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
 
@@ -145,7 +151,15 @@ public sealed class ConnectionManager : IConnectionManager
 
             try
             {
-                await connection.DisconnectAsync(cancellationToken);
+                if (graceful)
+                {
+                    await connection.DisconnectAsync(cancellationToken).ConfigureAwait(false);
+                }
+                else if (connection is TransportChannel transportChannel)
+                {
+                    transportChannel.Abort();
+                    return;
+                }
             }
             finally
             {

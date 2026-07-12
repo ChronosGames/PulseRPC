@@ -58,7 +58,9 @@ internal class ServerChannelManager : IServerChannelManager
     /// <summary>
     /// 通道认证事件
     /// </summary>
+#pragma warning disable CS0067 // 认证事件属于公开管理器契约，认证管线接入前保留。
     public event EventHandler<ChannelAuthenticatedEventArgs>? ChannelAuthenticated;
+#pragma warning restore CS0067
 
     public ServerChannelManager(
         ILogger<ServerChannelManager> logger,
@@ -356,4 +358,3 @@ internal class ServerChannelManager : IServerChannelManager
             stats.TotalChannelsCreated, stats.TotalChannelsRemoved, stats.TotalMessageEnginesCreated);
     }
 }
-

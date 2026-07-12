@@ -1,5 +1,4 @@
 ﻿using System.Collections.Concurrent;
-using System.Buffers;
 using System.Net;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
@@ -36,6 +35,7 @@ public class KcpServerTransport : IServerTransport
     public EndPoint RemoteEndPoint => _remoteEndpoint;
     public DateTime ConnectedAt => _connectedAt;
     public DateTime LastActiveTime => _lastActivityAt;
+    internal uint ConversationId { get; }
 
     public event EventHandler<TransportStateEventArgs>? StateChanged;
     public event EventHandler<TransportDataEventArgs>? DataReceived;
@@ -49,6 +49,7 @@ public class KcpServerTransport : IServerTransport
         _sharedSocket = sharedSocket;
         _remoteEndpoint = remoteEndpoint;
         _options = options ?? new KcpTransportOptions();
+        ConversationId = conv;
         _logger = logger ?? NullLogger.Instance;
         _connectedAt = DateTime.UtcNow;
         _lastActivityAt = DateTime.UtcNow;
@@ -88,6 +89,14 @@ public class KcpServerTransport : IServerTransport
         {
             _logger.LogWarning("KCP连接 {ConnectionId} 无法发送数据: IsConnected={IsConnected}, Disposed={Disposed}",
                 _id, IsConnected, _disposed);
+            return Task.FromResult(false);
+        }
+
+        if (data.IsEmpty || data.Length > _options.MaxPacketSize)
+        {
+            _logger.LogWarning(
+                "KCP连接 {ConnectionId} 拒绝发送无效大小的数据: Size={Size}, MaxPacketSize={MaxPacketSize}",
+                _id, data.Length, _options.MaxPacketSize);
             return Task.FromResult(false);
         }
 
@@ -220,40 +229,38 @@ public class KcpServerTransport : IServerTransport
     {
         try
         {
-            const int BufferSize = 4096;
-            var buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
+            int receiveAttempts = 0;
+            const int maxReceiveAttempts = 10; // 防止无限循环
 
-            try
+            while (receiveAttempts < maxReceiveAttempts)
             {
-                int receiveAttempts = 0;
-                const int maxReceiveAttempts = 10; // 防止无限循环
+                var messageSize = _kcp.PeekSize();
+                if (messageSize <= 0)
+                    break;
 
-                while (receiveAttempts < maxReceiveAttempts)
+                if (messageSize > _options.MaxPacketSize)
                 {
-                    receiveAttempts++;
-
-                    int size = _kcp.Recv(buffer);
-
-                    if (size <= 0)
-                    {
-                        break;
-                    }
-
-                    var receivedData = new byte[size];
-                    Buffer.BlockCopy(buffer, 0, receivedData, 0, size);
-
-                    _lastActivityAt = DateTime.UtcNow; // 更新活动时间
-                    DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData, size));
+                    _logger.LogError(
+                        "[KCP应用层] {ConnectionId} 拒绝接收超限消息: Size={Size}, MaxPacketSize={MaxPacketSize}",
+                        _id, messageSize, _options.MaxPacketSize);
+                    ChangeState(PulseRPC.Shared.ConnectionState.Disconnected,
+                        $"接收消息大小 {messageSize} 超过限制 {_options.MaxPacketSize}");
+                    break;
                 }
 
-                if (receiveAttempts >= maxReceiveAttempts)
-                {
-                    _logger.LogWarning("[KCP应用层] {ConnectionId} 达到最大接收尝试次数限制: {MaxAttempts}", _id, maxReceiveAttempts);
-                }
+                receiveAttempts++;
+                var receivedData = new byte[messageSize];
+                var size = _kcp.Recv(receivedData);
+                if (size <= 0)
+                    break;
+
+                _lastActivityAt = DateTime.UtcNow; // 更新活动时间
+                DataReceived?.Invoke(this, new TransportDataEventArgs(receivedData, size));
             }
-            finally
+
+            if (receiveAttempts >= maxReceiveAttempts)
             {
-                ArrayPool<byte>.Shared.Return(buffer);
+                _logger.LogWarning("[KCP应用层] {ConnectionId} 达到最大接收尝试次数限制: {MaxAttempts}", _id, maxReceiveAttempts);
             }
         }
         catch (Exception ex)
@@ -411,6 +418,10 @@ public class KcpServerListener : IServerListener
     private bool _isListening;
     private readonly int _port;
     private readonly ConcurrentDictionary<string, KcpServerTransport> _connections = new();
+    private readonly ConcurrentDictionary<uint, string> _conversationOwners = new();
+    private readonly ConcurrentDictionary<string, Task> _connectionCloseTasks = new();
+    private readonly object _lifecycleLock = new();
+    private Task? _failureStopTask;
 
     public string Name => "KCP";
     public TransportType Type => TransportType.KCP;
@@ -509,9 +520,33 @@ public class KcpServerListener : IServerListener
             {
                 _logger.LogWarning(ex, "关闭KCP连接时发生异常: {ConnectionId}", connection.Id);
             }
+            finally
+            {
+                connection.Dispose();
+            }
         }
 
         _connections.Clear();
+        _conversationOwners.Clear();
+
+        while (true)
+        {
+            var closeTasks = _connectionCloseTasks.ToArray();
+            if (closeTasks.Length == 0)
+            {
+                break;
+            }
+
+            await Task.WhenAll(closeTasks.Select(item => item.Value)).ConfigureAwait(false);
+            foreach (var closeTask in closeTasks)
+            {
+                if (_connectionCloseTasks.TryGetValue(closeTask.Key, out var current) &&
+                    ReferenceEquals(current, closeTask.Value))
+                {
+                    _connectionCloseTasks.TryRemove(closeTask.Key, out _);
+                }
+            }
+        }
 
         _logger.LogInformation("KCP服务器监听已停止，端口: {Port}", _port);
     }
@@ -594,8 +629,9 @@ public class KcpServerListener : IServerListener
                     // 查找或创建连接
                     if (!_connections.TryGetValue(clientId, out var connection))
                     {
-                        // 检查是否是握手包（只有4字节）
-                        if (recvSize == 4)
+                        // wire v2 握手固定为 conv(4) + protocol version(1)。旧 4 字节握手不再兼容。
+                        if (recvSize == sizeof(uint) + sizeof(byte) &&
+                            buffer[sizeof(uint)] == ProtocolConstants.CurrentProtocolVersion)
                         {
                             _logger.LogInformation("[UDP接收] 收到新的握手包: ClientId={ClientId}, Conv={Conv}", clientId, conv);
                             HandleNewHandshake(clientId, clientEp, conv);
@@ -608,17 +644,25 @@ public class KcpServerListener : IServerListener
                     }
                     else
                     {
-                        _logger.LogDebug("[UDP接收] 转发数据到现有连接: ClientId={ClientId}, Size={Size}, Conv={Conv}",
-                            clientId, recvSize, conv);
-                        // 处理现有连接数据
-                        try
+                        if (recvSize == sizeof(uint) + sizeof(byte) &&
+                            conv == connection.ConversationId &&
+                            buffer[sizeof(uint)] == ProtocolConstants.CurrentProtocolVersion)
                         {
-                            connection.ProcessReceivedData(buffer, recvSize);
+                            SendHandshakeConfirmation(clientEp, conv);
                         }
-                        catch (Exception ex)
+                        else
                         {
-                            _logger.LogError(ex, "[UDP接收] 处理KCP连接数据异常: ClientId={ClientId}", clientId);
-                            HandleClientDisconnection(clientId);
+                            _logger.LogDebug("[UDP接收] 转发数据到现有连接: ClientId={ClientId}, Size={Size}, Conv={Conv}",
+                                clientId, recvSize, conv);
+                            try
+                            {
+                                connection.ProcessReceivedData(buffer, recvSize);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "[UDP接收] 处理KCP连接数据异常: ClientId={ClientId}", clientId);
+                                HandleClientDisconnection(clientId);
+                            }
                         }
                     }
                 }
@@ -654,8 +698,7 @@ public class KcpServerListener : IServerListener
             catch (Exception recoverEx)
             {
                 _logger.LogWarning(recoverEx, "[UDP接收] 无法恢复UDP接收，停止监听");
-                // 停止监听
-                _ = Task.Run(async () => await StopAsync());
+                ScheduleFailureStop();
             }
         }
     }
@@ -669,6 +712,23 @@ public class KcpServerListener : IServerListener
         {
             _logger.LogDebug("收到KCP握手包: ClientId={ClientId}, Conv={Conv}, RemoteEndpoint={RemoteEndpoint}",
                 clientId, conv, clientEp);
+
+            if (_conversationOwners.TryGetValue(conv, out var existingOwner)
+                && !string.Equals(existingOwner, clientId, StringComparison.Ordinal))
+            {
+                _logger.LogWarning(
+                    "拒绝未认证的KCP端点迁移: Conv={Conv}, ExistingClient={ExistingClient}, ReboundClient={ReboundClient}",
+                    conv,
+                    existingOwner,
+                    clientId);
+                return;
+            }
+
+            if (!_conversationOwners.TryAdd(conv, clientId))
+            {
+                _logger.LogDebug("KCP会话已存在，忽略重复握手: Conv={Conv}, ClientId={ClientId}", conv, clientId);
+                return;
+            }
 
             // 创建新连接
             var connection = new KcpServerTransport(clientId, _socket, clientEp, conv, _options, _logger);
@@ -684,10 +744,7 @@ public class KcpServerListener : IServerListener
                 // 发送握手确认包
                 try
                 {
-                    byte[] handshakeConfirmation = BitConverter.GetBytes(conv);
-                    int sentBytes = _socket.SendTo(handshakeConfirmation, clientEp);
-                    _logger.LogDebug("已发送KCP握手确认: ClientId={ClientId}, Conv={Conv}, Bytes={Bytes}",
-                        clientId, conv, sentBytes);
+                    SendHandshakeConfirmation(clientEp, conv);
 
                     // 触发连接接受事件
                     ConnectionAccepted?.Invoke(this, new ServerConnectionEventArgs(connection));
@@ -701,14 +758,34 @@ public class KcpServerListener : IServerListener
             else
             {
                 // 连接已存在，处理重复握手包
+                _conversationOwners.TryRemove(conv, out _);
                 connection.Dispose();
                 _logger.LogDebug("KCP连接已存在，丢弃重复握手包: ClientId={ClientId}", clientId);
             }
         }
         catch (Exception ex)
         {
+            if (_conversationOwners.TryGetValue(conv, out var owner)
+                && string.Equals(owner, clientId, StringComparison.Ordinal))
+            {
+                _conversationOwners.TryRemove(conv, out _);
+            }
             _logger.LogError(ex, "处理KCP握手异常: ClientId={ClientId}, Conv={Conv}", clientId, conv);
         }
+    }
+
+    private void SendHandshakeConfirmation(IPEndPoint clientEndpoint, uint conversationId)
+    {
+        var confirmation = new byte[sizeof(uint) + sizeof(byte)];
+        BitConverter.GetBytes(conversationId).CopyTo(confirmation, 0);
+        confirmation[sizeof(uint)] = ProtocolConstants.CurrentProtocolVersion;
+        var sentBytes = _socket.SendTo(confirmation, clientEndpoint);
+        _logger.LogDebug(
+            "已发送KCP wire v{Version}握手确认: Remote={RemoteEndpoint}, Conv={Conv}, Bytes={Bytes}",
+            ProtocolConstants.CurrentProtocolVersion,
+            clientEndpoint,
+            conversationId,
+            sentBytes);
     }
 
     /// <summary>
@@ -720,28 +797,49 @@ public class KcpServerListener : IServerListener
         {
             if (_connections.TryRemove(clientId, out var connection))
             {
+                if (_conversationOwners.TryGetValue(connection.ConversationId, out var owner)
+                    && string.Equals(owner, clientId, StringComparison.Ordinal))
+                {
+                    _conversationOwners.TryRemove(connection.ConversationId, out _);
+                }
                 connection.StateChanged -= OnConnectionStateChanged;
 
                 _logger.LogDebug("移除KCP连接: {ClientId}", clientId);
 
-                // 异步关闭连接，避免阻塞接收循环
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await connection.CloseAsync();
-                        connection.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "关闭KCP连接时发生异常: {ClientId}", clientId);
-                    }
-                });
+                var closeTask = CloseRemovedConnectionAsync(clientId, connection);
+                _connectionCloseTasks[clientId] = closeTask;
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "处理客户端断开连接异常: {ClientId}", clientId);
+        }
+    }
+
+    private void ScheduleFailureStop()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_failureStopTask is null || _failureStopTask.IsCompleted)
+            {
+                _failureStopTask = StopAsync();
+            }
+        }
+    }
+
+    private async Task CloseRemovedConnectionAsync(string clientId, KcpServerTransport connection)
+    {
+        try
+        {
+            await connection.CloseAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "关闭KCP连接时发生异常: {ClientId}", clientId);
+        }
+        finally
+        {
+            connection.Dispose();
         }
     }
 
@@ -787,6 +885,12 @@ public class KcpServerListener : IServerListener
         try
         {
             StopAsync().GetAwaiter().GetResult();
+            Task? failureStopTask;
+            lock (_lifecycleLock)
+            {
+                failureStopTask = _failureStopTask;
+            }
+            failureStopTask?.GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {

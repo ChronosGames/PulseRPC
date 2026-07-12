@@ -1,0 +1,2 @@
+#nullable enable
+override PulseRPC.Server.Transport.TcpServerTransport.Dispose() -> void

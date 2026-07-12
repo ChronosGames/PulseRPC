@@ -285,17 +285,19 @@ public sealed class LocalPulseRouter : IPulseRouter
         var routingTable = RequireRoutingTable();
         var result = await routingTable.RouteByProtocolIdAsync(_serviceProvider, address.Hub, protocolId, address.Key, body, cancellationToken).ConfigureAwait(false);
 
+        var registry = _responseSerializerRegistry ?? ResponseSerializerRegistry.Instance;
+        if (registry != null &&
+            registry.TryGetSerializer(protocolId, out var serializer) &&
+            (result is not null || serializer is INullResponseSerializer))
+        {
+            var writer = new ArrayBufferWriter<byte>();
+            serializer.Serialize(result!, writer);
+            return writer.WrittenMemory;
+        }
+
         if (result is null)
         {
             return ReadOnlyMemory<byte>.Empty;
-        }
-
-        var registry = _responseSerializerRegistry ?? ResponseSerializerRegistry.Instance;
-        if (registry != null && registry.TryGetSerializer(protocolId, out var serializer))
-        {
-            var writer = new ArrayBufferWriter<byte>();
-            serializer.Serialize(result, writer);
-            return writer.WrittenMemory;
         }
 
         throw new InvalidOperationException(

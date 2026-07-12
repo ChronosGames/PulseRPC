@@ -94,6 +94,22 @@ public sealed class ReceiverMethodModel
     /// </summary>
     public ushort ProtocolId { get; set; }
 
+    /// <summary>同一 Receiver 内是否存在同名方法；重载方法的生成成员名需带协议号后缀。</summary>
+    public bool HasOverloads { get; set; }
+
+    /// <summary>用于生成常量和公开映射的稳定、无冲突标识符。</summary>
+    public string GeneratedIdentifier => HasOverloads
+        ? $"{MethodName}_{ProtocolId:X4}"
+        : MethodName;
+
+    /// <summary>
+    /// 是否通过 <c>[Protocol]</c> 显式指定协议号。单独记录该状态，以免把显式 0 误当作“尚未分配”。
+    /// </summary>
+    public bool HasExplicitProtocolId { get; set; }
+
+    /// <summary>声明了字符串协议号，但值不是有效的 ushort 十六进制数。</summary>
+    public bool HasInvalidProtocolId { get; set; }
+
     /// <summary>
     /// 方法声明的源码位置（用于协议号冲突诊断定位，以支持 CodeFixProvider 自动插入
     /// <c>[Protocol(0xXXXX)]</c>）。当方法来自引用程序集的元数据（而非当前编译单元的源码）时为 <c>null</c>。
@@ -161,5 +177,9 @@ public sealed class ReceiverParameterModel
     /// 参数类型完全限定名
     /// </summary>
     public string TypeFullName { get; set; } = "";
-}
 
+    /// <summary>
+    /// CancellationToken 只控制本地调用，不进入 wire payload。
+    /// </summary>
+    public bool IsCancellationToken { get; set; }
+}

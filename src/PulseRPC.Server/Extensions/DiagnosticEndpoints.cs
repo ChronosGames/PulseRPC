@@ -125,20 +125,20 @@ public sealed class DiagnosticEndpoints
             l1_queue = new
             {
                 depth = metrics.L1QueueDepth,
-                capacity = 1000, // TODO: Get from configuration
-                saturation = metrics.L1QueueDepth / 1000.0
+                capacity = (long?)null,
+                saturation = (double?)null
             },
             l2_queue = new
             {
                 depth = metrics.L2QueueDepth,
-                capacity = 5000,
-                saturation = metrics.L2QueueDepth / 5000.0
+                capacity = (long?)null,
+                saturation = (double?)null
             },
             l3_queue = new
             {
                 depth = metrics.L3QueueDepth,
-                capacity = 10000,
-                saturation = metrics.L3QueueDepth / 10000.0
+                capacity = (long?)null,
+                saturation = (double?)null
             }
         };
 

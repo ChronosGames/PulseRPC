@@ -150,7 +150,7 @@ public static class ReceiverProxyGenerator
 
         foreach (var method in receiver.Methods)
         {
-            var constName = $"Protocol_{method.MethodName}";
+            var constName = $"Protocol_{method.GeneratedIdentifier}";
             sb.AppendLine($"    private const ushort {constName} = 0x{method.ProtocolId:X4};");
         }
         sb.AppendLine();
@@ -165,7 +165,8 @@ public static class ReceiverProxyGenerator
             return;
         }
 
-        var constName = $"Protocol_{method.MethodName}";
+        var constName = $"Protocol_{method.GeneratedIdentifier}";
+        var cancellationToken = GetCancellationTokenExpression(method);
 
         // 生成方法签名 - 仅支持 Task/ValueTask 返回类型
         sb.AppendLine($"    /// <inheritdoc/>");
@@ -205,14 +206,14 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"        // 经 IPulseRouter 投递（§P3 fanout-via-router）");
         sb.AppendLine("        if (count == 1)");
         sb.AppendLine("        {");
-        sb.AppendLine($"            await _router.SendAsync(_addresses[0], {constName}, payload, cancellationToken: CancellationToken.None);");
+        sb.AppendLine($"            await _router.SendAsync(_addresses[0], {constName}, payload, cancellationToken: {cancellationToken});");
         sb.AppendLine("        }");
         sb.AppendLine("        else");
         sb.AppendLine("        {");
         sb.AppendLine("            var tasks = new Task[count];");
         sb.AppendLine("            for (var i = 0; i < count; i++)");
         sb.AppendLine("            {");
-        sb.AppendLine($"                tasks[i] = SendToAddressAsync(_addresses[i], {constName}, payload);");
+        sb.AppendLine($"                tasks[i] = SendToAddressAsync(_addresses[i], {constName}, payload, {cancellationToken});");
         sb.AppendLine("            }");
         sb.AppendLine("            await Task.WhenAll(tasks);");
         sb.AppendLine("        }");
@@ -227,7 +228,8 @@ public static class ReceiverProxyGenerator
     /// </summary>
     private static void GenerateReverseAskMethod(StringBuilder sb, ReceiverModel receiver, ReceiverMethodModel method)
     {
-        var constName = $"Protocol_{method.MethodName}";
+        var constName = $"Protocol_{method.GeneratedIdentifier}";
+        var cancellationToken = GetCancellationTokenExpression(method);
 
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.Append($"    public async {method.ReturnTypeName} {method.MethodName}(");
@@ -257,7 +259,7 @@ public static class ReceiverProxyGenerator
 
         // 经 IPulseRouter.AskAsync 发起反向请求并等待应答（单节点由 LocalPulseRouter 经目标连接的
         // InvokeClientAsync 完成；超时/失败由实现抛出 TimeoutException/PulseReverseCallException）
-        sb.AppendLine($"        var __responseBytes__ = await _router.AskAsync(_addresses[0], {constName}, payload, CancellationToken.None);");
+        sb.AppendLine($"        var __responseBytes__ = await _router.AskAsync(_addresses[0], {constName}, payload, {cancellationToken});");
         sb.AppendLine($"        return MemoryPackSerializer.Deserialize<{method.ResponseTypeName}>(__responseBytes__.Span)!;");
 
         sb.AppendLine("    }");
@@ -269,21 +271,23 @@ public static class ReceiverProxyGenerator
     /// </summary>
     private static void GenerateSerializationCode(StringBuilder sb, ReceiverMethodModel method)
     {
-        if (method.Parameters.Count == 0)
+        var wireParameters = method.Parameters.Where(parameter => !parameter.IsCancellationToken).ToList();
+
+        if (wireParameters.Count == 0)
         {
             sb.AppendLine("        // 无参数方法");
             sb.AppendLine("        var payload = Array.Empty<byte>();");
         }
-        else if (method.Parameters.Count == 1)
+        else if (wireParameters.Count == 1)
         {
-            var param = method.Parameters[0];
+            var param = wireParameters[0];
             sb.AppendLine($"        // 序列化单个参数");
             sb.AppendLine($"        var payload = MemoryPackSerializer.Serialize({param.Name});");
         }
         else
         {
             // 多参数使用元组
-            var tupleParams = string.Join(", ", method.Parameters.Select(p => p.Name));
+            var tupleParams = string.Join(", ", wireParameters.Select(p => p.Name));
             sb.AppendLine($"        // 序列化多个参数为元组");
             sb.AppendLine($"        var payload = MemoryPackSerializer.Serialize(({tupleParams}));");
         }
@@ -296,17 +300,23 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("    /// 经 IPulseRouter 投递到单个地址（异常安全）");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
-        sb.AppendLine("    private async Task SendToAddressAsync(PulseAddress address, ushort protocolId, byte[] payload)");
+        sb.AppendLine("    private async Task SendToAddressAsync(PulseAddress address, ushort protocolId, byte[] payload, CancellationToken cancellationToken)");
         sb.AppendLine("    {");
         sb.AppendLine("        try");
         sb.AppendLine("        {");
-        sb.AppendLine("            await _router.SendAsync(address, protocolId, payload, cancellationToken: CancellationToken.None);");
+        sb.AppendLine("            await _router.SendAsync(address, protocolId, payload, cancellationToken: cancellationToken);");
         sb.AppendLine("        }");
         sb.AppendLine("        catch");
         sb.AppendLine("        {");
         sb.AppendLine("            // 忽略单个目标发送失败（连接可能已断开）");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
+    }
+
+    private static string GetCancellationTokenExpression(ReceiverMethodModel method)
+    {
+        return method.Parameters.FirstOrDefault(parameter => parameter.IsCancellationToken)?.Name
+            ?? "CancellationToken.None";
     }
 
     /// <summary>
@@ -628,7 +638,7 @@ public static class ReceiverProxyGenerator
 
             foreach (var method in receiver.Methods)
             {
-                var constName = $"{shortName}_{method.MethodName}";
+                var constName = $"{shortName}_{method.GeneratedIdentifier}";
                 sb.AppendLine($"        public const ushort {constName} = 0x{method.ProtocolId:X4};");
             }
             sb.AppendLine();
@@ -640,4 +650,3 @@ public static class ReceiverProxyGenerator
         return sb.ToString();
     }
 }
-

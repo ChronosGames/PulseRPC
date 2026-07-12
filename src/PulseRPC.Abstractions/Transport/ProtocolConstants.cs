@@ -14,12 +14,18 @@ public static class ProtocolConstants
     /// <summary>
     /// 当前协议版本
     /// </summary>
-    public const byte CurrentProtocolVersion = 1;
+    public const byte CurrentProtocolVersion = 2;
 
     /// <summary>
     /// 支持的最小协议版本
     /// </summary>
-    public const byte MinSupportedProtocolVersion = 1;
+    public const byte MinSupportedProtocolVersion = 2;
+
+    /// <summary>
+    /// 当前 <see cref="PulseRPC.Messaging.MessageHeader"/> 对象线格式版本。
+    /// v2 在首字段显式携带此值，且不读取 v1 object layout。
+    /// </summary>
+    public const byte MessageHeaderWireVersion = 2;
 
     /// <summary>
     /// 握手超时时间（毫秒）

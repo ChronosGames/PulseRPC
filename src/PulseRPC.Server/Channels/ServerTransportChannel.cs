@@ -127,11 +127,15 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
     private readonly IServerTransport _transport;
     private readonly ConcurrentDictionary<string, object> _properties;
     private readonly Lock _authLock = new Lock();
+    private readonly Lock _lifecycleLock = new();
     private readonly ILogger<ServerTransportChannel>? _logger;
+    private readonly CancellationTokenSource _lifecycleCts = new();
+    private readonly ConcurrentDictionary<long, Task> _backgroundTasks = new();
 
     private IAuthenticationContext? _authenticationContext;
     private DateTime _lastActiveTime;
-    private bool _disposed;
+    private volatile bool _disposed;
+    private long _backgroundTaskId;
 
     // === [P-4] 服务端→客户端反向 Ask（Reverse Ask）挂起状态 ===
 
@@ -349,7 +353,9 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
     /// <summary>
     /// 消息处理完成事件
     /// </summary>
+#pragma warning disable CS0067 // 处理完成事件属于传输通道契约，供后续指标管线接入。
     public event EventHandler<MessageProcessedEventArgs>? MessageProcessed;
+#pragma warning restore CS0067
 
     /// <summary>
     /// 处理传输层状态变更事件
@@ -555,7 +561,8 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
                 if (messagePacket.Header.Type == MessageType.Ping)
                 {
                     _logger?.LogTrace("[系统消息] {ConnectionId} 收到Ping消息，直接回复Pong", ConnectionId);
-                    _ = HandlePingMessageAsync(messagePacket.Header.MessageId);
+                    var pingMessageId = messagePacket.Header.MessageId;
+                    TrackBackgroundTask(token => HandlePingMessageAsync(pingMessageId, token));
                     return; // 不触发 MessageParsed 事件
                 }
 
@@ -614,7 +621,34 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
     /// <summary>
     /// 处理 Ping 消息并回复 Pong
     /// </summary>
-    private async Task HandlePingMessageAsync(Guid messageId)
+    private void TrackBackgroundTask(Func<CancellationToken, Task> operation)
+    {
+        Task task;
+        var taskId = Interlocked.Increment(ref _backgroundTaskId);
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            task = operation(_lifecycleCts.Token);
+            _backgroundTasks.TryAdd(taskId, task);
+        }
+
+        _ = task.ContinueWith(
+            (completedTask, state) =>
+            {
+                var (tasks, id) = ((ConcurrentDictionary<long, Task>, long))state!;
+                tasks.TryRemove(id, out _);
+            },
+            (_backgroundTasks, taskId),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private async Task HandlePingMessageAsync(Guid messageId, CancellationToken cancellationToken)
     {
         try
         {
@@ -632,9 +666,13 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
             using var buffer = System.Buffers.MemoryPool<byte>.Shared.Rent(pongPacket.EstimateSize());
             var bytesWritten = pongPacket.WriteTo(buffer.Memory.Span);
 
-            await SendAsync(buffer.Memory[..bytesWritten], CancellationToken.None);
+            await SendAsync(buffer.Memory[..bytesWritten], cancellationToken);
 
             _logger?.LogTrace("[系统消息] {ConnectionId} Pong响应已发送，消息ID={MessageId}", ConnectionId, messageId);
+        }
+        catch (OperationCanceledException) when (_disposed)
+        {
+            // 通道释放会取消并等待已接受的 Pong 发送。
         }
         catch (Exception ex)
         {
@@ -646,27 +684,6 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
     /// <inheritdoc />
     public new void Dispose()
     {
-        if (_disposed) return;
-
-        _disposed = true;
-
-        // 取消订阅事件
-        _transport.StateChanged -= OnTransportStateChanged;
-        _transport.DataReceived -= OnTransportDataReceived;
-
-        // [P-4] 断线兜底：使所有挂起的反向调用失败
-        FailAllPendingReverseCalls("连接已释放，反向调用（Reverse Ask）被中止。");
-
-        // 清理认证信息
-        ClearAuthentication();
-
-        // 清理属性
-        _properties.Clear();
-
-        // 释放传输资源
-        _transport.Dispose();
-
-        // 调用基类释放
         base.Dispose();
     }
 
@@ -678,8 +695,39 @@ public sealed class ServerTransportChannel : TransportChannelBase, IServerChanne
     {
         if (disposing)
         {
-            // [P-4] 断线兜底：使所有挂起的反向调用失败（幂等，可与 Dispose() 重复调用）
+            Task[] backgroundTasks;
+            lock (_lifecycleLock)
+            {
+                if (_disposed)
+                {
+                    base.Dispose(disposing);
+                    return;
+                }
+
+                _disposed = true;
+                _lifecycleCts.Cancel();
+                backgroundTasks = _backgroundTasks.Values.ToArray();
+            }
+
+            _transport.StateChanged -= OnTransportStateChanged;
+            _transport.DataReceived -= OnTransportDataReceived;
+
             FailAllPendingReverseCalls("连接已释放，反向调用（Reverse Ask）被中止。");
+            ClearAuthentication();
+            _properties.Clear();
+
+            try
+            {
+                Task.WhenAll(backgroundTasks).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                // 释放期间的预期取消。
+            }
+
+            _backgroundTasks.Clear();
+            _lifecycleCts.Dispose();
+            _transport.Dispose();
         }
 
         base.Dispose(disposing);

@@ -5,7 +5,8 @@
 
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- Existing optional-overload families are intentionally retained for source compatibility. -->
+    <NoWarn>$(NoWarn);CS1591;RS0026</NoWarn>
     <WarningsAsErrors>$(WarningsAsErrors);Nullable</WarningsAsErrors>
   </PropertyGroup>
 
@@ -21,6 +22,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageIcon>Icon.png</PackageIcon>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
 
     <Description>Unified Realtime/API framework for .NET platform and Unity.</Description>
 
@@ -32,5 +34,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.SourceLink.GitHub" PrivateAssets="all"/>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="" />
   </ItemGroup>
 </Project>

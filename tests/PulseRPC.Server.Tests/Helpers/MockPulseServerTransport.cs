@@ -107,6 +107,12 @@ public class MockServerTransport : IServerTransport
     /// <summary>Value returned by <see cref="SendAsync"/> (test helper).</summary>
     public bool SendResult { get; set; } = true;
 
+    /// <summary>Optional async send implementation used by lifecycle tests.</summary>
+    public Func<ReadOnlyMemory<byte>, CancellationToken, Task<bool>>? SendHandler { get; set; }
+
+    /// <summary>Optional async close implementation used by lifecycle tests.</summary>
+    public Func<CancellationToken, Task>? CloseHandler { get; set; }
+
     private int _remainingFailedSendAttempts;
 
     public event EventHandler<TransportStateEventArgs>? StateChanged;
@@ -114,6 +120,11 @@ public class MockServerTransport : IServerTransport
 
     public Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
+        if (SendHandler is not null)
+        {
+            return SendHandler(data, cancellationToken);
+        }
+
         if (_remainingFailedSendAttempts > 0)
         {
             _remainingFailedSendAttempts--;
@@ -130,6 +141,11 @@ public class MockServerTransport : IServerTransport
 
     public Task CloseAsync(CancellationToken cancellationToken = default)
     {
+        if (CloseHandler is not null)
+        {
+            return CloseHandler(cancellationToken);
+        }
+
         State = PulseRPC.Shared.ConnectionState.Disconnected;
         return Task.CompletedTask;
     }

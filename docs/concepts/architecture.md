@@ -371,7 +371,7 @@ public interface IPulseRouter
   - 属主节点持有租约期间独占该 `(Hub,Key)`；租约到期需续租，未续租视为释放；
   - 寻址方先查目录：命中且租约有效 ⇒ 直投属主；未命中 ⇒ 由候选节点竞争激活（CAS 抢租约，失败者转投胜出者）；
   - 节点故障（租约失效/心跳丢失）⇒ 允许在别处**重新激活（reactivation）**；此时**旧实例的内存态丢失**（除非业务自行持久化），需在文档中明确此语义。
-- **有意不做 L3**（迁移 + 在途消息接管）：L3 需要状态迁移与消息重定向的复杂协调，本轮不纳入；L2 已能保证"同一时刻单属主"，满足绝大多数 keyed-actor 场景。`IActorDirectory` 仍按可插拔接口设计，为将来 L3 预留。
+- **L3 已提供 opt-in 首版**：实现 `IActorStateSnapshot` 的 Actor 可由 `ActorMigrationCoordinator` 在静默排空后迁移状态；迁出会在释放租约前 Dispose 旧实例，迁入失败会清理新实例并补偿释放租约。自动跨节点快照传输仍需把 `IActorStateTransport` 绑定到 `INodeLink`。
 
 > **一致性边界（须对用户明示）**：L2 保证"稳定期单属主"；在**节点集变化的窗口期**（故障切换、扩缩容再平衡），可能出现极短时间的"旧属主租约未过期 + 新属主尝试激活"的竞争，靠租约 CAS 收敛。业务若需要跨激活的状态连续性，必须自行持久化状态（Actor 内存态不保证跨激活保留）。
 
@@ -542,7 +542,7 @@ public interface IPulseBackplane
 ### 13.3 兼容性保护（协议线兼容 ≠ 源码兼容）
 
 - **源码层**：M2 是破坏性变更，不承诺源码向后兼容（见 §13.1，靠版本号 + 迁移工具兜底）。
-- **协议线层**：`MessageHeader` 新增字段（`SourceNodeId`/`ReplyTo`/`HopLimit`）全部走 **MemoryPack 尾部新增**，保证**新旧运行时的线格式互操作**（旧端读不到新字段 → 退化为单跳/单节点，行为等同现状）。因此**滚动升级**在协议层是安全的（老节点/老客户端仍能与新节点通信，只是不参与多跳/集群特性）。
+- **协议线层 v2（破坏性）**：`MessageHeader.WireVersion` 位于 MemoryPack 布局首字段，读写端只接受 v2；旧 header 布局和 KCP 4 字节握手均被拒绝。升级时客户端与服务端必须成组切换，不支持 v1/v2 滚动互操作；golden bytes 测试固定 v2 布局。
 - `PublicAPI.Shipped/Unshipped.txt` 需登记删除项（`IPulseReceiver` 及相关 API）与新增项。
 
 ---
@@ -560,7 +560,7 @@ public interface IPulseBackplane
 | **P4 节点间传输 + 目录(L2 租约)** | `INodeLink`(复用全双工连接层) + 静态成员 + 一致性哈希 + **租约目录(single-activation)**；节点鉴权=共享密钥；跨节点 Actor↔Actor 打通（无 backplane 广播）| 双节点 Actor↔Actor 集成测试；租约抢占/续租/失效测试 |
 | **P5 Gateway + 虚拟连接** | Gateway 组件 + `EnvelopeRelay` 转发 + 虚拟连接 + 多跳回执(§10) | 客户端经 Gateway 调 backend Actor，反向 Ask 回执 |
 | **P6 分布式 Backplane（X+Y）+ 可靠投递** | Redis/NATS 后端**同时实现 X(pub/sub) 与 Y(全局目录)** 覆盖 `All/Group/User/Except/Single`；实现至少一次(ACK+重试) 与 精确一次(Actor 侧去重) | 多节点+Gateway 广播语义矩阵(§9.3)全绿；投递保证测试 |
-| **P7 故障接管增强** ✅ 已实现（含 L3 迁移首版）| L2 故障接管：`ClusterPulseRouter` 链路失败→上报健康→按存活集重建环→重解析属主重试；`StaticClusterMembership` 失败累计下线 + 隔离半开恢复；去重桶空桶回收。**L3 状态迁移**：`IActorStateSnapshot`(opt-in 可迁移状态) + `ActorMigrationCoordinator`（静默排空`StopAsync`→捕获快照→跨节点搬运`IActorStateTransport`→目标恢复+激活→释放租约），实现跨激活状态保留；在途接管由"排空后捕获 + 路由器新到达重路由 + 至少一次/去重"协同保证 | ✅ 单测通过：`ClusterPulseRouterFailoverTests`/`StaticClusterMembershipTests`/`MessageDeduplicationCacheTests`/`ActorMigrationCoordinatorTests`。**剩余**：把 `IActorStateTransport` 绑定到 `INodeLink`（新增集群内部 Hub 收快照）完成端到端跨节点自动迁移 |
+| **P7 故障接管增强** ✅ 已实现（含 L3 迁移首版）| L2 故障接管：`ClusterPulseRouter` 链路失败→上报健康→按存活集重建环→重解析属主重试；`StaticClusterMembership` 失败累计下线 + 隔离半开恢复；去重桶空桶回收。**L3 状态迁移**：`IActorStateSnapshot`(opt-in 可迁移状态) + `ActorMigrationCoordinator`（静默排空→捕获并搬运快照→Dispose 旧实例→停止心跳并释放租约；目标恢复+启动成功后才跟踪新心跳），实现跨激活状态保留；同地址迁移以及 Manager 创建/移除均串行化 | ✅ 单测通过：`ClusterPulseRouterFailoverTests`/`StaticClusterMembershipTests`/`MessageDeduplicationCacheTests`/`ActorMigrationCoordinatorTests`/`PulseServiceManagerLifecycleTests`。**剩余**：把 `IActorStateTransport` 绑定到 `INodeLink`（新增集群内部 Hub 收快照）完成端到端跨节点自动迁移 |
 | **P8 服务发现落地** ✅ 已实现 | `IClusterMembership` + `INodeEndpointResolver` 抽象；共享基础 `PulseRPC.Infrastructure`（`IDiscoveryProvider` + `DiscoveryClusterMembership` 自注册/轮询/watch/变更检测/端点缓存）；三后端 `Infrastructure.Consul`(服务注册+TCP 健康检查+阻塞查询 watch) / `.Etcd`(租约 keepalive+前缀 watch) / `.Kubernetes`(Pod list+watch)；生产级 mTLS `CertificateNodeAuthenticator`(X.509 签名/验签+指纹白名单+CA 链式信任+fail-closed) | ✅ 单测通过：`DiscoveryClusterMembershipTests`(18)/`CertificateNodeAuthenticatorTests`/`StaticNodeEndpointResolverTests`/`EtcdEndpointParseTests`；后端与真实 Consul/etcd/K8s 的集成测试待环境（Testcontainers）|
 | **P9 文档与迁移收尾** | 更新 README/两份既有设计文档/CHANGELOG；迁移指南；大版本号跃迁 | 发布评审 |
 
@@ -627,7 +627,7 @@ public interface IPulseBackplane
 - 新增：`PulseRPC.Backplane.*`（Redis/NATS 等，独立包）
 
 ### 16.5 示例与测试
-- 迁移：`samples/ChatApp`、`samples/JwtAuthentication`、`samples/JsonTranscoding`
+- 已迁移并纳入 CI：`samples/ChatApp`、`samples/JwtAuthentication`、`samples/HubFactoryExample`、`samples/ServiceFactoryExample`、`samples/JsonTranscoding`；JsonTranscoding 展示显式应用层 JSON 网关，不声称框架级自动转码
 - 新增：多节点 + Gateway 集成测试（广播语义矩阵 §9.3、多跳回执 §10、协议号一致性 §11.2）
 - 现有：`tests/PulseRPC.Server.Tests/*`（`ServerReverseCallTests`、`ClientFacingGateTests`、`TickAttributeTests` 等）回归
 

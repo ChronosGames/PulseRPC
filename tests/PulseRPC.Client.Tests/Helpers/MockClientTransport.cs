@@ -4,6 +4,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using PulseRPC.Shared;
+using PulseRPC.Client.Transport;
 
 namespace PulseRPC.Client.Tests.Helpers;
 
@@ -12,7 +13,7 @@ namespace PulseRPC.Client.Tests.Helpers;
 /// - 捕获所有 <see cref="SendAsync"/> 发送的帧（可按超时取出）；
 /// - 提供 <see cref="Receive"/> 主动触发 <see cref="DataReceived"/>（模拟服务端下发帧）。
 /// </summary>
-internal sealed class MockClientTransport : IClientTransport
+internal sealed class MockClientTransport : IClientTransport, IAbortableClientTransport
 {
     private readonly BlockingCollection<byte[]> _sentFrames = new();
     private static readonly EndPoint DummyEndPoint = new IPEndPoint(IPAddress.Loopback, 0);
@@ -29,6 +30,9 @@ internal sealed class MockClientTransport : IClientTransport
 
     /// <summary>下一次 <see cref="SendAsync"/> 的返回值（默认 true）。</summary>
     public bool SendResult { get; set; } = true;
+    public int DisconnectCount { get; private set; }
+    public int AbortCount { get; private set; }
+    public int DisposeCount { get; private set; }
 
     public Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
@@ -60,10 +64,26 @@ internal sealed class MockClientTransport : IClientTransport
         => Task.CompletedTask;
 
     public Task DisconnectAsync(CancellationToken cancellationToken = default)
-        => Task.CompletedTask;
+    {
+        DisconnectCount++;
+        IsConnected = false;
+        State = ConnectionState.Disconnected;
+        return Task.CompletedTask;
+    }
+
+    void IAbortableClientTransport.Abort()
+    {
+        AbortCount++;
+        IsConnected = false;
+        State = ConnectionState.Disconnected;
+    }
 
     public void Dispose()
     {
-        _sentFrames.Dispose();
+        DisposeCount++;
+        if (DisposeCount == 1)
+        {
+            _sentFrames.Dispose();
+        }
     }
 }

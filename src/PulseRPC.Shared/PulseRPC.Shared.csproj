@@ -28,5 +28,11 @@
     <PackageReference Include="MemoryPack" />
     <PackageReference Include="System.Threading.Channels" />
     <PackageReference Include="System.Diagnostics.DiagnosticSource" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AdditionalFiles Include="PublicAPI\$(TargetFramework)\PublicAPI.Shipped.txt" />
+    <AdditionalFiles Include="PublicAPI\$(TargetFramework)\PublicAPI.Unshipped.txt" />
   </ItemGroup>
 </Project>

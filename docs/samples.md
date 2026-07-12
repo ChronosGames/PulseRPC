@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | ChatApp | 实时聊天/游戏房间、服务隔离、控制台与 Unity 客户端 | [samples/ChatApp/README.md](../samples/ChatApp/README.md) |
 | JwtAuthentication | 连接级 JWT 登录、连接身份写入、后续 RPC 鉴权示例 | [samples/JwtAuthentication](../samples/JwtAuthentication/) |
-| JsonTranscoding | JSON 转码样例 | [samples/JsonTranscoding](../samples/JsonTranscoding/) |
-| ServiceFactoryExample | `AddPulseServiceFactory` 用法 | [samples/ServiceFactoryExample](../samples/ServiceFactoryExample/) |
 | HubFactoryExample | Hub 工厂用法 | [samples/HubFactoryExample](../samples/HubFactoryExample/) |
+| ServiceFactoryExample | `AddPulseService` / `IServiceAccessor` 服务实例生命周期 | [samples/ServiceFactoryExample](../samples/ServiceFactoryExample/) |
+| JsonTranscoding | PulseRPC Hub 与显式 ASP.NET JSON 网关；不声称自动 wire 转码 | [samples/JsonTranscoding/README.md](../samples/JsonTranscoding/README.md) |
 
 ## 游戏后端样例
 
@@ -21,5 +21,4 @@
 
 ## 历史探索示例
 
-`samples/README.md` 中列出的 BasicUsage、DnsExample、EtcdExample、MonitoringExample、TracingExample、ServiceRegistrationExample 等示例保留为历史探索代码。它们可能引用旧包名或旧接口，不应作为当前新项目模板。
-
+`samples/README.md` 中列出的 BasicUsage、DnsExample、EtcdExample、MonitoringExample、TracingExample、ServiceRegistrationExample 等示例保留为历史探索代码。它们可能引用已移除项目、旧包名或旧接口，不应作为当前新项目模板。

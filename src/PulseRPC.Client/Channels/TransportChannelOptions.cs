@@ -6,7 +6,7 @@ namespace PulseRPC.Client.Channels;
 /// TransportChannel 配置选项
 /// </summary>
 /// <remarks>
-/// <para>推荐使用 <see cref="PulseRPC.Client.ChannelPresets"/> 预设配置。</para>
+/// <para>推荐使用 <see cref="PulseRPC.Client.Configuration.ChannelPresets"/> 预设配置。</para>
 /// <code>
 /// // 使用预设
 /// var options = ChannelPresets.LowLatency;
@@ -100,7 +100,7 @@ public class TransportChannelOptions
     /// 最大重试次数（用于消息重试）
     /// </summary>
     /// <remarks>
-    /// 推荐使用 <see cref="PulseRPC.Client.RetryPresets"/> 配置重试策略。
+    /// 推荐使用 <see cref="PulseRPC.Client.Configuration.RetryPresets"/> 配置重试策略。
     /// </remarks>
     public int MaxRetryCount { get; set; } = 3;
 

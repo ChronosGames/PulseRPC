@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Hubs; using PulseRPC.Server.Services; using PulseRPC.Server.Transport;
 using PulseRPC.Server.Contexts;
-using PulseRPC.Server.Services;
 
 namespace PulseRPC.Server.Services.Management;
 

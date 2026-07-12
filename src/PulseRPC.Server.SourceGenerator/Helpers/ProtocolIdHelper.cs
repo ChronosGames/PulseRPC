@@ -1,8 +1,16 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 
 namespace PulseRPC.Server.SourceGenerator.Helpers;
+
+internal enum ManualProtocolIdParseResult
+{
+    Absent,
+    Valid,
+    Invalid,
+}
 
 /// <summary>
 /// 协议号生成辅助类 - 使用 FNV-1a 哈希算法
@@ -66,9 +74,65 @@ internal static class ProtocolIdHelper
             p != "CancellationToken");
     }
 
+    public static bool IsCancellationToken(ITypeSymbol typeSymbol)
+        => MethodIdentity.IsCancellationToken(typeSymbol);
+
+    /// <summary>
+    /// 读取数字或 CodeFix 生成的十六进制字符串形式 <c>[Protocol("0xXXXX")]</c>。
+    /// </summary>
+    public static bool TryGetManualProtocolId(IMethodSymbol methodSymbol, out ushort protocolId)
+        => ParseManualProtocolId(methodSymbol, out protocolId) == ManualProtocolIdParseResult.Valid;
+
+    public static ManualProtocolIdParseResult ParseManualProtocolId(
+        IMethodSymbol methodSymbol,
+        out ushort protocolId)
+    {
+        var protocolAttribute = methodSymbol.GetAttributes()
+            .FirstOrDefault(attribute => attribute.AttributeClass?.Name is "ProtocolAttribute" or "Protocol");
+
+        if (protocolAttribute == null)
+        {
+            protocolId = 0;
+            return ManualProtocolIdParseResult.Absent;
+        }
+
+        if (protocolAttribute.ConstructorArguments.Length > 0)
+        {
+            var argument = protocolAttribute.ConstructorArguments[0];
+            if (argument.Value is ushort ushortValue)
+            {
+                protocolId = ushortValue;
+                return ManualProtocolIdParseResult.Valid;
+            }
+
+            if (argument.Value is int intValue && intValue >= ushort.MinValue && intValue <= ushort.MaxValue)
+            {
+                protocolId = (ushort)intValue;
+                return ManualProtocolIdParseResult.Valid;
+            }
+
+            if (argument.Value is string hexValue)
+            {
+                var value = hexValue.Trim();
+                if (value.StartsWith("0x", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    value = value.Substring(2);
+                }
+
+                if (ushort.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out protocolId))
+                {
+                    return ManualProtocolIdParseResult.Valid;
+                }
+            }
+        }
+
+        protocolId = 0;
+        return ManualProtocolIdParseResult.Invalid;
+    }
+
     /// <summary>
     /// 获取接口的所有公共方法候选（含直接成员 + 继承接口成员，排除 <c>IPulseHub</c> 标记接口本身），
-    /// 按「方法名 + 过滤 CancellationToken 后的参数类型」去重。
+    /// 按完整 CLR 签名去重；CancellationToken 过滤只用于后续 wire 身份与协议号计算。
     /// </summary>
     /// <remarks>
     /// 与客户端生成器（<c>PulseRPC.Generator</c> 项目中 <c>ServiceProxyGenerator.GetAllInterfaceMethods</c>）
@@ -109,7 +173,6 @@ internal static class ProtocolIdHelper
 
     private static string GetMethodSignatureKey(IMethodSymbol method)
     {
-        var paramTypes = FilterCancellationToken(method.Parameters.Select(p => p.Type.ToDisplayString()));
-        return $"{method.Name}({string.Join(",", paramTypes)})";
+        return MethodIdentity.CreateClrSignatureKey(method);
     }
 }

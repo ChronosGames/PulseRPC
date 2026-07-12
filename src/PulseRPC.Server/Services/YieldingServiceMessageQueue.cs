@@ -70,6 +70,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _cts;
     private Task? _processingTask;
+    private Task? _continuationTask;
     private ChannelWriter<(SendOrPostCallback, object?)>? _continuationWriter;
 
     // 统计指标
@@ -132,7 +133,7 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
         _continuationWriter = continuationChannel.Writer;
 
         // 后台任务：将延续转换为队列项
-        _ = Task.Run(async () =>
+        _continuationTask = Task.Run(async () =>
         {
             try
             {
@@ -142,15 +143,12 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
 
                     var item = new ContinuationQueueItem(callback, state);
 
-                    // ✅ 使用 TryWrite 避免死锁（UnboundedChannel 应该总是成功）
-                    if (!_queue.Writer.TryWrite(item))
-                    {
-                        // 如果失败，记录警告但不阻塞
-                        _logger.LogWarning(
-                            "Failed to write continuation to main queue - Service: {ServiceName}",
-                            _serviceType);
-                    }
+                    // 转换器运行在独立任务中，可以安全等待主队列容量；continuation 不允许静默丢弃。
+                    await _queue.Writer.WriteAsync(item, _cts.Token).ConfigureAwait(false);
                 }
+            }
+            catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+            {
             }
             catch (Exception ex)
             {
@@ -326,6 +324,12 @@ public sealed class YieldingServiceMessageQueue : IAsyncDisposable
 
         // 停止接收新延续
         _continuationWriter?.Complete();
+
+        // 先等待延续转换器把已接受的 continuation 全部搬入主队列，再关闭主队列。
+        if (_continuationTask != null)
+        {
+            await _continuationTask.ConfigureAwait(false);
+        }
 
         // 停止接收新消息
         _queue.Writer.Complete();

@@ -25,15 +25,18 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 //         }
 // #endif
 
-        // 获取配置选项
-        var configProvider = context.AnalyzerConfigOptionsProvider;
+        // 将 Roslyn 配置提供器投影为值对象。直接把 AnalyzerConfigOptionsProvider
+        // 组合进输出会导致相同编译的第二次运行仍被判定为 Modified。
+        var generatorOptions = context.AnalyzerConfigOptionsProvider
+            .Select(static (provider, _) => ReadGeneratorOptions(provider));
 
         // 查找带有 PulseClientGeneration 特性的类
         var classDeclarations = context.SyntaxProvider
             .CreateSyntaxProvider(
                 predicate: static (s, _) => s is ClassDeclarationSyntax { AttributeLists.Count: > 0 },
                 transform: (ctx, _) => GetServiceTypesFromClass(ctx))
-            .Where(m => m.Length > 0);
+            .Where(m => m.Items.Length > 0)
+            .WithTrackingName("AttributedClasses");
 
         // 分离服务类型和事件类型 - 基于接口实现而非名称
         var allServiceTypes = classDeclarations.Collect()
@@ -43,7 +46,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
                 foreach (var classDeclaration in classDeclarationArray)
                 {
-                    foreach (var serviceType in classDeclaration)
+                    foreach (var serviceType in classDeclaration.Items)
                     {
                         // 检查是否实现了IPulseHub接口（服务接口）
                         if (serviceType.Type != null && IsNetworkService(serviceType.Type))
@@ -54,7 +57,8 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 }
 
                 return result.ToImmutableArray();
-            });
+            })
+            .WithTrackingName("ServiceTypes");
 
         var allEventTypes = classDeclarations.Collect()
             .Select((classDeclarationArray, _) =>
@@ -63,7 +67,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
                 foreach (var classDeclaration in classDeclarationArray)
                 {
-                    foreach (var serviceType in classDeclaration)
+                    foreach (var serviceType in classDeclaration.Items)
                     {
                         // 检查是否实现了 [Channel("CLIENT")] : IPulseHub 推送接收器接口（事件接口）
                         if (serviceType.Type != null && IsEventReceiver(serviceType.Type))
@@ -74,17 +78,18 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 }
 
                 return result.ToImmutableArray();
-            });
+            })
+            .WithTrackingName("EventTypes");
 
         // 注册服务代理源代码输出
-        context.RegisterSourceOutput(allServiceTypes.Combine(allEventTypes).Combine(configProvider), (spc, combined) =>
+        context.RegisterSourceOutput(allServiceTypes.Combine(allEventTypes).Combine(generatorOptions), (spc, combined) =>
         {
             var serviceTypes = combined.Left.Left;
             var eventTypes = combined.Left.Right;
-            var configOptions = combined.Right;
+            var options = combined.Right;
 
             // 读取 MSBuild 配置：PulseRPC_ClientChannels
-            var channelNames = ReadChannelNamesFromConfig(configOptions);
+            var channelNames = ReadChannelNamesFromConfig(options.ChannelNames);
 
             // 去重服务类型（同一个接口可能被多个类的 PulseClientGeneration 特性引用）
             var uniqueServiceTypes = serviceTypes
@@ -158,13 +163,13 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         });
 
         // 注册事件处理器源代码输出
-        context.RegisterSourceOutput(allEventTypes.Combine(configProvider), (spc, combined) =>
+        context.RegisterSourceOutput(allEventTypes.Combine(generatorOptions), (spc, combined) =>
         {
             var eventTypes = combined.Left;
-            var configOptions = combined.Right;
+            var options = combined.Right;
 
             // 读取 EventHandler 生成配置
-            var generateEventHandlers = ShouldGenerateEventHandlers(configOptions);
+            var generateEventHandlers = options.GenerateEventHandlers;
 
             // 去重事件类型（同一个接口可能被多个类的 PulseClientGeneration 特性引用）
             var uniqueEventTypes = eventTypes
@@ -173,17 +178,19 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 .Select(g => g.First())
                 .ToList();
 
+            var validEventTypes = uniqueEventTypes;
+
             // 一次性为编译单元内所有 [Channel("CLIENT")] : IPulseHub 推送接收器接口聚合分配协议号（独立于 Hub 协议号空间，
             // 冲突检测范围与服务端 AssignReceiverProtocolIds 保持一致）
             var receiverProtocolIds = ProtocolIdGenerator.AssignProtocolIds(
-                uniqueEventTypes.Select(et => et.Type).OfType<INamedTypeSymbol>(),
+                validEventTypes.Select(et => et.Type).OfType<INamedTypeSymbol>(),
                 spc);
 
             // 注意：支持类型已移至 PulseRPC.Abstractions 库中（PulseRPC.Client.Events 命名空间）
             // 不再需要在此处生成 EventHandlerSupportTypes
 
             // 生成事件处理器
-            foreach (var eventTypeInfo in uniqueEventTypes)
+            foreach (var eventTypeInfo in validEventTypes)
             {
                 if (eventTypeInfo.Type is INamedTypeSymbol namedType)
                 {
@@ -224,7 +231,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         });
     }
 
-    private static ServiceTypeInfo[] GetServiceTypesFromClass(GeneratorSyntaxContext context)
+    private static ServiceTypeCollection GetServiceTypesFromClass(GeneratorSyntaxContext context)
     {
         var classDeclaration = (ClassDeclarationSyntax)context.Node;
         var semanticModel = context.SemanticModel;
@@ -233,7 +240,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         var classSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
         if (classSymbol == null)
         {
-            return Array.Empty<ServiceTypeInfo>();
+            return ServiceTypeCollection.Empty;
         }
 
         var result = new List<ServiceTypeInfo>();
@@ -260,7 +267,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             result.Add(new ServiceTypeInfo(serviceType));
         }
 
-        return result.ToArray();
+        return new ServiceTypeCollection(result.ToArray());
     }
 
     private static bool IsNetworkService(INamedTypeSymbol typeSymbol)
@@ -394,8 +401,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
                 continue;
 
             // 获取方法的协议号（使用方法的声明接口来计算）
-            var declaringInterface = methodSymbol2.ContainingType;
-            var methodKey = $"{declaringInterface.ToDisplayString()}.{methodSymbol2.Name}";
+            var methodKey = MethodIdentity.CreateLookupKey(methodSymbol2);
             ushort protocolId = protocolIds.TryGetValue(methodKey, out var id) ? id : (ushort)0;
 
             // 生成基于连接上下文的方法实现
@@ -430,7 +436,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
 
             // 使用方法的声明接口来构建键
             var declaringInterface = method.ContainingType;
-            var methodKey = $"{declaringInterface.ToDisplayString()}.{method.Name}";
+            var methodKey = MethodIdentity.CreateLookupKey(method);
 
             if (protocolIds.TryGetValue(methodKey, out var protocolId))
             {
@@ -735,6 +741,80 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         }
     }
 
+    private sealed class ServiceTypeCollection : IEquatable<ServiceTypeCollection>
+    {
+        public static ServiceTypeCollection Empty { get; } = new(Array.Empty<ServiceTypeInfo>());
+
+        public ServiceTypeCollection(ServiceTypeInfo[] items)
+        {
+            Items = items;
+        }
+
+        public ServiceTypeInfo[] Items { get; }
+
+        public bool Equals(ServiceTypeCollection? other)
+        {
+            if (other is null || Items.Length != other.Items.Length)
+            {
+                return false;
+            }
+
+            for (var index = 0; index < Items.Length; index++)
+            {
+                if (!SymbolEqualityComparer.Default.Equals(Items[index].Type, other.Items[index].Type))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public override bool Equals(object? obj) => Equals(obj as ServiceTypeCollection);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                var hashCode = 17;
+                foreach (var item in Items)
+                {
+                    hashCode = (hashCode * 31) +
+                        (item.Type is null ? 0 : SymbolEqualityComparer.Default.GetHashCode(item.Type));
+                }
+
+                return hashCode;
+            }
+        }
+    }
+
+    private readonly struct GeneratorOptions : IEquatable<GeneratorOptions>
+    {
+        public GeneratorOptions(string channelNames, bool generateEventHandlers)
+        {
+            ChannelNames = channelNames;
+            GenerateEventHandlers = generateEventHandlers;
+        }
+
+        public string ChannelNames { get; }
+
+        public bool GenerateEventHandlers { get; }
+
+        public bool Equals(GeneratorOptions other) =>
+            StringComparer.Ordinal.Equals(ChannelNames, other.ChannelNames) &&
+            GenerateEventHandlers == other.GenerateEventHandlers;
+
+        public override bool Equals(object? obj) => obj is GeneratorOptions other && Equals(other);
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (StringComparer.Ordinal.GetHashCode(ChannelNames) * 397) ^ GenerateEventHandlers.GetHashCode();
+            }
+        }
+    }
+
     /// <summary>
     /// 获取接口的所有方法（包括继承的接口方法）
     /// </summary>
@@ -783,11 +863,7 @@ public class ServiceProxyGenerator : IIncrementalGenerator
     /// </summary>
     private static string GetMethodKey(IMethodSymbol method)
     {
-        var paramTypes = string.Join(",", method.Parameters
-            .Where(p => p.Type.ToDisplayString() != "System.Threading.CancellationToken" &&
-                       p.Type.ToDisplayString() != "CancellationToken")
-            .Select(p => p.Type.ToDisplayString()));
-        return $"{method.Name}({paramTypes})";
+        return MethodIdentity.CreateClrSignatureKey(method);
     }
 
     /// <summary>
@@ -1137,47 +1213,33 @@ public class ServiceProxyGenerator : IIncrementalGenerator
         }
     }
 
-    /// <summary>
-    /// 从 MSBuild 配置中读取 Channel 名称列表
-    /// </summary>
-    /// <param name="configOptions">配置选项提供器</param>
-    /// <returns>Channel 名称数组，如果未配置则返回空数组</returns>
-    private static string[] ReadChannelNamesFromConfig(AnalyzerConfigOptionsProvider configOptions)
+    private static GeneratorOptions ReadGeneratorOptions(AnalyzerConfigOptionsProvider configOptions)
     {
-        // 尝试读取全局配置
-        if (configOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_ClientChannels", out var channelsValue))
-        {
-            if (!string.IsNullOrWhiteSpace(channelsValue))
-            {
-                // 按分号或逗号分割
-                return channelsValue
-                    .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(s => s.Trim())
-                    .Where(s => !string.IsNullOrEmpty(s))
-                    .ToArray();
-            }
-        }
+        configOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_ClientChannels", out var channelsValue);
+        configOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_GenerateEventHandlers", out var eventHandlersValue);
 
-        // 返回空数组
-        return Array.Empty<string>();
+        var normalizedChannels = string.Join(",", ReadChannelNamesFromConfig(channelsValue));
+        var generateEventHandlers = bool.TryParse(eventHandlersValue, out var parsedValue) && parsedValue;
+        return new GeneratorOptions(normalizedChannels, generateEventHandlers);
     }
 
     /// <summary>
-    /// 从 MSBuild 配置中读取是否生成 EventHandler
+    /// 从 MSBuild 配置中读取 Channel 名称列表
     /// </summary>
-    /// <param name="configOptions">配置选项提供器</param>
-    /// <returns>是否生成 EventHandler，默认为 false（减少生成代码量）</returns>
-    private static bool ShouldGenerateEventHandlers(AnalyzerConfigOptionsProvider configOptions)
+    /// <param name="channelsValue">配置值</param>
+    /// <returns>Channel 名称数组，如果未配置则返回空数组</returns>
+    private static string[] ReadChannelNamesFromConfig(string? channelsValue)
     {
-        if (configOptions.GlobalOptions.TryGetValue("build_property.PulseRPC_GenerateEventHandlers", out var value))
+        if (!string.IsNullOrWhiteSpace(channelsValue))
         {
-            if (bool.TryParse(value, out var result))
-            {
-                return result;
-            }
+            return channelsValue!
+                .Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .Where(s => !string.IsNullOrEmpty(s))
+                .ToArray();
         }
 
-        return false;
+        return Array.Empty<string>();
     }
 
     /// <summary>

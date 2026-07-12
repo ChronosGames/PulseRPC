@@ -190,21 +190,11 @@ public class DefaultMessageSerializer : IMessageSerializer
 
     public ValueTask<object> DeserializeAsync(byte[] messageBytes)
     {
-        try
-        {
-            // 这里需要知道目标类型，但我们现在只能做通用处理
-            // 先尝试作为动态类型反序列化，如果失败则直接返回字节数组
-            var readOnlySequence = new ReadOnlySequence<byte>(messageBytes);
+        ArgumentNullException.ThrowIfNull(messageBytes);
 
-            // TODO: 这里应该根据消息头或其他信息确定具体的消息类型
-            // 目前返回字节数组，让生成的分发器处理类型转换
-            return ValueTask.FromResult<object>(messageBytes);
-        }
-        catch (Exception)
-        {
-            // 如果反序列化失败，返回原始字节数组
-            return ValueTask.FromResult<object>(messageBytes);
-        }
+        // IMessageSerializer 没有目标类型参数；保留 wire payload，交由生成的
+        // 强类型 dispatcher 按协议号完成 MemoryPack 反序列化。
+        return ValueTask.FromResult<object>(messageBytes);
     }
 
     public ValueTask<byte[]> SerializeAsync(object message)

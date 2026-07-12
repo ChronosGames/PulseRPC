@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,9 @@ public sealed class ActorMigrationCoordinator
     private readonly IActorDirectory _directory;
     private readonly IActorStateTransport _stateTransport;
     private readonly ILogger<ActorMigrationCoordinator> _logger;
+    private readonly IActorLeaseHeartbeat? _leaseHeartbeat;
     private readonly string _localNodeId;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _migrationGates = new(StringComparer.Ordinal);
 
     /// <summary>创建迁移协调器。</summary>
     public ActorMigrationCoordinator(
@@ -42,9 +45,21 @@ public sealed class ActorMigrationCoordinator
         IActorStateTransport stateTransport,
         IOptions<ClusterTopologyOptions> topologyOptions,
         ILogger<ActorMigrationCoordinator> logger)
+        : this(directory, stateTransport, topologyOptions, null, logger)
+    {
+    }
+
+    /// <summary>创建迁移协调器，并在迁入成功后接管 Actor 租约心跳。</summary>
+    public ActorMigrationCoordinator(
+        IActorDirectory directory,
+        IActorStateTransport stateTransport,
+        IOptions<ClusterTopologyOptions> topologyOptions,
+        IActorLeaseHeartbeat? leaseHeartbeat,
+        ILogger<ActorMigrationCoordinator> logger)
     {
         _directory = directory ?? throw new ArgumentNullException(nameof(directory));
         _stateTransport = stateTransport ?? throw new ArgumentNullException(nameof(stateTransport));
+        _leaseHeartbeat = leaseHeartbeat;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
         ArgumentNullException.ThrowIfNull(topologyOptions);
@@ -76,34 +91,45 @@ public sealed class ActorMigrationCoordinator
             throw new InvalidOperationException("迁出目标不能是本节点。");
         }
 
-        _logger.LogInformation("开始迁出 Actor (Hub={Hub}, Key={Key}) 到节点 '{Target}'", hub, key, targetNodeId);
-
-        // 1. 静默：StopAsync 语义为"等待队列在途消息处理完成"，排空后 Actor 不再接受新消息，状态稳定。
-        await localActor.StopAsync(cancellationToken).ConfigureAwait(false);
-
-        // 2. 捕获快照（Actor 已静默，无并发）。
-        var snapshot = Array.Empty<byte>();
-        if (localActor is IActorStateSnapshot snapshottable)
+        var migrationGate = GetMigrationGate(hub, key);
+        await migrationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            snapshot = await snapshottable.CaptureStateAsync(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("开始迁出 Actor (Hub={Hub}, Key={Key}) 到节点 '{Target}'", hub, key, targetNodeId);
+
+            // 1. 静默：StopAsync 语义为"等待队列在途消息处理完成"，排空后 Actor 不再接受新消息，状态稳定。
+            await localActor.StopAsync(cancellationToken).ConfigureAwait(false);
+
+            // 2. 捕获快照（Actor 已静默，无并发）。
+            var snapshot = Array.Empty<byte>();
+            if (localActor is IActorStateSnapshot snapshottable)
+            {
+                snapshot = await snapshottable.CaptureStateAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Actor (Hub={Hub}, Key={Key}) 未实现 IActorStateSnapshot，迁入后状态为空（等价 L2 重新激活）", hub, key);
+            }
+
+            // 3. 跨节点搬运快照（目标节点据此恢复并激活）。
+            await _stateTransport.SendSnapshotAsync(targetNodeId, hub, key, snapshot, cancellationToken).ConfigureAwait(false);
+
+            // 4. 实例必须先彻底释放，再停止心跳并释放 fencing lease；否则新 owner 可能与旧实例短暂并存。
+            await localActor.DisposeAsync().ConfigureAwait(false);
+            var placement = await _directory.ResolveAsync(hub, key, CancellationToken.None).ConfigureAwait(false);
+            if (placement is { } p && string.Equals(p.NodeId, _localNodeId, StringComparison.Ordinal))
+            {
+                _leaseHeartbeat?.Untrack(hub, key, p.LeaseId);
+                await _directory.ReleaseAsync(hub, key, _localNodeId, p.LeaseId, CancellationToken.None).ConfigureAwait(false);
+            }
+
+            _logger.LogInformation("已完成迁出 Actor (Hub={Hub}, Key={Key}) -> '{Target}'（快照 {Bytes} 字节）", hub, key, targetNodeId, snapshot.Length);
         }
-        else
+        finally
         {
-            _logger.LogInformation(
-                "Actor (Hub={Hub}, Key={Key}) 未实现 IActorStateSnapshot，迁入后状态为空（等价 L2 重新激活）", hub, key);
+            migrationGate.Release();
         }
-
-        // 3. 跨节点搬运快照（目标节点据此恢复并激活）。
-        await _stateTransport.SendSnapshotAsync(targetNodeId, hub, key, snapshot, cancellationToken).ConfigureAwait(false);
-
-        // 4. 释放本地租约，使目录属主转移到目标节点；后续请求由路由器解析到新属主。
-        var placement = await _directory.ResolveAsync(hub, key, cancellationToken).ConfigureAwait(false);
-        if (placement is { } p && string.Equals(p.NodeId, _localNodeId, StringComparison.Ordinal))
-        {
-            await _directory.ReleaseAsync(hub, key, _localNodeId, p.LeaseId, cancellationToken).ConfigureAwait(false);
-        }
-
-        _logger.LogInformation("已完成迁出 Actor (Hub={Hub}, Key={Key}) -> '{Target}'（快照 {Bytes} 字节）", hub, key, targetNodeId, snapshot.Length);
     }
 
     /// <summary>
@@ -122,25 +148,82 @@ public sealed class ActorMigrationCoordinator
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(localActor);
 
-        // 1. 在目录激活并取得本节点租约（单一激活保证；若被他人持有会返回既有放置，调用方据此放弃）。
-        var placement = await _directory.ActivateAsync(hub, key, _localNodeId, cancellationToken).ConfigureAwait(false);
-        if (!string.Equals(placement.NodeId, _localNodeId, StringComparison.Ordinal))
+        var migrationGate = GetMigrationGate(hub, key);
+        await migrationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            _logger.LogWarning(
-                "迁入 Actor (Hub={Hub}, Key={Key}) 时目录显示属主为 '{Owner}'，放弃本地恢复以避免双激活", hub, key, placement.NodeId);
+            // 1. 在目录激活并取得本节点租约（单一激活保证；若被他人持有会返回既有放置，调用方据此放弃）。
+            var placement = await _directory.ActivateAsync(hub, key, _localNodeId, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(placement.NodeId, _localNodeId, StringComparison.Ordinal))
+            {
+                await DisposeAfterFailedMigrationAsync(hub, key, localActor).ConfigureAwait(false);
+                _logger.LogWarning(
+                    "迁入 Actor (Hub={Hub}, Key={Key}) 时目录显示属主为 '{Owner}'，放弃本地恢复以避免双激活", hub, key, placement.NodeId);
+                return placement;
+            }
+
+            try
+            {
+                // 2. 恢复状态（在开始处理消息前）。
+                if (snapshot.Length > 0 && localActor is IActorStateSnapshot snapshottable)
+                {
+                    await snapshottable.RestoreStateAsync(snapshot, cancellationToken).ConfigureAwait(false);
+                }
+
+                // 3. 启动成功后才纳入续租，避免为未发布/故障实例保活。
+                await localActor.StartAsync(cancellationToken).ConfigureAwait(false);
+                _leaseHeartbeat?.Track(hub, key, placement);
+            }
+            catch
+            {
+                await DisposeAfterFailedMigrationAsync(hub, key, localActor).ConfigureAwait(false);
+                try
+                {
+                    await _directory.ReleaseAsync(
+                        hub,
+                        key,
+                        _localNodeId,
+                        placement.LeaseId,
+                        CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception releaseException)
+                {
+                    _logger.LogWarning(
+                        releaseException,
+                        "迁入失败后释放 Actor 租约失败 (Hub={Hub}, Key={Key}, Lease={Lease})",
+                        hub,
+                        key,
+                        placement.LeaseId);
+                }
+
+                throw;
+            }
+
+            _logger.LogInformation("已完成迁入 Actor (Hub={Hub}, Key={Key})（快照 {Bytes} 字节）", hub, key, snapshot.Length);
             return placement;
         }
-
-        // 2. 恢复状态（在开始处理消息前）。
-        if (snapshot.Length > 0 && localActor is IActorStateSnapshot snapshottable)
+        finally
         {
-            await snapshottable.RestoreStateAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            migrationGate.Release();
         }
+    }
 
-        // 3. 启动 Actor，开始接受消息。
-        await localActor.StartAsync(cancellationToken).ConfigureAwait(false);
+    private SemaphoreSlim GetMigrationGate(string hub, string key)
+        => _migrationGates.GetOrAdd($"{hub}:{key}", static _ => new SemaphoreSlim(1, 1));
 
-        _logger.LogInformation("已完成迁入 Actor (Hub={Hub}, Key={Key})（快照 {Bytes} 字节）", hub, key, snapshot.Length);
-        return placement;
+    private async ValueTask DisposeAfterFailedMigrationAsync(string hub, string key, IPulseService actor)
+    {
+        try
+        {
+            await actor.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception disposeException)
+        {
+            _logger.LogWarning(
+                disposeException,
+                "清理未激活的迁入 Actor 失败 (Hub={Hub}, Key={Key})",
+                hub,
+                key);
+        }
     }
 }

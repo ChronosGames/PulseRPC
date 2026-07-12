@@ -1,0 +1,174 @@
+#nullable enable
+abstract PulseRPC.Shared.Kcp.KcpTransport.Id.get -> string!
+abstract PulseRPC.Shared.Tcp.TcpTransport.Id.get -> string!
+const PulseRPC.Shared.Kcp.KcpSegmentHeader.HeaderSize = 24 -> int
+const PulseRPC.Shared.Tcp.ChunkHeader.Size = 16 -> int
+const PulseRPC.Shared.Tcp.FrameHeader.FlagChunked = 4 -> ushort
+const PulseRPC.Shared.Tcp.FrameHeader.FlagCompressed = 2 -> ushort
+const PulseRPC.Shared.Tcp.FrameHeader.FlagEndOfChunk = 8 -> ushort
+const PulseRPC.Shared.Tcp.FrameHeader.FlagLargePacket = 1 -> ushort
+const PulseRPC.Shared.Tcp.FrameHeader.FlagNone = 0 -> ushort
+const PulseRPC.Shared.Tcp.FrameHeader.Size = 10 -> int
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.BackpressureLevel.get -> PulseRPC.Abstractions.Transport.Batching.BackpressureLevel
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.BatchedTransport(PulseRPC.Shared.ITransport! innerTransport, PulseRPC.Abstractions.Transport.Batching.BatchedTransportOptions? options = null) -> void
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.DataReceived -> System.EventHandler<PulseRPC.Shared.TransportDataEventArgs!>?
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.Dispose() -> void
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.DisposeAsync() -> System.Threading.Tasks.ValueTask
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.FlushAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.GetMetrics() -> PulseRPC.Abstractions.Transport.Batching.TransportMetricsSnapshot!
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.Id.get -> string!
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.IsConnected.get -> bool
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.LocalEndPoint.get -> System.Net.EndPoint!
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.PendingSendCount.get -> int
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.RemoteEndPoint.get -> System.Net.EndPoint!
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.SendAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.State.get -> PulseRPC.Shared.ConnectionState
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.StateChanged -> System.EventHandler<PulseRPC.Shared.TransportStateEventArgs!>?
+PulseRPC.Abstractions.Transport.Batching.BatchedTransport.Type.get -> PulseRPC.Shared.TransportType
+PulseRPC.Shared.Kcp.KcpCommand
+PulseRPC.Shared.Kcp.KcpCommand.Ack = 82 -> PulseRPC.Shared.Kcp.KcpCommand
+PulseRPC.Shared.Kcp.KcpCommand.Push = 81 -> PulseRPC.Shared.Kcp.KcpCommand
+PulseRPC.Shared.Kcp.KcpCommand.WindowsProbe = 83 -> PulseRPC.Shared.Kcp.KcpCommand
+PulseRPC.Shared.Kcp.KcpCommand.WindowsResponse = 84 -> PulseRPC.Shared.Kcp.KcpCommand
+PulseRPC.Shared.Kcp.KcpCore
+PulseRPC.Shared.Kcp.KcpCore.Check(uint current) -> uint
+PulseRPC.Shared.Kcp.KcpCore.Dispose() -> void
+PulseRPC.Shared.Kcp.KcpCore.Input(System.ReadOnlySpan<byte> data) -> int
+PulseRPC.Shared.Kcp.KcpCore.KcpCore(uint conv, System.Action<byte[]!, int>! output, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
+PulseRPC.Shared.Kcp.KcpCore.NoDelay(int nodelay, int interval, int resend, bool nc) -> int
+PulseRPC.Shared.Kcp.KcpCore.PeekSize() -> int
+PulseRPC.Shared.Kcp.KcpCore.Recv(System.Span<byte> buffer) -> int
+PulseRPC.Shared.Kcp.KcpCore.Send(System.ReadOnlySpan<byte> buffer) -> int
+PulseRPC.Shared.Kcp.KcpCore.SetMtu(int mtu) -> int
+PulseRPC.Shared.Kcp.KcpCore.SetWindowSize(int sndwnd, int rcvwnd) -> int
+PulseRPC.Shared.Kcp.KcpCore.Update(uint current) -> void
+PulseRPC.Shared.Kcp.KcpSegment
+PulseRPC.Shared.Kcp.KcpSegment.Data -> System.Memory<byte>
+PulseRPC.Shared.Kcp.KcpSegment.Dispose() -> void
+PulseRPC.Shared.Kcp.KcpSegment.Encode(System.Span<byte> buffer) -> int
+PulseRPC.Shared.Kcp.KcpSegment.FastAck -> uint
+PulseRPC.Shared.Kcp.KcpSegment.Header -> PulseRPC.Shared.Kcp.KcpSegmentHeader
+PulseRPC.Shared.Kcp.KcpSegment.ResendTs -> uint
+PulseRPC.Shared.Kcp.KcpSegment.SetData(System.ReadOnlySpan<byte> data) -> void
+PulseRPC.Shared.Kcp.KcpSegment.Xmit -> uint
+PulseRPC.Shared.Kcp.KcpSegmentHeader
+PulseRPC.Shared.Kcp.KcpSegmentHeader.Cmd -> byte
+PulseRPC.Shared.Kcp.KcpSegmentHeader.Conv -> uint
+PulseRPC.Shared.Kcp.KcpSegmentHeader.Frg -> byte
+PulseRPC.Shared.Kcp.KcpSegmentHeader.KcpSegmentHeader() -> void
+PulseRPC.Shared.Kcp.KcpSegmentHeader.Len -> uint
+PulseRPC.Shared.Kcp.KcpSegmentHeader.Sn -> uint
+PulseRPC.Shared.Kcp.KcpSegmentHeader.Ts -> uint
+PulseRPC.Shared.Kcp.KcpSegmentHeader.Una -> uint
+PulseRPC.Shared.Kcp.KcpSegmentHeader.Wnd -> ushort
+PulseRPC.Shared.Kcp.KcpTransport
+PulseRPC.Shared.Kcp.KcpTransport._disposed -> bool
+PulseRPC.Shared.Kcp.KcpTransport._kcp -> PulseRPC.Shared.Kcp.KcpCore!
+PulseRPC.Shared.Kcp.KcpTransport._localEndpoint -> System.Net.IPEndPoint?
+PulseRPC.Shared.Kcp.KcpTransport._remoteEndpoint -> System.Net.IPEndPoint?
+PulseRPC.Shared.Kcp.KcpTransport._socket -> System.Net.Sockets.Socket!
+PulseRPC.Shared.Kcp.KcpTransport._state -> PulseRPC.Shared.ConnectionState
+PulseRPC.Shared.Kcp.KcpTransport._updateTask -> System.Threading.Tasks.Task?
+PulseRPC.Shared.Kcp.KcpTransport.ChangeState(PulseRPC.Shared.ConnectionState newState, string? reason = null, System.Exception? exception = null) -> void
+PulseRPC.Shared.Kcp.KcpTransport.DataReceived -> System.EventHandler<PulseRPC.Shared.TransportDataEventArgs!>?
+PulseRPC.Shared.Kcp.KcpTransport.GetCurrentTimeMs() -> uint
+PulseRPC.Shared.Kcp.KcpTransport.IsConnected.get -> bool
+PulseRPC.Shared.Kcp.KcpTransport.KcpTransport(PulseRPC.Shared.KcpTransportOptions? options = null, Microsoft.Extensions.Logging.ILogger? logger = null) -> void
+PulseRPC.Shared.Kcp.KcpTransport.KcpUpdateLoopAsync() -> System.Threading.Tasks.Task!
+PulseRPC.Shared.Kcp.KcpTransport.LocalEndPoint.get -> System.Net.EndPoint!
+PulseRPC.Shared.Kcp.KcpTransport.OnUdpReceive(System.IAsyncResult! ar) -> void
+PulseRPC.Shared.Kcp.KcpTransport.RemoteEndPoint.get -> System.Net.EndPoint!
+PulseRPC.Shared.Kcp.KcpTransport.State.get -> PulseRPC.Shared.ConnectionState
+PulseRPC.Shared.Kcp.KcpTransport.StateChanged -> System.EventHandler<PulseRPC.Shared.TransportStateEventArgs!>?
+PulseRPC.Shared.Kcp.KcpTransport.Type.get -> PulseRPC.Shared.TransportType
+PulseRPC.Shared.LargePacketHandler
+PulseRPC.Shared.LargePacketHandler.CleanupExpiredPackets(System.TimeSpan maxAge) -> void
+PulseRPC.Shared.LargePacketHandler.Dispose() -> void
+PulseRPC.Shared.LargePacketHandler.GetStatistics() -> PulseRPC.Shared.PacketHandlerStatistics
+PulseRPC.Shared.LargePacketHandler.LargePacketHandler(PulseRPC.Shared.NetworkBufferPool? bufferPool = null, int maxConcurrentPackets = 64) -> void
+PulseRPC.Shared.LargePacketHandler.ProcessChunk(PulseRPC.Shared.Tcp.ChunkHeader chunkHeader, System.ReadOnlySpan<byte> chunkData, out System.ReadOnlyMemory<byte> completeData) -> bool
+PulseRPC.Shared.NetworkBufferPool
+PulseRPC.Shared.NetworkBufferPool.Dispose() -> void
+PulseRPC.Shared.NetworkBufferPool.GetStats() -> (long TotalAllocated, long HitCount, long MissCount, double HitRatio)
+PulseRPC.Shared.NetworkBufferPool.Rent(int minSize) -> byte[]!
+PulseRPC.Shared.NetworkBufferPool.Return(byte[]! buffer) -> void
+PulseRPC.Shared.NetworkBufferPool.Trim() -> void
+PulseRPC.Shared.PacketHandlerStatistics
+PulseRPC.Shared.PacketHandlerStatistics.ActivePackets -> int
+PulseRPC.Shared.PacketHandlerStatistics.MaxConcurrentPackets -> int
+PulseRPC.Shared.PacketHandlerStatistics.PacketHandlerStatistics() -> void
+PulseRPC.Shared.Tcp.ChunkHeader
+PulseRPC.Shared.Tcp.ChunkHeader.ChunkHeader() -> void
+PulseRPC.Shared.Tcp.ChunkHeader.ChunkHeader(int chunkId, int chunkIndex, int totalChunks, int chunkSize) -> void
+PulseRPC.Shared.Tcp.FrameHeader
+PulseRPC.Shared.Tcp.FrameHeader.FrameHeader() -> void
+PulseRPC.Shared.Tcp.FrameHeader.FrameHeader(int length, ushort messageId, ushort flags) -> void
+PulseRPC.Shared.Tcp.FrameHeader.FrameHeader(int length, ushort messageId) -> void
+PulseRPC.Shared.Tcp.FrameHeader.FrameHeader(ushort magic, int length, ushort messageId, ushort flags) -> void
+PulseRPC.Shared.Tcp.FrameHeader.IsChunked.get -> bool
+PulseRPC.Shared.Tcp.FrameHeader.IsCompressed.get -> bool
+PulseRPC.Shared.Tcp.FrameHeader.IsEndOfChunk.get -> bool
+PulseRPC.Shared.Tcp.FrameHeader.IsHandshake.get -> bool
+PulseRPC.Shared.Tcp.FrameHeader.IsLargePacket.get -> bool
+PulseRPC.Shared.Tcp.FrameHeader.IsValid.get -> bool
+PulseRPC.Shared.Tcp.TcpTransport
+PulseRPC.Shared.Tcp.TcpTransport._cts -> System.Threading.CancellationTokenSource!
+PulseRPC.Shared.Tcp.TcpTransport._disposed -> bool
+PulseRPC.Shared.Tcp.TcpTransport._handshakeCompleted -> bool
+PulseRPC.Shared.Tcp.TcpTransport._receiveTask -> System.Threading.Tasks.Task?
+PulseRPC.Shared.Tcp.TcpTransport._socket -> System.Net.Sockets.Socket?
+PulseRPC.Shared.Tcp.TcpTransport._state -> PulseRPC.Shared.ConnectionState
+PulseRPC.Shared.Tcp.TcpTransport._stream -> System.Net.Sockets.NetworkStream?
+PulseRPC.Shared.Tcp.TcpTransport._totalBytesReceived -> long
+PulseRPC.Shared.Tcp.TcpTransport._totalBytesSent -> long
+PulseRPC.Shared.Tcp.TcpTransport.ChangeState(PulseRPC.Shared.ConnectionState newState, string? reason = null, System.Exception? exception = null) -> void
+PulseRPC.Shared.Tcp.TcpTransport.DataReceived -> System.EventHandler<PulseRPC.Shared.TransportDataEventArgs!>?
+PulseRPC.Shared.Tcp.TcpTransport.IsConnected.get -> bool
+PulseRPC.Shared.Tcp.TcpTransport.LocalEndPoint.get -> System.Net.EndPoint!
+PulseRPC.Shared.Tcp.TcpTransport.ReadExactBytesAsync(byte[]! buffer, int offset, int count) -> System.Threading.Tasks.Task<bool>!
+PulseRPC.Shared.Tcp.TcpTransport.ReceiveLoopAsync() -> System.Threading.Tasks.Task!
+PulseRPC.Shared.Tcp.TcpTransport.RemoteEndPoint.get -> System.Net.EndPoint!
+PulseRPC.Shared.Tcp.TcpTransport.SendHandshakeRequestAsync(string! clientName, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+PulseRPC.Shared.Tcp.TcpTransport.SendHandshakeResponseAsync(bool accepted, string? reason = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Shared.Tcp.TcpTransport.StartCleanupTask() -> void
+PulseRPC.Shared.Tcp.TcpTransport.StartSendTask() -> void
+PulseRPC.Shared.Tcp.TcpTransport.State.get -> PulseRPC.Shared.ConnectionState
+PulseRPC.Shared.Tcp.TcpTransport.StateChanged -> System.EventHandler<PulseRPC.Shared.TransportStateEventArgs!>?
+PulseRPC.Shared.Tcp.TcpTransport.TcpTransport() -> void
+PulseRPC.Shared.Tcp.TcpTransport.TcpTransport(PulseRPC.Shared.TcpTransportOptions? options, Microsoft.Extensions.Logging.ILogger? logger, System.Buffers.ArrayPool<byte>! sendBufferPool) -> void
+PulseRPC.Shared.Tcp.TcpTransport.TcpTransport(PulseRPC.Shared.TcpTransportOptions? options, Microsoft.Extensions.Logging.ILogger? logger) -> void
+PulseRPC.Shared.Tcp.TcpTransport.TcpTransport(PulseRPC.Shared.TcpTransportOptions? options) -> void
+PulseRPC.Shared.Tcp.TcpTransport.TotalBytesReceived.get -> long
+PulseRPC.Shared.Tcp.TcpTransport.TotalBytesSent.get -> long
+PulseRPC.Shared.Tcp.TcpTransport.Type.get -> PulseRPC.Shared.TransportType
+readonly PulseRPC.Shared.Kcp.KcpTransport._cts -> System.Threading.CancellationTokenSource!
+readonly PulseRPC.Shared.Kcp.KcpTransport._logger -> Microsoft.Extensions.Logging.ILogger!
+readonly PulseRPC.Shared.Kcp.KcpTransport._options -> PulseRPC.Shared.KcpTransportOptions!
+readonly PulseRPC.Shared.Kcp.KcpTransport._sendLock -> System.Threading.SemaphoreSlim!
+readonly PulseRPC.Shared.Kcp.KcpTransport._stopwatch -> System.Diagnostics.Stopwatch!
+readonly PulseRPC.Shared.Tcp.ChunkHeader.ChunkId -> int
+readonly PulseRPC.Shared.Tcp.ChunkHeader.ChunkIndex -> int
+readonly PulseRPC.Shared.Tcp.ChunkHeader.ChunkSize -> int
+readonly PulseRPC.Shared.Tcp.ChunkHeader.TotalChunks -> int
+readonly PulseRPC.Shared.Tcp.FrameHeader.Flags -> ushort
+readonly PulseRPC.Shared.Tcp.FrameHeader.Length -> int
+readonly PulseRPC.Shared.Tcp.FrameHeader.Magic -> ushort
+readonly PulseRPC.Shared.Tcp.FrameHeader.MessageId -> ushort
+readonly PulseRPC.Shared.Tcp.TcpTransport._headerBuffer -> byte[]!
+readonly PulseRPC.Shared.Tcp.TcpTransport._logger -> Microsoft.Extensions.Logging.ILogger!
+readonly PulseRPC.Shared.Tcp.TcpTransport._options -> PulseRPC.Shared.TcpTransportOptions!
+readonly PulseRPC.Shared.Tcp.TcpTransport._packetHandler -> PulseRPC.Shared.LargePacketHandler!
+readonly PulseRPC.Shared.Tcp.TcpTransport._receiveBuffer -> byte[]!
+readonly PulseRPC.Shared.Tcp.TcpTransport._stateLock -> object!
+static PulseRPC.Shared.Kcp.KcpSegment.Decode(System.ReadOnlySpan<byte> buffer) -> PulseRPC.Shared.Kcp.KcpSegment?
+static PulseRPC.Shared.Kcp.KcpSegment.PoolCount.get -> int
+static PulseRPC.Shared.Kcp.KcpSegment.Rent() -> PulseRPC.Shared.Kcp.KcpSegment!
+static PulseRPC.Shared.Kcp.KcpSegment.Return(PulseRPC.Shared.Kcp.KcpSegment! segment) -> void
+static PulseRPC.Shared.NetworkBufferPool.Instance.get -> PulseRPC.Shared.NetworkBufferPool!
+virtual PulseRPC.Shared.Kcp.KcpTransport.Dispose() -> void
+virtual PulseRPC.Shared.Kcp.KcpTransport.OnKcpOutput(byte[]! buffer, int size) -> void
+virtual PulseRPC.Shared.Kcp.KcpTransport.SendAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!
+virtual PulseRPC.Shared.Tcp.TcpTransport.Dispose() -> void
+virtual PulseRPC.Shared.Tcp.TcpTransport.HandleHandshakeMessageAsync(PulseRPC.Shared.Tcp.FrameHeader header, System.ReadOnlyMemory<byte> data) -> System.Threading.Tasks.Task!
+virtual PulseRPC.Shared.Tcp.TcpTransport.SendAsync(System.ReadOnlyMemory<byte> data, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<bool>!

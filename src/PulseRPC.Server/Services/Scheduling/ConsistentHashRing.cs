@@ -29,7 +29,7 @@ namespace PulseRPC.Server.Services.Scheduling;
 /// <list type="bullet">
 /// <item><description>GetThread 调用：~50ns/op</description></item>
 /// <item><description>10,000 ServiceId 分布标准差：~2.1%</description></item>
-/// <item><description>负载偏差：<±3%</description></item>
+/// <item><description>负载偏差：小于 ±3%</description></item>
 /// </list>
 /// </remarks>
 public sealed class ConsistentHashRing

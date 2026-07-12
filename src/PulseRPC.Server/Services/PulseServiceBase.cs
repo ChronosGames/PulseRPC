@@ -275,6 +275,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
             catch (Exception ex)
             {
                 State = ServiceLifecycleState.Faulted;
+                await AbortMessageProcessingAsync().ConfigureAwait(false);
                 Logger.LogError(ex, "Failed to start service: {ServiceAddress}", ((IPulseService)this).ServiceAddress);
                 throw;
             }
@@ -729,12 +730,36 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
         {
             await StopAsync();
         }
+        else
+        {
+            await AbortMessageProcessingAsync().ConfigureAwait(false);
+            await StopTickLoopAsync().ConfigureAwait(false);
+        }
 
         _tickCts?.Dispose();
         _processingCts?.Dispose();
         _stateLock.Dispose();
 
         GC.SuppressFinalize(this);
+    }
+
+    private async Task AbortMessageProcessingAsync()
+    {
+        _messageQueue?.Writer.TryComplete();
+        _processingCts?.Cancel();
+        if (_messageProcessingTask is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _messageProcessingTask.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 失败启动/释放时取消 mailbox worker 属于正常清理路径。
+        }
     }
 
     private async Task ProcessMessagesAsync(CancellationToken cancellationToken)

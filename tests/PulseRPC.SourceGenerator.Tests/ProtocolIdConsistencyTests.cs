@@ -192,8 +192,8 @@ public class ProtocolIdConsistencyTests
         serverGeneratedText.Should().NotContain("CreateGuildAsync 不能使用相同的协议号");
 
         // IGuildHub 自己的路由表必须包含 CreateGuildAsync；IBackendHub 的路由表不应重复包含它。
-        var guildHubHasCreateGuild = Regex.IsMatch(serverGeneratedText, @"\bGuildHub_CreateGuildAsync\s*=\s*0x[0-9A-Fa-f]{4}\b");
-        var backendHubHasCreateGuild = Regex.IsMatch(serverGeneratedText, @"\bBackendHub_CreateGuildAsync\s*=\s*0x[0-9A-Fa-f]{4}\b");
+        var guildHubHasCreateGuild = Regex.IsMatch(serverGeneratedText, @"\bGuildHub_CreateGuildAsync\w*\s*=\s*0x[0-9A-Fa-f]{4}\b");
+        var backendHubHasCreateGuild = Regex.IsMatch(serverGeneratedText, @"\bBackendHub_CreateGuildAsync\w*\s*=\s*0x[0-9A-Fa-f]{4}\b");
 
         guildHubHasCreateGuild.Should().BeTrue("IGuildHub 自己声明的 CreateGuildAsync 必须保留在其路由表中");
         backendHubHasCreateGuild.Should().BeFalse("继承而来的 CreateGuildAsync 已由 IGuildHub 自己的路由表提供，IBackendHub 不应重复生成");
@@ -487,7 +487,7 @@ public class ProtocolIdConsistencyTests
     private static ushort? ExtractServerProtocolId(string generatedText, string interfaceNameWithoutI, string methodName)
     {
         // 服务端常量名格式：{InterfaceNameWithoutI}_{MethodName} = 0xXXXX;（见 ProtocolIdGenerator.GenerateProtocolIdConstants）
-        var match = Regex.Match(generatedText, $@"\b{Regex.Escape(interfaceNameWithoutI)}_{Regex.Escape(methodName)}\s*=\s*0x([0-9A-Fa-f]{{4}})\b");
+        var match = Regex.Match(generatedText, $@"\b{Regex.Escape(interfaceNameWithoutI)}_{Regex.Escape(methodName)}\w*\s*=\s*0x([0-9A-Fa-f]{{4}})\b");
         return match.Success ? Convert.ToUInt16(match.Groups[1].Value, 16) : null;
     }
 

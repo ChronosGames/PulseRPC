@@ -37,7 +37,12 @@ public readonly struct FrameHeader
     public const ushort FlagChunked = 0x0004;
     public const ushort FlagEndOfChunk = 0x0008;
 
-    public FrameHeader(int length, ushort messageId, ushort flags = FlagNone)
+    public FrameHeader(int length, ushort messageId)
+        : this(length, messageId, FlagNone)
+    {
+    }
+
+    public FrameHeader(int length, ushort messageId, ushort flags)
         : this(ProtocolConstants.ProtocolMagic, length, messageId, flags)
     {
     }
@@ -101,13 +106,24 @@ internal readonly struct TcpSendItem
     public readonly ushort MessageId;
     /// <summary>帧头标志位。</summary>
     public readonly ushort Flags;
+    private readonly ArrayPool<byte> _bufferPool;
+    private readonly TaskCompletionSource<bool> _completion;
 
-    public TcpSendItem(byte[] buffer, int bodyLength, ushort messageId = 0, ushort flags = FrameHeader.FlagNone)
+    public Task<bool> Completion => _completion.Task;
+
+    public TcpSendItem(
+        byte[] buffer,
+        int bodyLength,
+        ArrayPool<byte> bufferPool,
+        ushort messageId = 0,
+        ushort flags = FrameHeader.FlagNone)
     {
         Buffer = buffer;
         BodyLength = bodyLength;
         MessageId = messageId;
         Flags = flags;
+        _bufferPool = bufferPool;
+        _completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
     /// <summary>
@@ -117,9 +133,11 @@ internal readonly struct TcpSendItem
     {
         if (Buffer != null)
         {
-            ArrayPool<byte>.Shared.Return(Buffer);
+            _bufferPool.Return(Buffer);
         }
     }
+
+    public void Complete(bool sent) => _completion.TrySetResult(sent);
 }
 
 /// <summary>
@@ -136,6 +154,7 @@ public abstract class TcpTransport : ITransport
 
     // 发送队列（替代 _sendLock）
     private readonly Channel<TcpSendItem> _sendQueue;
+    private readonly ArrayPool<byte> _sendBufferPool;
     private Task? _sendTask;
 
     protected Socket? _socket;
@@ -149,7 +168,7 @@ public abstract class TcpTransport : ITransport
     protected bool _disposed;
     protected bool _handshakeCompleted;
 
-    public virtual string Id => throw new NotImplementedException();
+    public abstract string Id { get; }
     public TransportType Type => TransportType.TCP;
     public bool IsConnected => _state == ConnectionState.Connected && _socket?.Connected == true;
     public ConnectionState State => _state;
@@ -163,13 +182,41 @@ public abstract class TcpTransport : ITransport
     public event EventHandler<TransportStateEventArgs>? StateChanged;
     public event EventHandler<TransportDataEventArgs>? DataReceived;
 
-    protected TcpTransport(TcpTransportOptions? options = null, ILogger? logger = null)
+    protected TcpTransport()
+        : this(null, null, ArrayPool<byte>.Shared)
+    {
+    }
+
+    protected TcpTransport(TcpTransportOptions? options)
+        : this(options, null, ArrayPool<byte>.Shared)
+    {
+    }
+
+    protected TcpTransport(TcpTransportOptions? options, ILogger? logger)
+        : this(options, logger, ArrayPool<byte>.Shared)
+    {
+    }
+
+    protected TcpTransport(
+        TcpTransportOptions? options,
+        ILogger? logger,
+        ArrayPool<byte> sendBufferPool)
     {
         _options = options ?? new TcpTransportOptions();
+#pragma warning disable CS0618
+        if (_options.UseCompression || _options.UseEncryption)
+        {
+            throw new NotSupportedException("TCP wire compression/encryption 尚未实现，不能启用对应传输选项。");
+        }
+#pragma warning restore CS0618
         _logger = logger ?? NullLogger.Instance;
+        _sendBufferPool = sendBufferPool ?? throw new ArgumentNullException(nameof(sendBufferPool));
         _receiveBuffer = new byte[_options.RecvBufferSize];
         _headerBuffer = new byte[FrameHeader.Size + ChunkHeader.Size]; // 预分配可重用缓冲区（仅发送任务使用）
-        _packetHandler = new LargePacketHandler();
+        _packetHandler = new LargePacketHandler(
+            bufferPool: null,
+            maxConcurrentPackets: 64,
+            maxPacketSize: _options.MaxPacketSize);
         _cts = new CancellationTokenSource();
 
         // 初始化发送队列
@@ -187,11 +234,16 @@ public abstract class TcpTransport : ITransport
     /// </summary>
     protected void StartSendTask()
     {
+        if (_sendTask is { IsCompleted: false })
+        {
+            return;
+        }
+
         _sendTask = Task.Run(SendLoopAsync);
     }
 
     /// <summary>
-    /// 发送数据 - 使用发送队列实现高并发（无锁入队，立即返回）
+    /// 发送数据 - 使用有界发送队列实现并发背压，并等待底层写入完成
     /// </summary>
     public virtual async Task<bool> SendAsync(ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
     {
@@ -215,25 +267,31 @@ public abstract class TcpTransport : ITransport
             return false;
         }
 
+        byte[]? buffer = null;
         try
         {
             // 统一以单帧发送：传输层不再做应用层分片。
             // 租用「头部预留区 + 消息体」缓冲，消息体拷贝至头部之后，
             // 由单线程发送任务写入帧头并一次性写出（header+body 合并）。
-            var buffer = ArrayPool<byte>.Shared.Rent(FrameHeader.Size + data.Length);
+            buffer = _sendBufferPool.Rent(FrameHeader.Size + data.Length);
             data.Span.CopyTo(buffer.AsSpan(FrameHeader.Size));
-            var item = new TcpSendItem(buffer, data.Length);
+            var item = new TcpSendItem(buffer, data.Length, _sendBufferPool);
 
             // 尝试同步入队（避免异步开销）
             if (_sendQueue.Writer.TryWrite(item))
             {
-                return true;
+                buffer = null;
+            }
+            else
+            {
+                // 队列满时异步等待。只有成功入队后才转移缓冲区所有权。
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
+                await _sendQueue.Writer.WriteAsync(item, linkedCts.Token);
+                buffer = null;
             }
 
-            // 队列满时异步等待
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
-            await _sendQueue.Writer.WriteAsync(item, linkedCts.Token);
-            return true;
+            // true 表示底层 NetworkStream 写入已完成，而不只是进入发送队列。
+            return await item.Completion.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -243,6 +301,13 @@ public abstract class TcpTransport : ITransport
         {
             _logger.LogError(ex, "发送数据入队失败");
             return false;
+        }
+        finally
+        {
+            if (buffer != null)
+            {
+                _sendBufferPool.Return(buffer);
+            }
         }
     }
 
@@ -264,6 +329,10 @@ public abstract class TcpTransport : ITransport
                 Interlocked.Add(ref _totalBytesSent, FrameHeader.Size + data.Length);
             }
             return success;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _cts.IsCancellationRequested)
+        {
+            return false;
         }
         catch (Exception ex)
         {
@@ -297,9 +366,10 @@ public abstract class TcpTransport : ITransport
                     break;
                 }
 
+                var sent = false;
                 try
                 {
-                    await SendFrameInternalAsync(item);
+                    sent = await SendFrameInternalAsync(item).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -307,6 +377,7 @@ public abstract class TcpTransport : ITransport
                 }
                 finally
                 {
+                    item.Complete(sent);
                     // 归还缓冲区
                     item.ReturnBuffer();
                 }
@@ -315,6 +386,14 @@ public abstract class TcpTransport : ITransport
         catch (Exception ex)
         {
             _logger.LogError(ex, "发送循环异常退出");
+        }
+        finally
+        {
+            while (_sendQueue.Reader.TryRead(out var pendingItem))
+            {
+                pendingItem.Complete(false);
+                pendingItem.ReturnBuffer();
+            }
         }
 
         _logger.LogDebug("发送任务停止");
@@ -388,6 +467,18 @@ public abstract class TcpTransport : ITransport
                         "收到无效的消息长度: {Length} (允许上限 {Max}) 来自 {RemoteEndpoint}，断开连接",
                         header.Length, _options.MaxPacketSize, remoteEndpoint);
                     break;  // 断开连接
+                }
+
+                // 发送端已统一使用单帧协议，不再生成 legacy chunk 帧。继续解析该格式会让
+                // 未受信任的 TotalChunks/ChunkSize 进入分片状态分配，因此默认 fail closed。
+                if (header.IsChunked)
+                {
+                    var remoteEndpoint = _socket?.RemoteEndPoint?.ToString() ?? "Unknown";
+                    _logger.LogWarning(
+                        "收到已停用的 TCP 分片帧，拒绝连接: Length={Length}, RemoteEndpoint={RemoteEndpoint}",
+                        header.Length,
+                        remoteEndpoint);
+                    break;
                 }
 
                 // 读取消息内容
@@ -575,18 +666,40 @@ public abstract class TcpTransport : ITransport
             return;
         }
 
-        // 发送任务已启动，通过队列发送（不等待完成）。
+        // 发送任务已启动，通过队列发送，并等待底层写入完成。
         // 按「头部预留区 + 消息体」布局：消息体拷贝至头部之后，
         // 帧头（含 MessageId/Flags）由发送循环统一写入。
-        var buffer = ArrayPool<byte>.Shared.Rent(FrameHeader.Size + data.Length);
-        data.CopyTo(buffer, FrameHeader.Size);
-
-        var item = new TcpSendItem(buffer, data.Length, header.MessageId, header.Flags);
-
-        // 尝试同步入队
-        if (!_sendQueue.Writer.TryWrite(item))
+        byte[]? buffer = null;
+        try
         {
-            await _sendQueue.Writer.WriteAsync(item, cancellationToken);
+            buffer = _sendBufferPool.Rent(FrameHeader.Size + data.Length);
+            data.CopyTo(buffer, FrameHeader.Size);
+
+            var item = new TcpSendItem(
+                buffer,
+                data.Length,
+                _sendBufferPool,
+                header.MessageId,
+                header.Flags);
+
+            // 尝试同步入队
+            if (!_sendQueue.Writer.TryWrite(item))
+            {
+                await _sendQueue.Writer.WriteAsync(item, cancellationToken);
+            }
+
+            buffer = null;
+            if (!await item.Completion.ConfigureAwait(false))
+            {
+                throw new IOException("TCP 控制帧写入失败。");
+            }
+        }
+        finally
+        {
+            if (buffer != null)
+            {
+                _sendBufferPool.Return(buffer);
+            }
         }
     }
 
@@ -703,6 +816,12 @@ public abstract class TcpTransport : ITransport
                 {
                     // 忽略任务取消异常
                 }
+            }
+
+            while (_sendQueue.Reader.TryRead(out var pendingItem))
+            {
+                pendingItem.Complete(false);
+                pendingItem.ReturnBuffer();
             }
 
             _stream?.Dispose();

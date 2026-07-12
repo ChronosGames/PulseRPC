@@ -17,6 +17,7 @@ public class TcpServerTransport : TcpTransport, IServerTransport
     private readonly DateTime _connectedAt;
     private DateTime _lastActivityAt;
     private int _receiveStarted;
+    private Task? _delayedCloseTask;
 
     public override string Id => _id;
 
@@ -34,6 +35,10 @@ public class TcpServerTransport : TcpTransport, IServerTransport
         // 替换Socket
         _socket?.Dispose();
         _socket = socket;
+        _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, _options.KeepAlive);
+        _socket.LingerState = _options.EnableLinger
+            ? new LingerOption(true, _options.LingerTime)
+            : new LingerOption(false, 0);
 
         // 创建网络流
         _stream = new NetworkStream(socket, true);
@@ -141,11 +146,7 @@ public class TcpServerTransport : TcpTransport, IServerTransport
                 else
                 {
                     // 握手失败，延迟断开连接以确保响应发送成功
-                    _ = Task.Run(async () =>
-                    {
-                        await Task.Delay(100);
-                        await CloseAsync();
-                    });
+                    _delayedCloseTask = CloseAfterHandshakeRejectionAsync();
                 }
             }
             else if (header.Flags == ProtocolConstants.HandshakeResponseFlag)
@@ -162,6 +163,18 @@ public class TcpServerTransport : TcpTransport, IServerTransport
         {
             _logger.LogError(ex, "处理握手消息异常, ConnectionId={ConnectionId}", _id);
             await CloseAsync();
+        }
+    }
+
+    private async Task CloseAfterHandshakeRejectionAsync()
+    {
+        try
+        {
+            await Task.Delay(100, _cts.Token).ConfigureAwait(false);
+            await CloseAsync(_cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
         }
     }
 
@@ -194,6 +207,12 @@ public class TcpServerTransport : TcpTransport, IServerTransport
         }
 
         return Task.CompletedTask;
+    }
+
+    public override void Dispose()
+    {
+        base.Dispose();
+        _delayedCloseTask?.GetAwaiter().GetResult();
     }
 }
 

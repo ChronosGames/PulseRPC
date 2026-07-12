@@ -127,7 +127,7 @@ public sealed class ServiceRegistration
 /// </summary>
 /// <remarks>
 /// 注意：此类用于存储方法的元数据和编译后的委托。
-/// 对于运行时方法调用，请使用 <see cref="Services.CompiledMethodInvoker"/> 静态类。
+/// 运行时方法调用由路由表中的编译委托完成。
 /// </remarks>
 public sealed class MethodInvokerMetadata
 {

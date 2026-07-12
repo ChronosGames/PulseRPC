@@ -8,8 +8,7 @@ using System.Threading;
 namespace PulseRPC.Memory;
 
 /// <summary>
-/// 零拷贝循环缓冲区 - 高性能无锁环形缓冲区实现
-/// 替代原有的LockFreeRingBuffer，提供更高性能和零拷贝特性
+/// 循环缓冲区 - 使用单锁保证多生产者、多消费者场景的数据完整性
 /// </summary>
 /// <typeparam name="T">缓冲区元素类型，必须是值类型以确保性能</typeparam>
 public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
@@ -34,8 +33,8 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     {
         public const int ENQUEUE_MAX_CYCLES = 50;       // 入队最大CPU周期
         public const int DEQUEUE_BATCH_MIN_SIZE = 8;    // 批量出队最小大小
-        public const bool LOCK_FREE_GUARANTEE = true;   // 无锁保证
-        public const bool WAIT_FREE_ENQUEUE = true;     // 入队等待自由
+        public const bool LOCK_FREE_GUARANTEE = false;  // 当前实现优先保证 MPMC 正确性
+        public const bool WAIT_FREE_ENQUEUE = false;    // 入队可能等待同步锁
     }
 
     #endregion
@@ -46,8 +45,9 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     private readonly MemoryHandle? _pinnedHandle;
     private readonly int _mask;
     private readonly int _capacity;
+    private readonly object _syncRoot = new();
 
-    // 使用原子操作确保线程安全
+    // 所有索引与统计字段均由 _syncRoot 保护
     private long _writeIndex;
     private long _readIndex;
 
@@ -132,9 +132,10 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get
         {
-            var writeIndex = Interlocked.Read(ref _writeIndex);
-            var readIndex = Interlocked.Read(ref _readIndex);
-            return (int)(writeIndex - readIndex);
+            lock (_syncRoot)
+            {
+                return (int)(_writeIndex - _readIndex);
+            }
         }
     }
 
@@ -144,7 +145,13 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     public bool IsEmpty
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => Interlocked.Read(ref _writeIndex) == Interlocked.Read(ref _readIndex);
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _writeIndex == _readIndex;
+            }
+        }
     }
 
     /// <summary>
@@ -153,7 +160,13 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     public bool IsFull
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => (Interlocked.Read(ref _writeIndex) - Interlocked.Read(ref _readIndex)) >= _capacity;
+        get
+        {
+            lock (_syncRoot)
+            {
+                return _writeIndex - _readIndex >= _capacity;
+            }
+        }
     }
 
     #endregion
@@ -168,27 +181,16 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryEnqueue(in T item)
     {
-        var currentWriteIndex = Interlocked.Read(ref _writeIndex);
-        var currentReadIndex = Interlocked.Read(ref _readIndex);
+        lock (_syncRoot)
+        {
+            if (_writeIndex - _readIndex >= _capacity)
+                return false;
 
-        // 快速检查是否已满
-        if (currentWriteIndex - currentReadIndex >= _capacity)
-            return false;
-
-        // 零拷贝写入 - 直接写入固定内存位置
-        var span = _buffer.Span;
-        span[(int)(currentWriteIndex & _mask)] = item;
-
-        // 内存屏障确保写入完成后再更新索引
-        Thread.MemoryBarrier();
-
-        // 原子更新写索引
-        Interlocked.Increment(ref _writeIndex);
-
-        // 性能统计
-        Interlocked.Increment(ref _totalEnqueues);
-
-        return true;
+            _buffer.Span[(int)(_writeIndex & _mask)] = item;
+            _writeIndex++;
+            _totalEnqueues++;
+            return true;
+        }
     }
 
     /// <summary>
@@ -230,43 +232,33 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
         if (count < 0) count = items.Length;
         count = Math.Min(count, items.Length);
 
-        var currentWriteIndex = Interlocked.Read(ref _writeIndex);
-        var currentReadIndex = Interlocked.Read(ref _readIndex);
-
-        int availableSpace = _capacity - (int)(currentWriteIndex - currentReadIndex);
-        if (availableSpace == 0) return 0;
-
-        int actualCount = Math.Min(availableSpace, count);
-        if (actualCount == 0) return 0;
-
-        // 零拷贝批量写入
-        var bufferSpan = _buffer.Span;
-        int writePos = (int)(currentWriteIndex & _mask);
-
-        if (writePos + actualCount <= _capacity)
+        lock (_syncRoot)
         {
-            // 一次性复制，无需环绕
-            items.Slice(0, actualCount).CopyTo(bufferSpan.Slice(writePos));
+            int availableSpace = _capacity - (int)(_writeIndex - _readIndex);
+            if (availableSpace == 0) return 0;
+
+            int actualCount = Math.Min(availableSpace, count);
+            if (actualCount == 0) return 0;
+
+            var bufferSpan = _buffer.Span;
+            int writePos = (int)(_writeIndex & _mask);
+
+            if (writePos + actualCount <= _capacity)
+            {
+                items.Slice(0, actualCount).CopyTo(bufferSpan.Slice(writePos));
+            }
+            else
+            {
+                int firstSegmentLength = _capacity - writePos;
+                items.Slice(0, firstSegmentLength).CopyTo(bufferSpan.Slice(writePos));
+                items.Slice(firstSegmentLength, actualCount - firstSegmentLength).CopyTo(bufferSpan);
+            }
+
+            _writeIndex += actualCount;
+            _totalEnqueues += actualCount;
+            UpdateMaxBatchSize(actualCount);
+            return actualCount;
         }
-        else
-        {
-            // 需要环绕的情况
-            int firstSegmentLength = _capacity - writePos;
-            items.Slice(0, firstSegmentLength).CopyTo(bufferSpan.Slice(writePos));
-            items.Slice(firstSegmentLength, actualCount - firstSegmentLength).CopyTo(bufferSpan);
-        }
-
-        // 内存屏障确保数据写入完成
-        Thread.MemoryBarrier();
-
-        // 原子更新写索引
-        Interlocked.Add(ref _writeIndex, actualCount);
-
-        // 性能统计
-        Interlocked.Add(ref _totalEnqueues, actualCount);
-        UpdateMaxBatchSize(actualCount);
-
-        return actualCount;
     }
 
     #endregion
@@ -281,75 +273,60 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryDequeue(out T item)
     {
-        var currentWriteIndex = Interlocked.Read(ref _writeIndex);
-        var currentReadIndex = Interlocked.Read(ref _readIndex);
-
-        if (currentWriteIndex == currentReadIndex)
+        lock (_syncRoot)
         {
-            item = default;
-            return false;
+            if (_writeIndex == _readIndex)
+            {
+                item = default;
+                return false;
+            }
+
+            item = _buffer.Span[(int)(_readIndex & _mask)];
+            _readIndex++;
+            _totalDequeues++;
+            return true;
         }
-
-        // 零拷贝读取
-        var span = _buffer.Span;
-        item = span[(int)(currentReadIndex & _mask)];
-
-        // 内存屏障确保读取完成后再更新索引
-        Thread.MemoryBarrier();
-
-        // 原子更新读索引
-        Interlocked.Increment(ref _readIndex);
-
-        // 性能统计
-        Interlocked.Increment(ref _totalDequeues);
-
-        return true;
     }
 
     /// <summary>
-    /// 批量出队 - 零拷贝内存切片
+    /// 批量出队 - 返回稳定快照，避免槽位复用后覆盖调用方仍在读取的数据
     /// </summary>
     /// <param name="maxCount">最大出队数量</param>
-    /// <returns>包含出队数据的只读内存切片</returns>
+    /// <returns>包含出队数据的稳定只读快照</returns>
     public ReadOnlyMemory<T> TryDequeueBatch(int maxCount)
     {
-        var currentWriteIndex = Interlocked.Read(ref _writeIndex);
-        var currentReadIndex = Interlocked.Read(ref _readIndex);
-
-        int availableCount = (int)(currentWriteIndex - currentReadIndex);
-        if (availableCount == 0)
+        if (maxCount <= 0)
             return ReadOnlyMemory<T>.Empty;
 
-        int actualCount = Math.Min(availableCount, maxCount);
-        int readPos = (int)(currentReadIndex & _mask);
-
-        ReadOnlyMemory<T> result;
-
-        if (readPos + actualCount <= _capacity)
+        lock (_syncRoot)
         {
-            // 无需环绕，返回连续内存切片
-            result = _buffer.Slice(readPos, actualCount);
+            int availableCount = (int)(_writeIndex - _readIndex);
+            if (availableCount == 0)
+                return ReadOnlyMemory<T>.Empty;
+
+            int actualCount = Math.Min(availableCount, maxCount);
+            int readPos = (int)(_readIndex & _mask);
+            var result = new T[actualCount];
+            var resultSpan = result.AsSpan();
+            var bufferSpan = _buffer.Span;
+
+            if (readPos + actualCount <= _capacity)
+            {
+                bufferSpan.Slice(readPos, actualCount).CopyTo(resultSpan);
+            }
+            else
+            {
+                int firstSegmentLength = _capacity - readPos;
+                bufferSpan.Slice(readPos, firstSegmentLength).CopyTo(resultSpan);
+                bufferSpan.Slice(0, actualCount - firstSegmentLength)
+                    .CopyTo(resultSpan.Slice(firstSegmentLength));
+            }
+
+            _readIndex += actualCount;
+            _totalDequeues += actualCount;
+            UpdateMaxBatchSize(actualCount);
+            return result;
         }
-        else
-        {
-            // 需要环绕，创建临时缓冲区
-            // 注意：这里为了保持零拷贝特性，可能需要分两次调用
-            int firstSegmentLength = _capacity - readPos;
-            result = _buffer.Slice(readPos, firstSegmentLength);
-            actualCount = firstSegmentLength; // 只返回第一段
-        }
-
-        // 内存屏障确保读取完成
-        Thread.MemoryBarrier();
-
-        // 更新读索引
-        Interlocked.Add(ref _readIndex, actualCount);
-
-        // 性能统计
-        Interlocked.Add(ref _totalDequeues, actualCount);
-        UpdateMaxBatchSize(actualCount);
-
-        return result;
     }
 
     /// <summary>
@@ -365,43 +342,33 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
         if (maxCount < 0) maxCount = destination.Length;
         maxCount = Math.Min(maxCount, destination.Length);
 
-        var currentWriteIndex = Interlocked.Read(ref _writeIndex);
-        var currentReadIndex = Interlocked.Read(ref _readIndex);
-
-        int availableCount = (int)(currentWriteIndex - currentReadIndex);
-        if (availableCount == 0) return 0;
-
-        int actualCount = Math.Min(availableCount, maxCount);
-        if (actualCount == 0) return 0;
-
-        // 批量复制
-        var bufferSpan = _buffer.Span;
-        int readPos = (int)(currentReadIndex & _mask);
-
-        if (readPos + actualCount <= _capacity)
+        lock (_syncRoot)
         {
-            // 一次性复制，无需环绕
-            bufferSpan.Slice(readPos, actualCount).CopyTo(destination);
+            int availableCount = (int)(_writeIndex - _readIndex);
+            if (availableCount == 0) return 0;
+
+            int actualCount = Math.Min(availableCount, maxCount);
+            if (actualCount == 0) return 0;
+
+            var bufferSpan = _buffer.Span;
+            int readPos = (int)(_readIndex & _mask);
+
+            if (readPos + actualCount <= _capacity)
+            {
+                bufferSpan.Slice(readPos, actualCount).CopyTo(destination);
+            }
+            else
+            {
+                int firstSegmentLength = _capacity - readPos;
+                bufferSpan.Slice(readPos, firstSegmentLength).CopyTo(destination);
+                bufferSpan.Slice(0, actualCount - firstSegmentLength).CopyTo(destination.Slice(firstSegmentLength));
+            }
+
+            _readIndex += actualCount;
+            _totalDequeues += actualCount;
+            UpdateMaxBatchSize(actualCount);
+            return actualCount;
         }
-        else
-        {
-            // 需要环绕的情况
-            int firstSegmentLength = _capacity - readPos;
-            bufferSpan.Slice(readPos, firstSegmentLength).CopyTo(destination);
-            bufferSpan.Slice(0, actualCount - firstSegmentLength).CopyTo(destination.Slice(firstSegmentLength));
-        }
-
-        // 内存屏障确保读取完成
-        Thread.MemoryBarrier();
-
-        // 更新读索引
-        Interlocked.Add(ref _readIndex, actualCount);
-
-        // 性能统计
-        Interlocked.Add(ref _totalDequeues, actualCount);
-        UpdateMaxBatchSize(actualCount);
-
-        return actualCount;
     }
 
     #endregion
@@ -423,11 +390,8 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private void UpdateMaxBatchSize(int batchSize)
     {
-        var current = _maxBatchSize;
-        if (batchSize > current)
-        {
-            Interlocked.CompareExchange(ref _maxBatchSize, batchSize, current);
-        }
+        if (batchSize > _maxBatchSize)
+            _maxBatchSize = batchSize;
     }
 
     /// <summary>
@@ -435,8 +399,10 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     /// </summary>
     public void Clear()
     {
-        var writeIndex = Interlocked.Read(ref _writeIndex);
-        Interlocked.Exchange(ref _readIndex, writeIndex);
+        lock (_syncRoot)
+        {
+            _readIndex = _writeIndex;
+        }
     }
 
     #endregion
@@ -448,16 +414,19 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     /// </summary>
     public BufferStatistics GetStatistics()
     {
-        return new BufferStatistics
+        lock (_syncRoot)
         {
-            Capacity = _capacity,
-            Count = Count,
-            TotalEnqueues = Interlocked.Read(ref _totalEnqueues),
-            TotalDequeues = Interlocked.Read(ref _totalDequeues),
-            MaxBatchSize = (int)Interlocked.Read(ref _maxBatchSize),
-            WriteIndex = Interlocked.Read(ref _writeIndex),
-            ReadIndex = Interlocked.Read(ref _readIndex)
-        };
+            return new BufferStatistics
+            {
+                Capacity = _capacity,
+                Count = (int)(_writeIndex - _readIndex),
+                TotalEnqueues = _totalEnqueues,
+                TotalDequeues = _totalDequeues,
+                MaxBatchSize = (int)_maxBatchSize,
+                WriteIndex = _writeIndex,
+                ReadIndex = _readIndex
+            };
+        }
     }
 
     /// <summary>
@@ -488,10 +457,13 @@ public sealed class ZeroCopyCircularBuffer<T> : IDisposable where T : struct
     /// </summary>
     public void Dispose()
     {
-        if (!_disposed)
+        lock (_syncRoot)
         {
-            _pinnedHandle?.Dispose();
-            _disposed = true;
+            if (!_disposed)
+            {
+                _pinnedHandle?.Dispose();
+                _disposed = true;
+            }
         }
     }
 

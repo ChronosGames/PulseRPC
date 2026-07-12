@@ -1,0 +1,37 @@
+#nullable enable
+override PulseRPC.Infrastructure.Discovery.DiscoveredNode.Equals(object? obj) -> bool
+override PulseRPC.Infrastructure.Discovery.DiscoveredNode.GetHashCode() -> int
+override PulseRPC.Infrastructure.Discovery.DiscoveredNode.ToString() -> string!
+PulseRPC.Infrastructure.Discovery.DiscoveredNode
+PulseRPC.Infrastructure.Discovery.DiscoveredNode.DiscoveredNode() -> void
+PulseRPC.Infrastructure.Discovery.DiscoveredNode.DiscoveredNode(string! nodeId, PulseRPC.Clustering.NodeEndpoint endpoint) -> void
+PulseRPC.Infrastructure.Discovery.DiscoveredNode.Endpoint.get -> PulseRPC.Clustering.NodeEndpoint
+PulseRPC.Infrastructure.Discovery.DiscoveredNode.Equals(PulseRPC.Infrastructure.Discovery.DiscoveredNode other) -> bool
+PulseRPC.Infrastructure.Discovery.DiscoveredNode.NodeId.get -> string!
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.Changed -> System.Action?
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.DiscoveryClusterMembership(PulseRPC.Infrastructure.Discovery.IDiscoveryProvider! provider, Microsoft.Extensions.Options.IOptions<PulseRPC.Infrastructure.Discovery.DiscoveryOptions!>! options, Microsoft.Extensions.Logging.ILogger<PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership!>! logger) -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.Dispose() -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.LiveNodeIds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.ReportNodeFailure(string! nodeId) -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.ReportNodeSuccess(string! nodeId) -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.StartAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.StopAsync(System.Threading.CancellationToken cancellationToken) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Discovery.DiscoveryClusterMembership.TryResolve(string! nodeId, out PulseRPC.Clustering.NodeEndpoint endpoint) -> bool
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.AdvertiseHost.get -> string!
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.AdvertiseHost.set -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.AdvertisePort.get -> int
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.AdvertisePort.set -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.DiscoveryOptions() -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.LocalNodeId.get -> string!
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.LocalNodeId.set -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.PollInterval.get -> System.TimeSpan
+PulseRPC.Infrastructure.Discovery.DiscoveryOptions.PollInterval.set -> void
+PulseRPC.Infrastructure.Discovery.DiscoveryServiceCollectionExtensions
+PulseRPC.Infrastructure.Discovery.IDiscoveryProvider
+PulseRPC.Infrastructure.Discovery.IDiscoveryProvider.Changed -> System.Action?
+PulseRPC.Infrastructure.Discovery.IDiscoveryProvider.DeregisterAsync(PulseRPC.Infrastructure.Discovery.DiscoveredNode self, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Discovery.IDiscoveryProvider.FetchNodesAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<PulseRPC.Infrastructure.Discovery.DiscoveredNode>!>!
+PulseRPC.Infrastructure.Discovery.IDiscoveryProvider.RegisterAsync(PulseRPC.Infrastructure.Discovery.DiscoveredNode self, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+static PulseRPC.Infrastructure.Discovery.DiscoveryServiceCollectionExtensions.AddPulseDiscovery(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

@@ -99,9 +99,9 @@ internal sealed class KcpTransportProvider : ITransportProvider
         kcpOptions.NoDelay = source.NoDelay;
         kcpOptions.RecvBufferSize = source.RecvBufferSize;
         kcpOptions.SendBufferSize = source.SendBufferSize;
+        kcpOptions.MaxPacketSize = source.MaxPacketSize;
         // kcpOptions.SendTimeout = source.SendTimeout;
         // kcpOptions.RecvTimeout = source.RecvTimeout;
-        // kcpOptions.MaxPacketSize = source.MaxPacketSize;
 
         // 设置默认值
         // MaxPacketSize = kcpOptions.MaxPacketSize == 0 ? 32 * 1024 : kcpOptions.MaxPacketSize;

@@ -8,10 +8,17 @@ namespace PulseRPC.Client.Transport;
 /// <summary>
 /// TCP客户端传输
 /// </summary>
-public class TcpClientTransport : TcpTransport, IClientTransport
+public class TcpClientTransport : TcpTransport, IClientTransport, IAbortableClientTransport
 {
     private int _reconnectAttempts;
+    private int _reconnectScheduled;
+    private readonly object _reconnectSync = new();
     private Timer? _reconnectTimer;
+    private Task? _reconnectTask;
+    private readonly SemaphoreSlim _connectLock = new(1, 1);
+    private bool _manualDisconnect;
+    private string? _host;
+    private int _port;
     private DateTime _connectedAt;
     private DateTime _lastActivityAt;
     private string _id;
@@ -25,6 +32,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
         _id = id;
         _connectedAt = DateTime.UtcNow;
         _lastActivityAt = DateTime.UtcNow;
+        StateChanged += OnTransportStateChanged;
     }
 
     // ITransportConnection properties
@@ -44,16 +52,22 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     /// </summary>
     public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
     {
-        if (_state == ConnectionState.Connected)
-        {
-            return;
-        }
-
-        ChangeStateWithConnectionEvents(ConnectionState.Connecting);
-
+        await _connectLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (_state == ConnectionState.Connected && _handshakeCompleted)
+            {
+                return;
+            }
+
+            _manualDisconnect = false;
+            _host = host;
+            _port = port;
+            ResetHandshakeState();
+            ChangeStateWithConnectionEvents(ConnectionState.Connecting);
+
             // 创建新的Socket
+            _stream?.Dispose();
             _socket?.Dispose();
             _socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 
@@ -61,6 +75,10 @@ public class TcpClientTransport : TcpTransport, IClientTransport
             _socket.NoDelay = _options.NoDelay;
             _socket.ReceiveBufferSize = _options.RecvBufferSize;
             _socket.SendBufferSize = _options.SendBufferSize;
+            _socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, _options.KeepAlive);
+            _socket.LingerState = _options.EnableLinger
+                ? new LingerOption(true, _options.LingerTime)
+                : new LingerOption(false, 0);
 
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
             linkedCts.CancelAfter(_options.ConnectionTimeout);
@@ -81,6 +99,7 @@ public class TcpClientTransport : TcpTransport, IClientTransport
 
             // 重置重连次数
             _reconnectAttempts = 0;
+            CancelReconnect();
 
             // 启动接收循环
             _receiveTask = ReceiveLoopAsync();
@@ -114,13 +133,11 @@ public class TcpClientTransport : TcpTransport, IClientTransport
 
             ChangeStateWithConnectionEvents(ConnectionState.Failed, $"连接失败: {ex.Message}", ex);
 
-            // 如果启用了自动重连，则开始重连
-            if (_options.AutoReconnect && _reconnectAttempts < _options.MaxReconnectAttempts)
-            {
-                StartReconnect(host, port);
-            }
-
             throw;
+        }
+        finally
+        {
+            _connectLock.Release();
         }
     }
 
@@ -129,6 +146,9 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     /// </summary>
     public Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
+        _manualDisconnect = true;
+        CancelReconnect();
+
         if (_state is ConnectionState.Disconnected or ConnectionState.Disconnecting)
         {
             return Task.CompletedTask;
@@ -139,9 +159,6 @@ public class TcpClientTransport : TcpTransport, IClientTransport
         try
         {
             // 取消自动重连
-            _reconnectTimer?.Dispose();
-            _reconnectTimer = null;
-
             // 关闭Socket
             if (_socket?.Connected == true)
             {
@@ -167,32 +184,131 @@ public class TcpClientTransport : TcpTransport, IClientTransport
         return Task.CompletedTask;
     }
 
+    void IAbortableClientTransport.Abort()
+    {
+        _manualDisconnect = true;
+        CancelReconnect();
+
+        if (_state is not ConnectionState.Disconnected and not ConnectionState.Disconnecting)
+        {
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnecting);
+        }
+
+        _cts.Cancel();
+        try
+        {
+            if (_socket is not null)
+            {
+                _socket.LingerState = new LingerOption(true, 0);
+                _socket.Close(0);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Abortive TCP socket close failed");
+        }
+        finally
+        {
+            _stream?.Dispose();
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnected, "Abortive disconnect");
+        }
+    }
+
     /// <summary>
     /// 启动重连
     /// </summary>
-    private void StartReconnect(string host, int port)
+    private void StartReconnect()
     {
-        if (!_options.AutoReconnect || _reconnectAttempts >= _options.MaxReconnectAttempts)
+        if (!_options.AutoReconnect || _manualDisconnect || _disposed || _host is null ||
+            (_options.MaxReconnectAttempts != 0 && _reconnectAttempts >= _options.MaxReconnectAttempts) ||
+            Interlocked.CompareExchange(ref _reconnectScheduled, 1, 0) != 0)
         {
             return;
         }
 
         _reconnectAttempts++;
+        var maxAttempts = _options.MaxReconnectAttempts == 0
+            ? "∞"
+            : _options.MaxReconnectAttempts.ToString();
 
-        ChangeStateWithConnectionEvents(ConnectionState.Reconnecting, $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
+        ChangeStateWithConnectionEvents(ConnectionState.Reconnecting, $"尝试重连({_reconnectAttempts}/{maxAttempts})");
 
-        _reconnectTimer?.Dispose();
-        _reconnectTimer = new Timer(async void (_) =>
+        lock (_reconnectSync)
         {
-            try
+            if (_manualDisconnect || _disposed)
             {
-                await ConnectAsync(host, port);
+                Interlocked.Exchange(ref _reconnectScheduled, 0);
+                return;
             }
-            catch
+
+            _reconnectTimer?.Dispose();
+            _reconnectTimer = new Timer(
+                static state => ((TcpClientTransport)state!).ScheduleReconnect(),
+                this,
+                _options.ReconnectInterval,
+                Timeout.Infinite);
+        }
+    }
+
+    private void ScheduleReconnect()
+    {
+        lock (_reconnectSync)
+        {
+            if (_manualDisconnect || _disposed)
             {
-                // 重连失败，下次继续尝试
+                return;
             }
-        }, null, _options.ReconnectInterval, Timeout.Infinite);
+
+            _reconnectTask = ReconnectAsync();
+        }
+    }
+
+    private async Task ReconnectAsync()
+    {
+        Interlocked.Exchange(ref _reconnectScheduled, 0);
+        _reconnectTimer?.Dispose();
+        _reconnectTimer = null;
+        if (_manualDisconnect || _disposed || _host is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await ConnectAsync(_host, _port).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ConnectAsync 的失败状态会安排下一次受上限约束的重连。
+        }
+    }
+
+    private void OnTransportStateChanged(object? sender, TransportStateEventArgs args)
+    {
+        if (args.CurrentState is ConnectionState.Failed or ConnectionState.Disconnected)
+        {
+            StartReconnect();
+        }
+    }
+
+    private void CancelReconnect()
+    {
+        lock (_reconnectSync)
+        {
+            Interlocked.Exchange(ref _reconnectScheduled, 0);
+            _reconnectTimer?.Dispose();
+            _reconnectTimer = null;
+        }
+    }
+
+    private void ResetHandshakeState()
+    {
+        _handshakeAccepted = false;
+        _handshakeCompleted = false;
+        _handshakeRejectReason = null;
+        while (_handshakeSemaphore.Wait(0))
+        {
+        }
     }
 
     /// <summary>
@@ -211,10 +327,13 @@ public class TcpClientTransport : TcpTransport, IClientTransport
                     "收到握手响应: Accepted={Accepted}, ServerVersion={Version}, Reason={Reason}",
                     response.Accepted, response.ServerProtocolVersion, response.Reason ?? "N/A");
 
-                _handshakeAccepted = response.Accepted;
-                _handshakeRejectReason = response.Reason;
+                var versionAccepted = response.ServerProtocolVersion == ProtocolConstants.CurrentProtocolVersion;
+                _handshakeAccepted = response.Accepted && versionAccepted;
+                _handshakeRejectReason = versionAccepted
+                    ? response.Reason
+                    : $"服务端协议版本 {response.ServerProtocolVersion} 与客户端要求的破坏性 v{ProtocolConstants.CurrentProtocolVersion} 不一致";
 
-                if (response.Accepted)
+                if (_handshakeAccepted)
                 {
                     _handshakeCompleted = true;
                 }
@@ -297,8 +416,17 @@ public class TcpClientTransport : TcpTransport, IClientTransport
     /// </summary>
     public override void Dispose()
     {
+        _manualDisconnect = true;
+        StateChanged -= OnTransportStateChanged;
+        CancelReconnect();
         base.Dispose();
-        _reconnectTimer?.Dispose();
+        Task? reconnectTask;
+        lock (_reconnectSync)
+        {
+            reconnectTask = _reconnectTask;
+        }
+        reconnectTask?.GetAwaiter().GetResult();
         _handshakeSemaphore.Dispose();
+        _connectLock.Dispose();
     }
 }

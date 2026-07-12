@@ -10,6 +10,7 @@ using PulseRPC.Clustering;
 using PulseRPC.Routing;
 using PulseRPC.Server.Gateway;
 using PulseRPC.Server.Routing;
+using PulseRPC.Server.Services.Management;
 
 namespace PulseRPC.Server.Clustering;
 
@@ -167,6 +168,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         CancellationToken cancellationToken,
         Guid messageId)
     {
+        ActorPlacement? localActorPlacement = null;
         if (address.Kind == AddressKind.Actor)
         {
             var explicitNode = !string.IsNullOrEmpty(address.NodeId);
@@ -186,6 +188,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
                 var ownerNodeId = placement.NodeId;
                 if (string.Equals(ownerNodeId, _localNodeId, StringComparison.Ordinal))
                 {
+                    localActorPlacement = placement;
                     break; // 属主为本节点：转本地投递。
                 }
 
@@ -213,7 +216,33 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
             }
         }
 
-        await _local.SendAsync(address, protocolId, body, delivery, cancellationToken, messageId).ConfigureAwait(false);
+        if (localActorPlacement is { } localPlacement)
+        {
+            using var activationScope = ServiceActivationScope.Enter(
+                onActivated: () => TrackLocalLease(address, localPlacement),
+                onActivationFailed: () => ReleaseFailedLocalActivationAsync(address, localPlacement));
+            try
+            {
+                await _local.SendAsync(address, protocolId, body, delivery, cancellationToken, messageId).ConfigureAwait(false);
+                if (!activationScope.WasActivated)
+                {
+                    TrackLocalLease(address, localPlacement);
+                }
+            }
+            catch
+            {
+                if (activationScope.ActivationFailed)
+                {
+                    await activationScope.WaitForFailureCallbackAsync().ConfigureAwait(false);
+                }
+
+                throw;
+            }
+        }
+        else
+        {
+            await _local.SendAsync(address, protocolId, body, delivery, cancellationToken, messageId).ConfigureAwait(false);
+        }
 
         // 模型 X：AllClients/Group/User/Except 都可能存在其它节点上的成员，广播扩散后由各节点的
         // OnBackplaneMessageAsync 对各自的本地成员完成投递，避免"跨节点广播静默丢消息"（§9/§15.1 风险 #2）。
@@ -238,6 +267,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         ReadOnlyMemory<byte> body,
         CancellationToken cancellationToken)
     {
+        ActorPlacement? localActorPlacement = null;
         if (address.Kind == AddressKind.Actor)
         {
             var explicitNode = !string.IsNullOrEmpty(address.NodeId);
@@ -252,6 +282,7 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
                 var ownerNodeId = placement.NodeId;
                 if (string.Equals(ownerNodeId, _localNodeId, StringComparison.Ordinal))
                 {
+                    localActorPlacement = placement;
                     break; // 属主为本节点：转本地投递。
                 }
 
@@ -276,7 +307,32 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
             }
         }
 
-        return await _local.AskAsync(address, protocolId, body, cancellationToken).ConfigureAwait(false);
+        if (localActorPlacement is not { } localPlacement)
+        {
+            return await _local.AskAsync(address, protocolId, body, cancellationToken).ConfigureAwait(false);
+        }
+
+        using var activationScope = ServiceActivationScope.Enter(
+            onActivated: () => TrackLocalLease(address, localPlacement),
+            onActivationFailed: () => ReleaseFailedLocalActivationAsync(address, localPlacement));
+        try
+        {
+            var response = await _local.AskAsync(address, protocolId, body, cancellationToken).ConfigureAwait(false);
+            if (!activationScope.WasActivated)
+            {
+                TrackLocalLease(address, localPlacement);
+            }
+            return response;
+        }
+        catch
+        {
+            if (activationScope.ActivationFailed)
+            {
+                await activationScope.WaitForFailureCallbackAsync().ConfigureAwait(false);
+            }
+
+            throw;
+        }
     }
 
     /// <summary>
@@ -379,11 +435,6 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         var placement = await _actorDirectory
             .ActivateAsync(address.Hub, address.Key, candidate, cancellationToken)
             .ConfigureAwait(false);
-        if (string.Equals(placement.NodeId, _localNodeId, StringComparison.Ordinal))
-        {
-            _leaseHeartbeat?.Track(address.Hub, address.Key, placement);
-        }
-
         if (!string.Equals(placement.NodeId, candidate, StringComparison.Ordinal))
         {
             _logger.LogWarning(
@@ -392,5 +443,47 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         }
 
         return placement;
+    }
+
+    private async ValueTask ReleaseFailedLocalActivationAsync(
+        PulseAddress address,
+        ActorPlacement placement)
+    {
+        _leaseHeartbeat?.Untrack(address.Hub, address.Key, placement.LeaseId);
+        try
+        {
+            await _actorDirectory.ReleaseAsync(
+                address.Hub,
+                address.Key,
+                _localNodeId,
+                placement.LeaseId,
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Actor 本地激活失败后释放租约失败 (Hub={Hub}, Key={Key}, LeaseId={LeaseId})",
+                address.Hub,
+                address.Key,
+                placement.LeaseId);
+        }
+    }
+
+    private void TrackLocalLease(PulseAddress address, ActorPlacement placement)
+    {
+        try
+        {
+            _leaseHeartbeat?.Track(address.Hub, address.Key, placement);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Actor 激活成功后启动租约心跳失败 (Hub={Hub}, Key={Key}, LeaseId={LeaseId})",
+                address.Hub,
+                address.Key,
+                placement.LeaseId);
+        }
     }
 }

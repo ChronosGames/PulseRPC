@@ -15,6 +15,7 @@ using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Services.Scheduling;
 using PulseRPC.Server.Processing.Serialization;
+using PulseRPC.Server.Security;
 using PulseRPC.Server.Transport;
 using PulseRPC.Shared;
 using MessageStatus = PulseRPC.Server.Processing.Memory.MessageStatus;
@@ -162,6 +163,7 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
 
                 var processingTime = Stopwatch.GetElapsedTime(startTime);
                 _metrics.MessagesProcessed.Add(1);
+                _metrics.RecordBatchProcessingTime(processingTime);
 
                 return ProcessingResult.SuccessResult(response);
             }
@@ -319,7 +321,9 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
 
             case MessagePriority.Normal:
                 // 普通消息：检查负载，决定是否丢弃
-                var utilization = _metrics.GetCurrentL1Utilization();
+                var utilization = _tieredProcessors.TryGetValue(slot.ConnectionId, out var processor)
+                    ? processor.GetStatus().L1BufferUtilization
+                    : 0;
                 if (utilization > 0.9)
                 {
                     _logger.LogWarning("L1利用率过高({Utilization:P}), 丢弃普通消息: MessageId={MessageId}",
@@ -544,18 +548,16 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                             serviceName,
                             async () =>
                             {
-                                dispatchResult = await _messageDispatcher.DispatchAsync(
+                                dispatchResult = await DispatchWithHostPolicyAsync(
                                     envelope,
-                                    _serviceProvider,
                                     dispatchToken);
                             },
                             dispatchToken);
                     }
                     else
                     {
-                        dispatchResult = await _messageDispatcher.DispatchAsync(
+                        dispatchResult = await DispatchWithHostPolicyAsync(
                             envelope,
-                            _serviceProvider,
                             dispatchToken);
                     }
                 }
@@ -657,6 +659,17 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
                 RemoveRequestCancellation(envelope.MessageId);
             }
         }
+    }
+
+    private async ValueTask<object?> DispatchWithHostPolicyAsync(
+        MessageEnvelope envelope,
+        CancellationToken cancellationToken)
+    {
+        using var gateScope = ClientFacingGate.EnterHostPolicyScope(_serviceProvider);
+        return await _messageDispatcher.DispatchAsync(
+            envelope,
+            _serviceProvider,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private void HandleCancelMessage(string connectionId, Guid messageId)
@@ -772,12 +785,20 @@ internal sealed class MessageEngine : IAsyncDisposable, IBatchProcessor, ITiered
     /// </summary>
     public EngineStatistics GetStatistics()
     {
+        var processorStatuses = _tieredProcessors.Values
+            .Select(processor => processor.GetStatus())
+            .ToArray();
+        var l1BufferUtilization = processorStatuses.Length == 0
+            ? 0
+            : processorStatuses.Average(status => status.L1BufferUtilization);
+        _metrics.SetCurrentL1Utilization(l1BufferUtilization);
+
         return new EngineStatistics
         {
             UpTime = DateTime.UtcNow - _metrics.EngineStartTime,
 
             // L1统计
-            L1BufferUtilization = _metrics.GetCurrentL1Utilization(),
+            L1BufferUtilization = l1BufferUtilization,
             L1MessagesEnqueued = _metrics.L1MessagesEnqueued.Value,
             L1BackpressureEvents = _metrics.BackpressureEvents.Value,
 
@@ -1052,6 +1073,15 @@ public class EngineStatistics
 /// </summary>
 public class EngineMetrics
 {
+    private const int LatencySampleCapacity = 1024;
+    private readonly object _latencyLock = new();
+    private readonly double[] _latencySamples = new double[LatencySampleCapacity];
+    private long _enqueueLatencyTicks;
+    private long _enqueueLatencySamples;
+    private int _latencySampleCount;
+    private int _nextLatencySample;
+    private double _currentL1Utilization;
+
     public DateTime EngineStartTime { get; set; } = DateTime.UtcNow;
 
     // 计数器
@@ -1077,12 +1107,85 @@ public class EngineMetrics
     public readonly Gauge<int> ActiveConnections = new();
 
     // 性能指标方法
-    public double GetCurrentL1Utilization() => 0.5; // 临时实现
-    public double GetCurrentThroughput() => MessagesProcessed.Value / (DateTime.UtcNow - EngineStartTime).TotalSeconds;
-    public double GetAverageLatencyMs() => 2.5; // 临时实现
-    public double GetP99LatencyMs() => 5.0; // 临时实现
-    public void RecordEnqueueLatency(long ticks) { L1MessagesEnqueued.Add(ticks); }
-    public void RecordBatchProcessingTime(TimeSpan time) { /* TODO: 实现批处理时间记录 */ }
+    public double GetCurrentL1Utilization() => Volatile.Read(ref _currentL1Utilization);
+
+    public double GetCurrentThroughput()
+    {
+        var elapsedSeconds = (DateTime.UtcNow - EngineStartTime).TotalSeconds;
+        return elapsedSeconds <= 0 ? 0 : MessagesProcessed.Value / elapsedSeconds;
+    }
+
+    public double GetAverageLatencyMs()
+    {
+        lock (_latencyLock)
+        {
+            if (_latencySampleCount == 0)
+            {
+                return 0;
+            }
+
+            double total = 0;
+            for (var index = 0; index < _latencySampleCount; index++)
+            {
+                total += _latencySamples[index];
+            }
+
+            return total / _latencySampleCount;
+        }
+    }
+
+    public double GetP99LatencyMs()
+    {
+        lock (_latencyLock)
+        {
+            if (_latencySampleCount == 0)
+            {
+                return 0;
+            }
+
+            var snapshot = new double[_latencySampleCount];
+            Array.Copy(_latencySamples, snapshot, _latencySampleCount);
+            Array.Sort(snapshot);
+            var percentileIndex = Math.Min(
+                snapshot.Length - 1,
+                (int)Math.Ceiling(snapshot.Length * 0.99) - 1);
+            return snapshot[percentileIndex];
+        }
+    }
+
+    public void RecordEnqueueLatency(long ticks)
+    {
+        if (ticks < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ticks));
+        }
+
+        Interlocked.Add(ref _enqueueLatencyTicks, ticks);
+        Interlocked.Increment(ref _enqueueLatencySamples);
+    }
+
+    public void RecordBatchProcessingTime(TimeSpan time)
+    {
+        if (time < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(nameof(time));
+        }
+
+        lock (_latencyLock)
+        {
+            _latencySamples[_nextLatencySample] = time.TotalMilliseconds;
+            _nextLatencySample = (_nextLatencySample + 1) % LatencySampleCapacity;
+            if (_latencySampleCount < LatencySampleCapacity)
+            {
+                _latencySampleCount++;
+            }
+        }
+    }
+
+    internal void SetCurrentL1Utilization(double utilization)
+    {
+        Volatile.Write(ref _currentL1Utilization, Math.Clamp(utilization, 0, 1));
+    }
 }
 
 /// <summary>

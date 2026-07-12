@@ -1,0 +1,26 @@
+#nullable enable
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.Address.get -> string!
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.Address.set -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.ConsulDiscoveryOptions() -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.DeregisterCriticalAfter.get -> System.TimeSpan
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.DeregisterCriticalAfter.set -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.EnableWatch.get -> bool
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.EnableWatch.set -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.HealthCheckInterval.get -> System.TimeSpan
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.HealthCheckInterval.set -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.NodeIdMetaKey.get -> string!
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.NodeIdMetaKey.set -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.ServiceName.get -> string!
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.ServiceName.set -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.Token.get -> string?
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions.Token.set -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryProvider
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryProvider.Changed -> System.Action?
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryProvider.ConsulDiscoveryProvider(Microsoft.Extensions.Options.IOptions<PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions!>! options, Microsoft.Extensions.Logging.ILogger<PulseRPC.Infrastructure.Consul.ConsulDiscoveryProvider!>! logger) -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryProvider.DeregisterAsync(PulseRPC.Infrastructure.Discovery.DiscoveredNode self, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryProvider.Dispose() -> void
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryProvider.FetchNodesAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<PulseRPC.Infrastructure.Discovery.DiscoveredNode>!>!
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryProvider.RegisterAsync(PulseRPC.Infrastructure.Discovery.DiscoveredNode self, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Consul.ConsulDiscoveryServiceCollectionExtensions
+static PulseRPC.Infrastructure.Consul.ConsulDiscoveryServiceCollectionExtensions.AddConsulDiscovery(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! localNodeId, string! advertiseHost, int advertisePort, System.Action<PulseRPC.Infrastructure.Consul.ConsulDiscoveryOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

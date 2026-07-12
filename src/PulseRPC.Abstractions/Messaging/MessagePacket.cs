@@ -87,7 +87,7 @@ public sealed class MessagePacketHolder : IDisposable
 
 /// <summary>
 /// 高性能消息包装器 - 零分配设计
-/// 使用 Span<T> 和 Memory<T> 优化内存操作
+/// 使用 <c>Span&lt;T&gt;</c> 和 <c>Memory&lt;T&gt;</c> 优化内存操作
 /// </summary>
 public readonly ref struct MessagePacket
 {
@@ -164,6 +164,12 @@ public readonly ref struct MessagePacket
     /// </summary>
     public int WriteTo(Span<byte> buffer)
     {
+        if (Header.WireVersion != ProtocolConstants.MessageHeaderWireVersion)
+        {
+            throw new InvalidOperationException(
+                $"Unsupported MessageHeader wire version {Header.WireVersion}; expected {ProtocolConstants.MessageHeaderWireVersion}.");
+        }
+
         if (buffer.Length < EstimateSize())
             throw new ArgumentException("Buffer too small", nameof(buffer));
 
@@ -209,9 +215,21 @@ public readonly ref struct MessagePacket
         var payloadStart = 4 + headerLength;
 
         // 2. 反序列化头部
-        var header = new MessageHeader();
-        var deserializeSize = MemoryPackSerializer.Deserialize(headerBuffer, ref header, s_headerOptions);
-        if (headerLength != deserializeSize)
+        MessageHeader? header;
+        int deserializeSize;
+        try
+        {
+            header = new MessageHeader();
+            deserializeSize = MemoryPackSerializer.Deserialize(headerBuffer, ref header, s_headerOptions);
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (header is null ||
+            headerLength != deserializeSize ||
+            header.WireVersion != ProtocolConstants.MessageHeaderWireVersion)
             return false;
 
         // 3. 验证负载长度
@@ -222,7 +240,7 @@ public readonly ref struct MessagePacket
         // 4. 提取负载
         var payload = buffer.Slice(payloadStart, payloadSize);
 
-        packet = new MessagePacket(header!, payload);
+        packet = new MessagePacket(header, payload);
         return true;
     }
 

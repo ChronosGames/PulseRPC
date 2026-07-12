@@ -196,7 +196,6 @@ public sealed class TcpNodeTransport : IVersionedNodeTransport, IDisposable
 
         var transportOptions = new TcpTransportOptions
         {
-            ConnectTimeout = _options.ConnectTimeout,
             ConnectionTimeout = ToTimeoutMilliseconds(_options.ConnectTimeout),
             MaxPacketSize = _options.MaxFrameSize,
             SendQueueCapacity = _options.SendQueueCapacity,

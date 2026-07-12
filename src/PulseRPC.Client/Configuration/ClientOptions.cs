@@ -170,9 +170,7 @@ public class ServiceDiscoveryOptions
     public bool EnableFailover { get; set; } = true;
 }
 
-/// <summary>
-/// 连接池配置选项
-/// </summary>
+// 连接池配置选项（保留的设计草稿，尚未公开）。
 // public class ConnectionPoolOptions
 // {
 //     /// <summary>

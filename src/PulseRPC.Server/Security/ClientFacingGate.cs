@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using PulseRPC.Server.Contexts;
 
 namespace PulseRPC.Server.Security;
@@ -10,9 +11,10 @@ namespace PulseRPC.Server.Security;
 /// </summary>
 /// <remarks>
 /// <para>
-/// 源生成器会为每一个协议号方法生成一次 <see cref="Enforce"/> 调用，调用位于
+/// 源生成器会为每一个协议号方法生成一次
+/// <see cref="Enforce(IServiceProvider, bool, ushort, string)"/> 调用，调用位于
 /// <c>ServiceRoutingTable</c> 的协议号路由方法中——这是所有基于协议号的调度共同经过的唯一
-/// 入口，因此该检查对业务代码而言是「强制」且不可绕过的：一旦通过 <see cref="EnforcementEnabled"/>
+/// 入口，因此该检查对业务代码而言是「强制」且不可绕过的：一旦通过宿主策略
 /// 启用门闸，无论方法内部是否实现了 <see cref="AuthorizeAttribute"/> 或
 /// <see cref="PermissionValidator"/> 之类的业务鉴权，只要未标注
 /// <see cref="PulseRPC.ClientFacingAttribute"/>，就永远无法被外部客户端调用到。
@@ -24,23 +26,56 @@ namespace PulseRPC.Server.Security;
 /// 受此门闸影响，只由各自的业务鉴权规则约束。
 /// </para>
 /// <para>
-/// <b>向后兼容</b>：<see cref="EnforcementEnabled"/> 默认 <c>false</c>——生成器产出的检查调用始终存在于
-/// 生成代码中，但默认不生效，因此现有项目在未主动开启前行为与升级前完全一致。
+/// <b>向后兼容</b>：宿主策略默认关闭；<see cref="EnforcementEnabled"/> 继续供旧生成代码与
+/// 直接调用方使用，但服务器宿主不再依赖进程级静态值表达自身配置。
 /// </para>
 /// </remarks>
 public static class ClientFacingGate
 {
+    private static readonly AsyncLocal<HostPolicyScope?> CurrentHostPolicy = new();
+
     /// <summary>
-    /// 是否启用门闸的强制检查。
+    /// 旧生成代码和直接调用路径使用的进程级兼容开关。
     /// </summary>
     /// <remarks>
-    /// 默认 <c>false</c>，以保持向后兼容——现有项目在未主动开启前，行为与升级前完全一致，
-    /// 未标注 <see cref="PulseRPC.ClientFacingAttribute"/> 的方法仍可像以前一样被外部客户端调用。
-    /// 通过 <see cref="PulseRPC.Server.Configuration.PulseServerOptions.EnableClientFacingGate"/>
-    /// 启动服务器即可开启（也可在测试中直接设置本属性）。开启后，只有标注了
-    /// <see cref="PulseRPC.ClientFacingAttribute"/> 的方法才允许外部客户端调用。
+    /// 默认 <c>false</c>。当前生成代码通过宿主服务提供者读取
+    /// <see cref="PulseRPC.Server.Configuration.PulseServerOptions.EnableClientFacingGate"/>，不会写入本属性；
+    /// 本属性仅保留给旧生成程序集、自定义容器回退和直接测试调用。
     /// </remarks>
     public static bool EnforcementEnabled { get; set; }
+
+    /// <summary>
+    /// 使用当前路由所属宿主的服务提供者执行客户端可见性检查。
+    /// </summary>
+    /// <remarks>
+    /// 当前 <c>MessageEngine</c> dispatch 的宿主策略优先，使使用根 provider 或其它共享 provider 的
+    /// 嵌套路由不能覆盖宿主安全边界；没有活动 dispatch 时才读取 <paramref name="serviceProvider"/>
+    /// 上的策略，最后回退到 <see cref="EnforcementEnabled"/>。
+    /// </remarks>
+    /// <param name="serviceProvider">当前协议路由所属宿主的服务提供者。</param>
+    /// <param name="isClientFacing">目标方法是否被标记为客户端可见。</param>
+    /// <param name="protocolId">目标方法的协议号。</param>
+    /// <param name="methodDisplayName">用于拒绝异常的接口与方法展示名。</param>
+    /// <exception cref="ArgumentNullException"><paramref name="serviceProvider"/> 为 <c>null</c>。</exception>
+    /// <exception cref="ClientFacingAccessDeniedException">
+    /// 当前宿主启用门闸、调用来自外部客户端且目标方法不可见。
+    /// </exception>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void Enforce(
+        IServiceProvider serviceProvider,
+        bool isClientFacing,
+        ushort protocolId,
+        string methodDisplayName)
+    {
+        ArgumentNullException.ThrowIfNull(serviceProvider);
+
+        var policy = ResolveAmbientPolicy() ?? ResolveProviderPolicy(serviceProvider);
+        EnforceCore(
+            policy?.EnforcementEnabled ?? EnforcementEnabled,
+            isClientFacing,
+            protocolId,
+            methodDisplayName);
+    }
 
     /// <summary>
     /// 校验外部客户端是否允许调用目标协议方法。
@@ -57,7 +92,42 @@ public static class ClientFacingGate
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Enforce(bool isClientFacing, ushort protocolId, string methodDisplayName)
     {
-        if (!EnforcementEnabled || isClientFacing)
+        EnforceCore(
+            ResolveAmbientPolicy()?.EnforcementEnabled ?? EnforcementEnabled,
+            isClientFacing,
+            protocolId,
+            methodDisplayName);
+    }
+
+    internal static IDisposable? EnterHostPolicyScope(IServiceProvider serviceProvider)
+    {
+        ArgumentNullException.ThrowIfNull(serviceProvider);
+        var policy = ResolveProviderPolicy(serviceProvider);
+        return policy is null ? null : new HostPolicyScope(policy);
+    }
+
+    private static IClientFacingGatePolicy? ResolveProviderPolicy(IServiceProvider serviceProvider)
+        => serviceProvider.GetService(typeof(IClientFacingGatePolicy)) as IClientFacingGatePolicy;
+
+    private static IClientFacingGatePolicy? ResolveAmbientPolicy()
+    {
+        var scope = CurrentHostPolicy.Value;
+        while (scope is not null && !scope.IsActive)
+        {
+            scope = scope.Previous;
+        }
+
+        return scope?.Policy;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void EnforceCore(
+        bool enforcementEnabled,
+        bool isClientFacing,
+        ushort protocolId,
+        string methodDisplayName)
+    {
+        if (!enforcementEnabled || isClientFacing)
         {
             return;
         }
@@ -65,6 +135,45 @@ public static class ClientFacingGate
         if (PulseContext.Current?.SourceType == CallSourceType.ExternalUser)
         {
             throw new ClientFacingAccessDeniedException(protocolId, methodDisplayName);
+        }
+    }
+
+    private sealed class HostPolicyScope : IDisposable
+    {
+        private int _active = 1;
+
+        public HostPolicyScope(IClientFacingGatePolicy policy)
+        {
+            Policy = policy;
+            Previous = CurrentHostPolicy.Value;
+            CurrentHostPolicy.Value = this;
+        }
+
+        public IClientFacingGatePolicy Policy { get; }
+
+        public HostPolicyScope? Previous { get; }
+
+        public bool IsActive => Volatile.Read(ref _active) != 0;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _active, 0) == 0)
+            {
+                return;
+            }
+
+            if (!ReferenceEquals(CurrentHostPolicy.Value, this))
+            {
+                return;
+            }
+
+            var previous = Previous;
+            while (previous is not null && !previous.IsActive)
+            {
+                previous = previous.Previous;
+            }
+
+            CurrentHostPolicy.Value = previous;
         }
     }
 }

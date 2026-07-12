@@ -13,6 +13,7 @@ using PulseRPC.Channels;
 using PulseRPC.Messaging;
 using PulseRPC.Serialization;
 using PulseRPC.Shared;
+using PulseRPC.Client.Transport;
 
 namespace PulseRPC.Client.Channels;
 
@@ -30,9 +31,11 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
     private readonly Task[] _messageProcessingTasks;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
+    private readonly ConcurrentDictionary<Guid, Task> _cancelSendTasks = new();
     private DateTime _lastHeartbeatTime;
     private Task? _heartbeatTask;
     private bool _disposed;
+    private bool _abortiveDisposeRequested;
 
     // ============================================================================
     // 零拷贝优化组件
@@ -249,7 +252,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
 
                     try
                     {
-                        ProcessMessage(message);
+                        await ProcessMessageAsync(message, timeoutCts.Token).ConfigureAwait(false);
                     }
                     catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
                     {
@@ -375,6 +378,15 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
             var header = _serializerProvider.Create(MethodType.Unary, null)
                 .Deserialize<Messaging.MessageHeader>(new ReadOnlySequence<byte>(headerMemory));
 
+            if (header.WireVersion != ProtocolConstants.MessageHeaderWireVersion)
+            {
+                _logger.LogWarning(
+                    "拒绝 MessageHeader wire version {ActualVersion}，当前仅支持 {ExpectedVersion}",
+                    header.WireVersion,
+                    ProtocolConstants.MessageHeaderWireVersion);
+                return;
+            }
+
             var bodyStartIndex = 4 + headerLength;
             var bodyLength = data.Length - bodyStartIndex;
 
@@ -433,7 +445,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
         }
     }
 
-    private void ProcessMessage(NetworkMessage message)
+    private async Task ProcessMessageAsync(NetworkMessage message, CancellationToken cancellationToken)
     {
         try
         {
@@ -449,10 +461,10 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
                     ProcessEvent(message);
                     break;
                 case MessageType.ReverseRequest:
-                    ProcessReverseRequest(message);
+                    await ProcessReverseRequestAsync(message, cancellationToken).ConfigureAwait(false);
                     break;
                 case MessageType.Ping:
-                    ProcessPing(message);
+                    await ProcessPingAsync(message, cancellationToken).ConfigureAwait(false);
                     break;
                 default:
                     if (_logger.IsEnabled(LogLevel.Warning))
@@ -462,6 +474,10 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
                     }
                     break;
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -558,7 +574,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
         }
     }
 
-    private async void ProcessPing(NetworkMessage message)
+    private async Task ProcessPingAsync(NetworkMessage message, CancellationToken cancellationToken)
     {
         try
         {
@@ -578,7 +594,10 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
 
                     // BUGFIX: 复制数据以避免缓冲区被复用
                     var data = bufferWriter.WrittenMemory.ToArray();
-                    await _transport.SendAsync(data, CancellationToken.None);
+                    if (!await _transport.SendAsync(data, cancellationToken).ConfigureAwait(false))
+                    {
+                        throw new IOException("Pong 帧未完成写入。");
+                    }
                 }
                 finally
                 {
@@ -589,6 +608,10 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
             {
                 _messageHeaderPool.Return(header);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -654,7 +677,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
         context.CancellationRegistration = cancellationToken.Register(() =>
         {
             _responseManager.TryCancel(messageId, new OperationCanceledException(cancellationToken), disposeRegistration: false);
-            _ = SendCancelAsync(messageId);
+            TrackCancelSend(messageId);
         });
 
         try
@@ -746,6 +769,21 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
         {
             _messageHeaderPool.Return(header);
         }
+    }
+
+    private void TrackCancelSend(Guid messageId)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var task = SendCancelAsync(messageId);
+        _cancelSendTasks[messageId] = task;
+        task.GetAwaiter().OnCompleted(() =>
+        {
+            _cancelSendTasks.TryRemove(messageId, out _);
+        });
     }
 
     /// <summary>
@@ -878,7 +916,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
     /// <summary>
     /// 处理服务端发起的反向请求：调用已注册处理器，并以 Response/Error 回传应答。
     /// </summary>
-    private async void ProcessReverseRequest(NetworkMessage message)
+    private async Task ProcessReverseRequestAsync(NetworkMessage message, CancellationToken cancellationToken)
     {
         var messageId = message.Header.MessageId;
         var protocolId = message.Header.ProtocolId;
@@ -895,21 +933,37 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
                 var notFound = ErrorResponse.Create(
                     "REVERSE_HANDLER_NOT_FOUND",
                     $"客户端未注册协议号 0x{protocolId:X4} 的反向请求处理器。");
-                await SendReverseReplyAsync(messageId, MessageType.Error, MemoryPack.MemoryPackSerializer.Serialize(notFound));
+                await SendReverseReplyAsync(
+                    messageId,
+                    MessageType.Error,
+                    MemoryPack.MemoryPackSerializer.Serialize(notFound),
+                    cancellationToken).ConfigureAwait(false);
                 return;
             }
 
             try
             {
-                var result = await handler(message.Body, _cts.Token);
-                await SendReverseReplyAsync(messageId, MessageType.Response, result);
+                var result = await handler(message.Body, cancellationToken).ConfigureAwait(false);
+                await SendReverseReplyAsync(messageId, MessageType.Response, result, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "反向请求处理异常: ProtocolId=0x{Id:X4}, MessageId={MessageId}", protocolId, messageId);
                 var error = ErrorResponse.Create(ex.GetType().Name, ex.Message);
-                await SendReverseReplyAsync(messageId, MessageType.Error, MemoryPack.MemoryPackSerializer.Serialize(error));
+                await SendReverseReplyAsync(
+                    messageId,
+                    MessageType.Error,
+                    MemoryPack.MemoryPackSerializer.Serialize(error),
+                    cancellationToken).ConfigureAwait(false);
             }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -920,7 +974,11 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
     /// <summary>
     /// 构建并发送反向请求的应答帧（Response 成功 / Error 失败），回显 MessageId。
     /// </summary>
-    private async ValueTask SendReverseReplyAsync(Guid messageId, MessageType type, ReadOnlyMemory<byte> body)
+    private async ValueTask SendReverseReplyAsync(
+        Guid messageId,
+        MessageType type,
+        ReadOnlyMemory<byte> body,
+        CancellationToken cancellationToken)
     {
         var messageBuffer = _bufferWriterPool.Get();
         try
@@ -950,7 +1008,10 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
 
             // BUGFIX: 复制数据以避免缓冲区被复用
             var data = messageBuffer.WrittenMemory.ToArray();
-            await _transport.SendAsync(data, CancellationToken.None);
+            if (!await _transport.SendAsync(data, cancellationToken).ConfigureAwait(false))
+            {
+                throw new IOException("反向请求应答帧未完成写入。");
+            }
         }
         finally
         {
@@ -1009,10 +1070,21 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
         }
     }
 
-    public void Dispose()
+    internal void Abort()
     {
-        if (_disposed)
+        _abortiveDisposeRequested = true;
+        base.Dispose();
+    }
+
+    public new void Dispose() => base.Dispose();
+
+    protected override void Dispose(bool disposing)
+    {
+        if (!disposing || _disposed)
+        {
+            base.Dispose(disposing);
             return;
+        }
 
         _disposed = true;
 
@@ -1022,10 +1094,16 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
             _transport.DataReceived -= OnTransportDataReceived;
             _transport.StateChanged -= OnTransportStateChanged;
 
+            if (_abortiveDisposeRequested && _transport is IAbortableClientTransport abortableTransport)
+            {
+                abortableTransport.Abort();
+            }
+
             _cts.Cancel();
-            Task.WaitAll(_messageProcessingTasks, TimeSpan.FromSeconds(5));
             _messageQueue.Writer.Complete();
+            Task.WaitAll(_messageProcessingTasks, TimeSpan.FromSeconds(5));
             _heartbeatTask?.Wait(TimeSpan.FromSeconds(5));
+            Task.WhenAll(_cancelSendTasks.Values).GetAwaiter().GetResult();
             _sendLock.Dispose();
             _cts.Dispose();
 
@@ -1036,11 +1114,17 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
         {
             _logger.LogError(ex, "释放资源时发生异常");
         }
+        finally
+        {
+            _transport.Dispose();
+            base.Dispose(disposing);
+        }
     }
 
     // Unity兼容的重置方法
     private static void ResetMessageHeader(MessageHeader header)
     {
+        header.WireVersion = ProtocolConstants.MessageHeaderWireVersion;
         header.Type = default;
         header.MessageId = default;
         header.ServiceName = string.Empty;
@@ -1054,7 +1138,7 @@ internal class TransportChannel : TransportChannelBase, IHubAddressedClientChann
 }
 
 /// <summary>
-/// 适配器类，使用ArrayBufferWriter来兼容IBufferWriter<byte>
+/// 适配器类，使用 ArrayBufferWriter 来兼容 <c>IBufferWriter&lt;byte&gt;</c>
 /// 注意：此类创建自己的缓冲区，序列化完成后需要将数据复制到目标Span
 /// </summary>
 public class SpanBufferWriterAdapter : IBufferWriter<byte>

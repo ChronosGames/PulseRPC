@@ -95,16 +95,17 @@ internal sealed class TcpTransportProvider : ITransportProvider
             SendBufferSize = source?.SendBufferSize ?? 8192,
             NoDelay = source?.NoDelay ?? true,
             KeepAlive = source?.KeepAlive ?? true,
+            MaxPacketSize = source?.MaxPacketSize ?? 4 * 1024 * 1024,
         };
 
         if (source != null && source is TcpTransportOptions o)
         {
+            opts.EnableLinger = o.EnableLinger;
             opts.LingerTime = o.LingerTime;
             // opts.SendTimeout = o.SendTimeout ?? 5000;
             // opts.RecvTimeout = source?.RecvTimeout ?? 0;
 
             // 继承其他选项
-            // opts.MaxPacketSize = source?.MaxPacketSize ?? 64 * 1024;
             // opts.CompressionEnabled = source?.CompressionEnabled ?? false;
             // opts.CompressionThreshold = source?.CompressionThreshold ?? 1024;
         }

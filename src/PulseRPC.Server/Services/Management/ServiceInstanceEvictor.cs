@@ -3,7 +3,6 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using PulseRPC.Server.Hubs; using PulseRPC.Server.Services; using PulseRPC.Server.Transport;
-using PulseRPC.Server.Services;
 
 namespace PulseRPC.Server.Services.Management;
 
@@ -34,9 +33,11 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     private readonly PulseServiceManagerOptions _options;
     private readonly ILogger<ServiceInstanceEvictor> _logger;
 
-    private Timer? _cleanupTimer;
+    private readonly object _lifecycleLock = new();
+    private readonly SemaphoreSlim _cleanupGate = new(1, 1);
+    private CancellationTokenSource? _runCancellation;
+    private Task? _runTask;
     private bool _isRunning;
-    private int _cleanupInProgress;
 
     // 统计信息
     private long _totalEvicted;
@@ -71,47 +72,87 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     /// <inheritdoc/>
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        if (_isRunning)
+        lock (_lifecycleLock)
         {
-            _logger.LogWarning("ServiceInstanceEvictor is already running");
-            return Task.CompletedTask;
+            if (_runTask is not null)
+            {
+                _logger.LogWarning("ServiceInstanceEvictor is already running or stopping");
+                return Task.CompletedTask;
+            }
+
+            _logger.LogInformation(
+                "Starting ServiceInstanceEvictor with cleanup interval: {Interval}, max instances: {MaxInstances}",
+                _options.CleanupInterval,
+                _options.MaxCachedInstances);
+
+            _runCancellation = new CancellationTokenSource();
+            _runTask = RunCleanupLoopAsync(_runCancellation.Token);
+            _isRunning = true;
         }
-
-        _logger.LogInformation(
-            "Starting ServiceInstanceEvictor with cleanup interval: {Interval}, max instances: {MaxInstances}",
-            _options.CleanupInterval,
-            _options.MaxCachedInstances);
-
-        _isRunning = true;
-        _cleanupTimer = new Timer(
-            CleanupCallback,
-            null,
-            _options.CleanupInterval,
-            _options.CleanupInterval);
 
         return Task.CompletedTask;
     }
 
     /// <inheritdoc/>
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        if (!_isRunning)
+        CancellationTokenSource? runCancellation;
+        Task? runTask;
+        lock (_lifecycleLock)
         {
-            return Task.CompletedTask;
+            if (!_isRunning)
+            {
+                return;
+            }
+
+            _logger.LogInformation("Stopping ServiceInstanceEvictor");
+            _isRunning = false;
+            runCancellation = _runCancellation;
+            runTask = _runTask;
+            runCancellation?.Cancel();
         }
 
-        _logger.LogInformation("Stopping ServiceInstanceEvictor");
+        if (runTask is not null)
+        {
+            await runTask.WaitAsync(cancellationToken);
+        }
 
-        _isRunning = false;
-        _cleanupTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+        lock (_lifecycleLock)
+        {
+            if (ReferenceEquals(_runTask, runTask))
+            {
+                _runTask = null;
+                _runCancellation = null;
+            }
+        }
 
-        return Task.CompletedTask;
+        runCancellation?.Dispose();
     }
 
     /// <inheritdoc/>
     public void Dispose()
     {
-        _cleanupTimer?.Dispose();
+        CancellationTokenSource? runCancellation;
+        Task? runTask;
+        lock (_lifecycleLock)
+        {
+            _isRunning = false;
+            runCancellation = _runCancellation;
+            runTask = _runTask;
+            _runCancellation = null;
+            _runTask = null;
+            runCancellation?.Cancel();
+        }
+
+        try
+        {
+            runTask?.GetAwaiter().GetResult();
+        }
+        finally
+        {
+            runCancellation?.Dispose();
+            _cleanupGate.Dispose();
+        }
     }
 
     /// <summary>
@@ -119,29 +160,50 @@ public sealed class ServiceInstanceEvictor : IHostedService, IDisposable
     /// </summary>
     public async Task ForceCleanupAsync(CancellationToken cancellationToken = default)
     {
-        await PerformCleanupAsync(cancellationToken);
-    }
-
-    private async void CleanupCallback(object? state)
-    {
-        // 防止并发清理
-        if (Interlocked.CompareExchange(ref _cleanupInProgress, 1, 0) != 0)
-        {
-            _logger.LogDebug("Cleanup already in progress, skipping this run");
-            return;
-        }
-
+        await _cleanupGate.WaitAsync(cancellationToken);
         try
         {
-            await PerformCleanupAsync(CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during service instance cleanup");
+            await PerformCleanupAsync(cancellationToken);
         }
         finally
         {
-            Interlocked.Exchange(ref _cleanupInProgress, 0);
+            _cleanupGate.Release();
+        }
+    }
+
+    private async Task RunCleanupLoopAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(_options.CleanupInterval);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (!await _cleanupGate.WaitAsync(0, cancellationToken))
+                {
+                    _logger.LogDebug("Cleanup already in progress, skipping this run");
+                    continue;
+                }
+
+                try
+                {
+                    await PerformCleanupAsync(cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during service instance cleanup");
+                }
+                finally
+                {
+                    _cleanupGate.Release();
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 
@@ -339,4 +401,3 @@ public sealed class EvictorStatistics
     public TimeSpan CleanupInterval { get; init; }
     public int MaxCachedInstances { get; init; }
 }
-

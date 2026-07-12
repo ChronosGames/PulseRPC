@@ -11,7 +11,8 @@ public enum TransportBackpressureStrategy
     Block = 0,
 
     /// <summary>
-    /// 丢弃最旧消息以腾出空间
+    /// 丢弃最旧消息以腾出空间。当前为实验枚举值；<c>BatchedTransport</c>
+    /// 无法可靠完成被丢弃请求，因此选择此值会在构造时抛出 <see cref="NotSupportedException"/>。
     /// </summary>
     DropOldest = 1,
 

@@ -160,7 +160,9 @@ public static class ServiceAnalyzer
                 Name = param.Name,
                 TypeName = param.Type.Name,
                 TypeFullName = param.Type.ToDisplayString(),
-                IsMemoryPackable = IsMemoryPackable(param.Type)
+                IsMemoryPackable = IsMemoryPackable(param.Type),
+                IsCancellationToken = ProtocolIdHelper.IsCancellationToken(param.Type),
+                RefKind = param.RefKind
             };
             parameters.Add(paramModel);
         }
@@ -170,13 +172,19 @@ public static class ServiceAnalyzer
         var isReentrant = methodSymbol.GetAttributes()
             .Any(attr => attr.AttributeClass?.Name is "ReentrantAttribute" or "Reentrant");
         var isClientFacing = ClientFacingHelper.GetClientFacing(methodSymbol) ?? facetClientFacing;
+        var protocolIdParseResult = ProtocolIdHelper.ParseManualProtocolId(methodSymbol, out var protocolId);
 
         return new MethodModel
         {
             MethodName = methodSymbol.Name,
+            MethodIdentity = MethodIdentity.CreateLookupKey(methodSymbol),
+            GenericArity = methodSymbol.Arity,
             ReturnTypeName = returnTypeName,
             ReturnTypeFullName = returnTypeFullName,
             Parameters = parameters,
+            HasExplicitProtocolId = protocolIdParseResult == ManualProtocolIdParseResult.Valid,
+            HasInvalidProtocolId = protocolIdParseResult == ManualProtocolIdParseResult.Invalid,
+            ProtocolId = protocolId,
             IsAsync = isAsync,
             IsGenericTask = isGenericTask,
             ChannelName = methodChannelName,
@@ -342,7 +350,10 @@ public static class ServiceAnalyzer
                 if (namedType.TypeArguments.Length > 0)
                 {
                     // 使用完全限定格式确保包含命名空间
-                    return namedType.TypeArguments[0].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                    return namedType.TypeArguments[0].ToDisplayString(
+                        SymbolDisplayFormat.FullyQualifiedFormat.WithMiscellaneousOptions(
+                            SymbolDisplayFormat.FullyQualifiedFormat.MiscellaneousOptions |
+                            SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier));
                 }
                 return null;
             }

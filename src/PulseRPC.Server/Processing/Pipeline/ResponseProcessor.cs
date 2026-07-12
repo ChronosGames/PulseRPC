@@ -464,7 +464,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
 
              ReadOnlyMemory<byte> responsePayload;
 
-            if (responseTask.Success && responseTask.Result != null)
+            if (responseTask.Success && (responseTask.Result != null || responseTask.ProtocolId != 0))
             {
                 try
                 {
@@ -489,7 +489,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
              }
              else
              {
-                 // 空响应 (void 方法、系统消息或 null 结果)
+                 // 无协议号的系统空响应
                  responsePayload = ReadOnlyMemory<byte>.Empty;
              }
 
@@ -569,11 +569,6 @@ internal sealed class ResponseProcessor : IResponseProcessor
    /// </summary>
    private Task<ReadOnlyMemory<byte>> SerializeResponseAsync(object? result, ushort protocolId)
    {
-       if (result == null)
-       {
-           return Task.FromResult(ReadOnlyMemory<byte>.Empty);
-       }
-
        if (protocolId == 0)
        {
            throw new ArgumentException("响应消息缺少 ProtocolId。");
@@ -585,8 +580,15 @@ internal sealed class ResponseProcessor : IResponseProcessor
            throw new ArgumentException($"未找到响应序列化器: ProtocolId=0x{protocolId:X4}");
        }
 
+       if (result is null && protocolSerializer is not INullResponseSerializer)
+       {
+           // 既有自定义/void serializer 未声明 typed-null 能力时保持空 payload，
+           // 避免升级后首次把 null 传入其非空调用契约。
+           return Task.FromResult(ReadOnlyMemory<byte>.Empty);
+       }
+
        var buffer = new ArrayBufferWriter<byte>();
-       protocolSerializer.Serialize(result, buffer);
+       protocolSerializer.Serialize(result!, buffer);
        return Task.FromResult(buffer.WrittenMemory);
    }
 

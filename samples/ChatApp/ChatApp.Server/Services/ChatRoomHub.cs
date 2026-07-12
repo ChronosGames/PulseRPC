@@ -58,7 +58,7 @@ public class ChatRoomHub : IChatRoomHub
     /// <remarks>
     /// 注意：<see cref="PulseContext.Current"/> 是"每请求"新建的（见 <c>MessageEngine.ProcessSingleMessage</c>），
     /// 因此不能用它的 <c>Properties</c> 跨请求保存会话状态。这里改为存放在
-    /// <see cref="IAuthenticationContext.Properties"/> 中——该对象与连接的生命周期绑定
+    /// <see cref="PulseRPC.Authentication.IAuthenticationContext.Properties"/> 中——该对象与连接的生命周期绑定
     /// （<c>IServerChannel.AuthenticationContext</c>），能在同一连接的多次请求间持久化。
     /// </remarks>
     private string? CurrentRoomId => PulseContext.Current?.AuthenticationContext?.Properties.TryGetValue("RoomId", out var roomId) == true
@@ -367,4 +367,3 @@ public class ChatRoomHub : IChatRoomHub
         return (null, null);
     }
 }
-

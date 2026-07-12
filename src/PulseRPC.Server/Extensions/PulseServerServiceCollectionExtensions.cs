@@ -11,7 +11,7 @@ using PulseRPC.Server.Processing.Engine;
 using PulseRPC.Server.Processing.Pipeline;
 using PulseRPC.Server.Processing;
 using PulseRPC.Server.Services.Scheduling;
-using PulseRPC.Server.Transport;
+using PulseRPC.Server.Security;
 using PulseRPC.Scheduling;
 using PulseRPC.Serialization;
 using PulseRPC.Shared;
@@ -152,6 +152,11 @@ public static class PulseServerServiceCollectionExtensions
     /// </summary>
     private static void RegisterInternalDependencies(IServiceCollection services)
     {
+        services.TryAddSingleton<IClientFacingGatePolicy>(sp =>
+            new ClientFacingGatePolicy(
+                sp.GetRequiredService<IOptions<PulseServerOptions>>()
+                    .Value.EnableClientFacingGate));
+
         // 1. 首先注册基础依赖（不依赖其他服务）
         services.TryAddSingleton<IMessageDispatcher, MessageDispatcher>();
         services.TryAddSingleton<IResponseProcessor, ResponseProcessor>();
@@ -349,6 +354,18 @@ public static class NamedPulseServerServiceCollectionExtensions
         // 为每个命名服务器注册独立的依赖（使用 Keyed Services）
         // 注意：依赖创建顺序很重要
 
+        // 0. 每个服务器独立的 gate 策略与宿主服务提供者视图
+        services.AddKeyedSingleton<IClientFacingGatePolicy>(serverName, (sp, _) =>
+        {
+            var options = sp.GetRequiredService<IOptionsMonitor<PulseServerOptions>>()
+                .Get(serverName);
+            return new ClientFacingGatePolicy(options.EnableClientFacingGate);
+        });
+        services.AddKeyedSingleton<ClientFacingGateServiceProvider>(serverName, (sp, key) =>
+            new ClientFacingGateServiceProvider(
+                sp,
+                sp.GetRequiredKeyedService<IClientFacingGatePolicy>(key)));
+
         // 1. 通道管理器（每个服务器独立）
         services.AddKeyedSingleton<IServerChannelManager>(serverName, (sp, key) =>
         {
@@ -388,12 +405,13 @@ public static class NamedPulseServerServiceCollectionExtensions
             var channelManager = sp.GetRequiredKeyedService<IServerChannelManager>(key);
             var responseProcessor = sp.GetRequiredKeyedService<IResponseProcessor>(key);
             var scheduler = sp.GetService<IServiceScheduler>();
+            var hostServiceProvider = sp.GetRequiredKeyedService<ClientFacingGateServiceProvider>(key);
 
             var engineOptions = Options.Create(new MessageEngineConfiguration());
 
             return new MessageEngine(
                 dispatcher,
-                sp, // IServiceProvider
+                hostServiceProvider,
                 engineOptions,
                 logger,
                 channelManager,

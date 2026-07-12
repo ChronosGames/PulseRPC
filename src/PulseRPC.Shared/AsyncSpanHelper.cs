@@ -8,7 +8,7 @@ using PulseRPC.Shared.Tcp;
 namespace PulseRPC.Shared;
 
 /// <summary>
-/// 帮助类：在异步上下文中安全使用 Span<T>
+/// 帮助类：在异步上下文中安全使用 <c>Span&lt;T&gt;</c>
 /// 通过将 Span 操作封装在同步方法中来避免 async/await 限制
 /// </summary>
 internal static class AsyncSpanHelper

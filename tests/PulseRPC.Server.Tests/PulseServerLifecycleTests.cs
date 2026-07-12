@@ -90,6 +90,52 @@ public class PulseServerLifecycleTests
     }
 
     [Fact]
+    public async Task Stop_MustWaitForInFlightConnectionRollback()
+    {
+        var listener = new TestServerListener();
+        var channelManager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
+        var server = new PulseServer(
+            new TestMessageEngine(),
+            channelManager,
+            new TestTransportIntegrationManager(listener),
+            NullLoggerFactory.Instance,
+            Options.Create(new PulseServerOptions().AddTcp("main", 5000)));
+        server.ClientConnected += (_, _) => throw new InvalidOperationException("handler failed");
+
+        var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseClose = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transport = new MockServerTransport("conn-rollback")
+        {
+            CloseHandler = async _ =>
+            {
+                closeEntered.TrySetResult();
+                await releaseClose.Task;
+            }
+        };
+
+        await server.StartAsync();
+        try
+        {
+            listener.Accept(transport);
+            await closeEntered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+            var stop = server.StopAsync();
+            await Task.Delay(50);
+            stop.IsCompleted.Should().BeFalse("server shutdown must join accepted connection rollback tasks");
+
+            releaseClose.TrySetResult();
+            await stop.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            releaseClose.TrySetResult();
+            await server.StopAsync();
+            server.Dispose();
+            channelManager.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task ClientDisconnected_MustForwardChannelManagerEvent()
     {
         var channelManager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);

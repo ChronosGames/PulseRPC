@@ -301,22 +301,23 @@ public static class EventHandlerGenerator
     {
         var methodName = methodSymbol.Name;
         var parameters = methodSymbol.Parameters;
+        var wireParameters = parameters.Where(parameter => !IsCancellationToken(parameter)).ToArray();
         var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
 
         // 确定事件数据类型
         string eventDataType;
-        if (parameters.Length == 0)
+        if (wireParameters.Length == 0)
         {
-            eventDataType = "object";
+            eventDataType = string.Empty;
         }
-        else if (parameters.Length == 1)
+        else if (wireParameters.Length == 1)
         {
-            eventDataType = parameters[0].Type.ToDisplayString();
+            eventDataType = wireParameters[0].Type.ToDisplayString();
         }
         else
         {
             // 多个参数时创建一个包装类型名称 (元组)
-            eventDataType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
+            eventDataType = "(" + string.Join(", ", wireParameters.Select(p => p.Type.ToDisplayString())) + ")";
         }
 
         sb.AppendLine($"{bodyIndent}// ========== 零拷贝优化路径：Server Sent Event ==========");
@@ -326,10 +327,17 @@ public static class EventHandlerGenerator
         sb.AppendLine($"{innerIndent}protocolId: {constName},");
         sb.AppendLine($"{innerIndent}deserializeAndInvoke: (System.ReadOnlyMemory<byte> __rawEventData__) =>");
         sb.AppendLine($"{innerIndent}{{");
-        sb.AppendLine($"{deepIndent}// 显式反序列化（编译时已知类型）");
-        sb.AppendLine($"{deepIndent}var __eventData__ = MemoryPack.MemoryPackSerializer.Deserialize<{eventDataType}>(__rawEventData__.Span)!;");
-        sb.AppendLine($"{deepIndent}// 调用分发方法");
-        sb.AppendLine($"{deepIndent}_ = Dispatch{methodName}FromChannelAsync(__eventData__);");
+        if (wireParameters.Length == 0)
+        {
+            sb.AppendLine($"{deepIndent}_ = Dispatch{methodName}FromChannelAsync();");
+        }
+        else
+        {
+            sb.AppendLine($"{deepIndent}// 显式反序列化（编译时已知类型）");
+            sb.AppendLine($"{deepIndent}var __eventData__ = MemoryPack.MemoryPackSerializer.Deserialize<{eventDataType}>(__rawEventData__.Span)!;");
+            sb.AppendLine($"{deepIndent}// 调用分发方法");
+            sb.AppendLine($"{deepIndent}_ = Dispatch{methodName}FromChannelAsync(__eventData__);");
+        }
         sb.AppendLine($"{innerIndent}}}));");
         sb.AppendLine();
     }
@@ -338,47 +346,70 @@ public static class EventHandlerGenerator
     {
         var methodName = methodSymbol.Name;
         var parameters = methodSymbol.Parameters;
+        var wireParameters = parameters.Where(parameter => !IsCancellationToken(parameter)).ToArray();
 
         sb.AppendLine($"{memberIndent}/// <summary>");
         sb.AppendLine($"{memberIndent}/// 从通道分发 {methodName} 事件到处理器（零拷贝优化）");
         sb.AppendLine($"{memberIndent}/// </summary>");
 
         // 确定参数类型和处理方式
-        if (parameters.Length == 0)
+        if (wireParameters.Length == 0)
         {
-            sb.AppendLine($"{memberIndent}private async Task Dispatch{methodName}FromChannelAsync(object eventData)");
+            sb.AppendLine($"{memberIndent}private async Task Dispatch{methodName}FromChannelAsync()");
             sb.AppendLine($"{memberIndent}{{");
-            sb.AppendLine($"{bodyIndent}await Dispatch{methodName}Async();");
+            var arguments = BuildChannelDispatchArgumentList(parameters, useTuple: false);
+            sb.AppendLine($"{bodyIndent}await Dispatch{methodName}Async({arguments});");
             sb.AppendLine($"{memberIndent}}}");
         }
-        else if (parameters.Length == 1)
+        else if (wireParameters.Length == 1)
         {
-            var paramType = parameters[0].Type.ToDisplayString();
-            var paramName = parameters[0].Name;
+            var paramType = wireParameters[0].Type.ToDisplayString();
+            var paramName = wireParameters[0].Name;
             sb.AppendLine($"{memberIndent}private async Task Dispatch{methodName}FromChannelAsync({paramType} {paramName})");
             sb.AppendLine($"{memberIndent}{{");
-            sb.AppendLine($"{bodyIndent}await Dispatch{methodName}Async({paramName});");
+            var arguments = BuildChannelDispatchArgumentList(parameters, useTuple: false);
+            sb.AppendLine($"{bodyIndent}await Dispatch{methodName}Async({arguments});");
             sb.AppendLine($"{memberIndent}}}");
         }
         else
         {
             // 多个参数的情况下，使用元组解构
-            var tupleType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
+            var tupleType = "(" + string.Join(", ", wireParameters.Select(p => p.Type.ToDisplayString())) + ")";
             sb.AppendLine($"{memberIndent}private async Task Dispatch{methodName}FromChannelAsync({tupleType} eventData)");
             sb.AppendLine($"{memberIndent}{{");
-            sb.Append($"{bodyIndent}await Dispatch{methodName}Async(");
-
-            // 生成参数列表（从元组解构）
-            for (var i = 0; i < parameters.Length; i++)
-            {
-                if (i > 0) sb.Append(", ");
-                sb.Append($"eventData.Item{i + 1}");
-            }
-
-            sb.AppendLine(");");
+            var arguments = BuildChannelDispatchArgumentList(parameters, useTuple: true);
+            sb.AppendLine($"{bodyIndent}await Dispatch{methodName}Async({arguments});");
             sb.AppendLine($"{memberIndent}}}");
         }
         sb.AppendLine();
+    }
+
+    private static bool IsCancellationToken(IParameterSymbol parameter)
+    {
+        var typeName = parameter.Type.ToDisplayString();
+        return typeName is "System.Threading.CancellationToken" or "CancellationToken";
+    }
+
+    private static string BuildChannelDispatchArgumentList(
+        IEnumerable<IParameterSymbol> parameters,
+        bool useTuple)
+    {
+        var wireParameterIndex = 0;
+        var arguments = new List<string>();
+
+        foreach (var parameter in parameters)
+        {
+            if (IsCancellationToken(parameter))
+            {
+                arguments.Add("System.Threading.CancellationToken.None");
+                continue;
+            }
+
+            wireParameterIndex++;
+            arguments.Add(useTuple ? $"eventData.Item{wireParameterIndex}" : parameter.Name);
+        }
+
+        return string.Join(", ", arguments);
     }
 
     private static void GenerateMonitoringMethods(StringBuilder sb, string memberIndent, string bodyIndent)
@@ -472,8 +503,7 @@ public static class EventHandlerGenerator
             if (methodSymbol.DeclaredAccessibility != Accessibility.Public)
                 continue;
 
-            // 使用完整键格式: {InterfaceFullName}.{MethodName}
-            var methodKey = $"{methodSymbol.ContainingType.ToDisplayString()}.{methodSymbol.Name}";
+            var methodKey = MethodIdentity.CreateLookupKey(methodSymbol);
             if (protocolIds.TryGetValue(methodKey, out var protocolId))
             {
                 var methodSignature = ProtocolIdGenerator.BuildMethodSignature(methodSymbol);

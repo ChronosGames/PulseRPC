@@ -1,0 +1,21 @@
+#nullable enable
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.ConnectionString.get -> string!
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.ConnectionString.set -> void
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.EnableWatch.get -> bool
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.EnableWatch.set -> void
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.EtcdDiscoveryOptions() -> void
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.KeyPrefix.get -> string!
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.KeyPrefix.set -> void
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.LeaseTtlSeconds.get -> long
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions.LeaseTtlSeconds.set -> void
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider.Changed -> System.Action?
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider.DeregisterAsync(PulseRPC.Infrastructure.Discovery.DiscoveredNode self, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider.Dispose() -> void
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider.EtcdDiscoveryProvider(Microsoft.Extensions.Options.IOptions<PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions!>! options, Microsoft.Extensions.Logging.ILogger<PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider!>! logger) -> void
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider.FetchNodesAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<PulseRPC.Infrastructure.Discovery.DiscoveredNode>!>!
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider.RegisterAsync(PulseRPC.Infrastructure.Discovery.DiscoveredNode self, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task!
+PulseRPC.Infrastructure.Etcd.EtcdDiscoveryServiceCollectionExtensions
+static PulseRPC.Infrastructure.Etcd.EtcdDiscoveryProvider.TryParseEndpoint(string! value, out PulseRPC.Clustering.NodeEndpoint endpoint) -> bool
+static PulseRPC.Infrastructure.Etcd.EtcdDiscoveryServiceCollectionExtensions.AddEtcdDiscovery(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, string! localNodeId, string! advertiseHost, int advertisePort, System.Action<PulseRPC.Infrastructure.Etcd.EtcdDiscoveryOptions!>? configure = null) -> Microsoft.Extensions.DependencyInjection.IServiceCollection!

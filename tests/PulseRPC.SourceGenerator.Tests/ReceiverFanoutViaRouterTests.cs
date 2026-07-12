@@ -121,14 +121,36 @@ internal static class ProtocolIdConsistencyTestsHelpers
 
     public static string RunServerGenerator(CSharpCompilation compilation)
     {
-        var generator = new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator();
-        var driver = CSharpGeneratorDriver.Create(generator).RunGenerators(compilation);
-        var result = driver.GetRunResult();
+        var result = RunServerGeneratorRaw(compilation);
 
         result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
             .Should().BeEmpty("服务端生成器不应报告编译错误诊断");
 
         return string.Join("\n\n", result.Results.SelectMany(r => r.GeneratedSources).Select(s => s.SourceText.ToString()));
+    }
+
+    public static GeneratorDriverRunResult RunServerGeneratorRaw(CSharpCompilation compilation)
+    {
+        var generator = new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator();
+        var driver = CSharpGeneratorDriver.Create(generator).RunGenerators(compilation);
+        return driver.GetRunResult();
+    }
+
+    public static string RunClientGenerator(CSharpCompilation compilation)
+    {
+        var result = RunClientGeneratorRaw(compilation);
+
+        result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("客户端生成器不应报告编译错误诊断");
+
+        return string.Join("\n\n", result.Results.SelectMany(r => r.GeneratedSources).Select(s => s.SourceText.ToString()));
+    }
+
+    public static GeneratorDriverRunResult RunClientGeneratorRaw(CSharpCompilation compilation)
+    {
+        var generator = new global::PulseRPC.Generator.ServiceProxyGenerator();
+        var driver = CSharpGeneratorDriver.Create(generator).RunGenerators(compilation);
+        return driver.GetRunResult();
     }
 
     private static MetadataReference[] GetMetadataReferences()

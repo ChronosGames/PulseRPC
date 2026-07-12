@@ -62,7 +62,7 @@ public static class SchedulerIntegrationExtensions
 ///     var serviceContext = GetServiceContextForConnection(message.ConnectionId);
 ///
 ///     // Get scheduler from DI (injected in constructor)
-///     var scheduler = _serviceProvider.GetService<IServiceScheduler>();
+///     var scheduler = _serviceProvider.GetService&lt;IServiceScheduler&gt;();
 ///
 ///     // Wrap service invocation with scheduler
 ///     await scheduler.InvokeWithSchedulerAsync(

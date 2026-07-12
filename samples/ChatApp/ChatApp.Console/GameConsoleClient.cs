@@ -18,7 +18,7 @@ public class GameConsoleClient(ILoggerFactory loggerFactory)
     private readonly ILogger<GameConsoleClient> _logger = loggerFactory.CreateLogger<GameConsoleClient>();
     private IPulseClient? _client;
     private IChatRoomHub? _playerService;
-    private ISubscriptionToken? _eventsSubscription;
+    private ISubscriptionToken? _eventsSubscription = null;
     private CancellationTokenSource? _cts;
     private bool _isLoggedIn;
     private Vector3 _position = Vector3.Zero;

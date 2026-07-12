@@ -7,7 +7,6 @@ using PulseRPC.Server.Configuration;
 using PulseRPC.Server.Processing.Engine;
 using PulseRPC.Server.Transport;
 using PulseRPC.Server.Health; using PulseRPC.Server.Processing; using PulseRPC.Server.Channels; using PulseRPC.Server.Services; using PulseRPC.Server.Services.Scheduling;
-using PulseRPC.Server.Transport;
 using PulseRPC.Shared;
 using BackpressurePolicyCore = PulseRPC.Server.Services.BackpressurePolicy;
 using EndPoint = System.Net.EndPoint;
@@ -36,7 +35,11 @@ public sealed class PulseServer : IPulseServer
 
     private volatile ServerState _state = ServerState.Stopped;
     private readonly Lock _stateLock = new();
+    private readonly Lock _connectionTaskLock = new();
     private readonly CancellationTokenSource _shutdownCts = new();
+    private readonly ConcurrentDictionary<long, Task> _connectionTasks = new();
+    private bool _acceptingConnections;
+    private long _connectionTaskId;
 
     // Performance tracking
     private long _totalConnectionsAccepted;
@@ -64,9 +67,6 @@ public sealed class PulseServer : IPulseServer
 
         // Validate configuration
         _options.Validate();
-
-        // P-6：按配置启用/禁用 client-facing 可见性门闸的强制检查（默认关闭，向后兼容）
-        Security.ClientFacingGate.EnforcementEnabled = _options.EnableClientFacingGate;
 
         _messageEngine = messageEngine ?? throw new ArgumentNullException(nameof(messageEngine));
         _channelManager = channelManager ?? throw new ArgumentNullException(nameof(channelManager));
@@ -102,6 +102,11 @@ public sealed class PulseServer : IPulseServer
             ChangeState(ServerState.Starting);
         }
 
+        lock (_connectionTaskLock)
+        {
+            _acceptingConnections = true;
+        }
+
         try
         {
             _logger.LogInformation("Starting server with {TransportCount} transports", _transports.Count);
@@ -128,8 +133,14 @@ public sealed class PulseServer : IPulseServer
             _logger.LogError(ex, "Failed to start server");
             ChangeState(ServerState.Stopped);
 
+            lock (_connectionTaskLock)
+            {
+                _acceptingConnections = false;
+            }
+
             // Cleanup started listeners
             await StopAllListenersAsync();
+            await WaitForConnectionTasksAsync();
             throw;
         }
     }
@@ -185,11 +196,17 @@ public sealed class PulseServer : IPulseServer
         {
             _logger.LogInformation("Stopping server...");
 
+            lock (_connectionTaskLock)
+            {
+                _acceptingConnections = false;
+            }
+
             // Trigger shutdown
             await _shutdownCts.CancelAsync();
 
             // Stop all listeners
             await StopAllListenersAsync();
+            await WaitForConnectionTasksAsync();
 
             // Stop pipeline components
             await _messageEngine.StopAsync();
@@ -264,7 +281,49 @@ public sealed class PulseServer : IPulseServer
     {
         // ProcessNewConnectionAsync 在成功路径的首个 await 之前完成 channel 与消息处理器注册。
         // 这里不能切到线程池，否则传输开始收包后首帧可能先于 RegisterConnection 到达而被丢弃。
-        _ = ProcessNewConnectionAsync(e);
+        Task task;
+        var taskId = Interlocked.Increment(ref _connectionTaskId);
+        lock (_connectionTaskLock)
+        {
+            task = _acceptingConnections
+                ? ProcessNewConnectionAsync(e)
+                : CloseRejectedConnectionAsync(e.Transport);
+            _connectionTasks.TryAdd(taskId, task);
+        }
+
+        _ = task.ContinueWith(
+            (completedTask, state) =>
+            {
+                var (tasks, id) = ((ConcurrentDictionary<long, Task>, long))state!;
+                tasks.TryRemove(id, out _);
+            },
+            (_connectionTasks, taskId),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private async Task WaitForConnectionTasksAsync()
+    {
+        Task[] tasks;
+        lock (_connectionTaskLock)
+        {
+            tasks = _connectionTasks.Values.ToArray();
+        }
+
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+    }
+
+    private async Task CloseRejectedConnectionAsync(IServerTransport transport)
+    {
+        try
+        {
+            await transport.CloseAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error closing connection accepted during shutdown: {ConnectionId}", transport.Id);
+        }
     }
 
     private async Task ProcessNewConnectionAsync(ServerConnectionEventArgs e)

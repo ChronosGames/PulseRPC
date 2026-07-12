@@ -93,7 +93,6 @@ public static class ServiceProxyGenerator
     private static void GenerateFields(StringBuilder sb, ServiceModel serviceModel)
     {
         sb.AppendLine($"    private readonly {serviceModel.InterfaceFullName} _implementation;");
-        sb.AppendLine($"    private static readonly string ServiceName = \"{serviceModel.InterfaceFullName}\";");
         sb.AppendLine();
     }
 
@@ -135,7 +134,7 @@ public static class ServiceProxyGenerator
         sb.AppendLine($"    /// </summary>");
         sb.AppendLine("    [MethodImpl(MethodImplOptions.AggressiveInlining)]");
         // P7: 移除 async 关键字，使用同步快速路径
-        sb.AppendLine($"    public ValueTask<object?> Invoke_{method.MethodName}_Async(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
+        sb.AppendLine($"    public ValueTask<object?> Invoke_{method.GeneratedIdentifier}_Async(ReadOnlyMemory<byte> data, CancellationToken cancellationToken)");
         sb.AppendLine("    {");
 
         // 反序列化参数
@@ -154,16 +153,21 @@ public static class ServiceProxyGenerator
     /// </summary>
     private static void GenerateParameterDeserialization(StringBuilder sb, MethodModel method, IReadOnlyList<string> parameterVariableNames)
     {
-        if (!method.HasParameters)
+        var wireParameters = method.Parameters
+            .Select((parameter, index) => (parameter, index))
+            .Where(item => !item.parameter.IsCancellationToken)
+            .ToList();
+
+        if (wireParameters.Count == 0)
         {
-            sb.AppendLine("        // Method has no parameters");
+            sb.AppendLine("        // Method has no wire parameters");
             return;
         }
 
-        if (method.IsSingleParameter)
+        if (wireParameters.Count == 1)
         {
-            var param = method.FirstParameter!;
-            var variableName = parameterVariableNames[0];
+            var (param, parameterIndex) = wireParameters[0];
+            var variableName = parameterVariableNames[parameterIndex];
             if (!param.IsMemoryPackable)
             {
                 sb.AppendLine($"        // Warning: Parameter type {param.TypeName} is not MemoryPackable");
@@ -178,14 +182,14 @@ public static class ServiceProxyGenerator
             sb.AppendLine("        // Multi-parameter deserialization from tuple");
 
             // 构造元组类型
-            var tupleType = "(" + string.Join(", ", method.Parameters.Select(p => p.TypeFullName)) + ")";
+            var tupleType = "(" + string.Join(", ", wireParameters.Select(item => item.parameter.TypeFullName)) + ")";
             sb.AppendLine($"        var __tuple__ = MemoryPackSerializer.Deserialize<{tupleType}>(data.Span);");
 
             // 从元组中提取各个参数
-            for (int i = 0; i < method.Parameters.Count; i++)
+            for (int i = 0; i < wireParameters.Count; i++)
             {
-                var param = method.Parameters[i];
-                var variableName = parameterVariableNames[i];
+                var (param, parameterIndex) = wireParameters[i];
+                var variableName = parameterVariableNames[parameterIndex];
                 sb.AppendLine($"        var {variableName} = __tuple__.Item{i + 1};");
             }
         }
@@ -198,9 +202,8 @@ public static class ServiceProxyGenerator
     /// </summary>
     private static void GenerateServiceMethodCall(StringBuilder sb, MethodModel method, IReadOnlyList<string> parameterVariableNames)
     {
-        var paramList = method.HasParameters ?
-            string.Join(", ", parameterVariableNames) :
-            "";
+        var paramList = string.Join(", ", method.Parameters.Select((parameter, index) =>
+            parameter.IsCancellationToken ? "cancellationToken" : parameterVariableNames[index]));
 
         if (method.IsAsync)
         {

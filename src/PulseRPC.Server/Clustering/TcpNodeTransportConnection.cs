@@ -74,6 +74,8 @@ internal sealed class TcpNodeClient : TcpTransport
     private readonly SemaphoreSlim _writeSlots;
     private readonly TaskCompletionSource<bool> _handshakeCompletion =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Task? _receiveObserverTask;
+    private int _clientDisposed;
 
     public TcpNodeClient(
         string id,
@@ -124,7 +126,7 @@ internal sealed class TcpNodeClient : TcpTransport
             ChangeState(ConnectionState.Connected);
 
             _receiveTask = ReceiveLoopAsync();
-            _ = ObserveReceiveLoopAsync(_receiveTask);
+            _receiveObserverTask = ObserveReceiveLoopAsync(_receiveTask);
 
             if (!await SendHandshakeRequestAsync($"PulseRPC-Node-{_id}", linkedCts.Token).ConfigureAwait(false))
             {
@@ -272,6 +274,19 @@ internal sealed class TcpNodeClient : TcpTransport
                 ChangeState(ConnectionState.Disconnected, "远端关闭节点连接。");
             }
         }
+    }
+
+    public override void Dispose()
+    {
+        if (Interlocked.Exchange(ref _clientDisposed, 1) != 0)
+        {
+            return;
+        }
+
+        base.Dispose();
+        _receiveObserverTask?.GetAwaiter().GetResult();
+        _writeLock.Dispose();
+        _writeSlots.Dispose();
     }
 }
 

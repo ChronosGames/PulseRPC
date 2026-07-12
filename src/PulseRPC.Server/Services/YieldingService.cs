@@ -5,6 +5,7 @@ using PulseRPC.Server.Security;
 
 namespace PulseRPC.Server;
 
+#pragma warning disable CS1570, CS1587 // 下方为完整保留的废弃实现注释，仅供迁移参考。
 /// <summary>
 /// [已废弃] 支持让出的 Service 基类
 /// </summary>
@@ -452,3 +453,4 @@ public abstract class YieldingService : IPulseService
 }
 
 */
+#pragma warning restore CS1570, CS1587

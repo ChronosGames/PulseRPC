@@ -24,6 +24,7 @@
     <PackageReference Include="System.Diagnostics.PerformanceCounter" />
     <PackageReference Include="System.IO.Hashing" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
+    <PackageReference Include="Microsoft.CodeAnalysis.PublicApiAnalyzers" PrivateAssets="all" />
   </ItemGroup>
 
 

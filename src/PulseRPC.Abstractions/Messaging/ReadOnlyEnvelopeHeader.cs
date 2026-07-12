@@ -1,4 +1,5 @@
 using System;
+using PulseRPC.Shared;
 
 namespace PulseRPC.Messaging;
 
@@ -20,6 +21,9 @@ namespace PulseRPC.Messaging;
 /// <seealso cref="EnvelopeRelay"/>
 public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeader>
 {
+    /// <summary>消息头对象线格式版本。</summary>
+    public byte WireVersion { get; }
+
     /// <summary>消息类型。</summary>
     public MessageType Type { get; }
 
@@ -70,8 +74,10 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
         MessageFlags flags,
         string sourceNodeId = "",
         string replyTo = "",
-        byte hopLimit = 0)
+        byte hopLimit = 0,
+        byte wireVersion = ProtocolConstants.MessageHeaderWireVersion)
     {
+        WireVersion = wireVersion;
         Type = type;
         MessageId = messageId;
         Hub = hub ?? string.Empty;
@@ -103,7 +109,8 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
             header.Flags,
             header.SourceNodeId,
             header.ReplyTo,
-            header.HopLimit);
+            header.HopLimit,
+            header.WireVersion);
     }
 
     /// <summary>
@@ -118,6 +125,7 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
     {
         return new MessageHeader
         {
+            WireVersion = WireVersion,
             Type = Type,
             MessageId = MessageId,
             ServiceName = Hub,
@@ -134,35 +142,36 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
     /// 返回一个替换了实例键（<see cref="Key"/>）的新视图，其余字段不变（供网关改写目标实例）。
     /// </summary>
     public ReadOnlyEnvelopeHeader WithKey(string key)
-        => new(Type, MessageId, Hub, key, MethodId, Flags, SourceNodeId, ReplyTo, HopLimit);
+        => new(Type, MessageId, Hub, key, MethodId, Flags, SourceNodeId, ReplyTo, HopLimit, WireVersion);
 
     /// <summary>
     /// 返回一个替换了 Hub（<see cref="Hub"/>）的新视图，其余字段不变（供网关改写目标 Hub）。
     /// </summary>
     public ReadOnlyEnvelopeHeader WithHub(string hub)
-        => new(Type, MessageId, hub, Key, MethodId, Flags, SourceNodeId, ReplyTo, HopLimit);
+        => new(Type, MessageId, hub, Key, MethodId, Flags, SourceNodeId, ReplyTo, HopLimit, WireVersion);
 
     /// <summary>
     /// 返回一个替换了 <see cref="SourceNodeId"/> 的新视图，其余字段不变（供网关标记转发来源节点）。
     /// </summary>
     public ReadOnlyEnvelopeHeader WithSourceNodeId(string sourceNodeId)
-        => new(Type, MessageId, Hub, Key, MethodId, Flags, sourceNodeId, ReplyTo, HopLimit);
+        => new(Type, MessageId, Hub, Key, MethodId, Flags, sourceNodeId, ReplyTo, HopLimit, WireVersion);
 
     /// <summary>
     /// 返回一个替换了 <see cref="ReplyTo"/> 的新视图，其余字段不变（供网关标记回执地址）。
     /// </summary>
     public ReadOnlyEnvelopeHeader WithReplyTo(string replyTo)
-        => new(Type, MessageId, Hub, Key, MethodId, Flags, SourceNodeId, replyTo, HopLimit);
+        => new(Type, MessageId, Hub, Key, MethodId, Flags, SourceNodeId, replyTo, HopLimit, WireVersion);
 
     /// <summary>
     /// 返回一个替换了 <see cref="HopLimit"/> 的新视图，其余字段不变（供网关递减防环跳数）。
     /// </summary>
     public ReadOnlyEnvelopeHeader WithHopLimit(byte hopLimit)
-        => new(Type, MessageId, Hub, Key, MethodId, Flags, SourceNodeId, ReplyTo, hopLimit);
+        => new(Type, MessageId, Hub, Key, MethodId, Flags, SourceNodeId, ReplyTo, hopLimit, WireVersion);
 
     /// <inheritdoc/>
     public bool Equals(ReadOnlyEnvelopeHeader other)
-        => Type == other.Type
+        => WireVersion == other.WireVersion
+           && Type == other.Type
            && MessageId == other.MessageId
            && string.Equals(Hub, other.Hub, StringComparison.Ordinal)
            && string.Equals(Key, other.Key, StringComparison.Ordinal)
@@ -180,6 +189,7 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
     public override int GetHashCode()
     {
         var hash = new HashCode();
+        hash.Add(WireVersion);
         hash.Add(Type);
         hash.Add(MessageId);
         hash.Add(Hub, StringComparer.Ordinal);
@@ -194,5 +204,5 @@ public readonly struct ReadOnlyEnvelopeHeader : IEquatable<ReadOnlyEnvelopeHeade
 
     /// <inheritdoc/>
     public override string ToString()
-        => $"Envelope(Hub='{Hub}', Key='{Key}', MethodId=0x{MethodId:X4}, Type={Type}, MessageId={MessageId})";
+        => $"Envelope(WireVersion={WireVersion}, Hub='{Hub}', Key='{Key}', MethodId=0x{MethodId:X4}, Type={Type}, MessageId={MessageId})";
 }

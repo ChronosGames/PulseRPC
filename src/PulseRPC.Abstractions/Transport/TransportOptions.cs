@@ -73,16 +73,19 @@ public abstract class TransportOptions
     /// <summary>
     /// 保活间隔 (毫秒) (TCP)
     /// </summary>
+    [Obsolete("内置 TCP 传输当前仅启用系统 KeepAlive；自定义 keepalive 间隔尚未实现。")]
     public int KeepAliveInterval { get; set; } = 30000;
 
     /// <summary>
     /// 是否使用压缩
     /// </summary>
+    [Obsolete("传输层压缩尚未实现；设置为 true 会在构造传输时抛出 NotSupportedException。")]
     public bool UseCompression { get; set; } = false;
 
     /// <summary>
     /// 是否使用加密
     /// </summary>
+    [Obsolete("传输层加密尚未实现；设置为 true 会在构造传输时抛出 NotSupportedException。")]
     public bool UseEncryption { get; set; } = false;
 
     /// <summary>
@@ -100,6 +103,7 @@ public abstract class TransportOptions
     /// 已废弃：传输层不再进行应用层分片，所有消息以单帧收发（受 <see cref="MaxPacketSize"/> 约束）。
     /// 保留仅为兼容旧配置，不再影响 framing 行为。
     /// </remarks>
+    [Obsolete("传输层不再支持应用层分片；此选项不再影响 framing 行为。")]
     public int SmallPacketThreshold { get; set; } = 64 * 1024;
 
     /// <summary>
@@ -108,6 +112,7 @@ public abstract class TransportOptions
     /// <remarks>
     /// 已废弃：传输层不再进行应用层分片。保留仅为兼容旧配置，不再影响 framing 行为。
     /// </remarks>
+    [Obsolete("传输层不再支持应用层分片；此选项不再影响 framing 行为。")]
     public int ChunkSize { get; set; } = 32 * 1024;
 }
 
@@ -119,6 +124,7 @@ public class TcpTransportOptions : TransportOptions
     /// <summary>
     /// 连接超时时间
     /// </summary>
+    [Obsolete("使用 TransportOptions.ConnectionTimeout（毫秒）；此重复选项不再参与连接。")]
     public TimeSpan ConnectTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
     /// <summary>

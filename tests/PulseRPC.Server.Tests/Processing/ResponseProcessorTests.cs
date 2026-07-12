@@ -19,6 +19,111 @@ namespace PulseRPC.Server.Tests.Processing;
 
 public class ResponseProcessorTests
 {
+    [Theory]
+    [InlineData(NullableResponseKind.String, 0x2101)]
+    [InlineData(NullableResponseKind.Dto, 0x2102)]
+    [InlineData(NullableResponseKind.NullableInt, 0x2103)]
+    public async Task ProcessMessageResultAsync_WhenNullableSuccessIsNull_MustSendTypedMemoryPackNull(
+        NullableResponseKind responseKind,
+        ushort protocolId)
+    {
+        using var channelManager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
+        var transport = new MockServerTransport($"conn-null-{responseKind}");
+        channelManager.AddChannel(transport);
+        var serializer = new NullableResponseSerializer(protocolId, responseKind);
+
+        using var processor = new ResponseProcessor(
+            channelManager,
+            options: new ResponseProcessorOptions { ProcessorThreadCount = 1, ChannelCapacity = 16 },
+            responseSerializerRegistry: new TestResponseSerializerRegistry(serializer),
+            routingTable: new TestRoutingTable(protocolId));
+
+        await processor.StartAsync();
+
+        var messageId = Guid.NewGuid();
+        var callContext = new ServiceCallContext(
+            connectionId: transport.Id,
+            messageId: messageId,
+            serviceName: "NullableResponseHub",
+            methodName: "GetNullable",
+            protocolId: protocolId,
+            requestData: null,
+            messageType: MessageType.Request,
+            receivedTime: DateTime.UtcNow,
+            processorId: 0,
+            flags: MessageFlags.None);
+
+        await processor.ProcessMessageResultAsync(new MessageProcessedEventArgs(
+            callContext,
+            result: null,
+            processingTime: TimeSpan.FromMilliseconds(1),
+            dispatcherId: 0,
+            success: true));
+
+        await SpinUntilAsync(() => transport.SentFrames.Count == 1);
+
+        MessagePacket.TryReadFrom(transport.SentFrames[0], out var packet).Should().BeTrue();
+        packet.Header.Type.Should().Be(MessageType.Response);
+        packet.Header.MessageId.Should().Be(messageId);
+        packet.Payload.Length.Should().BeGreaterThan(0, "MemoryPack null 必须有类型对应的 wire 标记");
+        serializer.SerializeCallCount.Should().Be(1, "成功 null 必须经过协议对应的强类型序列化器");
+
+        switch (responseKind)
+        {
+            case NullableResponseKind.String:
+                MemoryPackSerializer.Deserialize<string?>(packet.Payload).Should().BeNull();
+                break;
+            case NullableResponseKind.Dto:
+                MemoryPackSerializer.Deserialize<NullableResponseDto?>(packet.Payload).Should().BeNull();
+                break;
+            case NullableResponseKind.NullableInt:
+                MemoryPackSerializer.Deserialize<int?>(packet.Payload).Should().BeNull();
+                break;
+        }
+    }
+
+    [Fact]
+    public async Task ProcessMessageResultAsync_WhenLegacySerializerReceivesNull_MustKeepEmptyPayloadBypass()
+    {
+        const ushort protocolId = 0x2104;
+        using var channelManager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
+        var transport = new MockServerTransport("conn-legacy-null");
+        channelManager.AddChannel(transport);
+        var serializer = new LegacyNullRejectingSerializer(protocolId);
+
+        using var processor = new ResponseProcessor(
+            channelManager,
+            options: new ResponseProcessorOptions { ProcessorThreadCount = 1, ChannelCapacity = 16 },
+            responseSerializerRegistry: new TestResponseSerializerRegistry(serializer),
+            routingTable: new TestRoutingTable(protocolId));
+        await processor.StartAsync();
+
+        var callContext = new ServiceCallContext(
+            connectionId: transport.Id,
+            messageId: Guid.NewGuid(),
+            serviceName: "LegacyHub",
+            methodName: "CompleteAsync",
+            protocolId: protocolId,
+            requestData: null,
+            messageType: MessageType.Request,
+            receivedTime: DateTime.UtcNow,
+            processorId: 0,
+            flags: MessageFlags.None);
+        await processor.ProcessMessageResultAsync(new MessageProcessedEventArgs(
+            callContext,
+            result: null,
+            processingTime: TimeSpan.Zero,
+            dispatcherId: 0,
+            success: true));
+
+        await SpinUntilAsync(() => transport.SentFrames.Count == 1);
+
+        MessagePacket.TryReadFrom(transport.SentFrames[0], out var packet).Should().BeTrue();
+        packet.Payload.Length.Should().Be(0);
+        serializer.SerializeCallCount.Should().Be(0,
+            "未 opt-in typed-null 的既有 serializer 不应在升级后突然收到 null");
+    }
+
     [Fact]
     public async Task StartAsync_WhenRoutingTableHasMissingResponseSerializer_MustFail()
     {
@@ -183,4 +288,96 @@ public class ResponseProcessorTests
             return false;
         }
     }
+
+    public enum NullableResponseKind
+    {
+        String,
+        Dto,
+        NullableInt,
+    }
+
+    private sealed class NullableResponseSerializer : INullResponseSerializer
+    {
+        private readonly NullableResponseKind _responseKind;
+
+        public NullableResponseSerializer(ushort protocolId, NullableResponseKind responseKind)
+        {
+            ProtocolId = protocolId;
+            _responseKind = responseKind;
+        }
+
+        public ushort ProtocolId { get; }
+
+        public int SerializeCallCount { get; private set; }
+
+        public void Serialize(object response, IBufferWriter<byte> writer)
+        {
+            response.Should().BeNull();
+            SerializeCallCount++;
+
+            switch (_responseKind)
+            {
+                case NullableResponseKind.String:
+                    string? stringValue = null;
+                    MemoryPackSerializer.Serialize(writer, stringValue);
+                    break;
+                case NullableResponseKind.Dto:
+                    NullableResponseDto? dtoValue = null;
+                    MemoryPackSerializer.Serialize(writer, dtoValue);
+                    break;
+                case NullableResponseKind.NullableInt:
+                    int? intValue = null;
+                    MemoryPackSerializer.Serialize(writer, intValue);
+                    break;
+            }
+        }
+
+        public ValueTask SerializeAsync(object response, IBufferWriter<byte> writer, CancellationToken cancellationToken = default)
+        {
+            Serialize(response, writer);
+            return ValueTask.CompletedTask;
+        }
+
+        public bool TryGetTypedSerializer<T>(out Action<T, IBufferWriter<byte>> serializer)
+        {
+            serializer = null!;
+            return false;
+        }
+    }
+
+    private sealed class LegacyNullRejectingSerializer : IResponseSerializer
+    {
+        public LegacyNullRejectingSerializer(ushort protocolId) => ProtocolId = protocolId;
+
+        public ushort ProtocolId { get; }
+
+        public int SerializeCallCount { get; private set; }
+
+        public void Serialize(object response, IBufferWriter<byte> writer)
+        {
+            SerializeCallCount++;
+            ArgumentNullException.ThrowIfNull(response);
+        }
+
+        public ValueTask SerializeAsync(
+            object response,
+            IBufferWriter<byte> writer,
+            CancellationToken cancellationToken = default)
+        {
+            Serialize(response, writer);
+            return ValueTask.CompletedTask;
+        }
+
+        public bool TryGetTypedSerializer<T>(out Action<T, IBufferWriter<byte>> serializer)
+        {
+            serializer = null!;
+            return false;
+        }
+    }
+}
+
+[MemoryPackable]
+public partial class NullableResponseDto
+{
+    public string? Value { get; set; }
 }

@@ -4,7 +4,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using PulseRPC.Server.Hubs; using PulseRPC.Server.Services; using PulseRPC.Server.Transport;
 using PulseRPC.Server.Services.Management;
-using PulseRPC.Server.Services;
 
 namespace PulseRPC.Server.Extensions;
 
@@ -306,4 +305,3 @@ public static class ServiceMetricsExtensions
         return services;
     }
 }
-

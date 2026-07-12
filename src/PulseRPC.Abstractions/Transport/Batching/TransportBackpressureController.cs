@@ -26,11 +26,6 @@ public sealed class TransportBackpressureController
     // 使用 int 而非 enum 以支持 Interlocked
     private int _currentLevel;
 
-    // ThreadLocal Random for netstandard2.1 compatibility
-    [ThreadStatic]
-    private static Random? _random;
-    private static Random GetRandom() => _random ??= new Random();
-
     /// <summary>
     /// 创建背压控制器
     /// </summary>
@@ -138,13 +133,7 @@ public sealed class TransportBackpressureController
                 return strategy != TransportBackpressureStrategy.Block;
 
             case BackpressureLevel.Throttle:
-                // Throttle 状态下，根据策略决定
-                // 对于 DropNewest 和 Reject 策略，随机拒绝 50%
-                if (strategy == TransportBackpressureStrategy.DropNewest ||
-                    strategy == TransportBackpressureStrategy.Reject)
-                {
-                    return GetRandom().NextDouble() < 0.5;
-                }
+                // Throttle 仅作为观测信号；拒绝行为必须确定且只在 Reject 阈值发生。
                 return false;
 
             default:

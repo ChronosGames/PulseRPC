@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <LangVersion>latest</LangVersion>
+    <!-- Test doubles implement dispatcher events that individual tests do not raise. -->
+    <NoWarn>$(NoWarn);CS0067</NoWarn>
     <!-- 与 src 程序集使用同一强名称密钥签名，以便通过 InternalsVisibleTo 访问内部类型 -->
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>..\..\src\PulseRPC\opensource.snk</AssemblyOriginatorKeyFile>

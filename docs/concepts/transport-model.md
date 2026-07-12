@@ -75,6 +75,16 @@ public interface ITransportConnection : IDisposable
 }
 ```
 
+`SendAsync` 的完成语义是“本地传输已完成该帧的写出/交付给协议栈”：TCP 会等待底层 `NetworkStream.WriteAsync` 完成，KCP 会等待帧被 KCP 栈接收。它不表示远端业务方法已执行；需要业务执行结果时必须使用 Ask/响应或节点 wire v2 ACK。发送队列满时调用会等待、被取消或返回失败，不能把“成功进入队列”误报为发送完成。
+
+当前 TCP/KCP wire 压缩和加密尚未实现，`TransportOptions.UseCompression` / `UseEncryption` 设为 `true` 会在创建传输时明确抛出 `NotSupportedException`。线路安全应由受信网络边界及 TLS/mTLS 层提供。
+
+`BatchedTransport` 的 reader、周期刷新和释放排空属于同一可追踪生命周期；`DisposeAsync` 会等待所有已接受请求得到发送结果。背压支持 `Block`、`DropNewest` 和 `Reject`；`DropOldest` 因无法在当前目标框架上可靠通知被淘汰请求，仍为实验枚举值并在构造时 fail-fast。
+
+客户端 `StopAsync` / `DisconnectAsync` 的 `graceful=false` 为真正的 abortive 路径：立即取消自动重连和通道后台任务，TCP 以 linger=0 关闭 socket，KCP 直接关闭 UDP socket；不发送 KCP 断开帧，也不排空待发队列。
+
+历史上已公开但当前不生效的配置均带有编译期废弃提示：应用层 `SmallPacketThreshold` / `ChunkSize` 分片、自定义 `KeepAliveInterval`、重复的 `TcpTransportOptions.ConnectTimeout` 和自适应批处理开关。TCP linger、系统 KeepAlive、缓冲区和 `ConnectionTimeout` 则会真实应用到 socket/连接流程。
+
 ##### 客户端传输接口
 ```csharp
 public interface IClientTransport : ITransportConnection
@@ -125,18 +135,24 @@ public interface IServerListener : IDisposable
   - 基于 UDP 的可靠传输
   - 低延迟优化连接
   - 自定义拥塞控制
-  - 客户端时间戳同步
+  - wire v2 握手携带显式协议版本；确认包只接受协商服务器端点
+  - 握手接收使用整体超时窗口，不遗留超时的异步 UDP 接收
+  - 自动重连复用已绑定 UDP socket；`MaxReconnectAttempts = 0` 表示无限重试
+  - 丢包、乱序和 30 秒网络中断使用确定性故障注入验证重传恢复
+  - 握手尚无可认证的 rebinding token，因此同 conversation ID 从新端点出现时 fail-closed，不自动接受 NAT rebinding
 
 ##### 服务端传输实现
 - **TCP 服务端**: `TcpServerTransport`, `TcpServerListener`
   - 基于可靠的 TCP 协议
-  - 支持大包分片传输
+  - 单帧收发不超过 `MaxPacketSize`；已停用的 legacy chunk 帧会被拒绝
   - 连接状态管理
   - 活动时间跟踪
 
 - **KCP 服务端**: `KcpServerTransport`, `KcpServerListener`
   - 基于 UDP 的可靠传输
   - 低延迟优化
+  - 按完整消息大小接收，并以 `MaxPacketSize` 作为明确上限
+  - 仅接受 `conv + wire version` 的 v2 握手，破坏性拒绝旧 4 字节握手
   - 自定义拥塞控制
   - 时间戳同步机制
 

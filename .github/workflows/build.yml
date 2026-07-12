@@ -30,8 +30,9 @@ jobs:
         with:
           lfs: true
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
-      - run: dotnet build -c Debug ./PulseRPC.sln
-      - run: dotnet build -c Release ./PulseRPC.sln
+      - run: dotnet restore ./PulseRPC.sln
+      - run: dotnet build -c Debug ./PulseRPC.sln --no-restore --warnaserror
+      - run: dotnet build -c Release ./PulseRPC.sln --no-restore --warnaserror
       # 收集构建产物供 Unity 使用
       - name: Collect build outputs
         run: |
@@ -48,14 +49,90 @@ jobs:
     name: "Run tests"
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
+    env:
+      PULSERPC_TEST_REDIS: localhost:6379,abortConnect=false,connectTimeout=5000
     steps:
       - uses: actions/checkout@v7
         with:
           lfs: true
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
-      - run: dotnet tool restore
-      - run: dotnet retest -- -c Debug PulseRPC.sln
-      - run: dotnet retest -- -c Release PulseRPC.sln
+      - run: dotnet restore ./PulseRPC.sln
+      - run: dotnet test ./tests/PulseRPC.Client.Tests/PulseRPC.Client.Tests.csproj -c Release --no-restore
+      - run: dotnet test ./tests/PulseRPC.Server.Tests/PulseRPC.Server.Tests.csproj -c Release --no-restore
+      - run: dotnet test ./tests/PulseRPC.SourceGenerator.Tests/PulseRPC.SourceGenerator.Tests.csproj -c Release --no-restore
+      - name: Run Redis backplane tests against real Redis
+        run: dotnet test ./tests/PulseRPC.Backplane.Redis.Tests/PulseRPC.Backplane.Redis.Tests.csproj -c Release --no-restore
+      - name: Stress discovery membership tests (20 runs)
+        run: |
+          for run in $(seq 1 20); do
+            echo "Discovery membership run ${run}/20"
+            dotnet test ./tests/PulseRPC.Infrastructure.Tests/PulseRPC.Infrastructure.Tests.csproj \
+              -c Release --no-restore --nologo --verbosity quiet
+          done
+
+  verify-packages:
+    name: "Verify NuGet API baselines and package contents"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - run: dotnet restore ./PulseRPC.Packaging.slnf
+      - run: dotnet pack -c Release ./PulseRPC.Packaging.slnf --no-restore -o ./publish --warnaserror
+      - name: Verify all runtime packages contain README and public API baselines
+        shell: bash
+        run: |
+          projects=(
+            PulseRPC.Abstractions PulseRPC.Shared PulseRPC.Client PulseRPC.Server
+            PulseRPC.Backplane.Redis PulseRPC.Infrastructure
+            PulseRPC.Infrastructure.Consul PulseRPC.Infrastructure.Etcd
+            PulseRPC.Infrastructure.Kubernetes
+          )
+          for project in "${projects[@]}"; do
+            if [ -d "./src/${project}/PublicAPI" ]; then
+              baseline_dirs=(
+                "./src/${project}/PublicAPI/netstandard2.1"
+                "./src/${project}/PublicAPI/net10.0"
+              )
+            else
+              baseline_dirs=("./src/${project}")
+            fi
+            for baseline_dir in "${baseline_dirs[@]}"; do
+              shipped="${baseline_dir}/PublicAPI.Shipped.txt"
+              test -s "$shipped"
+              test "$(grep -cv '^#nullable enable$' "$shipped")" -gt 0
+              test -s "${baseline_dir}/PublicAPI.Unshipped.txt"
+            done
+            package=$(find ./publish -maxdepth 1 -name "${project}.*.nupkg" ! -name "*.snupkg" -print -quit)
+            test -n "$package"
+            unzip -Z1 "$package" | grep -Fx "README.md"
+          done
+
+  verify-samples:
+    name: "Build maintained samples"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - run: dotnet build -c Release ./samples/ChatApp/ChatApp.Server/ChatApp.Server.csproj --warnaserror
+      - run: dotnet build -c Release ./samples/JwtAuthentication/JwtAuthApp.Server/JwtAuthApp.Server.csproj --warnaserror
+      - run: dotnet build -c Release ./samples/JwtAuthentication/JwtAuthApp.Client/JwtAuthApp.Client.csproj --warnaserror
+      - run: dotnet build -c Release ./samples/HubFactoryExample/HubFactoryExample.csproj --warnaserror
+      - run: dotnet build -c Release ./samples/ServiceFactoryExample/ServiceFactoryExample.csproj --warnaserror
+      - run: dotnet build -c Release ./samples/JsonTranscoding/JsonTranscodingSample.Server/JsonTranscodingSample.Server.csproj --warnaserror
 
 
   build-unity:
@@ -136,7 +213,7 @@ jobs:
           retention-days: 1
 
   actions-timeline:
-    needs: [build-dotnet, run-tests, build-unity]
+    needs: [build-dotnet, run-tests, verify-packages, verify-samples, build-unity]
     if: always()
     permissions:
       actions: read

@@ -14,6 +14,7 @@ using PulseRPC.Messaging;
 using PulseRPC.Server.Clustering;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Security;
+using PulseRPC.Server.Services.Management;
 using PulseRPC.Server.Transport;
 using Xunit;
 
@@ -183,6 +184,41 @@ public sealed class NodeWireProtocolTests
             .RouteByProtocolIdAsync(default!, default!, default, default!, default, default);
         harness.LeaseHeartbeat.DidNotReceiveWithAnyArgs()
             .Track(default!, default!, default);
+    }
+
+    [Fact]
+    public async Task SendActorV2_ActivationFailure_ReleasesLeaseWithoutStartingHeartbeat()
+    {
+        var harness = CreateHarness();
+        harness.RoutingTable.RouteByProtocolIdAsync(
+                Arg.Any<IServiceProvider>(),
+                "RoomHub",
+                0x2222,
+                "room-1",
+                Arg.Any<ReadOnlyMemory<byte>>(),
+                Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                ServiceActivationScope.MarkFailed();
+                throw new InvalidOperationException("start failed");
+            });
+        using var nodeScope = EnterNodeScope(CreateNodeAuthentication(), negotiated: true);
+
+        var action = async () => await harness.Hub.SendActorV2Async(
+            NodeWireProtocol.SerializeActorInvocation(CreateEnvelope("lease-1", caller: null)));
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("start failed");
+        await harness.ActorDirectory.Received(1).ReleaseAsync(
+            "RoomHub",
+            "room-1",
+            "node-local",
+            "lease-1",
+            Arg.Any<CancellationToken>());
+        harness.LeaseHeartbeat.DidNotReceive().Track(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<ActorPlacement>());
     }
 
     [Fact]

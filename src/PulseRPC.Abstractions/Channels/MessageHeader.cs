@@ -121,30 +121,33 @@ public static class ConnectionStateConverter
 public partial class MessageHeader
 {
     [MemoryPackOrder(0)]
-    public MessageType Type { get; set; }
+    public byte WireVersion { get; set; } = ProtocolConstants.MessageHeaderWireVersion;
 
     [MemoryPackOrder(1)]
-    public Guid MessageId { get; set; }
+    public MessageType Type { get; set; }
 
     [MemoryPackOrder(2)]
+    public Guid MessageId { get; set; }
+
+    [MemoryPackOrder(3)]
     public string ServiceName { get; set; } = string.Empty;
 
-    [MemoryPackOrder(3)] public string MethodName { get; set; } = string.Empty;
+    [MemoryPackOrder(4)] public string MethodName { get; set; } = string.Empty;
 
     /// <summary>
     /// 协议号 - 服务端方法路由的唯一依据。
     /// 值为 0 表示未设置，RPC 请求会被服务端拒绝。
     /// </summary>
-    [MemoryPackOrder(4)]
+    [MemoryPackOrder(5)]
     public ushort ProtocolId { get; set; }
 
-    [MemoryPackOrder(5)]
+    [MemoryPackOrder(6)]
     public MessageFlags Flags { get; set; }
 
-    [MemoryPackOrder(6)]
+    [MemoryPackOrder(7)]
     public long Timestamp { get; set; }
 
-    [MemoryPackOrder(7)]
+    [MemoryPackOrder(8)]
     public ushort SequenceNumber { get; set; }
 
     /// <summary>
@@ -160,11 +163,10 @@ public partial class MessageHeader
     /// 参见 <see cref="EnvelopeRelay"/> 与 <see cref="ReadOnlyEnvelopeHeader"/>。
     /// </para>
     /// <para>
-    /// 兼容性：作为 MemoryPack 尾部新增成员，旧版本序列化的头部（不含该字段）反序列化后此值为空字符串，
-    /// 新旧两端可互操作。
+    /// 线格式兼容性：v2 在首字段携带 <see cref="WireVersion"/>，采用破坏性升级；v1 不再读取。
     /// </para>
     /// </summary>
-    [MemoryPackOrder(8)]
+    [MemoryPackOrder(9)]
     public string ServiceKey { get; set; } = string.Empty;
 
     /// <summary>
@@ -176,21 +178,20 @@ public partial class MessageHeader
     /// 派发前若已超期则直接卸载（不执行 handler），否则以剩余时间对 handler 的 <see cref="System.Threading.CancellationToken"/> 执行 <c>CancelAfter</c>。
     /// </para>
     /// <para>
-    /// 兼容性：作为 MemoryPack 尾部新增成员，旧版本序列化的头部（不含该字段）反序列化后此值为 <c>0</c>，
-    /// 等价于「不设置 Deadline」，新旧两端可互操作。
+    /// 线格式兼容性遵循 <see cref="ServiceKey"/> 的同版本成组升级约束。
     /// </para>
     /// </summary>
-    [MemoryPackOrder(9)]
+    [MemoryPackOrder(10)]
     public int TimeoutMs { get; set; }
 
     /// <summary>
     /// 发起节点标识（多跳 / 跨节点回执寻径用）。空字符串表示"未跨节点"，退化为单跳、沿原连接返回。
     /// </summary>
     /// <remarks>
-    /// 作为 MemoryPack 尾部新增成员：旧版本序列化的头部（不含该字段）反序列化后为空字符串，新旧两端可互操作。
+    /// 线格式兼容性遵循 <see cref="ServiceKey"/> 的同版本成组升级约束。
     /// 参见《统一 IPulseHub 全链路寻址与集群架构设计》§4.1 / §10。
     /// </remarks>
-    [MemoryPackOrder(10)]
+    [MemoryPackOrder(11)]
     public string SourceNodeId { get; set; } = string.Empty;
 
     /// <summary>
@@ -198,19 +199,19 @@ public partial class MessageHeader
     /// 空字符串表示使用默认回执路径。
     /// </summary>
     /// <remarks>
-    /// 作为 MemoryPack 尾部新增成员，向后兼容（旧端读为默认空值）。用于 client→gateway→backend actor
-    /// 等多跳请求/响应（含反向 Ask）的响应寻径。
+    /// 用于 client→gateway→backend actor 等多跳请求/响应（含反向 Ask）的响应寻径；
+    /// 线格式兼容性遵循 <see cref="ServiceKey"/> 的同版本成组升级约束。
     /// </remarks>
-    [MemoryPackOrder(11)]
+    [MemoryPackOrder(12)]
     public string ReplyTo { get; set; } = string.Empty;
 
     /// <summary>
     /// 剩余转发跳数上限（防止多跳转发环路）；<c>0</c> 表示不限制（或由框架应用默认上限）。每转发一跳递减。
     /// </summary>
     /// <remarks>
-    /// 作为 MemoryPack 尾部新增成员，向后兼容（旧端读为 <c>0</c>）。
+    /// 线格式兼容性遵循 <see cref="ServiceKey"/> 的同版本成组升级约束。
     /// </remarks>
-    [MemoryPackOrder(12)]
+    [MemoryPackOrder(13)]
     public byte HopLimit { get; set; }
 
     [MemoryPackConstructor]

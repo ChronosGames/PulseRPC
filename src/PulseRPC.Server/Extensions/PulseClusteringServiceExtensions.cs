@@ -7,6 +7,7 @@ using PulseRPC.Clustering;
 using PulseRPC.Routing;
 using PulseRPC.Server.Clustering;
 using PulseRPC.Server.Routing;
+using PulseRPC.Server.Services.Management;
 
 namespace PulseRPC.Server.Extensions;
 
@@ -119,6 +120,9 @@ public static class PulseClusteringServiceExtensions
                 sp.GetRequiredService<IActorDirectory>(),
                 heartbeatOptions);
         });
+        services.TryAddSingleton<IServiceInstanceLeaseLifetime>(sp =>
+            sp.GetRequiredService<IActorLeaseHeartbeat>() as IServiceInstanceLeaseLifetime
+            ?? NoopServiceInstanceLeaseLifetime.Instance);
         services.TryAddSingleton<IConnectionDirectory, BackplaneConnectionDirectory>();
         services.TryAddSingleton<INodeLink>(sp =>
         {

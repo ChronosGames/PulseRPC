@@ -2,7 +2,7 @@
 
 本目录包含 PulseRPC 框架的各种使用示例，帮助开发者快速上手和理解框架的功能特性。
 
-> 当前维护的可运行入口优先参考 ChatApp、JwtAuthentication、JsonTranscoding、ServiceFactoryExample 和 HubFactoryExample。BasicUsage、DnsExample、EtcdExample、MonitoringExample、TracingExample、ServiceRegistrationExample 保留为历史探索代码，仍引用旧的独立 ServiceDiscovery/Monitoring/Tracing 包名或旧接口，不能作为当前可运行示例使用。
+> 当前维护且纳入 CI 构建的可运行入口优先参考 ChatApp、JwtAuthentication、HubFactoryExample、ServiceFactoryExample 和 JsonTranscoding。其余目录属于历史探索代码，不能作为当前新项目模板。
 
 ## 📁 示例清单
 
@@ -12,9 +12,9 @@
 | [GameApp](GameApp/) | 完整的游戏服务器示例（见 [README](GameApp/README.md)） |
 | [DistributedGameApp](DistributedGameApp/) | 分布式游戏服务器示例（见 [README](DistributedGameApp/README.md)） |
 | [JwtAuthentication](JwtAuthentication/) | JWT 身份验证集成示例（客户端 / 服务端 / 共享契约） |
-| [JsonTranscoding](JsonTranscoding/) | JSON 协议转码示例 |
-| [ServiceFactoryExample](ServiceFactoryExample/) | 服务工厂（`AddPulseServiceFactory`）用法示例 |
 | [HubFactoryExample](HubFactoryExample/) | Hub 工厂用法示例 |
+| [ServiceFactoryExample](ServiceFactoryExample/) | 当前 `AddPulseService` / `IServiceAccessor` 服务实例管理示例 |
+| [JsonTranscoding](JsonTranscoding/) | 同一 Hub 实现同时提供 PulseRPC 和显式 ASP.NET JSON 网关（非自动转码） |
 
 历史探索示例：
 

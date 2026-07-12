@@ -24,33 +24,24 @@ public class PulseClientLifecycleTests
     }
 
     [Fact]
-    public async Task StopAsync_WithAbortiveMode_MustFailExplicitly()
+    public async Task StopAsync_WithAbortiveMode_MustTransitionDirectlyToStopped()
     {
         var client = new PulseClient(Array.Empty<ConnectionDescriptor>());
 
         await client.InitializeAsync();
+        await client.StopAsync(graceful: false);
 
-        var ex = await Assert.ThrowsAsync<NotSupportedException>(
-            () => client.StopAsync(graceful: false));
-        Assert.Contains("abortive", ex.Message);
-        Assert.Equal(ClientState.Running, client.State);
-
-        await client.StopAsync();
+        Assert.Equal(ClientState.Stopped, client.State);
     }
 
     [Fact]
-    public async Task DisconnectAsync_WithAbortiveMode_MustFailExplicitly()
+    public async Task DisconnectAsync_WithAbortiveMode_MustBeIdempotentForMissingConnections()
     {
         var client = new PulseClient(Array.Empty<ConnectionDescriptor>());
 
-        var byId = await Assert.ThrowsAsync<NotSupportedException>(
-            () => client.DisconnectAsync("conn-1", graceful: false));
-        Assert.Contains("abortive", byId.Message);
+        await client.DisconnectAsync("conn-1", graceful: false);
+        var count = await client.DisconnectAsync(_ => true, graceful: false);
 
-        var byPredicate = await Assert.ThrowsAsync<NotSupportedException>(
-            () => client.DisconnectAsync(_ => true, graceful: false));
-        Assert.Contains("abortive", byPredicate.Message);
-
-        await Task.CompletedTask;
+        Assert.Equal(0, count);
     }
 }

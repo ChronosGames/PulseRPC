@@ -33,9 +33,19 @@ public sealed class ServiceModel
 public sealed class MethodModel
 {
     public string MethodName { get; set; } = null!;
+    /// <summary>完整方法查找身份：声明接口、方法名、泛型 arity，以及过滤 CancellationToken 后的完整参数类型和 ref-kind。</summary>
+    public string MethodIdentity { get; set; } = null!;
+    /// <summary>公开生成成员使用的兼容标识；仅同名重载组追加协议号。</summary>
+    public string GeneratedIdentifier => HasOverloads ? UniqueGeneratedIdentifier : MethodName;
+    /// <summary>内部生成成员使用的唯一标识。</summary>
+    public string UniqueGeneratedIdentifier => $"{MethodName}_{ProtocolId:X4}";
+    public bool HasOverloads { get; set; }
+    public int GenericArity { get; set; }
     public string ReturnTypeName { get; set; } = null!;
     public string ReturnTypeFullName { get; set; } = null!;
     public List<ParameterModel> Parameters { get; set; } = null!;
+    public bool HasExplicitProtocolId { get; set; }
+    public bool HasInvalidProtocolId { get; set; }
     public bool IsAsync { get; set; }
     public bool IsGenericTask { get; set; }
     public string? ChannelName { get; set; }
@@ -99,6 +109,8 @@ public sealed class ParameterModel
     public string TypeName { get; set; } = "";
     public string TypeFullName { get; set; } = "";
     public bool IsMemoryPackable { get; set; }
+    public bool IsCancellationToken { get; set; }
+    public RefKind RefKind { get; set; }
 }
 
 /// <summary>

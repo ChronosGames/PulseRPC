@@ -190,6 +190,12 @@ public sealed class PulseClientBuilder : IPulseClientBuilder
             throw new NotSupportedException(
                 "WithLoadBalancing 的 options 参数当前尚未被负载均衡器消费；仅 strategy 参数会生效。");
         }
+
+        if (_loadBalancingStrategy is LoadBalancingStrategy.WeightedRoundRobin or LoadBalancingStrategy.ConsistentHash)
+        {
+            throw new NotSupportedException(
+                $"负载均衡策略 {_loadBalancingStrategy} 仍是 experimental，当前没有稳定的权重或 sticky key 契约，不能静默退化为其它算法。");
+        }
     }
 
     /// <summary>

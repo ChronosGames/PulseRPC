@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using PulseRPC.Server.Contexts;
 using PulseRPC.Server.Services;
-using PulseRPC.Server.Health; using PulseRPC.Server.Processing; using PulseRPC.Server.Channels; using PulseRPC.Server.Services; using PulseRPC.Server.Services.Scheduling;
+using PulseRPC.Server.Health; using PulseRPC.Server.Processing; using PulseRPC.Server.Channels; using PulseRPC.Server.Services.Scheduling;
 
 namespace PulseRPC.Server.Extensions;
 

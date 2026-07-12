@@ -35,7 +35,15 @@ public sealed class PulseServiceManager : IAsyncDisposable
 
     // 正在创建中的服务（用于避免竞态条件下的重复创建）
     // Key: ServiceAddress, Value: 创建任务
-    private readonly ConcurrentDictionary<string, Task<IPulseService>> _pendingCreations = new();
+    private readonly ConcurrentDictionary<string, Lazy<Task<IPulseService>>> _pendingCreations = new();
+
+    // 同一地址上的创建、发布、移除必须串行化，避免移除错过尚未发布的创建任务，
+    // 或新实例在旧实例完成 Dispose/lease release 前被重新激活。
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _serviceOperationGates = new();
+
+    // 实例创建属于 Manager 生命周期；单个调用方取消只能停止自己的等待，不能取消其它调用方共享的激活。
+    private readonly CancellationTokenSource _lifetimeCts = new();
+    private int _disposeState;
 
     // 自动启动服务的 ServiceAddress 列表
     private readonly List<string> _autoStartServices = new();
@@ -112,12 +120,11 @@ public sealed class PulseServiceManager : IAsyncDisposable
 
         foreach (var serviceAddress in _autoStartServices)
         {
+            var parts = serviceAddress.Split(':', 2);
+            var serviceType = parts[0];
+            var serviceId = parts[1];
             try
             {
-                var parts = serviceAddress.Split(':', 2);
-                var serviceType = parts[0];
-                var serviceId = parts[1];
-
                 var service = await GetOrCreateServiceAsync(serviceType, serviceId, cancellationToken);
                 await service.StartAsync(cancellationToken);
 
@@ -125,6 +132,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
             }
             catch (Exception ex)
             {
+                await RemoveServiceAsync(serviceType, serviceId, CancellationToken.None).ConfigureAwait(false);
                 _logger.LogError(ex, "Failed to auto-start service: {ServiceAddress}", serviceAddress);
 
                 if (!_options.ContinueOnAutoStartFailure)
@@ -159,46 +167,66 @@ public sealed class PulseServiceManager : IAsyncDisposable
         string serviceId,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+        cancellationToken.ThrowIfCancellationRequested();
         var serviceAddress = $"{serviceType}:{serviceId}";
-
-        // 快速路径 1：已存在的实例
-        if (_instances.TryGetValue(serviceAddress, out var existingService))
-        {
-            return existingService;
-        }
-
-        // 快速路径 2：正在创建中，等待创建完成
-        if (_pendingCreations.TryGetValue(serviceAddress, out var pendingTask))
-        {
-            Interlocked.Increment(ref _totalRaceConditionsAvoided);
-            _logger.LogDebug(
-                "Waiting for pending service creation: {ServiceAddress}",
-                serviceAddress);
-            return await pendingTask.ConfigureAwait(false);
-        }
-
-        // 慢速路径：需要创建新实例
-        if (!_registrations.TryGetValue(serviceType, out var registration))
-        {
-            throw new InvalidOperationException($"Service type '{serviceType}' is not registered");
-        }
-
-        // 验证实例范围
-        ValidateServiceId(registration, serviceId);
-
-        // 使用 GetOrAdd 确保只有一个创建任务
-        var creationTask = _pendingCreations.GetOrAdd(serviceAddress,
-            _ => CreateAndRegisterServiceAsync(serviceAddress, registration, serviceId, cancellationToken));
-
+        var operationGate = _serviceOperationGates.GetOrAdd(
+            serviceAddress,
+            static _ => new SemaphoreSlim(1, 1));
+        Task<IPulseService> creationTask;
+        await operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            return await creationTask.ConfigureAwait(false);
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+
+            if (_instances.TryGetValue(serviceAddress, out var existingService))
+            {
+                ServiceActivationScope.MarkActivated();
+                return existingService;
+            }
+
+            if (_pendingCreations.TryGetValue(serviceAddress, out var pendingCreation))
+            {
+                Interlocked.Increment(ref _totalRaceConditionsAvoided);
+                _logger.LogDebug(
+                    "Waiting for pending service creation: {ServiceAddress}",
+                    serviceAddress);
+                creationTask = pendingCreation.Value;
+            }
+            else
+            {
+                if (!_registrations.TryGetValue(serviceType, out var registration))
+                {
+                    throw new InvalidOperationException($"Service type '{serviceType}' is not registered");
+                }
+
+                ValidateServiceId(registration, serviceId);
+                var creation = new Lazy<Task<IPulseService>>(
+                    () => CreateAndRegisterServiceAsync(
+                        serviceAddress,
+                        registration,
+                        serviceId,
+                        _lifetimeCts.Token),
+                    LazyThreadSafetyMode.ExecutionAndPublication);
+                if (!_pendingCreations.TryAdd(serviceAddress, creation))
+                {
+                    throw new InvalidOperationException(
+                        $"Service operation serialization failed for '{serviceAddress}'.");
+                }
+
+                creationTask = creation.Value;
+                _ = RemovePendingCreationWhenCompleteAsync(serviceAddress, creation);
+            }
         }
         finally
         {
-            // 创建完成后移除 pending 状态
-            _pendingCreations.TryRemove(serviceAddress, out _);
+            operationGate.Release();
         }
+
+        ServiceActivationScope.Observe(creationTask);
+        var createdService = await creationTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        ServiceActivationScope.MarkActivated();
+        return createdService;
     }
 
     /// <summary>
@@ -214,36 +242,58 @@ public sealed class PulseServiceManager : IAsyncDisposable
         if (_instances.TryGetValue(serviceAddress, out var existingService))
         {
             Interlocked.Increment(ref _totalRaceConditionsAvoided);
+            ServiceActivationScope.MarkActivated();
             return existingService;
         }
 
-        // 创建实例
-        var service = registration.Factory(_serviceProvider, serviceId);
-
-        // 添加到缓存
-        if (!_instances.TryAdd(serviceAddress, service))
+        // 创建实例。按需服务必须完整启动后才能发布到缓存，避免其它请求观察到 Starting/Faulted 实例。
+        IPulseService? service = null;
+        try
         {
-            // 极少数情况：在创建过程中另一个实例被添加了
-            // 这种情况不应该发生，因为我们使用了 _pendingCreations 控制
-            await service.DisposeAsync().ConfigureAwait(false);
-            Interlocked.Increment(ref _totalRaceConditionsAvoided);
-            return _instances[serviceAddress];
+            service = registration.Factory(_serviceProvider, serviceId)
+                ?? throw new InvalidOperationException(
+                    $"Service factory for '{serviceAddress}' returned null.");
+            if (registration.Attribute.StartupType == ServiceStartupType.OnDemand &&
+                service.State == ServiceLifecycleState.Created)
+            {
+                await service.StartAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            if (!_instances.TryAdd(serviceAddress, service))
+            {
+                await service.DisposeAsync().ConfigureAwait(false);
+                Interlocked.Increment(ref _totalRaceConditionsAvoided);
+                ServiceActivationScope.MarkActivated();
+                return _instances[serviceAddress];
+            }
+
+            Interlocked.Increment(ref _totalCreated);
+            ServiceActivationScope.MarkActivated();
+            _logger.LogInformation(
+                "Created service instance: {ServiceAddress}, Type={ServiceType}",
+                serviceAddress, registration.ServiceType.Name);
+            return service;
         }
-
-        Interlocked.Increment(ref _totalCreated);
-
-        _logger.LogInformation(
-            "Created service instance: {ServiceAddress}, Type={ServiceType}",
-            serviceAddress, registration.ServiceType.Name);
-
-        // 对于 OnDemand 服务，自动启动
-        if (registration.Attribute.StartupType == ServiceStartupType.OnDemand &&
-            service.State == ServiceLifecycleState.Created)
+        catch
         {
-            await service.StartAsync(cancellationToken).ConfigureAwait(false);
-        }
+            await ServiceActivationScope.MarkFailedAsync().ConfigureAwait(false);
+            if (service is not null)
+            {
+                try
+                {
+                    await service.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception disposeException)
+                {
+                    _logger.LogError(
+                        disposeException,
+                        "Failed to dispose service after activation failure: {ServiceAddress}",
+                        serviceAddress);
+                }
+            }
 
-        return service;
+            throw;
+        }
     }
 
     /// <summary>
@@ -264,30 +314,76 @@ public sealed class PulseServiceManager : IAsyncDisposable
         string serviceId,
         CancellationToken cancellationToken = default)
     {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposeState) != 0, this);
+        cancellationToken.ThrowIfCancellationRequested();
         var serviceAddress = $"{serviceType}:{serviceId}";
-
-        if (!_instances.TryRemove(serviceAddress, out var service))
-        {
-            return false;
-        }
-
+        var operationGate = _serviceOperationGates.GetOrAdd(
+            serviceAddress,
+            static _ => new SemaphoreSlim(1, 1));
+        await operationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (service.State == ServiceLifecycleState.Running)
+            if (_pendingCreations.TryGetValue(serviceAddress, out var pendingCreation))
             {
-                await service.StopAsync(cancellationToken);
+                try
+                {
+                    await pendingCreation.Value.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    return false;
+                }
             }
 
-            await service.DisposeAsync();
-            Interlocked.Increment(ref _totalDisposed);
+            if (!_instances.TryRemove(serviceAddress, out var service))
+            {
+                return false;
+            }
 
-            _logger.LogInformation("Removed service instance: {ServiceAddress}", serviceAddress);
-            return true;
+            var stopSucceeded = true;
+            var disposeSucceeded = false;
+            if (service.State == ServiceLifecycleState.Running)
+            {
+                try
+                {
+                    await service.StopAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    stopSucceeded = false;
+                    _logger.LogError(ex, "Error stopping service before removal: {ServiceAddress}", serviceAddress);
+                }
+            }
+
+            try
+            {
+                await service.DisposeAsync().ConfigureAwait(false);
+                disposeSucceeded = true;
+                Interlocked.Increment(ref _totalDisposed);
+
+                _logger.LogInformation("Removed service instance: {ServiceAddress}", serviceAddress);
+                return stopSucceeded;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing service during removal: {ServiceAddress}", serviceAddress);
+                return false;
+            }
+            finally
+            {
+                if (disposeSucceeded)
+                {
+                    await ReleaseActorLeaseAsync(serviceType, serviceId).ConfigureAwait(false);
+                }
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogError(ex, "Error removing service: {ServiceAddress}", serviceAddress);
-            return false;
+            operationGate.Release();
         }
     }
 
@@ -322,33 +418,115 @@ public sealed class PulseServiceManager : IAsyncDisposable
     /// <inheritdoc/>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposeState, 1) != 0)
+        {
+            return;
+        }
+
         _logger.LogInformation("Disposing PulseServiceManager with {Count} active instances", _instances.Count);
 
-        var services = _instances.Values.ToList();
+        _lifetimeCts.Cancel();
+        var pendingTasks = _pendingCreations.Values
+            .Where(static creation => creation.IsValueCreated)
+            .Select(static creation => creation.Value)
+            .ToArray();
+        try
+        {
+            await Task.WhenAll(pendingTasks).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 单个创建任务会自行释放未发布实例；Manager 关闭继续回收已发布实例。
+        }
+
+        var services = _instances.ToArray();
         _instances.Clear();
 
-        foreach (var service in services)
+        foreach (var entry in services)
         {
+            var service = entry.Value;
+            var disposeSucceeded = false;
+            if (service.State == ServiceLifecycleState.Running)
+            {
+                try
+                {
+                    await service.StopAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error stopping service during manager shutdown: {ServiceAddress}",
+                        service.ServiceAddress);
+                }
+            }
+
             try
             {
-                if (service.State == ServiceLifecycleState.Running)
-                {
-                    await service.StopAsync();
-                }
-
-                await service.DisposeAsync();
+                await service.DisposeAsync().ConfigureAwait(false);
+                disposeSucceeded = true;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error disposing service: {ServiceAddress}",
-                    ((IPulseService)service).ServiceAddress);
+                    service.ServiceAddress);
+            }
+
+            if (disposeSucceeded)
+            {
+                var separator = entry.Key.IndexOf(':');
+                if (separator > 0)
+                {
+                    await ReleaseActorLeaseAsync(
+                        entry.Key[..separator],
+                        entry.Key[(separator + 1)..]).ConfigureAwait(false);
+                }
             }
         }
 
         _registrations.Clear();
         _autoStartServices.Clear();
+        _pendingCreations.Clear();
+        _serviceOperationGates.Clear();
+        _lifetimeCts.Dispose();
 
         _logger.LogInformation("PulseServiceManager disposed");
+    }
+
+    private async ValueTask ReleaseActorLeaseAsync(string serviceType, string serviceId)
+    {
+        var lifetime = _serviceProvider.GetService(typeof(IServiceInstanceLeaseLifetime)) as IServiceInstanceLeaseLifetime;
+        if (lifetime is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await lifetime.ReleaseAsync(serviceType, serviceId, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Failed to release Actor lease after removing service: {ServiceAddress}",
+                $"{serviceType}:{serviceId}");
+        }
+    }
+
+    private async Task RemovePendingCreationWhenCompleteAsync(
+        string serviceAddress,
+        Lazy<Task<IPulseService>> creation)
+    {
+        try
+        {
+            await creation.Value.ConfigureAwait(false);
+        }
+        catch
+        {
+            // 调用方观察创建异常；此处只负责移除共享 pending 状态。
+        }
+
+        _pendingCreations.TryRemove(
+            new KeyValuePair<string, Lazy<Task<IPulseService>>>(serviceAddress, creation));
     }
 
     private void ValidateServiceId(ServiceTypeRegistration registration, string serviceId)
@@ -479,4 +657,3 @@ public sealed class ServiceManagerStatistics
     /// </remarks>
     public long RaceConditionsAvoided { get; init; }
 }
-

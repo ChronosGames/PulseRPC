@@ -6,13 +6,13 @@
 
 基于现代 .NET 平台的高性能 RPC 框架，支持 TCP 和 KCP 传输协议，面向 Unity 游戏和微服务架构设计。
 
-> 项目仍在积极开发中，部分接口可能发生变化。完整、可运行的用法优先参考 [`docs/index.md`](docs/index.md)、[`samples/ChatApp`](samples/ChatApp/)、[`samples/JwtAuthentication`](samples/JwtAuthentication/) 与 [`samples/JsonTranscoding`](samples/JsonTranscoding/)。
+> 项目仍在积极开发中，部分接口可能发生变化。完整、可运行的用法优先参考 [`docs/index.md`](docs/index.md)、[`samples/ChatApp`](samples/ChatApp/)、[`samples/JwtAuthentication`](samples/JwtAuthentication/) 与 [`samples/HubFactoryExample`](samples/HubFactoryExample/)。
 
 ## 🚀 核心特性
 
 - **多传输协议**：TCP（可靠）与 KCP（低延迟）传输实现
 - **集群发现**：`IDiscoveryProvider` / `IClusterMembership` 抽象，提供静态成员以及 Consul、Etcd、Kubernetes 后端
-- **客户端负载均衡**：连接级随机、轮询、最少连接、加权轮询、一致性哈希等策略
+- **客户端负载均衡**：连接级随机、轮询和最少连接；加权轮询与一致性哈希仍为实验枚举值，选择时会明确抛出 `NotSupportedException`
 - **健康检查与故障转移**：客户端连接健康检查与服务端 `IPulseServiceHealthCheck` 支持
 - **连接管理**：连接生命周期管理，支持自动重连
 - **代码生成**：基于 Source Generator 的客户端/服务端代理，客户端避免使用反射（兼容 Unity）
@@ -153,7 +153,7 @@ await client.StopAsync();
 
 - [ChatApp](samples/ChatApp/) - 基于服务隔离架构的实时聊天/游戏示例（含 Unity 客户端）
 - [JwtAuthentication](samples/JwtAuthentication/) - JWT 身份验证集成示例
-- [JsonTranscoding](samples/JsonTranscoding/) - JSON 协议转码示例
+- [HubFactoryExample](samples/HubFactoryExample/) - 当前 Hub 工厂用法
 - [GameApp](samples/GameApp/) / [DistributedGameApp](samples/DistributedGameApp/) - 历史游戏架构参考，不作为当前可运行模板
 
 ## 🔧 开发约定

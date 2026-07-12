@@ -9,10 +9,15 @@ namespace PulseRPC.Client.Transport;
 /// <summary>
 /// KCP客户端传输
 /// </summary>
-public class KcpClientTransport : KcpTransport, IClientTransport
+public class KcpClientTransport : KcpTransport, IClientTransport, IAbortableClientTransport
 {
     private int _reconnectAttempts;
+    private int _reconnectScheduled;
+    private readonly object _reconnectSync = new();
     private Timer? _reconnectTimer;
+    private Task? _reconnectTask;
+    private readonly SemaphoreSlim _connectLock = new(1, 1);
+    private bool _manualDisconnect;
     private string? _host;
     private int _port;
     private DateTime _connectedAt;
@@ -25,6 +30,7 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         _id = id;
         _connectedAt = DateTime.UtcNow;
         _lastActivityAt = DateTime.UtcNow;
+        StateChanged += OnTransportStateChanged;
     }
 
     // ITransportConnection properties
@@ -44,16 +50,18 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     /// </summary>
     public async Task ConnectAsync(string host, int port, CancellationToken cancellationToken = default)
     {
-        if (_state == ConnectionState.Connected || _state == ConnectionState.Connecting)
-            return;
-
-        _host = host;
-        _port = port;
-
-        ChangeStateWithConnectionEvents(ConnectionState.Connecting);
-
+        await _connectLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (_state == ConnectionState.Connected)
+                return;
+
+            _manualDisconnect = false;
+            _host = host;
+            _port = port;
+
+            ChangeStateWithConnectionEvents(ConnectionState.Connecting);
+
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _cts.Token);
 
             // 解析服务器地址
@@ -71,7 +79,10 @@ public class KcpClientTransport : KcpTransport, IClientTransport
             _remoteEndpoint = new IPEndPoint(address, port);
 
             // 绑定本地端点
-            _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+            if (!_socket.IsBound)
+            {
+                _socket.Bind(new IPEndPoint(IPAddress.Any, 0));
+            }
             _localEndpoint = (IPEndPoint)_socket.LocalEndPoint!;
 
             // 优化UDP Socket配置
@@ -80,37 +91,33 @@ public class KcpClientTransport : KcpTransport, IClientTransport
             // 执行握手过程（带重试机制）
             await PerformHandshakeWithRetryAsync(linkedCts.Token);
 
-            // 启动KCP更新循环
-            _updateTask = KcpUpdateLoopAsync();
-
             // 更新状态
             _connectedAt = DateTime.UtcNow;
             ChangeStateWithConnectionEvents(ConnectionState.Connected);
 
+            // 更新循环只在 Connected 状态运行，必须在状态切换后启动。
+            _updateTask = KcpUpdateLoopAsync();
+
             // 重置重连次数
             _reconnectAttempts = 0;
+            CancelReconnect();
 
             _logger.LogInformation("已连接到KCP服务器: {Host}:{Port}", host, port);
-        }
-        catch (HandshakeException)
-        {
-            // 握手异常已经包含详细信息，直接重新抛出
-            ChangeStateWithConnectionEvents(ConnectionState.Failed, "握手失败", null);
-            throw;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "连接到KCP服务器失败: {Host}:{Port}", host, port);
 
-            ChangeStateWithConnectionEvents(ConnectionState.Failed, $"连接失败: {ex.Message}", ex);
-
-            // 如果启用了自动重连，则开始重连
-            if (_options.AutoReconnect && _reconnectAttempts < _options.MaxReconnectAttempts)
-            {
-                StartReconnect();
-            }
+            ChangeStateWithConnectionEvents(
+                ConnectionState.Failed,
+                ex is HandshakeException ? "握手失败" : $"连接失败: {ex.Message}",
+                ex);
 
             throw;
+        }
+        finally
+        {
+            _connectLock.Release();
         }
     }
 
@@ -176,6 +183,15 @@ public class KcpClientTransport : KcpTransport, IClientTransport
                     attempt + 1, maxRetries, ex.Message);
 
                 await Task.Delay(baseDelay, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "KCP握手最后一次尝试 {Attempt}/{MaxRetries} 失败: {Error}",
+                    attempt + 1, maxRetries, ex.Message);
             }
         }
 
@@ -243,35 +259,20 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     /// </summary>
     private async Task PerformSingleHandshakeAsync(CancellationToken cancellationToken)
     {
-        // 创建握手完成任务
-        var handshakeCompletion = new TaskCompletionSource<bool>();
-
-        // 设置超时
         var timeoutMs = _options.HandshakeTimeout;
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeoutCts.CancelAfter(timeoutMs);
 
-        // 注册超时取消
-        timeoutCts.Token.Register(() =>
-        {
-            if (!handshakeCompletion.Task.IsCompleted)
-            {
-                handshakeCompletion.TrySetException(
-                    new TimeoutException($"KCP握手超时({timeoutMs}ms)，未收到服务器确认，Conv={_options.ConversationId}"));
-            }
-        });
-
         try
         {
-            // 发送握手包
-            var handshakeData = BitConverter.GetBytes(_options.ConversationId);
-            var sentBytes = _socket.SendTo(handshakeData, _remoteEndpoint!);
-
-            // 启动异步接收任务
-            var receiveTask = ReceiveHandshakeConfirmationAsync(handshakeCompletion, timeoutCts.Token);
-
-            // 等待握手完成或超时
-            await handshakeCompletion.Task;
+            var handshakeData = CreateHandshakePacket(_options.ConversationId);
+            _socket.SendTo(handshakeData, _remoteEndpoint!);
+            await ReceiveHandshakeConfirmationAsync(timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                $"KCP握手超时({timeoutMs}ms)，未收到服务器确认，Conv={_options.ConversationId}");
         }
         catch (SocketException ex)
         {
@@ -290,81 +291,65 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     /// <summary>
     /// 接收握手确认
     /// </summary>
-    private async Task ReceiveHandshakeConfirmationAsync(TaskCompletionSource<bool> completion, CancellationToken cancellationToken)
+    private async Task ReceiveHandshakeConfirmationAsync(CancellationToken cancellationToken)
     {
-        try
+        var receiveBuffer = new byte[64];
+        while (true)
         {
-            // 使用异步接收模式，与服务器端保持一致
-            var receiveBuffer = new byte[64]; // 增大缓冲区以容纳可能的额外数据
-            var remoteEp = new IPEndPoint(IPAddress.Any, 0);
+            cancellationToken.ThrowIfCancellationRequested();
 
-            while (!cancellationToken.IsCancellationRequested && !completion.Task.IsCompleted)
+            try
             {
-                try
+                // Poll 不会留下超时后无人 EndReceiveFrom 的悬挂接收；因此晚于单次 UDP
+                // receive timeout、但仍处于整体握手窗口内的确认包仍可被当前尝试消费。
+                if (!_socket.Poll(10_000, SelectMode.SelectRead))
                 {
-                    // 使用异步接收避免阻塞
-                    EndPoint tempEndPoint = remoteEp; // 创建可赋值的临时变量
-                    var asyncResult = _socket.BeginReceiveFrom(receiveBuffer, 0, receiveBuffer.Length,
-                        SocketFlags.None, ref tempEndPoint, null, null);
-
-                    // 等待接收完成或取消
-                    var waitHandles = new[] { asyncResult.AsyncWaitHandle, cancellationToken.WaitHandle };
-                    var waitResult = WaitHandle.WaitAny(waitHandles, _options.UdpReceiveTimeout);
-
-                    if (waitResult == 0) // 接收完成
-                    {
-                        try
-                        {
-                            EndPoint tempEndPoint2 = remoteEp; // 创建另一个可赋值的临时变量
-                            var received = _socket.EndReceiveFrom(asyncResult, ref tempEndPoint2);
-                            remoteEp = (IPEndPoint)tempEndPoint2; // 更新原始端点
-
-                            if (received >= 4)
-                            {
-                                uint receivedConv = BitConverter.ToUInt32(receiveBuffer, 0);
-
-                                if (receivedConv == _options.ConversationId && remoteEp.Equals(_remoteEndpoint))
-                                {
-                                    completion.TrySetResult(true);
-                                    return;
-                                }
-                            }
-                        }
-                        catch (SocketException ex) when (IsExpectedSocketError(ex))
-                        {
-                            // 预期的Socket错误，继续等待
-                        }
-                    }
-                    else if (waitResult == 1) // 取消请求
-                    {
-                        break;
-                    }
-                }
-                catch (SocketException ex) when (IsExpectedSocketError(ex))
-                {
-                    // 预期的Socket错误，继续等待
-                    await Task.Delay(50, cancellationToken); // 稍长的延迟避免忙等待
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "接收握手确认时发生异常");
-                    completion.TrySetException(ex);
-                    return;
+                    await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+                    continue;
                 }
 
-                // 短暂等待避免忙等待
-                await Task.Delay(10, cancellationToken);
+                EndPoint sender = new IPEndPoint(IPAddress.Any, 0);
+                var received = _socket.ReceiveFrom(
+                    receiveBuffer,
+                    0,
+                    receiveBuffer.Length,
+                    SocketFlags.None,
+                    ref sender);
+                if (!_remoteEndpoint!.Equals(sender))
+                {
+                    _logger.LogWarning(
+                        "忽略来自非目标端点的KCP握手确认: Expected={Expected}, Actual={Actual}",
+                        _remoteEndpoint,
+                        sender);
+                    continue;
+                }
+
+                if (received != sizeof(uint) + sizeof(byte) ||
+                    BitConverter.ToUInt32(receiveBuffer, 0) != _options.ConversationId ||
+                    receiveBuffer[sizeof(uint)] != ProtocolConstants.CurrentProtocolVersion)
+                {
+                    throw new HandshakeException(
+                        $"KCP握手确认与 wire v{ProtocolConstants.CurrentProtocolVersion} 不兼容",
+                        HandshakeStage.WaitingConfirmation,
+                        _options.ConversationId,
+                        sender.ToString());
+                }
+
+                return;
+            }
+            catch (SocketException ex) when (IsExpectedSocketError(ex))
+            {
+                await Task.Delay(10, cancellationToken).ConfigureAwait(false);
             }
         }
-        catch (OperationCanceledException)
-        {
-            // 取消操作，正常情况
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "握手接收过程中发生未预期异常");
-            completion.TrySetException(ex);
-        }
+    }
+
+    private static byte[] CreateHandshakePacket(uint conversationId)
+    {
+        var packet = new byte[sizeof(uint) + sizeof(byte)];
+        BitConverter.GetBytes(conversationId).CopyTo(packet, 0);
+        packet[sizeof(uint)] = ProtocolConstants.CurrentProtocolVersion;
+        return packet;
     }
 
     /// <summary>
@@ -385,6 +370,9 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     /// </summary>
     public async Task DisconnectAsync(CancellationToken cancellationToken = default)
     {
+        _manualDisconnect = true;
+        CancelReconnect();
+
         if (_state == ConnectionState.Disconnected || _state == ConnectionState.Disconnecting)
             return;
 
@@ -393,9 +381,6 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         try
         {
             // 取消自动重连
-            _reconnectTimer?.Dispose();
-            _reconnectTimer = null;
-
             // 发送断开连接包
             if (_remoteEndpoint != null)
             {
@@ -422,30 +407,116 @@ public class KcpClientTransport : KcpTransport, IClientTransport
         }
     }
 
+    void IAbortableClientTransport.Abort()
+    {
+        _manualDisconnect = true;
+        CancelReconnect();
+
+        if (_state is not ConnectionState.Disconnected and not ConnectionState.Disconnecting)
+        {
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnecting);
+        }
+
+        _cts.Cancel();
+        try
+        {
+            _socket.Close(0);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Abortive KCP socket close failed");
+        }
+        finally
+        {
+            ChangeStateWithConnectionEvents(ConnectionState.Disconnected, "Abortive disconnect");
+        }
+    }
+
     /// <summary>
     /// 启动重连
     /// </summary>
     private void StartReconnect()
     {
-        if (_options.AutoReconnect && _reconnectAttempts < _options.MaxReconnectAttempts)
+        if (!_options.AutoReconnect || _manualDisconnect || _disposed || _host is null ||
+            (_options.MaxReconnectAttempts != 0 && _reconnectAttempts >= _options.MaxReconnectAttempts) ||
+            Interlocked.CompareExchange(ref _reconnectScheduled, 1, 0) != 0)
         {
-            _reconnectAttempts++;
+            return;
+        }
 
-            ChangeStateWithConnectionEvents(ConnectionState.Reconnecting,
-                $"尝试重连({_reconnectAttempts}/{_options.MaxReconnectAttempts})");
+        _reconnectAttempts++;
+        var maxAttempts = _options.MaxReconnectAttempts == 0
+            ? "∞"
+            : _options.MaxReconnectAttempts.ToString();
+
+        ChangeStateWithConnectionEvents(ConnectionState.Reconnecting,
+            $"尝试重连({_reconnectAttempts}/{maxAttempts})");
+
+        lock (_reconnectSync)
+        {
+            if (_manualDisconnect || _disposed)
+            {
+                Interlocked.Exchange(ref _reconnectScheduled, 0);
+                return;
+            }
 
             _reconnectTimer?.Dispose();
-            _reconnectTimer = new Timer(async void (_) =>
+            _reconnectTimer = new Timer(
+                static state => ((KcpClientTransport)state!).ScheduleReconnect(),
+                this,
+                _options.ReconnectInterval,
+                Timeout.Infinite);
+        }
+    }
+
+    private void ScheduleReconnect()
+    {
+        lock (_reconnectSync)
+        {
+            if (_manualDisconnect || _disposed)
             {
-                try
-                {
-                    await ConnectAsync(_host!, _port);
-                }
-                catch
-                {
-                    // 重连失败，下次继续尝试
-                }
-            }, null, _options.ReconnectInterval, Timeout.Infinite);
+                return;
+            }
+
+            _reconnectTask = ReconnectAsync();
+        }
+    }
+
+    private async Task ReconnectAsync()
+    {
+        Interlocked.Exchange(ref _reconnectScheduled, 0);
+        _reconnectTimer?.Dispose();
+        _reconnectTimer = null;
+        if (_manualDisconnect || _disposed || _host is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await ConnectAsync(_host, _port).ConfigureAwait(false);
+        }
+        catch
+        {
+            // ConnectAsync 的状态转换会安排下一次受上限约束的重连。
+        }
+    }
+
+    private void OnTransportStateChanged(object? sender, TransportStateEventArgs args)
+    {
+        if (args.CurrentState is ConnectionState.Failed or ConnectionState.Disconnected)
+        {
+            StartReconnect();
+        }
+    }
+
+    private void CancelReconnect()
+    {
+        lock (_reconnectSync)
+        {
+            Interlocked.Exchange(ref _reconnectScheduled, 0);
+            _reconnectTimer?.Dispose();
+            _reconnectTimer = null;
         }
     }
 
@@ -469,65 +540,16 @@ public class KcpClientTransport : KcpTransport, IClientTransport
     /// </summary>
     public override void Dispose()
     {
+        _manualDisconnect = true;
+        StateChanged -= OnTransportStateChanged;
+        CancelReconnect();
         base.Dispose();
-        _reconnectTimer?.Dispose();
-    }
-
-    /// <summary>
-    /// 继续接收UDP数据
-    /// </summary>
-    private void ContinueReceiving()
-    {
-        if (!_disposed && !_cts.IsCancellationRequested && _socket.IsBound)
+        Task? reconnectTask;
+        lock (_reconnectSync)
         {
-            try
-            {
-                var newBuffer = new byte[4096];
-                EndPoint newRemoteEp = new IPEndPoint(IPAddress.Any, 0);
-                _socket.BeginReceiveFrom(newBuffer, 0, newBuffer.Length, SocketFlags.None, ref newRemoteEp, OnUdpReceive, newBuffer);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "继续接收UDP数据异常");
-            }
+            reconnectTask = _reconnectTask;
         }
-    }
-
-    /// <summary>
-    /// UDP数据接收回调
-    /// </summary>
-    private new void OnUdpReceive(IAsyncResult ar)
-    {
-        if (_disposed || _cts.IsCancellationRequested)
-            return;
-
-        try
-        {
-            var buffer = (byte[])ar.AsyncState!;
-            EndPoint remoteEp = new IPEndPoint(IPAddress.Any, 0);
-            var received = _socket.EndReceiveFrom(ar, ref remoteEp);
-
-            if (received > 0 && _state == ConnectionState.Connected)
-            {
-                _kcp.Input(new Span<byte>(buffer, 0, received));
-            }
-
-            // 继续接收
-            ContinueReceiving();
-        }
-        catch (ObjectDisposedException) when (_disposed)
-        {
-            // 对象已释放，正常情况
-        }
-        catch (SocketException ex) when (IsExpectedSocketError(ex))
-        {
-            // 预期的Socket异常（如连接重置等）
-            ChangeStateWithConnectionEvents(ConnectionState.Disconnected, $"Socket异常: {ex.Message}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "KCP客户端UDP接收异常");
-            ChangeStateWithConnectionEvents(ConnectionState.Disconnected, $"接收异常: {ex.Message}");
-        }
+        reconnectTask?.GetAwaiter().GetResult();
+        _connectLock.Dispose();
     }
 }

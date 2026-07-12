@@ -7,6 +7,8 @@
   <IsPackable>false</IsPackable>
   <IsTestProject>true</IsTestProject>
   <LangVersion>latest</LangVersion>
+  <!-- These tests intentionally exercise obsolete compatibility APIs and use interface-event fakes. -->
+  <NoWarn>$(NoWarn);CS0618;CS0067</NoWarn>
   <SignAssembly>true</SignAssembly>
   <AssemblyOriginatorKeyFile>..\..\src\PulseRPC\opensource.snk</AssemblyOriginatorKeyFile>
 </PropertyGroup>

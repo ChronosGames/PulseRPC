@@ -1,7 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using PulseRPC.Server.Abstractions;
 using PulseRPC.Server.Extensions;
+using PulseRPC.Server.Hubs;
+using PulseRPC.Server.Services;
 
 // ============================================================================
 // 示例：使用 IPulseHubFactory 简化代码 - Hub 和 Service 一对一绑定
@@ -24,8 +25,9 @@ services.AddLogging(builder =>
 services.AddPulseServiceFactory<ChatRoomService>(
     (sp, serviceId) =>
     {
+        var roomId = serviceId.Split(':')[1];
         return new ChatRoomService(
-            serviceId,
+            roomId,
             sp.GetRequiredService<ILogger<ChatRoomService>>());
     },
     options =>
@@ -38,7 +40,7 @@ services.AddPulseServiceFactory<ChatRoomService>(
 services.AddPulseHubFactory<ChatRoomHub, ChatRoomService>(
     service => new ChatRoomHub(service));
 
-var serviceProvider = services.BuildServiceProvider();
+using var serviceProvider = services.BuildServiceProvider();
 
 // 2. 获取 HubFactory
 var hubFactory = serviceProvider.GetRequiredService<IPulseHubFactory<ChatRoomHub, ChatRoomService>>();
@@ -70,13 +72,13 @@ Console.WriteLine("1. 创建房间并发送消息");
 Console.WriteLine("-----------------------------------");
 
 // Room 1
-var hub1 = await hubFactory.GetOrCreateAsync("room-1");
+var hub1 = await hubFactory.GetOrCreateAsync("ChatRoom:room-1");
 await hub1.JoinAsync("user-1", "Alice");
 await hub1.SendMessageAsync("Hello, World!");
 await hub1.SendMessageAsync("How are you?");
 
 // Room 2
-var hub2 = await hubFactory.GetOrCreateAsync("room-2");
+var hub2 = await hubFactory.GetOrCreateAsync("ChatRoom:room-2");
 await hub2.JoinAsync("user-2", "Bob");
 await hub2.SendMessageAsync("Hi there!");
 
@@ -130,11 +132,8 @@ public record Message
 // Service：有状态的聊天室服务
 // ============================================================================
 
-public class ChatRoomService : IPulseService
+public class ChatRoomService : PulseServiceBase
 {
-    public string ServiceName => "ChatRoom";
-    public string ServiceId { get; }
-
     private readonly string _roomId;
     private readonly ILogger<ChatRoomService> _logger;
 
@@ -143,11 +142,11 @@ public class ChatRoomService : IPulseService
     private readonly HashSet<string> _participants = new();
 
     public ChatRoomService(string roomId, ILogger<ChatRoomService> logger)
+        : base("ChatRoom", roomId, logger)
     {
         _roomId = roomId;
-        ServiceId = $"ChatRoom:{roomId}";
         _logger = logger;
-        _logger.LogInformation("ChatRoomService created: {ServiceId}", ServiceId);
+        _logger.LogInformation("ChatRoomService created: {ServiceType}:{ServiceId}", ServiceType, ServiceId);
     }
 
     // 业务方法

@@ -18,7 +18,7 @@ public interface IResponseSerializer
     /// <summary>
     /// 序列化响应对象。
     /// </summary>
-    /// <param name="response">服务方法返回值（非空）。</param>
+    /// <param name="response">服务方法返回值；实现 <see cref="INullResponseSerializer"/> 的序列化器可接收 <see langword="null"/>。</param>
     /// <param name="writer">目标缓冲区。</param>
     void Serialize(object response, IBufferWriter<byte> writer);
 
@@ -31,6 +31,17 @@ public interface IResponseSerializer
     /// 尝试获取强类型序列化委托，便于运行时直接使用泛型无装箱序列化。
     /// </summary>
     bool TryGetTypedSerializer<T>(out Action<T, IBufferWriter<byte>> serializer);
+}
+
+/// <summary>
+/// 标记能够把 <see langword="null"/> 编码为声明响应类型 wire 表示的响应序列化器。
+/// </summary>
+/// <remarks>
+/// 响应管道只会把成功的空返回值传给实现此接口的序列化器；未实现该接口的既有自定义
+/// 序列化器继续沿用空 payload 行为，避免 void/null 升级后突然收到空对象。
+/// </remarks>
+public interface INullResponseSerializer : IResponseSerializer
+{
 }
 
 /// <summary>

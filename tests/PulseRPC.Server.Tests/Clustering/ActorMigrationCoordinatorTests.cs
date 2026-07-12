@@ -30,12 +30,19 @@ public class ActorMigrationCoordinatorTests
     {
         public string State = string.Empty;
         public readonly ConcurrentQueue<string> Calls = new();
+        public bool FailOnStart { get; init; }
 
         public string ServiceType => "Room";
         public string ServiceId => Key;
         ServiceLifecycleState IPulseService.State => ServiceLifecycleState.Running;
 
-        public Task StartAsync(CancellationToken cancellationToken = default) { Calls.Enqueue("Start"); return Task.CompletedTask; }
+        public Task StartAsync(CancellationToken cancellationToken = default)
+        {
+            Calls.Enqueue("Start");
+            return FailOnStart
+                ? Task.FromException(new InvalidOperationException("start failed"))
+                : Task.CompletedTask;
+        }
         public Task StopAsync(CancellationToken cancellationToken = default) { Calls.Enqueue("Stop"); return Task.CompletedTask; }
         public ValueTask DisposeAsync() { Calls.Enqueue("Dispose"); return default; }
 
@@ -64,8 +71,13 @@ public class ActorMigrationCoordinatorTests
         public ValueTask DisposeAsync() => default;
     }
 
-    private static ActorMigrationCoordinator Create(IActorDirectory directory, IActorStateTransport transport, string localNodeId = Local)
+    private static ActorMigrationCoordinator Create(
+        IActorDirectory directory,
+        IActorStateTransport transport,
+        string localNodeId = Local,
+        IActorLeaseHeartbeat? heartbeat = null)
         => new(directory, transport, Options.Create(new ClusterTopologyOptions { LocalNodeId = localNodeId }),
+            heartbeat,
             NullLogger<ActorMigrationCoordinator>.Instance);
 
     [Fact]
@@ -81,7 +93,7 @@ public class ActorMigrationCoordinatorTests
         await coordinator.MigrateOutAsync(Hub, Key, Target, actor);
 
         // 顺序：先 Stop（排空在途）再 Capture（状态稳定）。
-        actor.Calls.Should().ContainInOrder("Stop", "Capture");
+        actor.Calls.Should().ContainInOrder("Stop", "Capture", "Dispose");
 
         // 快照按捕获内容跨节点搬运。
         await transport.Received(1).SendSnapshotAsync(Target, Hub, Key,
@@ -124,7 +136,8 @@ public class ActorMigrationCoordinatorTests
             .Returns(new ValueTask<ActorPlacement>(new ActorPlacement(Local, "lease-2", DateTime.UtcNow.AddMinutes(1).Ticks)));
         var actor = new FakeMigratableActor();
 
-        var coordinator = Create(directory, Substitute.For<IActorStateTransport>());
+        var heartbeat = Substitute.For<IActorLeaseHeartbeat>();
+        var coordinator = Create(directory, Substitute.For<IActorStateTransport>(), heartbeat: heartbeat);
         var snapshot = Encoding.UTF8.GetBytes("player-count=7");
         var placement = await coordinator.MigrateInAsync(Hub, Key, snapshot, actor);
 
@@ -132,6 +145,28 @@ public class ActorMigrationCoordinatorTests
         actor.State.Should().Be("player-count=7", "迁入后状态应从快照恢复（跨激活保留）");
         // 顺序：Restore 必须在 Start 之前（恢复完再开始处理消息）。
         actor.Calls.Should().ContainInOrder("Restore", "Start");
+        heartbeat.Received(1).Track(Hub, Key, placement);
+    }
+
+    [Fact]
+    public async Task MigrateIn_WhenStartFails_DisposesAndReleasesAcquiredLease()
+    {
+        var placement = new ActorPlacement(Local, "lease-2", DateTime.UtcNow.AddMinutes(1).Ticks);
+        var directory = Substitute.For<IActorDirectory>();
+        directory.ActivateAsync(Hub, Key, Local, Arg.Any<CancellationToken>())
+            .Returns(new ValueTask<ActorPlacement>(placement));
+        var heartbeat = Substitute.For<IActorLeaseHeartbeat>();
+        var actor = new FakeMigratableActor { FailOnStart = true };
+
+        var action = async () => await Create(
+            directory,
+            Substitute.For<IActorStateTransport>(),
+            heartbeat: heartbeat).MigrateInAsync(Hub, Key, Encoding.UTF8.GetBytes("x"), actor);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("start failed");
+        actor.Calls.Should().ContainInOrder("Restore", "Start", "Dispose");
+        heartbeat.DidNotReceive().Track(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<ActorPlacement>());
+        await directory.Received(1).ReleaseAsync(Hub, Key, Local, placement.LeaseId, Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -149,6 +184,7 @@ public class ActorMigrationCoordinatorTests
         placement.NodeId.Should().Be("node-other");
         actor.Calls.Should().NotContain("Restore");
         actor.Calls.Should().NotContain("Start");
+        actor.Calls.Should().Contain("Dispose");
     }
 
     [Fact]

@@ -144,19 +144,13 @@ public static class ReceiverDispatcherGenerator
         sb.AppendLine($"{indent}// 使用 FNV-1a 哈希算法生成，确保客户端和服务端一致");
         sb.AppendLine();
 
-        foreach (var member in interfaceSymbol.GetMembers())
+        foreach (var methodSymbol in GetReceiverMethods(interfaceSymbol))
         {
-            if (member is IMethodSymbol methodSymbol &&
-                methodSymbol.DeclaredAccessibility == Accessibility.Public &&
-                methodSymbol.MethodKind == MethodKind.Ordinary)
+            var methodKey = MethodIdentity.CreateLookupKey(methodSymbol);
+            if (protocolIds.TryGetValue(methodKey, out var protocolId))
             {
-                // 使用完整键格式: {InterfaceFullName}.{MethodName}
-                var methodKey = $"{methodSymbol.ContainingType.ToDisplayString()}.{methodSymbol.Name}";
-                if (protocolIds.TryGetValue(methodKey, out var protocolId))
-                {
-                    var constName = $"Protocol_{methodSymbol.Name}";
-                    sb.AppendLine($"{indent}private const ushort {constName} = 0x{protocolId:X4};");
-                }
+                var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
+                sb.AppendLine($"{indent}private const ushort {constName} = 0x{protocolId:X4};");
             }
         }
         sb.AppendLine();
@@ -184,14 +178,9 @@ public static class ReceiverDispatcherGenerator
         sb.AppendLine();
 
         // 为每个方法注册处理器
-        foreach (var member in interfaceSymbol.GetMembers())
+        foreach (var methodSymbol in GetReceiverMethods(interfaceSymbol))
         {
-            if (member is IMethodSymbol methodSymbol &&
-                methodSymbol.DeclaredAccessibility == Accessibility.Public &&
-                methodSymbol.MethodKind == MethodKind.Ordinary)
-            {
-                GenerateEventHandlerRegistration(sb, methodSymbol, protocolIds, bodyIndent, innerIndent, deepIndent);
-            }
+            GenerateEventHandlerRegistration(sb, methodSymbol, protocolIds, bodyIndent, innerIndent, deepIndent);
         }
 
         sb.AppendLine();
@@ -210,8 +199,9 @@ public static class ReceiverDispatcherGenerator
         string deepIndent)
     {
         var methodName = methodSymbol.Name;
-        var constName = $"Protocol_{methodName}";
+        var constName = ProtocolIdGenerator.GetProtocolIdConstantName(methodSymbol);
         var parameters = methodSymbol.Parameters;
+        var wireParameters = parameters.Where(parameter => !IsCancellationToken(parameter)).ToArray();
 
         // [P-4] 返回 Task<T>/ValueTask<T> 的方法 => 反向 Ask，注册请求处理器（RegisterRequestHandler）
         if (TryGetReverseAskResponseType(methodSymbol, out var responseType))
@@ -230,30 +220,48 @@ public static class ReceiverDispatcherGenerator
         sb.AppendLine($"{innerIndent}deserializeAndInvoke: (ReadOnlyMemory<byte> __data__) =>");
         sb.AppendLine($"{innerIndent}{{");
 
-        if (parameters.Length == 0)
+        if (wireParameters.Length == 0)
         {
-            // 无参数方法
-            sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}();");
+            var argList = BuildInvocationArgumentList(parameters, "System.Threading.CancellationToken.None", useTuple: false);
+            sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}({argList});");
         }
-        else if (parameters.Length == 1)
+        else if (wireParameters.Length == 1)
         {
             // 单参数方法
-            var param = parameters[0];
+            var param = wireParameters[0];
             sb.AppendLine($"{deepIndent}var __arg__ = MemoryPackSerializer.Deserialize<{param.Type.ToDisplayString()}>(__data__.Span)!;");
-            sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}(__arg__);");
+            var argList = BuildInvocationArgumentList(parameters, "System.Threading.CancellationToken.None", useTuple: false);
+            sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}({argList});");
         }
         else
         {
             // 多参数方法 - 使用元组
-            var tupleType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
+            var tupleType = "(" + string.Join(", ", wireParameters.Select(p => p.Type.ToDisplayString())) + ")";
             sb.AppendLine($"{deepIndent}var __args__ = MemoryPackSerializer.Deserialize<{tupleType}>(__data__.Span)!;");
 
-            var argList = string.Join(", ", Enumerable.Range(0, parameters.Length).Select(i => $"__args__.Item{i + 1}"));
+            var argList = BuildInvocationArgumentList(parameters, "System.Threading.CancellationToken.None", useTuple: true);
             sb.AppendLine($"{deepIndent}{callPrefix}_implementation.{methodName}({argList});");
         }
 
         sb.AppendLine($"{innerIndent}}}));");
         sb.AppendLine();
+    }
+
+    private static IEnumerable<IMethodSymbol> GetReceiverMethods(INamedTypeSymbol interfaceSymbol)
+    {
+        var seen = new HashSet<string>();
+        foreach (var type in new[] { interfaceSymbol }.Concat(interfaceSymbol.AllInterfaces))
+        {
+            foreach (var method in type.GetMembers().OfType<IMethodSymbol>())
+            {
+                if (method.DeclaredAccessibility == Accessibility.Public &&
+                    method.MethodKind == MethodKind.Ordinary &&
+                    seen.Add(MethodIdentity.CreateClrSignatureKey(method)))
+                {
+                    yield return method;
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -292,6 +300,7 @@ public static class ReceiverDispatcherGenerator
     {
         var methodName = methodSymbol.Name;
         var parameters = methodSymbol.Parameters;
+        var wireParameters = parameters.Where(parameter => !IsCancellationToken(parameter)).ToArray();
 
         sb.AppendLine($"{bodyIndent}// 注册 {methodName} 反向请求处理器（Server→Client Reverse Ask）");
         sb.AppendLine($"{bodyIndent}_subscriptions.Add(channel.RegisterRequestHandler(");
@@ -299,27 +308,58 @@ public static class ReceiverDispatcherGenerator
         sb.AppendLine($"{innerIndent}handler: async (ReadOnlyMemory<byte> __data__, System.Threading.CancellationToken __ct__) =>");
         sb.AppendLine($"{innerIndent}{{");
 
-        if (parameters.Length == 0)
+        if (wireParameters.Length == 0)
         {
-            sb.AppendLine($"{deepIndent}var __result__ = await _implementation.{methodName}();");
+            var argList = BuildInvocationArgumentList(parameters, "__ct__", useTuple: false);
+            sb.AppendLine($"{deepIndent}var __result__ = await _implementation.{methodName}({argList});");
         }
-        else if (parameters.Length == 1)
+        else if (wireParameters.Length == 1)
         {
-            var param = parameters[0];
+            var param = wireParameters[0];
             sb.AppendLine($"{deepIndent}var __arg__ = MemoryPackSerializer.Deserialize<{param.Type.ToDisplayString()}>(__data__.Span)!;");
-            sb.AppendLine($"{deepIndent}var __result__ = await _implementation.{methodName}(__arg__);");
+            var argList = BuildInvocationArgumentList(parameters, "__ct__", useTuple: false);
+            sb.AppendLine($"{deepIndent}var __result__ = await _implementation.{methodName}({argList});");
         }
         else
         {
-            var tupleType = "(" + string.Join(", ", parameters.Select(p => p.Type.ToDisplayString())) + ")";
+            var tupleType = "(" + string.Join(", ", wireParameters.Select(p => p.Type.ToDisplayString())) + ")";
             sb.AppendLine($"{deepIndent}var __args__ = MemoryPackSerializer.Deserialize<{tupleType}>(__data__.Span)!;");
-            var argList = string.Join(", ", Enumerable.Range(0, parameters.Length).Select(i => $"__args__.Item{i + 1}"));
+            var argList = BuildInvocationArgumentList(parameters, "__ct__", useTuple: true);
             sb.AppendLine($"{deepIndent}var __result__ = await _implementation.{methodName}({argList});");
         }
 
         sb.AppendLine($"{deepIndent}return MemoryPackSerializer.Serialize<{responseType.ToDisplayString()}>(__result__);");
         sb.AppendLine($"{innerIndent}}}));");
         sb.AppendLine();
+    }
+
+    private static bool IsCancellationToken(IParameterSymbol parameter)
+    {
+        var typeName = parameter.Type.ToDisplayString();
+        return typeName is "System.Threading.CancellationToken" or "CancellationToken";
+    }
+
+    private static string BuildInvocationArgumentList(
+        IEnumerable<IParameterSymbol> parameters,
+        string cancellationTokenExpression,
+        bool useTuple)
+    {
+        var wireParameterIndex = 0;
+        var arguments = new List<string>();
+
+        foreach (var parameter in parameters)
+        {
+            if (IsCancellationToken(parameter))
+            {
+                arguments.Add(cancellationTokenExpression);
+                continue;
+            }
+
+            wireParameterIndex++;
+            arguments.Add(useTuple ? $"__args__.Item{wireParameterIndex}" : "__arg__");
+        }
+
+        return string.Join(", ", arguments);
     }
 
     private static void GenerateDisposeMethod(StringBuilder sb, string memberIndent, string bodyIndent)

@@ -3,6 +3,8 @@ using System.Threading.Tasks;
 using MemoryPack;
 using PulseRPC;
 
+#nullable enable
+
 namespace ChatApp.NewArchitecture.Contracts;
 
 /// <summary>
@@ -128,4 +130,3 @@ public partial class ChatMessage
     public string Content { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
 }
-

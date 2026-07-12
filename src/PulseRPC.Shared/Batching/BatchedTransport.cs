@@ -40,9 +40,10 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
     private int _pendingBytes;
 
     // 定时器和任务
-    private readonly Timer _flushTimer;
     private readonly CancellationTokenSource _cts;
     private Task? _processingTask;
+    private Task? _flushTask;
+    private readonly SemaphoreSlim _flushGate = new(1, 1);
     private volatile bool _disposed;
 
     /// <summary>
@@ -67,20 +68,25 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
     /// </summary>
     /// <param name="innerTransport">被包装的传输层</param>
     /// <param name="options">批处理配置</param>
+    /// <exception cref="NotSupportedException">选择 <see cref="TransportBackpressureStrategy.DropOldest"/> 时抛出。</exception>
     public BatchedTransport(ITransport innerTransport, BatchedTransportOptions? options = null)
     {
         _innerTransport = innerTransport ?? throw new ArgumentNullException(nameof(innerTransport));
         _options = options ?? new BatchedTransportOptions();
         _options.Validate();
+        if (_options.BackpressureStrategy == TransportBackpressureStrategy.DropOldest)
+        {
+            throw new NotSupportedException(
+                "BatchedTransport 尚不能在 DropOldest 时可靠完成被丢弃请求；请使用 Block、DropNewest 或 Reject。");
+        }
 
         _backpressureController = TransportBackpressureController.FromOptions(_options);
 
         // 初始化 Channel
         var channelOptions = new BoundedChannelOptions(_options.QueueCapacity)
         {
-            FullMode = _options.BackpressureStrategy == TransportBackpressureStrategy.Block
-                ? BoundedChannelFullMode.Wait
-                : BoundedChannelFullMode.DropWrite,
+            // 非阻塞策略由 SendAsync 显式 TryWrite，以便每个被拒绝请求都能得到确定结果。
+            FullMode = BoundedChannelFullMode.Wait,
             SingleReader = true,
             SingleWriter = false,
             AllowSynchronousContinuations = false
@@ -102,15 +108,9 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
                 () => (int)_backpressureController.CurrentLevel);
         }
 
-        // 启动定时器
-        _flushTimer = new Timer(
-            OnFlushTimer,
-            null,
-            _options.FlushInterval,
-            _options.FlushInterval);
-
-        // 启动处理任务
-        _processingTask = Task.Run(() => ProcessSendRequestsAsync(_cts.Token));
+        // reader 与定时刷新都属于装饰器生命周期，并在 DisposeAsync 中等待完成。
+        _processingTask = Task.Run(ProcessSendRequestsAsync);
+        _flushTask = Task.Run(() => FlushLoopAsync(_cts.Token));
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -188,6 +188,9 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
         if (data.IsEmpty)
             return true;
 
+        if (cancellationToken.IsCancellationRequested)
+            return false;
+
         _metrics?.RecordSendRequest();
 
         // 检查背压
@@ -213,8 +216,23 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
 
         try
         {
-            // 写入 Channel
-            await _writer.WriteAsync(request, cancellationToken).ConfigureAwait(false);
+            if (_options.BackpressureStrategy == TransportBackpressureStrategy.Block)
+            {
+                await _writer.WriteAsync(request, cancellationToken).ConfigureAwait(false);
+            }
+            else if (!_writer.TryWrite(request))
+            {
+                _metrics?.RecordSendRejected();
+                if (_options.BackpressureStrategy == TransportBackpressureStrategy.Reject)
+                {
+                    throw new BackpressureRejectedException(
+                        _backpressureController.CurrentLevel,
+                        _sendChannel.Reader.Count,
+                        _options.QueueCapacity);
+                }
+
+                return false;
+            }
 
             // 等待发送完成
             return await completion.Task.ConfigureAwait(false);
@@ -224,10 +242,10 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
             completion.TrySetResult(false);
             return false;
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested || _cts.IsCancellationRequested)
         {
-            completion.TrySetCanceled(cancellationToken);
-            throw;
+            completion.TrySetResult(false);
+            return false;
         }
         catch (Exception ex)
         {
@@ -241,11 +259,11 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
     // 批处理逻辑
     // ═══════════════════════════════════════════════════════════════════════════
 
-    private async Task ProcessSendRequestsAsync(CancellationToken cancellationToken)
+    private async Task ProcessSendRequestsAsync()
     {
         try
         {
-            await foreach (var request in _reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            await foreach (var request in _reader.ReadAllAsync().ConfigureAwait(false))
             {
                 lock (_batchLock)
                 {
@@ -256,13 +274,9 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
                 // 检查是否需要立即刷新
                 if (ShouldFlushBatch())
                 {
-                    await FlushBatchAsync(cancellationToken).ConfigureAwait(false);
+                    await FlushBatchAsync(CancellationToken.None).ConfigureAwait(false);
                 }
             }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            // 正常关闭
         }
         finally
         {
@@ -289,38 +303,47 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
 
     private async Task FlushBatchAsync(CancellationToken cancellationToken)
     {
-        List<SendRequest> batch;
-        int totalBytes;
-
-        lock (_batchLock)
-        {
-            if (_pendingRequests.Count == 0)
-                return;
-
-            batch = new List<SendRequest>(_pendingRequests);
-            totalBytes = _pendingBytes;
-
-            _pendingRequests.Clear();
-            _pendingBytes = 0;
-        }
-
-        var success = true;
-        var startTime = Stopwatch.GetTimestamp();
-
+        await _flushGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            // 批量发送
-            foreach (var request in batch)
+            List<SendRequest> batch;
+            int totalBytes;
+
+            lock (_batchLock)
             {
-                var sent = await _innerTransport.SendAsync(request.Data, cancellationToken).ConfigureAwait(false);
-                if (!sent)
-                {
-                    success = false;
-                    break;
-                }
+                if (_pendingRequests.Count == 0)
+                    return;
+
+                batch = new List<SendRequest>(_pendingRequests);
+                totalBytes = _pendingBytes;
+
+                _pendingRequests.Clear();
+                _pendingBytes = 0;
             }
 
-            // 记录指标
+            var success = true;
+            var startTime = Stopwatch.GetTimestamp();
+
+            foreach (var request in batch)
+            {
+                var sent = false;
+                try
+                {
+                    sent = await _innerTransport.SendAsync(request.Data, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    sent = false;
+                }
+                catch
+                {
+                    _metrics?.RecordSendError();
+                }
+
+                success &= sent;
+                request.Completion.TrySetResult(sent);
+            }
+
             if (success)
             {
                 _metrics?.RecordBytesSent(totalBytes);
@@ -335,35 +358,25 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
                 _metrics?.RecordSendError();
             }
         }
-        catch (Exception)
+        finally
         {
-            success = false;
-            _metrics?.RecordSendError();
-        }
-
-        // 完成所有请求
-        foreach (var request in batch)
-        {
-            request.Completion.TrySetResult(success);
+            _flushGate.Release();
         }
     }
 
-    private void OnFlushTimer(object? state)
+    private async Task FlushLoopAsync(CancellationToken cancellationToken)
     {
-        if (_disposed)
-            return;
-
-        _ = Task.Run(async () =>
+        try
         {
-            try
+            while (true)
             {
+                await Task.Delay(_options.FlushInterval, cancellationToken).ConfigureAwait(false);
                 await FlushBatchAsync(CancellationToken.None).ConfigureAwait(false);
             }
-            catch
-            {
-                // 忽略定时器刷新错误
-            }
-        });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -389,28 +402,29 @@ public sealed class BatchedTransport : IBatchedTransport, IAsyncDisposable
             // 停止接收新请求
             _writer.TryComplete();
 
-            // 取消处理任务
+            // 停止周期刷新；reader 不取消，而是排空所有已接受请求。
             _cts.Cancel();
 
-            // 等待处理完成
-            if (_processingTask != null)
+            if (_flushTask != null)
             {
                 try
                 {
-                    await _processingTask.ConfigureAwait(false);
+                    await _flushTask.ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
-                    // 预期的取消
                 }
             }
 
-            // 最后刷新
+            if (_processingTask != null)
+            {
+                await _processingTask.ConfigureAwait(false);
+            }
+
             await FlushBatchAsync(CancellationToken.None).ConfigureAwait(false);
         }
         finally
         {
-            _flushTimer.Dispose();
             _cts.Dispose();
             _metrics?.Dispose();
         }

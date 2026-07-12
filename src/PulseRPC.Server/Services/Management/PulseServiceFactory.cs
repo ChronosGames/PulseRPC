@@ -29,10 +29,14 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
     private readonly Func<string, TService> _serviceFactory;
     private readonly ILogger<PulseServiceFactory<TService>> _logger;
     private readonly PulseServiceFactoryOptions _options;
-    private readonly Timer _cleanupTimer;
-    private readonly Timer? _healthCheckTimer;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _operationGates = new();
+    private readonly object _lifecycleLock = new();
     private readonly CancellationTokenSource _disposeCts;
-    private bool _disposed;
+    private readonly Task _cleanupTask;
+    private readonly Task? _healthCheckTask;
+    private TaskCompletionSource<bool>? _operationsDrained;
+    private int _activeOperations;
+    private volatile bool _disposed;
 
     // 指标
     private long _totalCreated;
@@ -59,21 +63,17 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
         _instances = new ConcurrentDictionary<string, ServiceInstanceEntry>();
         _disposeCts = new CancellationTokenSource();
 
-        // 启动清理定时器
-        _cleanupTimer = new Timer(
-            _ => _ = CleanupIdleInstancesAsync(),
-            null,
+        _cleanupTask = RunPeriodicAsync(
             _options.CleanupInterval,
-            _options.CleanupInterval);
+            CleanupIdleInstancesAsync,
+            _disposeCts.Token);
 
-        // 启动健康检查定时器
         if (_options.EnableHealthCheck)
         {
-            _healthCheckTimer = new Timer(
-                _ => _ = PerformHealthChecksAsync(),
-                null,
+            _healthCheckTask = RunPeriodicAsync(
                 _options.HealthCheckInterval,
-                _options.HealthCheckInterval);
+                PerformHealthChecksAsync,
+                _disposeCts.Token);
         }
 
         _logger.LogInformation(
@@ -93,98 +93,111 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
         if (string.IsNullOrWhiteSpace(serviceId))
             throw new ArgumentException("ServiceId cannot be null or whitespace", nameof(serviceId));
 
-        ThrowIfDisposed();
-
-        // 快速路径：实例已存在
-        if (_instances.TryGetValue(serviceId, out var entry))
-        {
-            entry.RecordAccess();
-            if (_options.EnableMetrics)
-            {
-                Interlocked.Increment(ref _cacheHits);
-            }
-            return entry.Service;
-        }
-
-        if (_options.EnableMetrics)
-        {
-            Interlocked.Increment(ref _cacheMisses);
-        }
-
-        // 慢速路径：创建新实例
-        TService service;
+        var gate = BeginOperation(serviceId);
+        TService? result = default;
+        var enforceCapacity = false;
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _disposeCts.Token);
         try
         {
-            service = _serviceFactory(serviceId);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex,
-                "Failed to create service instance: ServiceId={ServiceId}, Type={ServiceType}",
-                serviceId, typeof(TService).Name);
-            throw new ServiceCreationException(serviceId,
-                $"Failed to create service instance: {serviceId}", ex);
-        }
-
-        var newEntry = new ServiceInstanceEntry(service);
-
-        // 竞态保护：确保只有一个实例被创建
-        entry = _instances.GetOrAdd(serviceId, newEntry);
-
-        // 如果是新创建的实例
-        if (ReferenceEquals(entry, newEntry))
-        {
-            if (_options.EnableMetrics)
+            await gate.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+            try
             {
-                Interlocked.Increment(ref _totalCreated);
-            }
+                ThrowIfDisposed();
+                if (_instances.TryGetValue(serviceId, out var existingEntry))
+                {
+                    existingEntry.RecordAccess();
+                    if (_options.EnableMetrics)
+                    {
+                        Interlocked.Increment(ref _cacheHits);
+                    }
 
-            _logger.LogInformation(
-                "Created service instance: ServiceId={ServiceId}, Type={ServiceType}",
-                serviceId, typeof(TService).Name);
+                    result = existingEntry.Service;
+                    return result;
+                }
 
-            // 调用生命周期钩子
-            if (service is IPulseServiceLifecycle lifecycle)
-            {
+                if (_options.EnableMetrics)
+                {
+                    Interlocked.Increment(ref _cacheMisses);
+                }
+
+                TService service;
                 try
                 {
-                    await lifecycle.OnStartingAsync(cancellationToken);
+                    service = _serviceFactory(serviceId) ??
+                        throw new InvalidOperationException("Service factory returned null.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "Failed to create service instance: ServiceId={ServiceId}, Type={ServiceType}",
+                        serviceId, typeof(TService).Name);
+                    throw new ServiceCreationException(serviceId,
+                        $"Failed to create service instance: {serviceId}", ex);
+                }
 
-                    _logger.LogDebug(
-                        "Service instance activated: ServiceId={ServiceId}",
-                        serviceId);
+                try
+                {
+                    await service.StartAsync(linkedCts.Token).ConfigureAwait(false);
+                    ThrowIfDisposed();
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex,
                         "Service activation failed: ServiceId={ServiceId}", serviceId);
-
-                    // 激活失败，移除实例
-                    _instances.TryRemove(serviceId, out _);
-                    if (_options.EnableMetrics)
-                    {
-                        Interlocked.Decrement(ref _totalCreated);
-                    }
-
+                    await DisposeServiceAsync(service, stopFirst: false).ConfigureAwait(false);
                     throw new ServiceActivationException(serviceId,
                         $"Failed to activate service: {serviceId}", ex);
                 }
-            }
 
-            // 检查是否超过最大缓存数
-            if (_instances.Count > _options.MaxCachedInstances)
+                var entry = new ServiceInstanceEntry(service);
+                if (!_instances.TryAdd(serviceId, entry))
+                {
+                    await DisposeServiceAsync(service, stopFirst: true).ConfigureAwait(false);
+                    throw new InvalidOperationException($"Service instance was concurrently published: {serviceId}");
+                }
+
+                entry.RecordAccess();
+                result = service;
+                enforceCapacity = _instances.Count > _options.MaxCachedInstances;
+
+                if (_options.EnableMetrics)
+                {
+                    Interlocked.Increment(ref _totalCreated);
+                }
+
+                _logger.LogInformation(
+                    "Created and started service instance: ServiceId={ServiceId}, Type={ServiceType}",
+                    serviceId, typeof(TService).Name);
+            }
+            finally
             {
-                _ = EvictLeastRecentlyUsedAsync(cancellationToken);
+                gate.Release();
             }
         }
+        finally
+        {
+            EndOperation();
+        }
 
-        entry.RecordAccess();
-        return entry.Service;
+        if (enforceCapacity)
+        {
+            await EvictLeastRecentlyUsedAsync(_disposeCts.Token).ConfigureAwait(false);
+        }
+
+        return result!;
     }
 
     /// <inheritdoc/>
     public bool TryGet(string serviceId, [NotNullWhen(true)] out TService? service)
     {
+        if (_disposed)
+        {
+            service = default;
+            return false;
+        }
+
         if (_instances.TryGetValue(serviceId, out var entry))
         {
             entry.RecordAccess();
@@ -201,48 +214,26 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
         string serviceId,
         CancellationToken cancellationToken = default)
     {
-        if (!_instances.TryRemove(serviceId, out var entry))
-            return false;
-
-        if (_options.EnableMetrics)
+        var gate = BeginOperation(serviceId);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _disposeCts.Token);
+        try
         {
-            Interlocked.Increment(ref _totalRemoved);
-        }
-
-        _logger.LogInformation(
-            "Removing service instance: ServiceId={ServiceId}, AccessCount={AccessCount}, Lifetime={Lifetime}",
-            serviceId, entry.AccessCount, DateTimeOffset.UtcNow - entry.CreatedTime);
-
-        // 调用停用钩子
-        if (entry.Service is IPulseServiceLifecycle lifecycle)
-        {
+            await gate.WaitAsync(linkedCts.Token).ConfigureAwait(false);
             try
             {
-                await lifecycle.OnStoppingAsync(cancellationToken);
+                return await RemovePublishedEntryAsync(serviceId, linkedCts.Token).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            finally
             {
-                _logger.LogError(ex,
-                    "Service deactivation failed: ServiceId={ServiceId}", serviceId);
-                // 继续移除，不抛出异常
+                gate.Release();
             }
         }
-
-        // 如果实现了 IDisposable，调用 Dispose
-        if (entry.Service is IDisposable disposable)
+        finally
         {
-            try
-            {
-                disposable.Dispose();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "Service disposal failed: ServiceId={ServiceId}", serviceId);
-            }
+            EndOperation();
         }
-
-        return true;
     }
 
     /// <inheritdoc/>
@@ -292,6 +283,95 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
     // 内部方法
     // ========================================================================
 
+    private SemaphoreSlim BeginOperation(string serviceId)
+    {
+        lock (_lifecycleLock)
+        {
+            ThrowIfDisposed();
+            _activeOperations++;
+            return _operationGates.GetOrAdd(serviceId, static _ => new SemaphoreSlim(1, 1));
+        }
+    }
+
+    private void EndOperation()
+    {
+        lock (_lifecycleLock)
+        {
+            _activeOperations--;
+            if (_disposed && _activeOperations == 0)
+            {
+                _operationsDrained?.TrySetResult(true);
+            }
+        }
+    }
+
+    private async Task RunPeriodicAsync(
+        TimeSpan interval,
+        Func<Task> action,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(interval, cancellationToken).ConfigureAwait(false);
+                await action().ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async ValueTask<bool> RemovePublishedEntryAsync(
+        string serviceId,
+        CancellationToken cancellationToken)
+    {
+        if (!_instances.TryRemove(serviceId, out var entry))
+        {
+            return false;
+        }
+
+        if (_options.EnableMetrics)
+        {
+            Interlocked.Increment(ref _totalRemoved);
+        }
+
+        _logger.LogInformation(
+            "Removing service instance: ServiceId={ServiceId}, AccessCount={AccessCount}, Lifetime={Lifetime}",
+            serviceId, entry.AccessCount, DateTimeOffset.UtcNow - entry.CreatedTime);
+
+        await DisposeServiceAsync(entry.Service, stopFirst: true, cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
+    private async ValueTask DisposeServiceAsync(
+        TService service,
+        bool stopFirst,
+        CancellationToken cancellationToken = default)
+    {
+        if (stopFirst)
+        {
+            try
+            {
+                await service.StopAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Service stop failed: ServiceId={ServiceId}", service.ServiceId);
+            }
+        }
+
+        try
+        {
+            await service.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Service disposal failed: ServiceId={ServiceId}", service.ServiceId);
+        }
+    }
+
     private async Task CleanupIdleInstancesAsync()
     {
         if (_disposed)
@@ -318,6 +398,12 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
                     "Cleaned up {Count} idle service instances", toRemove.Count);
             }
         }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during idle instance cleanup");
@@ -337,18 +423,28 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
                 .Select(kvp => kvp.Key)
                 .ToList();
 
+            var removedCount = 0;
             foreach (var serviceId in toEvict)
             {
-                await RemoveAsync(serviceId, cancellationToken);
-                if (_options.EnableMetrics)
+                if (await RemoveAsync(serviceId, cancellationToken).ConfigureAwait(false))
                 {
-                    Interlocked.Increment(ref _evictionCount);
+                    removedCount++;
+                    if (_options.EnableMetrics)
+                    {
+                        Interlocked.Increment(ref _evictionCount);
+                    }
                 }
             }
 
             _logger.LogWarning(
                 "Evicted {Count} least recently used instances (cache limit exceeded)",
-                toEvict.Count);
+                removedCount);
+        }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
         }
         catch (Exception ex)
         {
@@ -401,6 +497,12 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
                     "Removed {Count} unhealthy service instances", unhealthyServices.Count);
             }
         }
+        catch (OperationCanceledException) when (_disposeCts.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during health checks");
@@ -420,27 +522,55 @@ internal sealed class PulseServiceFactory<TService> : IPulseServiceFactory<TServ
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (_disposed)
-            return;
+        Task operationsDrained;
+        lock (_lifecycleLock)
+        {
+            if (_disposed)
+                return;
 
-        _disposed = true;
+            _disposed = true;
+            if (_activeOperations == 0)
+            {
+                operationsDrained = Task.CompletedTask;
+            }
+            else
+            {
+                _operationsDrained = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                operationsDrained = _operationsDrained.Task;
+            }
+        }
 
         _logger.LogInformation(
             "Disposing ServiceFactory: Type={ServiceType}, ActiveInstances={ActiveInstances}",
             typeof(TService).Name, _instances.Count);
 
         _disposeCts.Cancel();
-        _cleanupTimer.Dispose();
-        _healthCheckTimer?.Dispose();
+        if (_healthCheckTask is null)
+        {
+            _cleanupTask.GetAwaiter().GetResult();
+        }
+        else
+        {
+            Task.WhenAll(_cleanupTask, _healthCheckTask).GetAwaiter().GetResult();
+        }
+        operationsDrained.GetAwaiter().GetResult();
 
-        // 移除所有实例
+        // 此时不再有创建/移除操作，直接按统一 Stop -> Dispose 生命周期排空实例。
         var serviceIds = _instances.Keys.ToList();
         foreach (var serviceId in serviceIds)
         {
-            _ = RemoveAsync(serviceId).AsTask().GetAwaiter().GetResult();
+            RemovePublishedEntryAsync(serviceId, CancellationToken.None)
+                .AsTask()
+                .GetAwaiter()
+                .GetResult();
         }
 
         _disposeCts.Dispose();
+        foreach (var gate in _operationGates.Values)
+        {
+            gate.Dispose();
+        }
 
         _logger.LogInformation(
             "ServiceFactory disposed: Type={ServiceType}, TotalCreated={TotalCreated}, TotalRemoved={TotalRemoved}",

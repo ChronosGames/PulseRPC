@@ -20,7 +20,9 @@ public sealed class KcpCore : IDisposable
     // 协议状态
     private uint _mtu = 1400;
     private uint _mss;
+#pragma warning disable CS0169 // 保留用于后续 KCP 状态追踪兼容。
     private uint _state;
+#pragma warning restore CS0169
 
     // 发送控制
     private uint _sndUna;    // 第一个未确认的包

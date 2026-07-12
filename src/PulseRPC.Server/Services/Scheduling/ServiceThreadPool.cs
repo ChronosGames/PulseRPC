@@ -85,7 +85,9 @@ public sealed class ServiceThreadPool : IAsyncDisposable
         {
             ActiveThreadCount = _workers.Count(w => w.IsRunning),
             TotalQueuedMessages = _workers.Sum(w => w.CurrentQueueDepth),
-            DroppedMessageCount = 0 // TODO: Implement dropped message tracking
+            // Worker channels use BoundedChannelFullMode.Wait, so this scheduler applies
+            // backpressure instead of dropping work.
+            DroppedMessageCount = 0
         };
 
         return metrics;
