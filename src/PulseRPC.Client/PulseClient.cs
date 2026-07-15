@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using PulseRPC.Authentication;
 using PulseRPC.Serialization;
 using PulseRPC.Client;
 using PulseRPC.Client.Configuration;
@@ -55,36 +54,13 @@ internal sealed class PulseClient : IPulseClient
     /// <summary>
     /// 构造函数
     /// </summary>
-#pragma warning disable CS0618 // Compatibility constructor rejects these unsupported DTOs below.
     public PulseClient(
         IReadOnlyList<ConnectionDescriptor> connections,
         ILoggerFactory? loggerFactory = null,
         ISerializerProvider? serializerProvider = null,
-        IAuthenticationProvider? authenticationProvider = null,
         LoadBalancingStrategy loadBalancingStrategy = LoadBalancingStrategy.RoundRobin,
-        ConnectionPoolOptions? connectionPoolOptions = null,
-        RetryPolicy? retryPolicy = null,
         ClientOptions? clientOptions = null)
     {
-#pragma warning restore CS0618
-        if (authenticationProvider is not null)
-        {
-            throw new NotSupportedException(
-                "Client authentication is not connected to the transport handshake.");
-        }
-
-        if (connectionPoolOptions is not null)
-        {
-            throw new NotSupportedException(
-                "Connection pooling is not connected to ConnectionManager.");
-        }
-
-        if (retryPolicy is not null)
-        {
-            throw new NotSupportedException(
-                "RetryPolicy is not connected to client requests or connection attempts.");
-        }
-
         _initialConnections = connections?.ToList() ?? new List<ConnectionDescriptor>();
         _clientOptions = clientOptions ?? new ClientOptions();
 

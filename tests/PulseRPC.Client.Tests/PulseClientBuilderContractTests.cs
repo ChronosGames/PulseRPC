@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using PulseRPC.Authentication;
 using PulseRPC.Client.Channels;
 using PulseRPC.Client.Configuration;
 using PulseRPC.Client.Transport;
@@ -11,106 +10,46 @@ using Xunit;
 
 namespace PulseRPC.Client.Tests;
 
-#pragma warning disable CS0618 // Intentional compatibility coverage of unsupported builder APIs.
 public class PulseClientBuilderContractTests
 {
-    [Theory]
-    [InlineData(nameof(ClientOptions.DefaultTimeout))]
-    [InlineData(nameof(ClientOptions.MaxConcurrentConnections))]
-    [InlineData(nameof(ClientOptions.EnableDebugMode))]
-    [InlineData(nameof(ClientOptions.EnableStatistics))]
-    [InlineData(nameof(ClientOptions.AutoCleanupInterval))]
-    [InlineData(nameof(ClientOptions.Settings))]
-    public void UnwiredClientOptions_MustBeMarkedObsolete(string propertyName)
+    [Fact]
+    public void ClientOptions_MustExposeOnlyRuntimeConsumedOptions()
     {
-        var property = typeof(ClientOptions).GetProperty(propertyName);
-
-        Assert.NotNull(property);
-        Assert.NotNull(Attribute.GetCustomAttribute(property!, typeof(ObsoleteAttribute)));
-    }
-
-    [Theory]
-    [InlineData(nameof(ServiceProxyOptions.ConnectionId))]
-    [InlineData(nameof(ServiceProxyOptions.ChannelName))]
-    [InlineData(nameof(ServiceProxyOptions.Tags))]
-    [InlineData(nameof(ServiceProxyOptions.PreferredRegion))]
-    [InlineData(nameof(ServiceProxyOptions.Timeout))]
-    [InlineData(nameof(ServiceProxyOptions.RetryPolicy))]
-    [InlineData(nameof(ServiceProxyOptions.UseCache))]
-    public void UnwiredServiceProxyOptions_MustBeMarkedObsolete(string propertyName)
-    {
-        var property = typeof(ServiceProxyOptions).GetProperty(propertyName);
-
-        Assert.NotNull(property);
-        Assert.NotNull(Attribute.GetCustomAttribute(property!, typeof(ObsoleteAttribute)));
+        Assert.NotNull(typeof(ClientOptions).GetProperty(nameof(ClientOptions.Name)));
+        Assert.NotNull(typeof(ClientOptions).GetProperty(nameof(ClientOptions.LoadBalancing)));
+        Assert.Null(typeof(ClientOptions).GetProperty("DefaultTimeout"));
+        Assert.Null(typeof(ClientOptions).GetProperty("MaxConcurrentConnections"));
+        Assert.Null(typeof(ClientOptions).GetProperty("Settings"));
     }
 
     [Fact]
-    public void EffectiveServiceProxyOptions_MustRemainSupported()
+    public void ServiceProxyOptions_MustExposeOnlyRoutingContext()
     {
-        Assert.Null(Attribute.GetCustomAttribute(
-            typeof(ServiceProxyOptions).GetProperty(nameof(ServiceProxyOptions.LoadBalancingHint))!,
-            typeof(ObsoleteAttribute)));
-        Assert.Null(Attribute.GetCustomAttribute(
-            typeof(ServiceProxyOptions).GetProperty(nameof(ServiceProxyOptions.StickyKey))!,
-            typeof(ObsoleteAttribute)));
+        Assert.NotNull(typeof(ServiceProxyOptions).GetProperty(nameof(ServiceProxyOptions.LoadBalancingHint)));
+        Assert.NotNull(typeof(ServiceProxyOptions).GetProperty(nameof(ServiceProxyOptions.StickyKey)));
+        Assert.Null(typeof(ServiceProxyOptions).GetProperty("ConnectionId"));
+        Assert.Null(typeof(ServiceProxyOptions).GetProperty("RetryPolicy"));
     }
 
     [Fact]
-    public void UnwiredCompatibilityModels_MustBeMarkedObsolete()
+    public void RemovedCompatibilityModels_MustNotBeResolvable()
     {
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ClientPresets), typeof(ObsoleteAttribute)));
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ChannelPresets), typeof(ObsoleteAttribute)));
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(TransportChannelOptions), typeof(ObsoleteAttribute)));
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ConnectionPoolOptions), typeof(ObsoleteAttribute)));
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ServiceConnectionOptions), typeof(ObsoleteAttribute)));
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(RetryPolicy), typeof(ObsoleteAttribute)));
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(PoolingStrategy), typeof(ObsoleteAttribute)));
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(EventListenerOptions), typeof(ObsoleteAttribute)));
-        Assert.NotNull(Attribute.GetCustomAttribute(typeof(ServiceDiscoveryOptions), typeof(ObsoleteAttribute)));
-    }
-
-    [Theory]
-    [InlineData(nameof(PulseClientBuilder.UseDefaults))]
-    [InlineData(nameof(PulseClientBuilder.UseGameClientPreset))]
-    [InlineData(nameof(PulseClientBuilder.UseHighThroughputPreset))]
-    [InlineData(nameof(PulseClientBuilder.UseDevelopmentPreset))]
-    public void LegacyPresetBuilderMethods_MustBeMarkedObsolete(string methodName)
-    {
-        var method = typeof(PulseClientBuilder).GetMethod(methodName);
-
-        Assert.NotNull(method);
-        Assert.NotNull(Attribute.GetCustomAttribute(method!, typeof(ObsoleteAttribute)));
+        var assembly = typeof(ClientOptions).Assembly;
+        Assert.Null(assembly.GetType("PulseRPC.Client.Configuration.ClientPresets"));
+        Assert.Null(assembly.GetType("PulseRPC.Client.Configuration.ChannelPresets"));
+        Assert.Null(assembly.GetType("PulseRPC.Client.Configuration.ConnectionPoolOptions"));
+        Assert.Null(assembly.GetType("PulseRPC.Client.Configuration.ServiceDiscoveryOptions"));
+        Assert.Null(assembly.GetType("PulseRPC.Client.Configuration.EventListenerOptions"));
     }
 
     [Fact]
-    public void Build_WithAuthentication_MustFailExplicitly()
+    public void RemovedCompatibilityBuilderMethods_MustNotBeResolvable()
     {
-        var builder = new PulseClientBuilder()
-            .WithAuthentication(new TestAuthenticationProvider());
-
-        var ex = Assert.Throws<NotSupportedException>(() => builder.Build());
-        Assert.Contains("WithAuthentication", ex.Message);
-    }
-
-    [Fact]
-    public void Build_WithConnectionPooling_MustFailExplicitly()
-    {
-        var builder = new PulseClientBuilder()
-            .WithConnectionPooling(ConnectionPoolOptions.FixedSize(2));
-
-        var ex = Assert.Throws<NotSupportedException>(() => builder.Build());
-        Assert.Contains("WithConnectionPooling", ex.Message);
-    }
-
-    [Fact]
-    public void Build_WithRetryPolicy_MustFailExplicitly()
-    {
-        var builder = new PulseClientBuilder()
-            .WithRetryPolicy(new RetryPolicy());
-
-        var ex = Assert.Throws<NotSupportedException>(() => builder.Build());
-        Assert.Contains("WithRetryPolicy", ex.Message);
+        Assert.Null(typeof(PulseClientBuilder).GetMethod("UseDefaults"));
+        Assert.Null(typeof(PulseClientBuilder).GetMethod("UseGameClientPreset"));
+        Assert.Null(typeof(PulseClientBuilder).GetMethod("WithConnectionPooling"));
+        Assert.Null(typeof(PulseClientBuilder).GetMethod("WithRetryPolicy"));
+        Assert.Null(typeof(PulseClientBuilder).GetMethod("WithAuthentication"));
     }
 
     [Fact]
@@ -195,33 +134,8 @@ public class PulseClientBuilderContractTests
             "kcp", new KcpTransportOptions { UseEncryption = true }));
     }
 
-    private sealed class TestAuthenticationProvider : IAuthenticationProvider
-    {
-        public string AuthenticationType => "Test";
-
-        public Task<AuthenticationToken> GetTokenAsync(string serviceName, CancellationToken cancellationToken = default)
-            => Task.FromResult(CreateToken());
-
-        public Task<AuthenticationToken> RefreshTokenAsync(AuthenticationToken currentToken, CancellationToken cancellationToken = default)
-            => Task.FromResult(CreateToken());
-
-        public bool IsTokenValid(AuthenticationToken token)
-            => !token.IsExpired;
-
-        public Task RevokeTokenAsync(AuthenticationToken token, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
-
-        private static AuthenticationToken CreateToken()
-            => new()
-            {
-                Token = "test-token",
-                ExpiresAt = DateTime.UtcNow.AddMinutes(5)
-            };
-    }
-
     private sealed class TestWeightProvider : IConnectionWeightProvider
     {
         public int GetWeight(IClientChannel connection) => 1;
     }
 }
-#pragma warning restore CS0618

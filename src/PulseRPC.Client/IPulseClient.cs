@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Logging;
-using PulseRPC.Authentication;
 using PulseRPC.Client;
 using PulseRPC.Client.Configuration;
 using PulseRPC.Client.Health;
@@ -285,18 +284,6 @@ public interface IPulseClientBuilder
     IPulseClientBuilder WithLoadBalancing(LoadBalancingStrategy strategy, IReadOnlyDictionary<string, object>? options = null);
 
     /// <summary>
-    /// 兼容入口；连接池尚未接入客户端运行时。
-    /// </summary>
-    [Obsolete("Connection pooling is not connected to the client runtime. Configure explicit connections instead.", false)]
-    IPulseClientBuilder WithConnectionPooling(ConnectionPoolOptions poolOptions);
-
-    /// <summary>
-    /// 兼容入口；重试策略尚未接入请求或连接路径。
-    /// </summary>
-    [Obsolete("RetryPolicy is not connected to client requests or connection attempts.", false)]
-    IPulseClientBuilder WithRetryPolicy(RetryPolicy retryPolicy);
-
-    /// <summary>
     /// 配置日志
     /// </summary>
     IPulseClientBuilder WithLogging(ILoggerFactory loggerFactory);
@@ -305,12 +292,6 @@ public interface IPulseClientBuilder
     /// 配置序列化器
     /// </summary>
     IPulseClientBuilder WithSerializer(ISerializerProvider serializerProvider);
-
-    /// <summary>
-    /// 兼容入口；认证提供者尚未接入传输握手。
-    /// </summary>
-    [Obsolete("Client authentication is not connected to the transport handshake.", false)]
-    IPulseClientBuilder WithAuthentication(IAuthenticationProvider authenticationProvider);
 
     /// <summary>
     /// 配置传输选项

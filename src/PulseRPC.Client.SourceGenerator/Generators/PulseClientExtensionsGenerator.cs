@@ -30,7 +30,6 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("// PulseClient Factory Pattern Extensions - Generated Implementation");
         sb.AppendLine("#nullable enable");
         sb.AppendLine("#pragma warning disable CS1591");
-        sb.AppendLine("#pragma warning disable CS0618 // Compatibility signatures reference obsolete option DTOs.");
         sb.AppendLine();
         sb.AppendLine("using System;");
         sb.AppendLine("using System.Collections.Generic;");
@@ -190,14 +189,11 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("        public static async Task<ISubscriptionToken> RegisterEventListenerAsync<T>(");
         sb.AppendLine("            this IPulseClient client,");
         sb.AppendLine("            T listener,");
-        sb.AppendLine("            EventListenerOptions? options = null,");
         sb.AppendLine("            CancellationToken cancellationToken = default)");
         sb.AppendLine("            where T : class, IPulseHub");
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
-        sb.AppendLine("            if (options != null) throw new NotSupportedException(\"EventListenerOptions is not consumed by generated registration. Pass null.\");");
-        sb.AppendLine();
         sb.AppendLine("            var listenerType = typeof(T);");
         sb.AppendLine("            var tokens = new List<ISubscriptionToken>();");
         sb.AppendLine();
@@ -259,15 +255,12 @@ public static class PulseClientExtensionsGenerator
         sb.AppendLine("            this IPulseClient client,");
         sb.AppendLine("            string connectionId,");
         sb.AppendLine("            T listener,");
-        sb.AppendLine("            EventListenerOptions? options = null,");
         sb.AppendLine("            CancellationToken cancellationToken = default)");
         sb.AppendLine("            where T : class, IPulseHub");
         sb.AppendLine("        {");
         sb.AppendLine("            if (client == null) throw new ArgumentNullException(nameof(client));");
         sb.AppendLine("            if (string.IsNullOrEmpty(connectionId)) throw new ArgumentException(\"连接ID不能为空\", nameof(connectionId));");
         sb.AppendLine("            if (listener == null) throw new ArgumentNullException(nameof(listener));");
-        sb.AppendLine("            if (options != null) throw new NotSupportedException(\"EventListenerOptions is not consumed by generated registration. Pass null.\");");
-        sb.AppendLine();
         sb.AppendLine("            var listenerType = typeof(T);");
         sb.AppendLine("            var connectionContext = client.Connections.GetConnection(connectionId);");
         sb.AppendLine("            if (connectionContext == null)");

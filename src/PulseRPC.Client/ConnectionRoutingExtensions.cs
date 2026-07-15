@@ -22,7 +22,6 @@ public static class ConnectionRoutingExtensions
             throw new ArgumentNullException(nameof(connectionManager));
         }
 
-        ValidateSupportedOptions(options);
 
         var context = new LoadBalancingContext(
             options?.LoadBalancingHint ?? LoadBalancingHint.None,
@@ -41,25 +40,4 @@ public static class ConnectionRoutingExtensions
         return connectionManager.RouteAsync(serviceName, cancellationToken);
     }
 
-    private static void ValidateSupportedOptions(ServiceProxyOptions? options)
-    {
-        if (options == null)
-        {
-            return;
-        }
-
-#pragma warning disable CS0618 // Validate shipped compatibility fields before rejecting them.
-        if (options.ConnectionId != null ||
-            options.ChannelName != null ||
-            options.Tags != null ||
-            options.PreferredRegion != null ||
-            options.Timeout.HasValue ||
-            options.RetryPolicy != null ||
-            !options.UseCache)
-        {
-            throw new NotSupportedException(
-                "Only ServiceProxyOptions.LoadBalancingHint and StickyKey are consumed by client routing.");
-        }
-#pragma warning restore CS0618
-    }
 }
