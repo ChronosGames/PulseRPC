@@ -258,9 +258,6 @@ public class GeneratorContractDiagnosticTests
 
         generated.Should().Contain(
             "ServiceProxyOptions is not consumed when connectionId is explicit. Pass null.");
-        generated.Should().Contain(
-            "EventListenerOptions is not consumed by generated registration. Pass null.");
-        generated.Should().Contain("#pragma warning disable CS0618");
         outputCompilation.GetDiagnostics()
             .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
             .Should().BeEmpty("generated compatibility checks must compile");

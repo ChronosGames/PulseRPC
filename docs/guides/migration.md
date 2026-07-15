@@ -55,16 +55,16 @@ services.AddPulseServer(options =>
 | `AddPulseServiceFactory<T>` / `PulseServiceFactoryOptions` / `IPulseServiceFactoryMetrics` | 使用 `AddPulseService<T>`、`PulseServiceManagerOptions` 与 `IServiceAccessor<T>` |
 | `ServiceLifecycleOptions` | 未被统一管理器消费；使用 `PulseServiceManagerOptions` 配置回收与缓存生命周期 |
 | `AddPulseHubFactory<THub,TService>` / `IPulseHubFactory<THub,TService>` | Hub 保持无状态并使用标准 DI；通过 `IServiceAccessor<TService>` 访问有状态实例 |
-| `WithAuthentication` / `WithConnectionPooling` / `WithRetryPolicy` | 尚未接入客户端主路径；删除这些配置，等待对应能力完成后再建立安全性或重试承诺 |
-| `ClientPresets` / `UseGameClientPreset` 等 | 这些预设只修改未接线的兼容字段；改为显式配置连接 transport，并通过 `ClientOptions.LoadBalancing` 配置有效负载均衡输入 |
-| `ClientOptions.DefaultTimeout` / `MaxConcurrentConnections` / `EnableDebugMode` / `EnableStatistics` / `AutoCleanupInterval` / `Settings` | 未被客户端运行时消费；RPC 超时使用生成方法的 `CancellationToken`，连接/握手参数放到各 `ConnectionDescriptor.TransportOptions`，日志使用 `Microsoft.Extensions.Logging` |
-| `TransportChannelOptions` / `ChannelPresets` | 公共连接创建路径不接收这套内部兼容选项；使用 `ConnectionDescriptor.TransportOptions`（TCP/KCP 强类型派生项） |
-| `ConnectionPoolOptions` / `PoolingStrategy` | 连接池尚未接线；注册显式 `ConnectionDescriptor`，不要创建池配置 DTO |
-| `Configuration.RetryPolicy` | 未接入生成调用或建连；使用业务层有界重试并确保幂等，当前 Builder 入口会 fail-fast |
-| `ServiceConnectionOptions` | 没有运行时消费者；直接配置 `ConnectionDescriptor` |
-| `ServiceProxyOptions` 中除 `LoadBalancingHint` / `StickyKey` 外的字段 | 仅这两个字段进入自动连接选择；其它字段已废弃，使用显式 `connectionId` 重载或 transport/channel 的有效配置 |
-| `EventListenerOptions` | 生成的注册入口不消费该对象；传 `null`，新代码直接使用 `IClientChannel.RegisterReceiver<T>()` |
-| `ServiceDiscoveryOptions` | 客户端运行时未接线；注册显式连接，服务端集群发现使用 `PulseRPC.Infrastructure.*` |
+| `WithAuthentication` / `WithConnectionPooling` / `WithRetryPolicy` | 已移除；删除这些配置，认证、池化与重试需要在业务层或未来已接线 API 中显式建模 |
+| `ClientPresets` / `UseGameClientPreset` 等 | 已移除；改为显式配置连接 transport，并通过 `ClientOptions.LoadBalancing` 配置有效负载均衡输入 |
+| `ClientOptions.DefaultTimeout` / `MaxConcurrentConnections` / `EnableDebugMode` / `EnableStatistics` / `AutoCleanupInterval` / `Settings` | 已移除；RPC 超时使用生成方法的 `CancellationToken`，连接/握手参数放到各 `ConnectionDescriptor.TransportOptions`，日志使用 `Microsoft.Extensions.Logging` |
+| `ChannelPresets` | 已移除；使用 `ConnectionDescriptor.TransportOptions`（TCP/KCP 强类型派生项） |
+| `ConnectionPoolOptions` / `PoolingStrategy` | 已移除；注册显式 `ConnectionDescriptor`，不要创建池配置 DTO |
+| `Configuration.RetryPolicy` | 已移除；使用业务层有界重试并确保幂等 |
+| `ServiceConnectionOptions` | 已移除；直接配置 `ConnectionDescriptor` |
+| `ServiceProxyOptions` 中除 `LoadBalancingHint` / `StickyKey` 外的字段 | 已移除；使用显式 `connectionId` 重载或 transport/channel 的有效配置 |
+| `EventListenerOptions` | 已移除；新代码直接使用 `IClientChannel.RegisterReceiver<T>()` 或无 options 的生成注册入口 |
+| `ServiceDiscoveryOptions` | 已移除；注册显式连接，服务端集群发现使用 `PulseRPC.Infrastructure.*` |
 
 不要把旧字段机械映射成新的高数值。先使用默认值，再以 `message-engine.shard` 队列指标和固定 workload 决定是否调整。
 

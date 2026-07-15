@@ -107,7 +107,7 @@ var channel = await client.ConnectToServerAsync("127.0.0.1", 5055);
 var hub = channel.GetHub<IMyHub>();
 ```
 
-当前 `WithAuthentication`、`WithConnectionPooling` 和 `WithRetryPolicy` 尚未接入执行主路径，已标记 `[Obsolete]` 并在 Build 时 fail-fast。不要把未接线选项当成安全性、重试或容量保证。
+客户端 Builder 只保留已接线的连接、负载均衡、日志、序列化和传输选项；旧认证、连接池、重试和预设入口已在破坏性版本中移除，避免未接线配置形成虚假的运行时承诺。
 
 ## 复杂度控制原则
 

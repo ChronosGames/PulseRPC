@@ -202,30 +202,6 @@ public sealed class ConnectionLoadBalancerAdvancedTests
                 new ServiceProxyOptions { StickyKey = "user-7" }));
     }
 
-#pragma warning disable CS0618 // Intentional compatibility coverage of unsupported proxy option fields.
-    [Fact]
-    public async Task RouteOptionsMustRejectEveryUnconsumedField()
-    {
-        var manager = new Mock<IContextualConnectionManager>();
-        var unsupportedOptions = new[]
-        {
-            new ServiceProxyOptions { ConnectionId = "connection-a" },
-            new ServiceProxyOptions { ChannelName = "channel-a" },
-            new ServiceProxyOptions { Tags = new Dictionary<string, string> { ["region"] = "east" } },
-            new ServiceProxyOptions { PreferredRegion = "east" },
-            new ServiceProxyOptions { Timeout = TimeSpan.FromSeconds(1) },
-            new ServiceProxyOptions { RetryPolicy = new RetryPolicy() },
-            new ServiceProxyOptions { UseCache = false }
-        };
-
-        foreach (var options in unsupportedOptions)
-        {
-            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
-                manager.Object.RouteWithOptionsAsync("IChatHub", options));
-            Assert.Contains("LoadBalancingHint and StickyKey", exception.Message);
-        }
-    }
-#pragma warning restore CS0618
 
     private static Dictionary<string, int> SelectCounts(
         ConnectionLoadBalancer loadBalancer,

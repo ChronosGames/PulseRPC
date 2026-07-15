@@ -7,11 +7,11 @@ PulseRPC.Client 是 PulseRPC 框架的高性能网络客户端库，提供连接
 ## 特性
 
 - **连接管理**：显式连接注册、查询、健康检查与断开生命周期
-- **服务发现边界**：客户端当前使用显式连接；旧 `ServiceDiscoveryOptions` 未接入运行时，服务端集群发现位于 `PulseRPC.Infrastructure.*`
+- **服务发现边界**：客户端当前使用显式连接，服务端集群发现位于 `PulseRPC.Infrastructure.*`
 - **负载均衡**：支持随机、轮询、最少连接、平滑加权轮询与一致性哈希；动态权重和 sticky key 缺失等非法输入会明确失败
-- **上下文路由**：`ServiceProxyOptions.LoadBalancingHint` 与 `StickyKey` 会进入连接选择，其余兼容字段不作为运行时承诺
+- **上下文路由**：`ServiceProxyOptions.LoadBalancingHint` 与 `StickyKey` 会进入连接选择
 - **多传输协议**：TCP 与 KCP，可插拔的传输架构
-- **可靠性边界**：提供连接健康检查；`WithConnectionPooling` 与 `WithRetryPolicy` 尚未接入客户端主路径，配置时会明确失败
+- **可靠性边界**：提供连接健康检查；重试和池化应在业务层显式建模，不再保留未接线的 Builder 配置入口
 - **源代码生成**：编译期生成服务代理，客户端调用避免使用反射
 - **跨平台**：支持 .NET 10+ 与 Unity（`netstandard2.1`）
 
