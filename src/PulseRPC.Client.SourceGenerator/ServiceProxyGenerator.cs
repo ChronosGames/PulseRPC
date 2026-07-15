@@ -159,6 +159,9 @@ public class ServiceProxyGenerator : IIncrementalGenerator
             {
                 var channelExtensionsCode = ClientChannelGenericExtensionsGenerator.Generate(serviceNamedTypes, eventNamedTypes);
                 spc.AddSource("PulseRPC.Client.Generated.ChannelExtensions.g.cs", SourceText.From(channelExtensionsCode, Encoding.UTF8));
+
+                var aotPreservationCode = AotPreservationGenerator.Generate(serviceNamedTypes, eventNamedTypes);
+                spc.AddSource("PulseRPC.Client.Generated.AotPreservation.g.cs", SourceText.From(aotPreservationCode, Encoding.UTF8));
             }
         });
 

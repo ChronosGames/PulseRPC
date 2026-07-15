@@ -1,158 +1,84 @@
-﻿# Unity Source Generator 集成指南
+# Unity 客户端与 IL2CPP/AOT
 
-本文档介绍如何在Unity项目中正确使用PulseRPC的Source Generator功能。
+本文说明 Unity 2022.3 LTS 中的当前集成方式。PulseRPC 使用 Unity 自带的 Roslyn Source Generator 管线；生成代码参与当前 Unity compilation，不会写入 `Assets/Scripts/Generated`。
 
-## 问题背景
+## 前置条件
 
-Unity使用.NET Framework 4.7.1，而现代的Source Generator通常针对.NET 6/7/8设计，这会导致兼容性问题，主要表现为：
+- Unity 2022.3 LTS。仓库 CI 固定在 `2022.3.62f3`。
+- `PulseRPC.Client` 的 `netstandard2.1` 程序集。
+- `PulseRPC.Client.SourceGenerator.dll` 与 MemoryPack Generator。
+- iOS 构建模块（仅 iOS CI/发布需要）。
 
-1. **SYSLIB1102错误**：Microsoft.Extensions相关的Source Generator与.NET Framework 4.7.1不兼容
-2. **Source Generator生成的代码在Unity中无法识别**：生成的代码存储在临时目录中，Unity无法访问
-3. **现代C#特性不兼容**：如`scoped`关键字、nullable reference types等
+## 1. 导入运行时与生成器
 
-## 解决方案
+使用仓库导出的 `PulseRPC.Client.Unity.unitypackage`，或将 `src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity` 作为本地包导入。
 
-我们参考了MemoryPack的做法，实现了以下解决方案：
+Unity Inspector 中的 `PulseRPC.Client.SourceGenerator.dll` 必须满足：
 
-### 1. Unity兼容性检测
+- Asset Label 包含 `RoslynAnalyzer`。
+- 不启用任何运行平台。
+- 不出现在业务 asmdef 的 `precompiledReferences` 中。
 
-PulseRPC的Source Generator会自动检测Unity环境：
+PulseRPC Unity 包已按此方式配置。MemoryPack Generator 也必须以 Roslyn Analyzer 导入。
+Unity 包中的 PulseRPC 生成器为专用构建：它保留 Generator/Analyzer，但不携带只供 IDE 使用的 CodeFix 类型，因此不需要 `Microsoft.CodeAnalysis.Workspaces` 或 MEF 依赖。
+如果标记类位于自定义 asmdef，该 asmdef 必须引用 `PulseRPC.Client.Unity`；Unity 只会把位于某 asmdef 下的 Analyzer 应用到该程序集及引用它的程序集。
 
-- 检查DefineConstants中的UNITY_相关符号
-- 检查TargetFramework是否为.NET Framework 4.x
-- 检查项目名称是否包含Unity
+## 2. 声明生成入口
 
-### 2. Unity兼容代码生成
+在与客户端契约同一 Unity compilation 中添加标记类：
 
-当检测到Unity环境时，Source Generator会：
+```csharp
+using PulseRPC;
 
-- 生成Unity兼容的代码（移除现代C#特性）
-- 自动将生成的文件写入Unity项目的`Assets/Scripts/Generated`目录
-- 创建Unity .meta文件以确保正确识别
-
-### 3. 不兼容Source Generator过滤
-
-通过MSBuild配置移除不兼容的Source Generator：
-
-```xml
-<ItemGroup>
-  <Analyzer Remove="**\Microsoft.Extensions.Logging.Generators.dll" />
-  <Analyzer Remove="**\Microsoft.Extensions.Configuration.Binder.SourceGeneration.dll" />
-  <Analyzer Remove="**\System.Text.Json.SourceGeneration.dll" />
-</ItemGroup>
+[PulseClientGeneration(typeof(IGameHub))]
+[PulseClientGeneration(typeof(IGameReceiver))]
+public static class PulseRpcGenerationMarker
+{
+}
 ```
 
-## Unity项目配置
+生成器将为普通 Hub 生成 Stub/泛型 `GetHub<T>()`，为 `[Channel("CLIENT")]` Receiver 生成 Dispatcher/泛型 `RegisterReceiver<T>()`。用户 DTO 应按 MemoryPack 要求声明为 `[MemoryPackable] partial`。
 
-在Unity项目中创建`Directory.Build.props`文件：
+## 3. IL2CPP 裁剪与泛型闭包
 
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+Unity 包提供两层 preservation：
 
-  <PropertyGroup>
-    <!-- Unity特定配置 -->
-    <UnityProject>true</UnityProject>
+1. `link.xml` 保留 `PulseRPC.Abstractions`、`PulseRPC.Shared`、`PulseRPC.Client` 和实际导入的 MemoryPack 运行时程序集。
+2. 客户端生成器为当前契约生成带 `[UnityEngine.Scripting.Preserve]` 的 AOT 根，显式闭合：
+   - `GetHub<THub>()` 及 Hub Stub；
+   - `RegisterReceiver<TReceiver>()` 及 Receiver Dispatcher；
+   - 每个 wire request、多参数元组和 response 的 `MemoryPackSerializer.Serialize/Deserialize<T>()`。
 
-    <!-- 启用 PulseRPC Source Generator 文件输出到磁盘 -->
-    <PulseRPC_WriteFilesToDisk>true</PulseRPC_WriteFilesToDisk>
+不需要运行时调用 preservation 方法，也不需要手写契约类型列表。增删 RPC 参数或响应类型后，重新编译即会更新闭包。
 
-    <!-- 设置输出目录为 Unity 项目的 Generated 文件夹 -->
-    <PulseRPC_OutputFolder>$(MSBuildProjectDirectory)\Assets\Scripts\Generated</PulseRPC_OutputFolder>
+## 4. 发布前验证
 
-    <!-- 禁用所有不兼容Unity/.NET Framework 4.7.1的Source Generator -->
-    <EnableMicrosoftExtensionsLoggingSourceGenerator>false</EnableMicrosoftExtensionsLoggingSourceGenerator>
-    <EnableConfigurationBindingGenerator>false</EnableConfigurationBindingGenerator>
-    <EnableRequestDelegateGenerator>false</EnableRequestDelegateGenerator>
-    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
-    <UseSystemTextJsonSourceGenerator>false</UseSystemTextJsonSourceGenerator>
+仓库的 `Unity 2022.3 iOS IL2CPP AOT` CI job 使用：
 
-    <!-- 跳过分析器处理，避免Source Generator冲突 -->
-    <RunAnalyzersDuringBuild>false</RunAnalyzersDuringBuild>
-    <RunAnalyzersDuringLiveAnalysis>false</RunAnalyzersDuringLiveAnalysis>
+- Unity `2022.3.62f3`。
+- iOS + IL2CPP。
+- `ManagedStrippingLevel.High`。
+- 同时包含 Hub、Receiver、MemoryPack request/tuple/response 的 smoke 契约。
 
-    <!-- Unity 4.7.1兼容性设置 -->
-    <LangVersion>9.0</LangVersion>
-    <Nullable>disable</Nullable>
-  </PropertyGroup>
+构建后 CI 还会检查 IL2CPP C++ 输出中是否存在 Hub Stub、Receiver Dispatcher 和 MemoryPack preservation 方法。生产项目应保留一个等价的 iOS IL2CPP 高裁剪 job，而不只运行 Editor/Mono 测试。
 
-  <!-- 移除不兼容的分析器 -->
-  <ItemGroup>
-    <Analyzer Remove="**\Microsoft.Extensions.Logging.Generators.dll" />
-    <Analyzer Remove="**\Microsoft.Extensions.Configuration.Binder.SourceGeneration.dll" />
-    <Analyzer Remove="**\System.Text.Json.SourceGeneration.dll" />
-  </ItemGroup>
+## 故障排查
 
-</Project>
-```
+### 找不到 `IYourHubStub` 或 `YourReceiverDispatcher`
 
-## 使用方法
+- 确认存在 `[PulseClientGeneration(typeof(...))]`。
+- 确认 PulseRPC 生成器 DLL 带 `RoslynAnalyzer` label，且平台加载全部关闭。
+- 确认生成器不在 asmdef 的运行时引用列表中。
 
-1. **标记需要生成代理的类**：
-   ```csharp
-   [PulseClientGeneration(typeof(IPlayerService))]
-   [PulseClientGeneration(typeof(IChatHub))]
-   public partial class UnityGameClient
-   {
-       // Unity客户端代码
-   }
-   ```
+### MemoryPack 在 IL2CPP 下报泛型或 formatter 错误
 
-2. **编译项目**：
-   ```bash
-   dotnet build YourUnityProject.csproj
-   ```
+- 确认 DTO 是 `[MemoryPackable] partial` 并且 MemoryPack Generator 正在运行。
+- 确认该 DTO 确实出现在被标记 Hub/Receiver 的 wire 参数或响应中。
+- 检查 Unity 包的 `link.xml` 是否被导入。
+- 用 iOS IL2CPP + High stripping 构建复现；Mono Editor 通过不能证明 AOT 闭包完整。
 
-3. **检查生成的文件**：
-   生成的代理类会出现在`Assets/Scripts/Generated/`目录中：
-   - `IPlayerServiceProxy.g.cs`
-   - `IChatHubProxy.g.cs`
-   - `ServiceChannelManagerExtensions.g.cs`
+## 相关文档
 
-## 与MemoryPack的对比
-
-| 特性 | MemoryPack | PulseRPC |
-|------|------------|----------|
-| Unity自动检测 | ✅ | ✅ |
-| 兼容代码生成 | ✅ | ✅ |
-| 文件自动写入 | ✅ | ✅ |
-| .NET Framework 4.7.1支持 | ✅ | ✅ |
-| Meta文件生成 | ✅ | ✅ |
-
-## 故障排除
-
-### SYSLIB1102错误
-如果仍然遇到SYSLIB1102错误，检查：
-1. 是否正确配置了`Directory.Build.props`
-2. 是否移除了所有不兼容的Source Generator
-3. 项目是否正确设置了`RunAnalyzersDuringBuild=false`
-
-### 生成的文件不存在
-如果`Assets/Scripts/Generated/`目录中没有文件：
-1. 确认已设置`PulseRPC_WriteFilesToDisk=true`
-2. 检查`PulseRPC_OutputFolder`路径是否正确
-3. 验证Unity环境检测是否正常工作
-
-### 编译错误
-如果生成的代码有编译错误：
-1. 检查是否使用了Unity不支持的C#特性
-2. 确认目标框架设置正确
-3. 验证依赖包版本兼容性
-
-## 最佳实践
-
-1. **在Unity项目中始终使用生成的代理类**而不是手动实现
-2. **定期清理Generated目录**以避免过时的生成文件
-3. **在版本控制中包含Generated目录**以便团队共享
-4. **使用Unity 2022.3.12f1或更高版本**以获得最佳Source Generator支持
-
-## 结论
-
-通过这套解决方案，PulseRPC实现了与MemoryPack相当的Unity兼容性，能够：
-
-- 自动检测Unity环境
-- 生成Unity兼容的代码
-- 避免.NET Framework兼容性问题
-- 提供无缝的开发体验
-
-这使得开发者可以在Unity项目中充分利用Source Generator的优势，同时保持与Unity生态系统的完全兼容。
+- [Source Generator 模型](../concepts/source-generation.md)
+- [客户端与服务端完整指南](../guides/client-server.md)
+- [契约与序列化](../guides/contracts-and-serialization.md)

@@ -41,10 +41,19 @@ jobs:
       # 收集构建产物供 Unity 使用
       - name: Collect build outputs
         run: |
+          set -euo pipefail
+          dotnet build -c Release ./src/PulseRPC.Client.SourceGenerator.Unity/PulseRPC.Client.SourceGenerator.Unity.csproj --warnaserror
           mkdir -p ./build-output
-          find . -name "*.dll" -path "*/bin/Release/*" -exec cp {} ./build-output/ \; || true
+          cp ./src/PulseRPC.Abstractions/bin/Release/netstandard2.1/PulseRPC.Abstractions.dll ./build-output/
+          cp ./src/PulseRPC.Shared/bin/Release/netstandard2.1/PulseRPC.Shared.dll ./build-output/
+          cp ./src/PulseRPC.Client/.artifacts/bin/release_netstandard2.1/PulseRPC.Client.dll ./build-output/
+          unity_generator=./src/PulseRPC.Client.SourceGenerator.Unity/bin/Release/netstandard2.0/PulseRPC.Client.SourceGenerator.dll
+          if grep -a -q "Microsoft.CodeAnalysis.Workspaces" "$unity_generator"; then
+            echo "Unity source generator must not depend on Microsoft.CodeAnalysis.Workspaces"
+            exit 1
+          fi
+          cp "$unity_generator" ./build-output/
       - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         with:
           name: build-output
           path: ./build-output/
@@ -154,7 +163,7 @@ jobs:
     if: ${{ (github.event_name == 'push' && github.repository_owner == 'ChronosGames') || startsWith(github.event.pull_request.head.label, 'ChronosGames:') }}
     strategy:
       matrix:
-        unity: ["2022.3.0f1"]
+        unity: ["2022.3.62f3"]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -164,7 +173,6 @@ jobs:
 
       # 从 build-dotnet job 下载构建产物
       - uses: ChronosGames/Actions/.github/actions/download-artifact@main
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         with:
           name: build-output
           path: ./build-output/
@@ -188,15 +196,13 @@ jobs:
 
       # 复制必要的 DLL 到 Unity 项目
       - name: Copy DLLs to Unity project
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
+          set -euo pipefail
           mkdir -p ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins
-          find ./build-output -name "PulseRPC.Abstractions.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
-          find ./build-output -name "PulseRPC.Shared.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
-          find ./build-output -name "PulseRPC.Client.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
-          find ./build-output -name "PulseRPC.Client.SourceGenerator.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
-          find ./build-output -name "MemoryPack.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
-          find ./build-output -name "System.IO.Pipelines.dll" -exec cp {} ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/ \; || true
+          cp ./build-output/PulseRPC.Abstractions.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
+          cp ./build-output/PulseRPC.Shared.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
+          cp ./build-output/PulseRPC.Client.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
+          cp ./build-output/PulseRPC.Client.SourceGenerator.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
 
       # execute scripts/Export Package
       - name: Build Unity (.unitypackage)
@@ -225,8 +231,92 @@ jobs:
           path: ./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity.unitypackage
           retention-days: 1
 
+  build-unity-ios-il2cpp:
+    name: "Unity 2022.3 iOS IL2CPP AOT"
+    needs: [build-dotnet]
+    if: ${{ (github.event_name == 'push' && github.repository_owner == 'ChronosGames') || startsWith(github.event.pull_request.head.label, 'ChronosGames:') }}
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      UNITY_IOS_BUILD_PATH: ${{ github.workspace }}/src/PulseRPC.Client.Unity/Builds/iOS
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+
+      - name: Create Unity local package structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet build -c Debug ./src/PulseRPC.Client/PulseRPC.Client.csproj -f netstandard2.1
+          test -f ./src/PulseRPC.Client/.artifacts/bin/debug_netstandard2.1/package.json
+
+      - uses: ChronosGames/Actions/.github/actions/download-artifact@main
+        with:
+          name: build-output
+          path: ./build-output/
+
+      - name: Install deterministic Unity assemblies
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugins=./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins
+          mkdir -p "$plugins"
+          cp ./build-output/PulseRPC.Abstractions.dll "$plugins/"
+          cp ./build-output/PulseRPC.Shared.dll "$plugins/"
+          cp ./build-output/PulseRPC.Client.dll "$plugins/"
+          cp ./build-output/PulseRPC.Client.SourceGenerator.dll "$plugins/"
+
+      - name: Build Unity iOS player with IL2CPP and high stripping
+        uses: ChronosGames/Actions/.github/actions/unity-builder@main
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+          UNITY_SERIAL: ${{ secrets.UNITY_LICENSE == '' && secrets.UNITY_SERIAL || '' }}
+        with:
+          projectPath: src/PulseRPC.Client.Unity
+          unityVersion: 2022.3.62f3
+          targetPlatform: iOS
+          buildMethod: Il2CppAotCi.BuildIos
+
+      - name: Verify generated Hub, Receiver, and MemoryPack AOT roots
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$UNITY_IOS_BUILD_PATH"
+
+          assert_cpp_symbol() {
+            local symbol="$1"
+            local matches
+            matches=$(find "$UNITY_IOS_BUILD_PATH" -type f \
+              \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.mm' \) \
+              -exec grep -F -l "$symbol" {} +)
+            if [ -z "$matches" ]; then
+              echo "Missing IL2CPP symbol: $symbol"
+              exit 1
+            fi
+          }
+
+          assert_cpp_symbol "IIl2CppAotHubStub"
+          assert_cpp_symbol "Il2CppAotReceiverDispatcher"
+          assert_cpp_symbol "Il2CppAotPayload"
+          assert_cpp_symbol "Il2CppAotReply"
+          assert_cpp_symbol "PreserveMemoryPackClosures"
+
+      - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
+        if: failure()
+        with:
+          name: unity-ios-il2cpp-diagnostics
+          path: |
+            ./src/PulseRPC.Client.Unity/Logs/
+            ./src/PulseRPC.Client.Unity/Builds/iOS/
+          retention-days: 1
+
   actions-timeline:
-    needs: [build-dotnet, run-tests, verify-packages, verify-samples, build-unity]
+    needs: [build-dotnet, run-tests, verify-packages, verify-samples, build-unity, build-unity-ios-il2cpp]
     if: always()
     permissions:
       actions: read

@@ -79,6 +79,8 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         try
         {
             var serviceModels = new List<ServiceModel>();
+            var routerModels = new List<ServiceModel>();
+            var receiverModels = new List<ReceiverModel>();
             var scannedAssemblies = new HashSet<IAssemblySymbol>(SymbolEqualityComparer.Default);
 
             // 自动扫描直接引用的用户项目程序集
@@ -91,10 +93,17 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
 
                     foreach (var serviceModel in assemblyServiceModels)
                     {
-                        if (serviceModels.All(s => s.InterfaceFullName != serviceModel.InterfaceFullName))
-                        {
-                            serviceModels.Add(serviceModel);
-                        }
+                        AddServiceModelIfMissing(serviceModels, serviceModel);
+                    }
+
+                    foreach (var routerModel in ScanAssemblyForRouterConsumers(assembly))
+                    {
+                        AddServiceModelIfMissing(routerModels, routerModel);
+                    }
+
+                    foreach (var receiverModel in ScanAssemblyForReceivers(assembly))
+                    {
+                        AddReceiverModelIfMissing(receiverModels, receiverModel);
                     }
                 }
             }
@@ -105,19 +114,36 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
                 var semanticModel = compilation.GetSemanticModel(interfaceDeclaration!.SyntaxTree);
                 var serviceModel = ServiceAnalyzer.AnalyzeInterface(interfaceDeclaration!, semanticModel);
 
-                if (serviceModel != null && serviceModels.All(s => s.InterfaceName != serviceModel.InterfaceName))
+                if (serviceModel != null)
                 {
-                    serviceModels.Add(serviceModel);
+                    AddServiceModelIfMissing(serviceModels, serviceModel);
+                }
+
+                if (semanticModel.GetDeclaredSymbol(interfaceDeclaration!) is INamedTypeSymbol interfaceSymbol)
+                {
+                    if (IsRouterConsumerInterface(interfaceSymbol))
+                    {
+                        var routerModel = ServiceAnalyzer.AnalyzeInterfaceForConsumption(interfaceDeclaration!, semanticModel);
+                        if (routerModel != null)
+                        {
+                            AddServiceModelIfMissing(routerModels, routerModel);
+                        }
+                    }
+
+                    if (IsReceiverInterface(interfaceSymbol))
+                    {
+                        var receiverModel = CreateReceiverModelFromSymbol(interfaceSymbol);
+                        if (receiverModel != null)
+                        {
+                            AddReceiverModelIfMissing(receiverModels, receiverModel);
+                        }
+                    }
                 }
             }
 
-            // 如果没有找到服务接口，生成空的协议号映射表以保持编译兼容性
-            if (serviceModels.Count == 0)
+            if (serviceModels.Count == 0 && routerModels.Count == 0 && receiverModels.Count == 0)
             {
-                // 生成空的协议号映射表
                 GenerateEmptyProtocolIdMapping(context);
-
-                // 生成诊断信息
                 var descriptor = new DiagnosticDescriptor(
                     "PULSE001",
                     "No IPulseHub interfaces found",
@@ -130,84 +156,75 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
                 return;
             }
 
-            // facet 组合去重：派生 Hub（如 IBackendHub : IGuildHub）继承自「本编译单元内也独立作为
-            // 顶层 Hub 被扫描」的基接口的方法，不重复计入派生 facet 自己的路由表——它们已由基接口
-            // 自身的 ServiceModel 提供路由项。避免全局路由表（单一 switch）出现重复 case（见 §11.2）。
-            DeduplicateFacadeInheritedMethods(serviceModels);
+            if (serviceModels.Count > 0)
+            {
+                // 被调方路由表对独立 facet 去重；出站 RouterProxy 仍需实现完整的继承接口方法。
+                DeduplicateFacadeInheritedMethods(serviceModels);
+            }
 
-            if (!ValidateCanonicalHubNames(context, serviceModels))
+            var protocolModels = new List<ServiceModel>(serviceModels);
+            foreach (var routerModel in routerModels)
+            {
+                AddServiceModelIfMissing(protocolModels, routerModel);
+            }
+
+            if (protocolModels.Count > 0 && !ValidateCanonicalHubNames(context, protocolModels))
             {
                 return;
             }
 
-            // 为所有服务方法分配协议号 - 需要适配新的上下文
-            AssignProtocolIdsForIncremental(serviceModels, context);
-
-            if (!ValidateResponseTypes(context, serviceModels))
+            if (protocolModels.Count > 0)
             {
-                return;
+                AssignProtocolIdsForIncremental(protocolModels, context);
+                SynchronizeRouterProtocolIds(routerModels, protocolModels);
+
+                if (!ValidateResponseTypes(context, protocolModels))
+                {
+                    return;
+                }
+
+                GenerateProtocolIdMapping(context, protocolModels);
+            }
+            else
+            {
+                GenerateEmptyProtocolIdMapping(context);
             }
 
-            // 生成协议号映射表
-            GenerateProtocolIdMapping(context, serviceModels);
-
-            // 为每个服务生成代理类
-            foreach (var serviceModel in serviceModels)
+            if (serviceModels.Count > 0)
             {
-                GenerateServiceProxy(context, serviceModel);
+                foreach (var serviceModel in serviceModels)
+                {
+                    GenerateServiceProxy(context, serviceModel);
+                }
+
+                GenerateGlobalRoutingTable(context, serviceModels, channelNames);
+                GenerateResponseSerializers(context, serviceModels);
+                GenerateServiceManifest(context, serviceModels);
+                ReportGenerationSuccess(context, serviceModels);
             }
 
-            // 生成全局路由表（传入 channelNames）
-            GenerateGlobalRoutingTable(context, serviceModels, channelNames);
-
-            // 生成响应序列化器注册表
-            GenerateResponseSerializers(context, serviceModels);
-
-            // 生成服务元数据清单
-            GenerateServiceManifest(context, serviceModels);
-
-            // 报告成功信息
-            ReportGenerationSuccess(context, serviceModels);
-
-            // ========== 推送接收器（[Channel("CLIENT")] : IPulseHub）代码生成 ==========
-            // 扫描所有客户端实现的推送接收器接口并生成服务端 Fan-out 调用方代理
-            var receiverModels = new List<ReceiverModel>();
-
-            // 从已扫描的程序集中查找 [Channel("CLIENT")] : IPulseHub 推送接收器接口
-            foreach (var assembly in scannedAssemblies)
+            foreach (var routerModel in routerModels)
             {
-                var assemblyReceivers = ScanAssemblyForReceivers(assembly);
-                receiverModels.AddRange(assemblyReceivers);
+                GenerateRouterProxy(context, routerModel);
             }
 
             if (receiverModels.Count > 0)
             {
-                // facet 组合去重，理由同上（见 DeduplicateFacadeInheritedMethods）
                 DeduplicateFacadeInheritedReceiverMethods(receiverModels);
-            }
-
-            // 为每个接收器生成代理代码
-            if (receiverModels.Count > 0)
-            {
-                // 为接收器分配协议号
                 AssignReceiverProtocolIds(receiverModels, context);
                 MarkReceiverOverloads(receiverModels);
 
-                // 为每个接收器生成代理
                 foreach (var receiver in receiverModels)
                 {
                     GenerateReceiverProxy(context, receiver);
                 }
 
-                // 生成统一的 DI 扩展方法
                 var unifiedExtensions = ReceiverProxyGenerator.GenerateDIExtensions(receiverModels);
                 context.AddSource("PulseReceiverServiceExtensions.g.cs", SourceText.From(unifiedExtensions, Encoding.UTF8));
 
-                // 生成接收器协议号映射表
                 var receiverProtocolMapping = ReceiverProxyGenerator.GenerateReceiverProtocolIdMapping(receiverModels);
                 context.AddSource("ReceiverProtocolIdMapping.g.cs", SourceText.From(receiverProtocolMapping, Encoding.UTF8));
 
-                // 报告接收器生成成功
                 ReportReceiverGenerationSuccess(context, receiverModels);
             }
         }
@@ -306,6 +323,71 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
 
             service.ProtocolAliases.AddRange(aliases);
             service.Methods.RemoveAll(aliases.Contains);
+        }
+    }
+
+    private static void AddServiceModelIfMissing(List<ServiceModel> models, ServiceModel candidate)
+    {
+        if (models.All(model => !string.Equals(
+                model.InterfaceFullName,
+                candidate.InterfaceFullName,
+                StringComparison.Ordinal)))
+        {
+            models.Add(candidate);
+        }
+    }
+
+    private static void AddReceiverModelIfMissing(List<ReceiverModel> models, ReceiverModel candidate)
+    {
+        if (models.All(model => !string.Equals(
+                model.InterfaceFullName,
+                candidate.InterfaceFullName,
+                StringComparison.Ordinal)))
+        {
+            models.Add(candidate);
+        }
+    }
+
+    private static void SynchronizeRouterProtocolIds(
+        List<ServiceModel> routerModels,
+        List<ServiceModel> protocolModels)
+    {
+        foreach (var routerModel in routerModels)
+        {
+            var protocolModel = protocolModels.FirstOrDefault(model => string.Equals(
+                model.InterfaceFullName,
+                routerModel.InterfaceFullName,
+                StringComparison.Ordinal));
+            if (protocolModel is null || ReferenceEquals(protocolModel, routerModel))
+            {
+                continue;
+            }
+
+            var methodsByIdentity = protocolModel.Methods
+                .Concat(protocolModel.ProtocolAliases)
+                .GroupBy(method => method.MethodIdentity, StringComparer.Ordinal)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
+
+            foreach (var method in routerModel.Methods)
+            {
+                if (methodsByIdentity.TryGetValue(method.MethodIdentity, out var assignedMethod))
+                {
+                    method.ProtocolId = assignedMethod.ProtocolId;
+                    method.HasExplicitProtocolId = assignedMethod.HasExplicitProtocolId;
+                    method.HasInvalidProtocolId = assignedMethod.HasInvalidProtocolId;
+                }
+            }
+
+            foreach (var overloadGroup in routerModel.Methods.GroupBy(
+                         method => method.MethodName,
+                         StringComparer.Ordinal))
+            {
+                var hasOverloads = overloadGroup.Skip(1).Any();
+                foreach (var method in overloadGroup)
+                {
+                    method.HasOverloads = hasOverloads;
+                }
+            }
         }
     }
 
@@ -667,6 +749,16 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         context.AddSource(fileName, sourceText);
     }
 
+    private static void GenerateRouterProxy(SourceProductionContext context, ServiceModel serviceModel)
+    {
+        var sourceText = RouterProxyGenerator.GenerateSourceText(serviceModel);
+        var namespacePrefix = string.IsNullOrWhiteSpace(serviceModel.Namespace)
+            ? string.Empty
+            : serviceModel.Namespace.Replace('.', '_') + "_";
+        var fileName = $"{namespacePrefix}{serviceModel.InterfaceName.TrimStart('I')}.RouterProxy.g.cs";
+        context.AddSource(fileName, sourceText);
+    }
+
     /// <summary>
     /// 生成全局路由表
     /// </summary>
@@ -789,6 +881,19 @@ public static partial class ProtocolIdMapping
     /// </summary>
     private static bool IsFrameworkOrNuGetAssembly(string assemblyName)
     {
+        // PulseRPC runtime packages run their own generators. Rescanning them from every host would
+        // duplicate built-in routing/manifest module initializers and makes consumer-only output impure.
+        if (assemblyName is
+            "PulseRPC.Abstractions" or
+            "PulseRPC.Shared" or
+            "PulseRPC.Client" or
+            "PulseRPC.Server" or
+            "PulseRPC.Backplane.Redis" ||
+            assemblyName.StartsWith("PulseRPC.Infrastructure", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
         // 排除常见的框架和 NuGet 包前缀
         var excludedPrefixes = new[]
         {
@@ -845,6 +950,27 @@ public static partial class ProtocolIdMapping
         return serviceModels;
     }
 
+    private static List<ServiceModel> ScanAssemblyForRouterConsumers(IAssemblySymbol assembly)
+    {
+        var routerModels = new List<ServiceModel>();
+
+        foreach (var type in GetAllTypesInAssembly(assembly))
+        {
+            if (type.TypeKind != TypeKind.Interface || !IsRouterConsumerInterface(type))
+            {
+                continue;
+            }
+
+            var model = CreateServiceModelFromSymbol(type);
+            if (model != null)
+            {
+                routerModels.Add(model);
+            }
+        }
+
+        return routerModels;
+    }
+
     /// <summary>
     /// 获取程序集中的所有类型
     /// </summary>
@@ -887,6 +1013,20 @@ public static partial class ProtocolIdMapping
             return false;
 
         return true;
+    }
+
+    /// <summary>
+    /// 服务端只在显式声明 <c>[PulseHub(Consume=true)]</c> 时生成出站 RouterProxy；
+    /// 未标注的普通 Hub 仍按默认推断只生成入站骨架。
+    /// </summary>
+    private static bool IsRouterConsumerInterface(INamedTypeSymbol typeSymbol)
+    {
+        if (!typeSymbol.AllInterfaces.Any(i => i.Name == "IPulseHub") || HasClientChannel(typeSymbol))
+        {
+            return false;
+        }
+
+        return PulseHubOverrideHelper.TryGetOverride(typeSymbol, out _, out var consume) && consume;
     }
 
     /// <summary>

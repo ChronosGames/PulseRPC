@@ -34,6 +34,8 @@
 | `AddPulseClustering(...)` | 注册集群路由和节点配置 |
 | `AddRedisActorLeases(...)` | 以 Redis 原子脚本替换默认进程内 Actor 租约 |
 | `ProtocolId.Generate(signature)` | 使用与 Source Generator 一致的 FNV-1a 规则计算运行期协议号 |
+| `ReceiverDeliveryMode` | Receiver push 的 `BestEffort` / `Strict` 错误策略；取消在两种模式下都传播 |
+| `{Hub}RouterProxy` | 对显式 `[PulseHub(Consume = true)]` Hub 生成的强类型 `IPulseRouter` / Actor 出站代理 |
 | `UseCertificateNodeAuthentication(...)` | 使用证书签名节点凭据替换共享密钥认证 |
 | `AddConsulDiscovery` / `AddEtcdDiscovery` / `AddKubernetesDiscovery` | 覆盖默认成员发现 |
 
@@ -47,6 +49,12 @@
 - node wire 当前生产版本为 v2；legacy Actor wire 默认关闭。
 - `IHubAddressedClientChannel` 让生成代理显式携带 canonical Hub，服务端按 `(Hub, ProtocolId)` 强校验；生成代理不再回退到无 Hub API。
 - `ServiceRoutingTableRegistry` 与 `ResponseSerializerRegistry` 组合所有已加载程序集的生成结果，DI 在解析时取得该组合视图。
+
+## Unity IL2CPP 事实
+
+- Unity 包提供 `link.xml`，保留 PulseRPC 和 MemoryPack 运行时程序集。
+- 客户端生成器为每个 `[PulseClientGeneration]` Hub/Receiver 生成 `[Preserve]` AOT 根，并闭合实际 wire payload 的 MemoryPack 泛型调用。
+- CI 使用 Unity `2022.3.62f3`、iOS、IL2CPP 和 High managed stripping 构建 smoke 契约，并检查生成 C++ 中的 Hub、Receiver 与 preservation roots。
 
 ## 服务端消息执行事实
 

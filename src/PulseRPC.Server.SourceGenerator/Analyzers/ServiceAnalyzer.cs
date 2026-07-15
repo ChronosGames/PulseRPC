@@ -15,6 +15,17 @@ public static class ServiceAnalyzer
     /// </summary>
     public static ServiceModel? AnalyzeInterface(InterfaceDeclarationSyntax interfaceDeclaration,
         SemanticModel semanticModel)
+        => AnalyzeInterface(interfaceDeclaration, semanticModel, requireProvide: true);
+
+    internal static ServiceModel? AnalyzeInterfaceForConsumption(
+        InterfaceDeclarationSyntax interfaceDeclaration,
+        SemanticModel semanticModel)
+        => AnalyzeInterface(interfaceDeclaration, semanticModel, requireProvide: false);
+
+    private static ServiceModel? AnalyzeInterface(
+        InterfaceDeclarationSyntax interfaceDeclaration,
+        SemanticModel semanticModel,
+        bool requireProvide)
     {
         var interfaceSymbol = semanticModel.GetDeclaredSymbol(interfaceDeclaration) as INamedTypeSymbol;
         if (interfaceSymbol == null) return null;
@@ -29,7 +40,7 @@ public static class ServiceAnalyzer
             return null;
 
         // §5.2-C 显式覆盖：[PulseHub(Provide=false)] 表示本编译侧（服务端）不生成被调方骨架
-        if (PulseHubOverrideHelper.TryGetOverride(interfaceSymbol, out var provide, out _) && !provide)
+        if (requireProvide && PulseHubOverrideHelper.TryGetOverride(interfaceSymbol, out var provide, out _) && !provide)
             return null;
 
         var interfaceName = interfaceSymbol.Name;

@@ -6,7 +6,8 @@
 
 ## 包含内容
 
-- `AOTSupport`：注册 PulseRPC、MemoryPack、TCP/KCP 相关类型，降低 IL2CPP 裁剪风险。
+- `link.xml` 与 `AOTSupport`：保留并预热 PulseRPC 框架类型。
+- `PulseRPC.Client.SourceGenerator`：按 `[PulseClientGeneration]` 契约生成 Hub Stub、Receiver Dispatcher 与 MemoryPack 泛型闭包的 `[Preserve]` AOT 根。
 - `TaskExtensions`：Unity 环境下的任务辅助扩展。
 - `PulseRPC.Client.Unity.asmdef` 与 `package.json`：Unity 包元数据。
 
@@ -16,5 +17,7 @@
 
 - `samples/ChatApp/ChatApp.Unity`
 - `docs/getting-started/unity-client-tutorial.md`
+
+`PulseRPC.Client.SourceGenerator.dll` 在 Unity 中必须作为 `RoslynAnalyzer` 导入，不能放进 asmdef 的运行时 `precompiledReferences`。
 
 当前源码未实现 `PulseWebSocketConnection`；请勿按旧 WebSocket 示例编写代码。

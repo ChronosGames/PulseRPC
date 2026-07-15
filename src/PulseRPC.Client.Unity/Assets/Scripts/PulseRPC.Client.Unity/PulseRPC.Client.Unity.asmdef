@@ -10,8 +10,7 @@
         "PulseRPC.Abstractions.dll",
         "PulseRPC.Shared.dll",
         "PulseRPC.Client.dll",
-        "PulseRPC.Client.SourceGenerator.dll",
-        "MemoryPack.dll",
+        "MemoryPack.Core.dll",
         "System.IO.Pipelines.dll"
     ],
     "autoReferenced": true,

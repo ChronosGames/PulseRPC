@@ -15,13 +15,14 @@ namespace PulseRPC.SourceGenerator.Tests;
 /// <remarks>
 /// <c>[Channel("CLIENT")]</c> 接收器接口是通过 <c>PulseRPCSourceGenerator.ScanAssemblyForReceivers</c>
 /// 扫描<strong>已引用的程序集</strong>（而非当前编译单元的语法树）发现的——这与真实项目结构一致
-/// （接收器接口通常声明在被 Server 项目引用的 Shared 项目里）。因此本测试需要先把接收器接口单独编译
-/// 成一个引用程序集，再在第二个（包含至少一个普通服务端 Hub 的）编译单元中引用它并驱动生成器。
+/// （接收器接口通常声明在被 Server 项目引用的 Shared 项目里）。本测试特意不声明任何 provider Hub，
+/// 以保证 Receiver-only 宿主不会被早退分支跳过。
 /// </remarks>
 public class ReceiverFanoutViaRouterTests
 {
     private const string SharedReceiverSource = """
         #nullable enable
+        using System.Threading;
         using System.Threading.Tasks;
         using PulseRPC;
 
@@ -30,26 +31,18 @@ public class ReceiverFanoutViaRouterTests
         [Channel("CLIENT")]
         public interface IChatClientHub : IPulseHub
         {
-            Task OnMessageAsync(string message);
+            Task OnMessageAsync(string message, CancellationToken cancellationToken = default);
 
             Task<string> PingAsync(string request);
         }
         """;
 
-    // 生成器在 serviceModels（服务端 Hub）为空时会提前返回、不再扫描 Receiver（见
-    // PulseRPCSourceGenerator.ExecuteGeneration 的 PULSE001 早退分支），因此本测试需要
-    // 同时提供至少一个普通服务端 Hub 接口，才能触发 [Channel("CLIENT")] 接收器的扫描与生成。
     private const string ServerSource = """
         #nullable enable
-        using System.Threading.Tasks;
-        using PulseRPC;
-
         namespace FanoutViaRouterTestNs;
 
-        [Channel("TestServer")]
-        public interface IDummyHub : IPulseHub
+        public static class ServerMarker
         {
-            Task PingServerAsync();
         }
         """;
 
@@ -66,7 +59,14 @@ public class ReceiverFanoutViaRouterTests
         generatedText.Should().NotContain("IReadOnlyList<IServerChannel> _targets");
 
         // 单向推送方法必须经路由器投递。
-        generatedText.Should().Contain("_router.SendAsync(_addresses[0]");
+        generatedText.Should().Contain("SendToAddressAsync(_addresses[0]");
+
+        // BestEffort 只忽略非取消发送异常；取消必须传播。Strict 不匹配过滤器，发送异常自然上抛。
+        generatedText.Should().Contain("private readonly ReceiverDeliveryMode _deliveryMode;");
+        generatedText.Should().Contain("catch (OperationCanceledException)");
+        generatedText.Should().Contain("catch (Exception) when (_deliveryMode == ReceiverDeliveryMode.BestEffort)");
+        generatedText.Should().Contain("WithDeliveryMode(ReceiverDeliveryMode deliveryMode)");
+        generatedText.Should().Contain("ReceiverDeliveryMode.Strict");
 
         // 反向 Ask 方法必须经路由器投递，而不是直接调用 IServerChannel.InvokeClientAsync。
         generatedText.Should().Contain("_router.AskAsync(_addresses[0]");
@@ -81,6 +81,9 @@ public class ReceiverFanoutViaRouterTests
 
         // HubContext/HubClients 构造函数必须接收 IPulseRouter 依赖（交由 DI 自动注入）。
         generatedText.Should().Contain("IPulseRouter router,");
+
+        // Receiver-only 生成不应为不存在的 provider 注册全局副作用。
+        generatedText.Should().NotContain("[System.Runtime.CompilerServices.ModuleInitializer]");
     }
 }
 

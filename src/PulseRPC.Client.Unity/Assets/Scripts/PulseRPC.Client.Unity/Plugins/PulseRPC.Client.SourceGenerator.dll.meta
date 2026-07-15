@@ -1,5 +1,7 @@
 fileFormatVersion: 2
 guid: 55ca2c3714f648df9a25626c8e02ed91
+labels:
+- RoslynAnalyzer
 PluginImporter:
   externalObjects: {}
   serializedVersion: 2
@@ -12,9 +14,35 @@ PluginImporter:
   validateReferences: 1
   platformData:
   - first:
+      : Any
+    second:
+      enabled: 0
+      settings:
+        'Exclude ': 0
+        Exclude Android: 0
+        Exclude CloudRendering: 0
+        Exclude EmbeddedLinux: 0
+        Exclude GameCoreScarlett: 0
+        Exclude GameCoreXboxOne: 0
+        Exclude Linux64: 0
+        Exclude OSXUniversal: 0
+        Exclude PS4: 0
+        Exclude PS5: 0
+        Exclude QNX: 0
+        Exclude Stadia: 0
+        Exclude Switch: 0
+        Exclude VisionOS: 0
+        Exclude WebGL: 0
+        Exclude Win: 0
+        Exclude Win64: 0
+        Exclude WindowsStoreApps: 0
+        Exclude XboxOne: 0
+        Exclude iOS: 0
+        Exclude tvOS: 0
+  - first:
       Any: 
     second:
-      enabled: 1
+      enabled: 0
       settings: {}
   userData: 
   assetBundleName: 

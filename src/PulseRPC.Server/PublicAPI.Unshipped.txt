@@ -1,4 +1,7 @@
 #nullable enable
+PulseRPC.Server.ReceiverDeliveryMode
+PulseRPC.Server.ReceiverDeliveryMode.BestEffort = 0 -> PulseRPC.Server.ReceiverDeliveryMode
+PulseRPC.Server.ReceiverDeliveryMode.Strict = 1 -> PulseRPC.Server.ReceiverDeliveryMode
 PulseRPC.Server.Configuration.PulseServerOptions.MessageQueueCapacityPerShard.get -> int
 PulseRPC.Server.Configuration.PulseServerOptions.MessageQueueCapacityPerShard.set -> void
 PulseRPC.Server.Configuration.PulseServerOptions.MessageWorkerShardCount.get -> int

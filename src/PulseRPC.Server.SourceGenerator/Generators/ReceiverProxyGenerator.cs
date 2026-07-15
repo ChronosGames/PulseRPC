@@ -100,6 +100,7 @@ public static class ReceiverProxyGenerator
         // 字段
         sb.AppendLine("    private readonly IPulseRouter _router;");
         sb.AppendLine("    private readonly IReadOnlyList<PulseAddress> _addresses;");
+        sb.AppendLine("    private readonly ReceiverDeliveryMode _deliveryMode;");
         sb.AppendLine();
 
         // 协议号常量
@@ -109,12 +110,14 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// 创建代理实例（多目标地址）");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public {receiver.ProxyClassName}(IPulseRouter router, IEnumerable<PulseAddress> addresses)");
+        sb.AppendLine($"    public {receiver.ProxyClassName}(IPulseRouter router, IEnumerable<PulseAddress> addresses, ReceiverDeliveryMode deliveryMode = ReceiverDeliveryMode.BestEffort)");
         sb.AppendLine("    {");
         sb.AppendLine("        _router = router ?? throw new ArgumentNullException(nameof(router));");
         sb.AppendLine("        if (addresses == null) throw new ArgumentNullException(nameof(addresses));");
+        sb.AppendLine("        if (deliveryMode != ReceiverDeliveryMode.BestEffort && deliveryMode != ReceiverDeliveryMode.Strict) throw new ArgumentOutOfRangeException(nameof(deliveryMode));");
         sb.AppendLine("        // 优化：如果已经是 IReadOnlyList 则直接使用，避免分配");
         sb.AppendLine("        _addresses = addresses as IReadOnlyList<PulseAddress> ?? addresses.ToArray();");
+        sb.AppendLine("        _deliveryMode = deliveryMode;");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -122,10 +125,12 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// 创建代理实例（单一目标地址）");
         sb.AppendLine($"    /// </summary>");
-        sb.AppendLine($"    public {receiver.ProxyClassName}(IPulseRouter router, PulseAddress address)");
+        sb.AppendLine($"    public {receiver.ProxyClassName}(IPulseRouter router, PulseAddress address, ReceiverDeliveryMode deliveryMode = ReceiverDeliveryMode.BestEffort)");
         sb.AppendLine("    {");
         sb.AppendLine("        _router = router ?? throw new ArgumentNullException(nameof(router));");
+        sb.AppendLine("        if (deliveryMode != ReceiverDeliveryMode.BestEffort && deliveryMode != ReceiverDeliveryMode.Strict) throw new ArgumentOutOfRangeException(nameof(deliveryMode));");
         sb.AppendLine("        _addresses = new[] { address };");
+        sb.AppendLine("        _deliveryMode = deliveryMode;");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -206,7 +211,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"        // 经 IPulseRouter 投递（§P3 fanout-via-router）");
         sb.AppendLine("        if (count == 1)");
         sb.AppendLine("        {");
-        sb.AppendLine($"            await _router.SendAsync(_addresses[0], {constName}, payload, cancellationToken: {cancellationToken});");
+        sb.AppendLine($"            await SendToAddressAsync(_addresses[0], {constName}, payload, {cancellationToken});");
         sb.AppendLine("        }");
         sb.AppendLine("        else");
         sb.AppendLine("        {");
@@ -295,9 +300,9 @@ public static class ReceiverProxyGenerator
 
     private static void GenerateHelperMethods(StringBuilder sb)
     {
-        // 经 IPulseRouter 投递到单个地址（异常安全：与此前直接遍历 IServerChannel 时对单个失败目标的容错语义一致）
+        // 经 IPulseRouter 投递到单个地址。取消始终传播；非取消错误由显式模式决定。
         sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 经 IPulseRouter 投递到单个地址（异常安全）");
+        sb.AppendLine("    /// 经 IPulseRouter 投递到单个地址；取消始终传播，BestEffort 忽略其它发送错误。");
         sb.AppendLine("    /// </summary>");
         sb.AppendLine("    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
         sb.AppendLine("    private async Task SendToAddressAsync(PulseAddress address, ushort protocolId, byte[] payload, CancellationToken cancellationToken)");
@@ -306,9 +311,13 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("        {");
         sb.AppendLine("            await _router.SendAsync(address, protocolId, payload, cancellationToken: cancellationToken);");
         sb.AppendLine("        }");
-        sb.AppendLine("        catch");
+        sb.AppendLine("        catch (OperationCanceledException)");
         sb.AppendLine("        {");
-        sb.AppendLine("            // 忽略单个目标发送失败（连接可能已断开）");
+        sb.AppendLine("            throw;");
+        sb.AppendLine("        }");
+        sb.AppendLine("        catch (Exception) when (_deliveryMode == ReceiverDeliveryMode.BestEffort)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            // BestEffort：忽略单个目标的非取消发送失败（连接可能已断开）。");
         sb.AppendLine("        }");
         sb.AppendLine("    }");
     }
@@ -339,6 +348,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("    private readonly IServerChannelManager _channelManager;");
         sb.AppendLine("    private readonly IUserConnectionMapping _userMapping;");
         sb.AppendLine("    private readonly IGroupManager _groupManager;");
+        sb.AppendLine("    private readonly ReceiverDeliveryMode _deliveryMode;");
         sb.AppendLine();
 
         // 构造函数
@@ -346,19 +356,27 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("        IPulseRouter router,");
         sb.AppendLine("        IServerChannelManager channelManager,");
         sb.AppendLine("        IUserConnectionMapping userMapping,");
-        sb.AppendLine("        IGroupManager groupManager)");
+        sb.AppendLine("        IGroupManager groupManager,");
+        sb.AppendLine("        ReceiverDeliveryMode deliveryMode = ReceiverDeliveryMode.BestEffort)");
         sb.AppendLine("    {");
+        sb.AppendLine("        if (deliveryMode != ReceiverDeliveryMode.BestEffort && deliveryMode != ReceiverDeliveryMode.Strict) throw new ArgumentOutOfRangeException(nameof(deliveryMode));");
         sb.AppendLine("        _router = router;");
         sb.AppendLine("        _channelManager = channelManager;");
         sb.AppendLine("        _userMapping = userMapping;");
         sb.AppendLine("        _groupManager = groupManager;");
+        sb.AppendLine("        _deliveryMode = deliveryMode;");
         sb.AppendLine("    }");
+        sb.AppendLine();
+
+        sb.AppendLine("    /// <summary>返回使用指定错误策略的新客户端选择器。</summary>");
+        sb.AppendLine($"    public {receiver.HubClientsClassName} WithDeliveryMode(ReceiverDeliveryMode deliveryMode) =>");
+        sb.AppendLine($"        new {receiver.HubClientsClassName}(_router, _channelManager, _userMapping, _groupManager, deliveryMode);");
         sb.AppendLine();
 
         // All 属性
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} All =>");
-        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.AllClients(\"{hub}\"));");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.AllClients(\"{hub}\"), _deliveryMode);");
         sb.AppendLine();
 
         // ==================== MagicOnion 风格 API ====================
@@ -366,7 +384,7 @@ public static class ReceiverProxyGenerator
         // Single 方法（MagicOnion 风格）
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} Single(string connectionId) =>");
-        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Connection(\"{hub}\", connectionId));");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Connection(\"{hub}\", connectionId), _deliveryMode);");
         sb.AppendLine();
 
         // Only 方法（MagicOnion 风格）
@@ -374,14 +392,14 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"    public {receiver.InterfaceFullName} Only(IReadOnlyList<string> connectionIds)");
         sb.AppendLine("    {");
         sb.AppendLine($"        var addresses = connectionIds.Select(id => PulseAddress.Connection(\"{hub}\", id));");
-        sb.AppendLine($"        return new {receiver.ProxyClassName}(_router, addresses);");
+        sb.AppendLine($"        return new {receiver.ProxyClassName}(_router, addresses, _deliveryMode);");
         sb.AppendLine("    }");
         sb.AppendLine();
 
         // Except(string) 方法（MagicOnion 风格 - 单个排除）
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} Except(string connectionId) =>");
-        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Except(\"{hub}\", connectionId));");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Except(\"{hub}\", connectionId), _deliveryMode);");
         sb.AppendLine();
 
         // Except(IReadOnlyList<string>) 方法（MagicOnion 风格 - 多个排除）
@@ -394,7 +412,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine("        var addresses = _channelManager.GetAuthenticatedChannels()");
         sb.AppendLine("            .Where(c => !excluded.Contains(c.ConnectionId))");
         sb.AppendLine($"            .Select(c => PulseAddress.Connection(\"{hub}\", c.ConnectionId));");
-        sb.AppendLine($"        return new {receiver.ProxyClassName}(_router, addresses);");
+        sb.AppendLine($"        return new {receiver.ProxyClassName}(_router, addresses, _deliveryMode);");
         sb.AppendLine("    }");
         sb.AppendLine();
 
@@ -403,7 +421,7 @@ public static class ReceiverProxyGenerator
         // User 方法
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} User(string userId) =>");
-        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.User(\"{hub}\", userId));");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.User(\"{hub}\", userId), _deliveryMode);");
         sb.AppendLine();
 
         // Users 方法（多用户：无对应单一地址，一次性解析为连接 ID 列表）
@@ -418,7 +436,7 @@ public static class ReceiverProxyGenerator
         // Group 方法
         sb.AppendLine($"    /// <inheritdoc/>");
         sb.AppendLine($"    public {receiver.InterfaceFullName} Group(string groupName) =>");
-        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Group(\"{hub}\", groupName));");
+        sb.AppendLine($"        new {receiver.ProxyClassName}(_router, PulseAddress.Group(\"{hub}\", groupName), _deliveryMode);");
         sb.AppendLine();
 
         // Groups 方法（多组：无对应单一地址，一次性解析为连接 ID 列表）
@@ -504,6 +522,21 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"/// </summary>");
         sb.AppendLine($"public static class {extensionClassName}");
         sb.AppendLine("{");
+
+        sb.AppendLine("    /// <summary>");
+        sb.AppendLine("    /// 为后续 Receiver push 选择 BestEffort 或 Strict 错误策略；取消在两种模式下都传播。");
+        sb.AppendLine("    /// </summary>");
+        sb.AppendLine($"    public static IHubClients<{receiver.InterfaceFullName}> WithDeliveryMode(");
+        sb.AppendLine($"        this IHubClients<{receiver.InterfaceFullName}> clients,");
+        sb.AppendLine("        ReceiverDeliveryMode deliveryMode)");
+        sb.AppendLine("    {");
+        sb.AppendLine($"        if (clients is {receiver.HubClientsClassName} generatedClients)");
+        sb.AppendLine("        {");
+        sb.AppendLine("            return generatedClients.WithDeliveryMode(deliveryMode);");
+        sb.AppendLine("        }");
+        sb.AppendLine("        throw new ArgumentException(\"The IHubClients instance was not created by the PulseRPC receiver generator.\", nameof(clients));");
+        sb.AppendLine("    }");
+        sb.AppendLine();
 
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// 注册 {receiver.InterfaceName} 的 HubContext");

@@ -99,7 +99,8 @@ public partial class SendMessageResult
 |---|---|
 | `[Channel("CLIENT")]` | 表示该 Hub 由客户端实现，服务端可向它推送 |
 | `[Channel("GameServer")]` | 表示该 Hub 由指定服务端角色提供，可用于跨服契约消歧 |
-| `[PulseHub(Provide = true, Consume = true)]` | 少数歧义场景下覆盖生成器默认推断 |
+| `[PulseHub(Provide = true, Consume = true)]` | 同一服务端契约既处理入站调用，又生成出站 Router 代理 |
+| `[PulseHub(Provide = false, Consume = true)]` | 只生成出站 Router 代理，不生成服务注册或 ModuleInitializer |
 | `[Authorize]` / `[Authorize(Role = RoleTypes.Internal)]` | 方法或接口鉴权 |
 | `[ClientFacing]` | 开启 `EnableClientFacingGate` 后，白名单式允许外部客户端调用 |
 | `[Delivery(DeliveryMode.AtMostOnce)]` | 声明投递保证；默认是至多一次 |
@@ -227,6 +228,32 @@ services.AddSingleton<IChatRoomHub, ChatRoomHub>();
 - Hub 实现注册进 DI，如 `services.AddSingleton<IChatRoomHub, ChatRoomHub>()`。
 - 对客户端推送契约，调用生成的 `services.AddAllPulseReceiverContexts()` 或对应的单个注册扩展。
 
+### 5. 服务端强类型 Router/Actor 调用
+
+需要经 `IPulseRouter` 调用另一个 Hub 或 Actor 时，在契约上显式开启 consumer 生成：
+
+```csharp
+[PulseHub(Provide = false, Consume = true)]
+[Channel("GameServer")]
+public interface IGameHub : IPulseHub
+{
+    Task<PlayerInfo> GetPlayerAsync(
+        string playerId,
+        CancellationToken cancellationToken = default);
+}
+```
+
+服务端生成器会在契约命名空间的 `Generated` 子命名空间中生成 `GameHubRouterProxy`：
+
+```csharp
+using Game.Contracts.Generated;
+
+var game = GameHubRouterProxy.ForActor(router, playerId, nodeId);
+var player = await game.GetPlayerAsync(playerId, cancellationToken);
+```
+
+代理内含与入站路由相同的协议常量，并负责 MemoryPack 序列化、`SendAsync`/`AskAsync` 选择和响应反序列化。纯 consumer 模式不注册服务端路由表，可用它替代手写的 `GameHubProtocol` 常量层。
+
 ## 客户端开发
 
 ### 1. 标记需要生成的代理
@@ -348,7 +375,7 @@ var chat = await client.GetServiceAsync<IChatRoomHub>(
 [Channel("CLIENT")]
 public interface ITimerReceiver : IPulseHub
 {
-    Task OnTickAsync(string message);
+    Task OnTickAsync(string message, CancellationToken cancellationToken = default);
 }
 ```
 
@@ -357,7 +384,7 @@ public interface ITimerReceiver : IPulseHub
 ```csharp
 public sealed class TimerReceiver : ITimerReceiver
 {
-    public Task OnTickAsync(string message)
+    public Task OnTickAsync(string message, CancellationToken cancellationToken = default)
     {
         Console.WriteLine(message);
         return Task.CompletedTask;
@@ -385,13 +412,13 @@ public sealed class TimerHub : ITimerHub
         _timerReceiver = timerReceiver;
     }
 
-    public async Task StartAsync(TimeSpan interval)
+    public async Task StartAsync(TimeSpan interval, CancellationToken cancellationToken = default)
     {
         var connectionId = PulseContext.CurrentConnectionId
             ?? throw new InvalidOperationException("No connection");
 
         await _timerReceiver.Clients.Single(connectionId)
-            .OnTickAsync($"tick: {DateTimeOffset.UtcNow:O}");
+            .OnTickAsync($"tick: {DateTimeOffset.UtcNow:O}", cancellationToken);
     }
 }
 ```
@@ -407,6 +434,27 @@ public sealed class TimerHub : ITimerHub
 | `Clients.User(userId)` / `Clients.Users(userIds)` | 指定用户 |
 | `Clients.Group(groupName)` / `Clients.Groups(groupNames)` | 指定组 |
 | `Clients.GroupExcept(groupName, connectionId)` | 组内排除某连接 |
+
+Push 的错误策略是显式的：
+
+- `ReceiverDeliveryMode.BestEffort` 是默认值。每个目标都会被尝试，单个目标的非取消发送异常不会让整次 push 失败。
+- `ReceiverDeliveryMode.Strict` 传播任何目标的发送异常。
+- `OperationCanceledException` 在两种模式下都会传播，不会被 best-effort 吞掉。
+- Receiver 的 `Task<T>` / `ValueTask<T>` 反向 Ask 需要唯一目标和响应，始终按 strict 语义执行。
+
+单次选择 strict 策略：
+
+```csharp
+using Your.Contracts.Generated;
+
+var strictClients = _timerReceiver.Clients
+    .WithDeliveryMode(ReceiverDeliveryMode.Strict);
+
+await strictClients.Single(connectionId)
+    .OnTickAsync("important tick", cancellationToken);
+```
+
+`WithDeliveryMode` 由 Receiver 生成器放在契约命名空间的 `Generated` 子命名空间中，如果 IDE 未自动导入，需显式添加对应 `using`。
 
 服务端需要注册生成的 HubContext：
 
@@ -424,7 +472,7 @@ services.AddAllPulseReceiverContexts();
 - `IPulseRouter`：默认 `LocalPulseRouter`。
 - `IUserConnectionMapping` / `IGroupManager`：用于 `User` / `Group` Fan-out。
 
-业务通常不需要直接调用 `IPulseRouter`，生成代理会构造 `PulseAddress` 并转交路由器。需要自定义投递时可以直接注入：
+业务通常不需要直接调用 `IPulseRouter`：Receiver 代理和显式 `Consume = true` 的 Hub Router 代理会构造 `PulseAddress` 并转交路由器。需要自定义投递时可以直接注入：
 
 ```csharp
 public sealed class NotifyService

@@ -5,7 +5,8 @@
 ## 当前包含内容
 
 - Unity 项目/包结构与 asmdef。
-- `AOTSupport`：为 Unity/IL2CPP 预热 PulseRPC 相关类型。
+- `link.xml` 与 `AOTSupport`：保留并预热 PulseRPC 框架类型。
+- `PulseRPC.Client.SourceGenerator`：为用户 Hub、Receiver 和 MemoryPack wire payload 生成确定的 `[Preserve]` 泛型闭包。
 - `TaskExtensions`：Unity 侧任务辅助方法。
 - 编辑器工具：包导出、Unity Cloud Build 配置。
 - NuGetForUnity 导入的依赖包说明文件。
@@ -13,6 +14,8 @@
 ## 当前连接方式
 
 Unity 客户端应复用 `PulseRPC.Client` 的 `netstandard2.1` 目标和 `PulseRPC.Client.SourceGenerator` 生成的代理。传输类型以当前核心实现为准：`TransportType.TCP` 与 `TransportType.KCP`。
+
+导入 Unity 时，`PulseRPC.Client.SourceGenerator.dll` 必须带 `RoslynAnalyzer` label 且不得作为 asmdef 运行时引用。每个需要代理的契约仍需要 `[PulseClientGeneration(typeof(...))]` 标记。
 
 示例集成请优先参考：
 

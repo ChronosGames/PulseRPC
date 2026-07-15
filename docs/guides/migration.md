@@ -22,6 +22,28 @@
 
 `samples/README.md` 已标记历史探索示例。迁移这些示例前，先确认当前公共 API，并补最小构建测试。
 
+## 迁移手写 Router 协议常量
+
+如果服务端使用 `GameHubProtocol` 一类手写协议号和 `IPulseRouter` 序列化代码，将对应 Hub 契约改为显式 consumer：
+
+```csharp
+[PulseHub(Provide = false, Consume = true)]
+public interface IGameHub : IPulseHub
+{
+}
+```
+
+改用生成的 `GameHubRouterProxy` 或其 `ForActor(...)` 入口。纯 consumer 生成不会创建服务路由、registry 注册或 ModuleInitializer。如果当前服务端同时真正提供该 Hub，使用 `Provide = true, Consume = true`；此时 provider 所需的路由注册仍会生成。
+
+## 迁移 Receiver 推送错误处理
+
+生成的 Receiver push 默认是 `ReceiverDeliveryMode.BestEffort`，会忽略单个目标的非取消发送错误。历史生成代码的多目标路径吞异常、单目标路径传播异常；现在两条路径使用同一显式策略，且 `OperationCanceledException` 始终传播。依赖“发送失败立即中断”的调用应显式改为：
+
+```csharp
+var clients = hubContext.Clients.WithDeliveryMode(ReceiverDeliveryMode.Strict);
+await clients.Single(connectionId).OnMessageAsync(message, cancellationToken);
+```
+
 ## 迁移服务端消息引擎配置
 
 服务端消息引擎已收敛为固定数量 worker shard 和每 shard 一个有界队列。新代码只通过 `PulseServerOptions` 配置：

@@ -1,0 +1,8 @@
+<linker>
+  <!-- User-contract generic closures are rooted by PulseRPC.Client.SourceGenerator. -->
+  <assembly fullname="PulseRPC.Abstractions" preserve="all" />
+  <assembly fullname="PulseRPC.Shared" preserve="all" />
+  <assembly fullname="PulseRPC.Client" preserve="all" />
+  <assembly fullname="MemoryPack" preserve="all" ignoreIfMissing="1" />
+  <assembly fullname="MemoryPack.Core" preserve="all" ignoreIfMissing="1" />
+</linker>

@@ -7,14 +7,18 @@ using PulseRPC.Shared;
 using PulseRPC.Shared.Tcp;
 using PulseRPC.Shared.Kcp;
 using UnityEngine;
+using UnityEngine.Scripting;
 
 namespace PulseRPC.AOT
 {
     /// <summary>
-    /// AOT运行时支持，用于IL2CPP环境下预先注册类型
+    /// PulseRPC 框架类型的 AOT 运行时预热。契约专用的 Hub、Receiver 和 MemoryPack
+    /// 泛型闭包由 PulseRPC.Client.SourceGenerator 为每个用户契约生成。
     /// </summary>
+    [Preserve]
     public static class AOTSupport
     {
+        [Preserve]
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         public static void RegisterTypes()
         {
