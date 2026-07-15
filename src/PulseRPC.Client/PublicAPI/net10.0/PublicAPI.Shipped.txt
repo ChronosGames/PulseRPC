@@ -200,8 +200,6 @@ PulseRPC.Client.Configuration.ServiceProxyOptions
 PulseRPC.Client.Configuration.ServiceProxyOptions.LoadBalancingHint.get -> PulseRPC.Client.Configuration.LoadBalancingHint
 PulseRPC.Client.Configuration.ServiceProxyOptions.LoadBalancingHint.set -> void
 PulseRPC.Client.Configuration.ServiceProxyOptions.ServiceProxyOptions() -> void
-PulseRPC.Client.Configuration.ServiceProxyOptions.Tags.get -> System.Collections.Generic.Dictionary<string!, string!>?
-PulseRPC.Client.Configuration.ServiceProxyOptions.Tags.set -> void
 PulseRPC.Client.ConnectionManager
 PulseRPC.Client.ConnectionManager.CleanupIdleConnectionsAsync(System.TimeSpan? maxAge = null, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<int>!
 PulseRPC.Client.ConnectionManager.ConnectAsync(PulseRPC.Client.Configuration.ConnectionConfig! config, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<PulseRPC.Client.IClientChannel!>!
