@@ -11,6 +11,11 @@
 - 编辑器工具：包导出、Unity Cloud Build 配置。
 - NuGetForUnity 导入的依赖包说明文件。
 
+正式消费入口是 GitHub Release 中版本化的
+`com.chronosgames.pulserpc.client.unity-<version>.tgz`。该 tarball 包含运行时 DLL、Unity 专用
+PulseRPC/MemoryPack analyzers、`link.xml`、依赖闭包清单和可导入 sample。仓库中的包源不提交
+生成 DLL；维护者可用 `pwsh ./scripts/build-unity-upm.ps1` 在 `artifacts/unity-upm/` 复现产物。
+
 ## 当前连接方式
 
 Unity 客户端应复用 `PulseRPC.Client` 的 `netstandard2.1` 目标和 `PulseRPC.Client.SourceGenerator` 生成的代理。传输类型以当前核心实现为准：`TransportType.TCP` 与 `TransportType.KCP`。
@@ -19,7 +24,7 @@ Unity 客户端应复用 `PulseRPC.Client` 的 `netstandard2.1` 目标和 `Pulse
 
 示例集成请优先参考：
 
-- `samples/ChatApp/ChatApp.Unity`
+- UPM 包内 `Samples~/BasicExample`
 - `docs/getting-started/unity-client-tutorial.md`
 - `docs/guides/client-server.md`
 

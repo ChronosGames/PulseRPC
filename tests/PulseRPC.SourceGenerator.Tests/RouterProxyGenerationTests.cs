@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -71,6 +72,107 @@ public sealed class RouterProxyGenerationTests
         generatedText.Should().NotContain("ServiceRoutingTableRegistry.Register");
         generatedText.Should().NotContain("ResponseSerializerRegistry.Register");
         generatedText.Should().NotContain("ServiceManifestRegistry.Register");
+    }
+
+    [Fact]
+    public void AssemblyLocalMarker_MustSelectConsumerRoleWithoutChangingSharedContract()
+    {
+        const string sharedContract = """
+            #nullable enable
+            using System.Threading;
+            using System.Threading.Tasks;
+            using PulseRPC;
+
+            namespace AssemblyRoleTestNs;
+
+            [Channel("GAME")]
+            public interface IGameHub : IPulseHub
+            {
+                Task<string> ExecuteAsync(string command, CancellationToken cancellationToken = default);
+            }
+            """;
+        const string providerSource = """
+            namespace AssemblyRoleProvider;
+            public static class ProviderMarker { }
+            """;
+        const string consumerSource = """
+            using PulseRPC.Abstractions;
+            using AssemblyRoleTestNs;
+            [assembly: PulseRouterGeneration(typeof(IGameHub))]
+
+            namespace AssemblyRoleConsumer;
+            public static class ConsumerMarker { }
+            """;
+
+        var sharedReference = ProtocolIdConsistencyTestsHelpers.CompileToMetadataReference(
+            sharedContract,
+            "AssemblyRoleSharedContracts");
+
+        var providerCompilation = ProtocolIdConsistencyTestsHelpers.CreateCompilation(
+            providerSource,
+            "AssemblyRoleProvider",
+            sharedReference);
+        var providerGenerated = ProtocolIdConsistencyTestsHelpers.RunServerGenerator(providerCompilation);
+
+        var consumerCompilation = ProtocolIdConsistencyTestsHelpers.CreateCompilation(
+            consumerSource,
+            "AssemblyRoleConsumer",
+            sharedReference);
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(consumerCompilation, out var consumerOutput, out _);
+        var consumerResult = driver.GetRunResult();
+        var consumerGenerated = string.Join(
+            "\n\n",
+            consumerResult.Results.SelectMany(result => result.GeneratedSources)
+                .Select(source => source.SourceText.ToString()));
+
+        consumerResult.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty();
+        consumerOutput.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("a consumer project must compile without provider-generated types");
+
+        providerGenerated.Should().Contain("ServiceRoutingTableRegistry.Register");
+        providerGenerated.Should().Contain("[System.Runtime.CompilerServices.ModuleInitializer]");
+        providerGenerated.Should().NotContain("class GameHubRouterProxy");
+
+        consumerGenerated.Should().Contain("public sealed class GameHubRouterProxy : AssemblyRoleTestNs.IGameHub");
+        consumerGenerated.Should().NotContain("[System.Runtime.CompilerServices.ModuleInitializer]");
+        consumerGenerated.Should().NotContain("ServiceRoutingTableRegistry.Register");
+        consumerGenerated.Should().NotContain("ResponseSerializerRegistry.Register");
+        consumerGenerated.Should().NotContain("ServiceManifestRegistry.Register");
+
+        var consumerProtocolId = Regex.Match(
+            consumerGenerated,
+            @"Protocol_ExecuteAsync = 0x([0-9A-F]{4})").Groups[1].Value;
+        consumerProtocolId.Should().NotBeEmpty();
+        providerGenerated.Should().Contain($"0x{consumerProtocolId}",
+            "provider and consumer generation must use the same wire protocol ID");
+    }
+
+    [Fact]
+    public void AssemblyLocalMarker_WithNonHubTarget_MustReportDiagnostic()
+    {
+        const string source = """
+            using PulseRPC.Abstractions;
+            [assembly: PulseRouterGeneration(typeof(string))]
+
+            namespace InvalidAssemblyRoleConsumer;
+            public static class ConsumerMarker { }
+            """;
+        var compilation = ProtocolIdConsistencyTestsHelpers.CreateCompilation(
+            source,
+            "InvalidAssemblyRoleConsumer");
+
+        var result = ProtocolIdConsistencyTestsHelpers.RunServerGeneratorRaw(compilation);
+        var generatedText = string.Join(
+            "\n\n",
+            result.Results.SelectMany(generator => generator.GeneratedSources)
+                .Select(generated => generated.SourceText.ToString()));
+
+        result.Diagnostics.Should().ContainSingle(diagnostic =>
+            diagnostic.Id == "PULSE011" && diagnostic.Severity == DiagnosticSeverity.Error);
+        generatedText.Should().NotContain("[System.Runtime.CompilerServices.ModuleInitializer]");
     }
 
     private static CSharpCompilation CreateCompilation(string source)

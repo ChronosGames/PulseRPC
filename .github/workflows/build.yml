@@ -53,10 +53,24 @@ jobs:
             exit 1
           fi
           cp "$unity_generator" ./build-output/
+      - name: Build and verify reproducible Unity UPM tarball
+        shell: pwsh
+        run: ./scripts/build-unity-upm.ps1
+      - name: Rebuild Unity UPM tarball and compare hashes
+        shell: pwsh
+        run: ./scripts/build-unity-upm.ps1 -SkipBuild -OutputDirectory artifacts/unity-upm-repro
+      - name: Assert Unity UPM byte-for-byte reproducibility
+        shell: bash
+        run: cmp ./artifacts/unity-upm/*.tgz ./artifacts/unity-upm-repro/*.tgz
       - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
         with:
           name: build-output
           path: ./build-output/
+          retention-days: 1
+      - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
+        with:
+          name: unity-upm
+          path: ./artifacts/unity-upm/
           retention-days: 1
 
   run-tests:
@@ -158,7 +172,7 @@ jobs:
 
 
   build-unity:
-    name: "Verify the integrity of files for Unity"
+    name: "Unity 2022.3 clean UPM import, generators, and TCP roundtrip"
     needs: [build-dotnet]
     if: ${{ (github.event_name == 'push' && github.repository_owner == 'ChronosGames') || startsWith(github.event.pull_request.head.label, 'ChronosGames:') }}
     strategy:
@@ -171,64 +185,67 @@ jobs:
         with:
           lfs: true
 
-      # 从 build-dotnet job 下载构建产物
       - uses: ChronosGames/Actions/.github/actions/download-artifact@main
         with:
-          name: build-output
-          path: ./build-output/
+          name: unity-upm
+          path: ./artifacts/unity-upm/
 
-      # 构建 PulseRPC.Client 以生成 Unity 本地包结构
-      - name: Build PulseRPC.Client for Unity local package
-        uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
-      - name: Create Unity local package structure
-        run: |
-          # 构建 PulseRPC.Client 的 Debug 配置以生成 .artifacts 目录结构
-          dotnet build -c Debug ./src/PulseRPC.Client/PulseRPC.Client.csproj -f netstandard2.1
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
 
-          # 验证 package.json 已生成
-          if [ ! -f "./src/PulseRPC.Client/.artifacts/bin/debug_netstandard2.1/package.json" ]; then
-            echo "Error: package.json not found at expected location"
-            ls -la ./src/PulseRPC.Client/.artifacts/bin/ || echo "No .artifacts/bin directory"
-            exit 1
-          fi
-          echo "Unity local package structure created successfully"
-          ls -la ./src/PulseRPC.Client/.artifacts/bin/debug_netstandard2.1/
+      - name: Install the versioned tarball in the clean Unity project
+        shell: bash
+        run: cp ./artifacts/unity-upm/*.tgz ./tests/PulseRPC.Client.Unity.Smoke/Packages/PulseRPC.Client.Unity.tgz
 
-      # 复制必要的 DLL 到 Unity 项目
-      - name: Copy DLLs to Unity project
+      - name: Build and start the HelloRPC TCP server
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins
-          cp ./build-output/PulseRPC.Abstractions.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
-          cp ./build-output/PulseRPC.Shared.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
-          cp ./build-output/PulseRPC.Client.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
-          cp ./build-output/PulseRPC.Client.SourceGenerator.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
+          dotnet build -c Release ./samples/HelloRPC/HelloRPC.Server/HelloRPC.Server.csproj --nologo
+          dotnet run --project ./samples/HelloRPC/HelloRPC.Server/HelloRPC.Server.csproj \
+            -c Release --no-build >"$RUNNER_TEMP/pulserpc-unity-server.log" 2>&1 &
+          echo $! >"$RUNNER_TEMP/pulserpc-unity-server.pid"
+          for attempt in $(seq 1 30); do
+            if grep -q "HelloRPC server ready" "$RUNNER_TEMP/pulserpc-unity-server.log"; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/pulserpc-unity-server.log"
+          exit 1
 
-      # execute scripts/Export Package
-      - name: Build Unity (.unitypackage)
-        uses: ChronosGames/Actions/.github/actions/unity-builder@main
+      - name: Import UPM tarball, load generators, and run TCP smoke
+        uses: game-ci/unity-builder@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
           UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
           UNITY_SERIAL: ${{ secrets.UNITY_LICENSE == '' && secrets.UNITY_SERIAL || '' }}
         with:
-          projectPath: src/PulseRPC.Client.Unity
+          projectPath: tests/PulseRPC.Client.Unity.Smoke
           unityVersion: ${{ matrix.unity }}
           targetPlatform: StandaloneLinux64
-          buildMethod: PackageExporter.Export
+          buildMethod: PulseRPC.UnityPackageSmoke.UnityPackageSmokeCi.Run
+          useHostNetwork: true
 
-      # check meta files
-      - uses: ChronosGames/Actions/.github/actions/check-metas@main
-        with:
-          directory: src/PulseRPC.Client.Unity
+      - name: Verify TCP smoke result
+        shell: bash
+        run: grep -Fx "PulseRPC Unity UPM TCP roundtrip passed." ./tests/PulseRPC.Client.Unity.Smoke/unity-package-smoke.txt
 
-      # Store artifacts (仅用于调试)
+      - name: Stop the HelloRPC TCP server
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/pulserpc-unity-server.pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/pulserpc-unity-server.pid")" || true
+          fi
+
       - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
         if: failure()
         with:
-          name: PulseRPC.Client.Unity.unitypackage
-          path: ./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity.unitypackage
+          name: unity-upm-smoke-diagnostics
+          path: |
+            ./tests/PulseRPC.Client.Unity.Smoke/Logs/
+            ${{ runner.temp }}/pulserpc-unity-server.log
           retention-days: 1
 
   build-unity-ios-il2cpp:

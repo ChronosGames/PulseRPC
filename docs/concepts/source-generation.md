@@ -36,7 +36,20 @@ Unity 包使用不含 IDE CodeFix 的专用生成器构建，避免对 Unity Ros
 
 ## 服务端出站 Router 代理
 
-服务端对显式 `Consume = true` 的非 `CLIENT` Hub 生成 `{Hub}RouterProxy`。例如：
+当共享契约不能绑定具体项目角色时，消费程序集使用程序集本地 marker：
+
+```csharp
+using PulseRPC.Abstractions;
+
+[assembly: PulseRouterGeneration(typeof(IGameHub))]
+```
+
+只要当前程序集存在该 marker，服务端生成器就进入 consumer-only 模式：只为列出的非 `CLIENT`
+Hub 生成 `{Hub}RouterProxy`，不扫描或生成 provider 路由表、registry、Receiver host 类型或
+`ModuleInitializer`。未添加 marker 的服务宿主仍按默认规则为同一共享契约生成 provider 骨架；
+两侧使用相同 canonical wire signature 计算协议号。
+
+契约与生成器位于同一项目、确实需要在该项目内覆盖双向角色时，仍可使用接口级标注：
 
 ```csharp
 [PulseHub(Provide = false, Consume = true)]
@@ -47,6 +60,10 @@ public interface IGameHub : IPulseHub
 ```
 
 生成的 `GameHubRouterProxy` 直接将强类型调用序列化后发给 `IPulseRouter`，并提供 `ForActor(router, key, nodeId)` 入口。`Provide = false` 的纯 consumer 程序集不生成服务路由、registry 注册或 ModuleInitializer。普通未标注 Hub 仍只按服务端 provider 处理，不会意外增加出站代理。
+
+Receiver 的投递错误策略由 `PulseRPC.Server` 运行时提供的通用
+`IHubClients<T>.WithDeliveryMode(...)` 扩展选择。普通类库可以只引用运行时 API 编译；最终宿主生成的
+`IHubClients<T>` 实现通过 `IReceiverDeliveryModeSelector<T>` 承接配置，无需类库引用宿主生成类型。
 
 ## 常见修改入口
 

@@ -120,6 +120,7 @@ $abstractionsPublicTypeAllowlist = @(
     'src/PulseRPC.Abstractions/Protocol/ProtocolAttribute.cs|ProtocolAttribute',
     'src/PulseRPC.Abstractions/Protocol/ProtocolAttribute.cs|ProtocolAttributeExtensions',
     'src/PulseRPC.Abstractions/PulseRPCSerializerProvider.cs|PulseRPCSerializerProvider',
+    'src/PulseRPC.Abstractions/RouterGenerationAttributes.cs|PulseRouterGenerationAttribute',
     'src/PulseRPC.Abstractions/Routing/IMultiInstanceServiceManager.cs|BroadcastResult',
     'src/PulseRPC.Abstractions/Routing/IMultiInstanceServiceManager.cs|BroadcastResultItem',
     'src/PulseRPC.Abstractions/Routing/IMultiInstanceServiceManager.cs|LoadBalancingEventArgs',

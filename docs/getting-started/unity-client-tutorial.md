@@ -11,7 +11,27 @@
 
 ## 1. 导入运行时与生成器
 
-使用仓库导出的 `PulseRPC.Client.Unity.unitypackage`，或将 `src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity` 作为本地包导入。
+从对应 GitHub Release 下载版本化的
+`com.chronosgames.pulserpc.client.unity-<version>.tgz` 与同名 `.sha256`，校验后在 Unity Package
+Manager 中选择 **Add package from tarball**。项目 `Packages/manifest.json` 也可以直接使用不可变文件地址：
+
+```json
+{
+  "dependencies": {
+    "com.chronosgames.pulserpc.client.unity": "file:/absolute/path/com.chronosgames.pulserpc.client.unity-1.1.12.tgz"
+  }
+}
+```
+
+仓库中的包源不提交构建 DLL。需要从当前 checkout 复现 tarball 时运行：
+
+```powershell
+pwsh ./scripts/build-unity-upm.ps1
+```
+
+产物位于 `artifacts/unity-upm/`。脚本从 `PulseRPC.Client` 的 `netstandard2.1` 实际
+CopyLocal 输出构建运行时闭包，并打入 Unity 专用 PulseRPC Generator、MemoryPack Generator、
+`link.xml`、依赖清单及 `Samples~/BasicExample`；不要把原始包源子目录当成已发布包直接安装。
 
 Unity Inspector 中的 `PulseRPC.Client.SourceGenerator.dll` 必须满足：
 
@@ -19,7 +39,7 @@ Unity Inspector 中的 `PulseRPC.Client.SourceGenerator.dll` 必须满足：
 - 不启用任何运行平台。
 - 不出现在业务 asmdef 的 `precompiledReferences` 中。
 
-PulseRPC Unity 包已按此方式配置。MemoryPack Generator 也必须以 Roslyn Analyzer 导入。
+PulseRPC Unity 包已按此方式配置，且内含以 Roslyn Analyzer 导入的 MemoryPack Generator。
 Unity 包中的 PulseRPC 生成器为专用构建：它保留 Generator/Analyzer，但不携带只供 IDE 使用的 CodeFix 类型，因此不需要 `Microsoft.CodeAnalysis.Workspaces` 或 MEF 依赖。
 如果标记类位于自定义 asmdef，该 asmdef 必须引用 `PulseRPC.Client.Unity`；Unity 只会把位于某 asmdef 下的 Analyzer 应用到该程序集及引用它的程序集。
 
@@ -61,6 +81,10 @@ Unity 包提供两层 preservation：
 - 同时包含 Hub、Receiver、MemoryPack request/tuple/response 的 smoke 契约。
 
 构建后 CI 还会检查 IL2CPP C++ 输出中是否存在 Hub Stub、Receiver Dispatcher 和 MemoryPack preservation 方法。生产项目应保留一个等价的 iOS IL2CPP 高裁剪 job，而不只运行 Editor/Mono 测试。
+
+发布 CI 还会从版本化 `.tgz` 创建全新 Unity 项目，验证包内唯一 manifest、DLL 版本、运行时与
+analyzer 引用闭包、sample 路径、Hub/Receiver 生成，以及对 HelloRPC 服务的 TCP 往返。同一
+checkout 会打包两次并比较 SHA-256，防止发布过程依赖临时目录或未声明文件。
 
 ## 故障排查
 

@@ -1,4 +1,7 @@
 #nullable enable
+PulseRPC.Abstractions.PulseRouterGenerationAttribute
+PulseRPC.Abstractions.PulseRouterGenerationAttribute.HubType.get -> System.Type!
+PulseRPC.Abstractions.PulseRouterGenerationAttribute.PulseRouterGenerationAttribute(System.Type! hubType) -> void
 PulseRPC.Abstractions.Transport.Security.ITransportEncryptionKeyProvider
 PulseRPC.Abstractions.Transport.Security.ITransportEncryptionKeyProvider.GetCurrentKey() -> PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey
 PulseRPC.Abstractions.Transport.Security.ITransportEncryptionKeyProvider.TryGetKey(uint keyId, out PulseRPC.Abstractions.Transport.Security.TransportEncryptionKey key) -> bool

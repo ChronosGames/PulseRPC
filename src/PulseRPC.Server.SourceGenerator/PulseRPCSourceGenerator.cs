@@ -82,60 +82,79 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             var routerModels = new List<ServiceModel>();
             var receiverModels = new List<ReceiverModel>();
             var scannedAssemblies = new HashSet<IAssemblySymbol>(SymbolEqualityComparer.Default);
+            var routerGenerationAttributes = GetLocalRouterGenerationAttributes(compilation);
+            var routerOnlyGeneration = routerGenerationAttributes.Count > 0;
 
-            // 自动扫描直接引用的用户项目程序集
-            var autoScanAssemblies = GetUserProjectAssemblies(compilation);
-            foreach (var assembly in autoScanAssemblies)
+            if (routerOnlyGeneration)
             {
-                if (scannedAssemblies.Add(assembly))
+                foreach (var attribute in routerGenerationAttributes)
                 {
-                    var assemblyServiceModels = ScanAssemblyForServices(assembly, compilation);
-
-                    foreach (var serviceModel in assemblyServiceModels)
+                    if (TryGetLocalRouterGenerationTarget(context, attribute, out var target))
                     {
-                        AddServiceModelIfMissing(serviceModels, serviceModel);
-                    }
-
-                    foreach (var routerModel in ScanAssemblyForRouterConsumers(assembly))
-                    {
-                        AddServiceModelIfMissing(routerModels, routerModel);
-                    }
-
-                    foreach (var receiverModel in ScanAssemblyForReceivers(assembly))
-                    {
-                        AddReceiverModelIfMissing(receiverModels, receiverModel);
-                    }
-                }
-            }
-
-            // 分析直接找到的候选接口
-            foreach (var interfaceDeclaration in candidateInterfaces.Where(i => i != null))
-            {
-                var semanticModel = compilation.GetSemanticModel(interfaceDeclaration!.SyntaxTree);
-                var serviceModel = ServiceAnalyzer.AnalyzeInterface(interfaceDeclaration!, semanticModel);
-
-                if (serviceModel != null)
-                {
-                    AddServiceModelIfMissing(serviceModels, serviceModel);
-                }
-
-                if (semanticModel.GetDeclaredSymbol(interfaceDeclaration!) is INamedTypeSymbol interfaceSymbol)
-                {
-                    if (IsRouterConsumerInterface(interfaceSymbol))
-                    {
-                        var routerModel = ServiceAnalyzer.AnalyzeInterfaceForConsumption(interfaceDeclaration!, semanticModel);
+                        var routerModel = CreateServiceModelFromSymbol(target!);
                         if (routerModel != null)
                         {
                             AddServiceModelIfMissing(routerModels, routerModel);
                         }
                     }
-
-                    if (IsReceiverInterface(interfaceSymbol))
+                }
+            }
+            else
+            {
+                // 自动扫描直接引用的用户项目程序集
+                var autoScanAssemblies = GetUserProjectAssemblies(compilation);
+                foreach (var assembly in autoScanAssemblies)
+                {
+                    if (scannedAssemblies.Add(assembly))
                     {
-                        var receiverModel = CreateReceiverModelFromSymbol(interfaceSymbol);
-                        if (receiverModel != null)
+                        var assemblyServiceModels = ScanAssemblyForServices(assembly, compilation);
+
+                        foreach (var serviceModel in assemblyServiceModels)
+                        {
+                            AddServiceModelIfMissing(serviceModels, serviceModel);
+                        }
+
+                        foreach (var routerModel in ScanAssemblyForRouterConsumers(assembly))
+                        {
+                            AddServiceModelIfMissing(routerModels, routerModel);
+                        }
+
+                        foreach (var receiverModel in ScanAssemblyForReceivers(assembly))
                         {
                             AddReceiverModelIfMissing(receiverModels, receiverModel);
+                        }
+                    }
+                }
+
+                // 分析直接找到的候选接口
+                foreach (var interfaceDeclaration in candidateInterfaces.Where(i => i != null))
+                {
+                    var semanticModel = compilation.GetSemanticModel(interfaceDeclaration!.SyntaxTree);
+                    var serviceModel = ServiceAnalyzer.AnalyzeInterface(interfaceDeclaration!, semanticModel);
+
+                    if (serviceModel != null)
+                    {
+                        AddServiceModelIfMissing(serviceModels, serviceModel);
+                    }
+
+                    if (semanticModel.GetDeclaredSymbol(interfaceDeclaration!) is INamedTypeSymbol interfaceSymbol)
+                    {
+                        if (IsRouterConsumerInterface(interfaceSymbol))
+                        {
+                            var routerModel = ServiceAnalyzer.AnalyzeInterfaceForConsumption(interfaceDeclaration!, semanticModel);
+                            if (routerModel != null)
+                            {
+                                AddServiceModelIfMissing(routerModels, routerModel);
+                            }
+                        }
+
+                        if (IsReceiverInterface(interfaceSymbol))
+                        {
+                            var receiverModel = CreateReceiverModelFromSymbol(interfaceSymbol);
+                            if (receiverModel != null)
+                            {
+                                AddReceiverModelIfMissing(receiverModels, receiverModel);
+                            }
                         }
                     }
                 }
@@ -346,6 +365,44 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         {
             models.Add(candidate);
         }
+    }
+
+    private static List<AttributeData> GetLocalRouterGenerationAttributes(Compilation compilation)
+    {
+        return compilation.Assembly.GetAttributes()
+            .Where(attribute => attribute.AttributeClass?.ToDisplayString() == "PulseRPC.Abstractions.PulseRouterGenerationAttribute")
+            .ToList();
+    }
+
+    private static bool TryGetLocalRouterGenerationTarget(
+        SourceProductionContext context,
+        AttributeData attribute,
+        out INamedTypeSymbol? target)
+    {
+        target = attribute.ConstructorArguments.Length == 1
+            ? attribute.ConstructorArguments[0].Value as INamedTypeSymbol
+            : null;
+
+        if (target is { TypeKind: TypeKind.Interface } &&
+            target.AllInterfaces.Any(item => item.ToDisplayString() == "PulseRPC.IPulseHub") &&
+            !HasClientChannel(target))
+        {
+            return true;
+        }
+
+        var descriptor = new DiagnosticDescriptor(
+            "PULSE011",
+            "Invalid Router generation target",
+            "PulseRouterGeneration target '{0}' must be a non-CLIENT interface that inherits PulseRPC.IPulseHub",
+            "PulseRPC.Server.SourceGenerator",
+            DiagnosticSeverity.Error,
+            true);
+        var location = attribute.ApplicationSyntaxReference?.GetSyntax().GetLocation() ?? Location.None;
+        context.ReportDiagnostic(Diagnostic.Create(
+            descriptor,
+            location,
+            target?.ToDisplayString() ?? "<unknown>"));
+        return false;
     }
 
     private static void SynchronizeRouterProtocolIds(

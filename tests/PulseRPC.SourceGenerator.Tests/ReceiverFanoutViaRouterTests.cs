@@ -1,9 +1,11 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.Loader;
 using FluentAssertions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using PulseRPC.Server;
 using Xunit;
 
 namespace PulseRPC.SourceGenerator.Tests;
@@ -66,6 +68,8 @@ public class ReceiverFanoutViaRouterTests
         generatedText.Should().Contain("catch (OperationCanceledException)");
         generatedText.Should().Contain("catch (Exception) when (_deliveryMode == ReceiverDeliveryMode.BestEffort)");
         generatedText.Should().Contain("WithDeliveryMode(ReceiverDeliveryMode deliveryMode)");
+        generatedText.Should().Contain("IReceiverDeliveryModeSelector<FanoutViaRouterTestNs.IChatClientHub>");
+        generatedText.Should().NotContain("this IHubClients<FanoutViaRouterTestNs.IChatClientHub> clients");
         generatedText.Should().Contain("ReceiverDeliveryMode.Strict");
 
         // 反向 Ask 方法必须经路由器投递，而不是直接调用 IServerChannel.InvokeClientAsync。
@@ -84,6 +88,124 @@ public class ReceiverFanoutViaRouterTests
 
         // Receiver-only 生成不应为不存在的 provider 注册全局副作用。
         generatedText.Should().NotContain("[System.Runtime.CompilerServices.ModuleInitializer]");
+    }
+
+    [Fact]
+    public void RuntimeDeliveryModeApi_MustCompileInAClassLibraryWithoutHostGeneratedTypes()
+    {
+        const string classLibrarySource = """
+            #nullable enable
+            using System.Threading.Tasks;
+            using PulseRPC;
+            using PulseRPC.Server;
+
+            namespace RuntimeDeliveryModeConsumer;
+
+            [Channel("CLIENT")]
+            public interface IClientPush : IPulseHub
+            {
+                Task PushAsync(string value);
+            }
+
+            public sealed class PushConsumer
+            {
+                public IHubClients<IClientPush> Select(
+                    IHubContext<IClientPush> context,
+                    ReceiverDeliveryMode mode)
+                    => context.Clients.WithDeliveryMode(mode);
+            }
+            """;
+
+        var compilation = ProtocolIdConsistencyTestsHelpers.CreateCompilation(
+            classLibrarySource,
+            "RuntimeDeliveryModeConsumer");
+
+        compilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty(
+                "the runtime extension must be callable before the final host runs the server generator");
+    }
+
+    [Fact]
+    public async Task GeneratedReceiverProxy_MustPropagateCancellationInBothDeliveryModes()
+    {
+        const string source = """
+            #nullable enable
+            using System;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using PulseRPC;
+            using PulseRPC.Routing;
+            using PulseRPC.Server;
+
+            namespace ReceiverCancellationBehavior;
+
+            [Channel("CLIENT")]
+            public interface ICancelReceiver : IPulseHub
+            {
+                Task PushAsync(CancellationToken cancellationToken = default);
+            }
+
+            public sealed class CancelingRouter : IPulseRouter
+            {
+                public ValueTask SendAsync(
+                    in PulseAddress address,
+                    ushort protocolId,
+                    ReadOnlyMemory<byte> body,
+                    DeliveryMode delivery = DeliveryMode.AtMostOnce,
+                    CancellationToken cancellationToken = default,
+                    Guid messageId = default)
+                    => new ValueTask(Task.FromException(new OperationCanceledException(cancellationToken)));
+
+                public ValueTask<ReadOnlyMemory<byte>> AskAsync(
+                    in PulseAddress address,
+                    ushort protocolId,
+                    ReadOnlyMemory<byte> body,
+                    CancellationToken cancellationToken = default)
+                    => new ValueTask<ReadOnlyMemory<byte>>(ReadOnlyMemory<byte>.Empty);
+            }
+
+            public static class CancellationProbe
+            {
+                public static async Task<bool> RunAsync(ReceiverDeliveryMode mode)
+                {
+                    var proxy = new Generated.CancelReceiverProxy(
+                        new CancelingRouter(),
+                        PulseAddress.AllClients("CancelReceiver"),
+                        mode);
+                    try
+                    {
+                        await proxy.PushAsync(CancellationToken.None);
+                        return false;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return true;
+                    }
+                }
+            }
+            """;
+        var compilation = ProtocolIdConsistencyTestsHelpers.CreateCompilation(
+            source,
+            "ReceiverCancellationBehaviorAssembly");
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator());
+        driver = driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out _);
+
+        using var stream = new MemoryStream();
+        var emitResult = outputCompilation.Emit(stream);
+        emitResult.Success.Should().BeTrue(string.Join(
+            Environment.NewLine,
+            emitResult.Diagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)));
+        stream.Position = 0;
+        var assembly = AssemblyLoadContext.Default.LoadFromStream(stream);
+        var method = assembly.GetType("ReceiverCancellationBehavior.CancellationProbe")!
+            .GetMethod("RunAsync")!;
+
+        foreach (var mode in new[] { ReceiverDeliveryMode.BestEffort, ReceiverDeliveryMode.Strict })
+        {
+            var task = (Task<bool>)method.Invoke(null, new object[] { mode })!;
+            (await task).Should().BeTrue($"cancellation must propagate in {mode} mode");
+        }
     }
 }
 

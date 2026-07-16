@@ -24,16 +24,15 @@
 
 ## 迁移手写 Router 协议常量
 
-如果服务端使用 `GameHubProtocol` 一类手写协议号和 `IPulseRouter` 序列化代码，将对应 Hub 契约改为显式 consumer：
+如果服务端使用 `GameHubProtocol` 一类手写协议号和 `IPulseRouter` 序列化代码，不再把消费项目角色写进共享 Hub 契约；在消费程序集添加本地 marker：
 
 ```csharp
-[PulseHub(Provide = false, Consume = true)]
-public interface IGameHub : IPulseHub
-{
-}
+using PulseRPC.Abstractions;
+
+[assembly: PulseRouterGeneration(typeof(IGameHub))]
 ```
 
-改用生成的 `GameHubRouterProxy` 或其 `ForActor(...)` 入口。纯 consumer 生成不会创建服务路由、registry 注册或 ModuleInitializer。如果当前服务端同时真正提供该 Hub，使用 `Provide = true, Consume = true`；此时 provider 所需的路由注册仍会生成。
+改用生成的 `GameHubRouterProxy` 或其 `ForActor(...)` 入口。带 marker 的程序集只生成列出的 Router proxy，不创建服务路由、registry、Receiver host 类型或 ModuleInitializer。提供该 Hub 的宿主不添加 marker，继续从同一个未绑定角色的契约生成 provider 路由；两侧协议号由生成器一致计算。契约与实现位于同一项目的旧场景仍可保留 `[PulseHub]` 覆盖。
 
 ## 迁移 Receiver 推送错误处理
 
@@ -43,6 +42,9 @@ public interface IGameHub : IPulseHub
 var clients = hubContext.Clients.WithDeliveryMode(ReceiverDeliveryMode.Strict);
 await clients.Single(connectionId).OnMessageAsync(message, cancellationToken);
 ```
+
+该扩展现在由 `PulseRPC.Server` 运行时提供；普通类库不再需要引用最终宿主生成的 `Generated`
+命名空间。取消在 `BestEffort` 与 `Strict` 下仍会传播。
 
 ## 迁移服务端消息引擎配置
 

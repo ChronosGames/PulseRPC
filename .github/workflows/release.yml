@@ -61,6 +61,15 @@ jobs:
             exit 1
           fi
           cp "$unity_generator" ./build-output/
+      - name: Build versioned Unity UPM tarball
+        shell: pwsh
+        run: ./scripts/build-unity-upm.ps1 -Version '${{ inputs.tag }}'
+      - name: Verify Unity UPM reproducibility
+        shell: pwsh
+        run: ./scripts/build-unity-upm.ps1 -Version '${{ inputs.tag }}' -SkipBuild -OutputDirectory artifacts/unity-upm-repro
+      - name: Compare Unity UPM tarballs
+        shell: bash
+        run: cmp ./artifacts/unity-upm/*.tgz ./artifacts/unity-upm-repro/*.tgz
       - name: Verify NuGet packages
         shell: bash
         run: |
@@ -96,6 +105,11 @@ jobs:
           name: build-output
           path: ./build-output/
           retention-days: 1
+      - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
+        with:
+          name: unity-upm
+          path: ./artifacts/unity-upm/
+          retention-days: 1
 
   build-unity:
     needs: [update-packagejson, build-dotnet]
@@ -113,20 +127,12 @@ jobs:
 
       - uses: ChronosGames/Actions/.github/actions/download-artifact@main
         with:
-          name: build-output
-          path: ./build-output/
+          name: unity-upm
+          path: ./unity-upm/
 
-      # Setup .NET and build PulseRPC.Client for Unity dependency
-      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
-      - run: dotnet build -c Debug ./src/PulseRPC.Client/PulseRPC.Client.csproj -f netstandard2.1
-      - name: Copy DLLs to Unity project
-        run: |
-          set -euo pipefail
-          mkdir -p ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins
-          cp ./build-output/PulseRPC.Abstractions.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
-          cp ./build-output/PulseRPC.Shared.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
-          cp ./build-output/PulseRPC.Client.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
-          cp ./build-output/PulseRPC.Client.SourceGenerator.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
+      - name: Materialize the verified UPM closure for legacy unitypackage export
+        shell: bash
+        run: rsync -a --delete ./unity-upm/package/ ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/
 
       # Execute scripts: Export Package
       # /opt/Unity/Editor/Unity -quit -batchmode -nographics -silent-crashes -logFile -projectPath . -executeMethod PackageExporter.Export
@@ -149,11 +155,28 @@ jobs:
         with:
           directory: src/PulseRPC.Client.Unity
 
+      - name: Stage Unity release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ./release-assets
+          versioned=./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity.${{ inputs.tag }}.unitypackage
+          unversioned=./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity.unitypackage
+          if [ -f "$versioned" ]; then
+            unitypackage="$versioned"
+          else
+            test -f "$unversioned"
+            unitypackage="$unversioned"
+          fi
+          cp "$unitypackage" ./release-assets/PulseRPC.Client.Unity.${{ inputs.tag }}.unitypackage
+          cp ./unity-upm/*.tgz ./release-assets/
+          cp ./unity-upm/*.tgz.sha256 ./release-assets/
+
       # Store artifacts.
       - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
         with:
           name: PulseRPC.Client.Unity.unitypackage
-          path: ./src/PulseRPC.Client.Unity/PulseRPC.Client.Unity.unitypackage
+          path: ./release-assets/
           retention-days: 1
 
   # release
@@ -168,6 +191,11 @@ jobs:
       dry-run: ${{ inputs.dry-run }}
       tag: ${{ inputs.tag }}
       nuget-push: true
+      release-upload: true
+      release-asset-path: |
+        ./PulseRPC.Client.Unity.unitypackage/*.unitypackage
+        ./PulseRPC.Client.Unity.unitypackage/*.tgz
+        ./PulseRPC.Client.Unity.unitypackage/*.tgz.sha256
     secrets: inherit
 
   cleanup:

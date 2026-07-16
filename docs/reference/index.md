@@ -35,7 +35,9 @@
 | `AddRedisActorLeases(...)` | 以 Redis 原子脚本替换默认进程内 Actor 租约 |
 | `ProtocolId.Generate(signature)` | 使用与 Source Generator 一致的 FNV-1a 规则计算运行期协议号 |
 | `ReceiverDeliveryMode` | Receiver push 的 `BestEffort` / `Strict` 错误策略；取消在两种模式下都传播 |
-| `{Hub}RouterProxy` | 对显式 `[PulseHub(Consume = true)]` Hub 生成的强类型 `IPulseRouter` / Actor 出站代理 |
+| `IHubClients<T>.WithDeliveryMode(...)` | 运行时公共 Receiver 模式选择；调用方不依赖宿主生成类型 |
+| `[assembly: PulseRouterGeneration(typeof(...))]` | 当前程序集进入 consumer-only 生成，只产出列出的 Router proxy |
+| `{Hub}RouterProxy` | 对程序集本地 marker（或接口级 `Consume = true`）Hub 生成的强类型 `IPulseRouter` / Actor 出站代理 |
 | `UseCertificateNodeAuthentication(...)` | 使用证书签名节点凭据替换共享密钥认证 |
 | `AddConsulDiscovery` / `AddEtcdDiscovery` / `AddKubernetesDiscovery` | 覆盖默认成员发现 |
 
@@ -52,9 +54,11 @@
 
 ## Unity IL2CPP 事实
 
+- 正式 Unity 分发物是 GitHub Release 中的版本化 UPM `.tgz`；原始包源目录不含构建 DLL。
+- 包内 vendoring `PulseRPC.Client` 的 `netstandard2.1` CopyLocal 闭包、Unity 专用 PulseRPC/MemoryPack analyzers、依赖清单、唯一 manifest 和真实 sample。
 - Unity 包提供 `link.xml`，保留 PulseRPC 和 MemoryPack 运行时程序集。
 - 客户端生成器为每个 `[PulseClientGeneration]` Hub/Receiver 生成 `[Preserve]` AOT 根，并闭合实际 wire payload 的 MemoryPack 泛型调用。
-- CI 使用 Unity `2022.3.62f3`、iOS、IL2CPP 和 High managed stripping 构建 smoke 契约，并检查生成 C++ 中的 Hub、Receiver 与 preservation roots。
+- CI 用干净 Unity `2022.3.62f3` 项目从 `.tgz` 导入并验证 Source Generator 与 TCP 往返；另用 iOS、IL2CPP 和 High managed stripping 构建 smoke 契约并检查生成 C++ 中的 Hub、Receiver 与 preservation roots。
 
 ## 服务端消息执行事实
 

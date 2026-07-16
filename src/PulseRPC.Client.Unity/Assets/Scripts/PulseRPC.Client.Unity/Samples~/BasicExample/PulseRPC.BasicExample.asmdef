@@ -1,0 +1,16 @@
+{
+  "name": "PulseRPC.BasicExample",
+  "rootNamespace": "PulseRPC.Samples.BasicExample",
+  "references": [
+    "PulseRPC.Client.Unity"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

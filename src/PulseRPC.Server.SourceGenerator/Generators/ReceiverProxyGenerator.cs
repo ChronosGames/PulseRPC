@@ -342,7 +342,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"/// 多目标场景（Only/Users/Groups/GroupExcept/Except(多个)）在此处一次性解析为具体连接 ID 列表，");
         sb.AppendLine($"/// 因为 PulseAddress 尚不支持任意连接 ID 集合的寻址。");
         sb.AppendLine($"/// </summary>");
-        sb.AppendLine($"public sealed class {receiver.HubClientsClassName} : IHubClients<{receiver.InterfaceFullName}>");
+        sb.AppendLine($"public sealed class {receiver.HubClientsClassName} : IHubClients<{receiver.InterfaceFullName}>, IReceiverDeliveryModeSelector<{receiver.InterfaceFullName}>");
         sb.AppendLine("{");
         sb.AppendLine("    private readonly IPulseRouter _router;");
         sb.AppendLine("    private readonly IServerChannelManager _channelManager;");
@@ -369,7 +369,7 @@ public static class ReceiverProxyGenerator
         sb.AppendLine();
 
         sb.AppendLine("    /// <summary>返回使用指定错误策略的新客户端选择器。</summary>");
-        sb.AppendLine($"    public {receiver.HubClientsClassName} WithDeliveryMode(ReceiverDeliveryMode deliveryMode) =>");
+        sb.AppendLine($"    public IHubClients<{receiver.InterfaceFullName}> WithDeliveryMode(ReceiverDeliveryMode deliveryMode) =>");
         sb.AppendLine($"        new {receiver.HubClientsClassName}(_router, _channelManager, _userMapping, _groupManager, deliveryMode);");
         sb.AppendLine();
 
@@ -522,21 +522,6 @@ public static class ReceiverProxyGenerator
         sb.AppendLine($"/// </summary>");
         sb.AppendLine($"public static class {extensionClassName}");
         sb.AppendLine("{");
-
-        sb.AppendLine("    /// <summary>");
-        sb.AppendLine("    /// 为后续 Receiver push 选择 BestEffort 或 Strict 错误策略；取消在两种模式下都传播。");
-        sb.AppendLine("    /// </summary>");
-        sb.AppendLine($"    public static IHubClients<{receiver.InterfaceFullName}> WithDeliveryMode(");
-        sb.AppendLine($"        this IHubClients<{receiver.InterfaceFullName}> clients,");
-        sb.AppendLine("        ReceiverDeliveryMode deliveryMode)");
-        sb.AppendLine("    {");
-        sb.AppendLine($"        if (clients is {receiver.HubClientsClassName} generatedClients)");
-        sb.AppendLine("        {");
-        sb.AppendLine("            return generatedClients.WithDeliveryMode(deliveryMode);");
-        sb.AppendLine("        }");
-        sb.AppendLine("        throw new ArgumentException(\"The IHubClients instance was not created by the PulseRPC receiver generator.\", nameof(clients));");
-        sb.AppendLine("    }");
-        sb.AppendLine();
 
         sb.AppendLine($"    /// <summary>");
         sb.AppendLine($"    /// 注册 {receiver.InterfaceName} 的 HubContext");

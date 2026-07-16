@@ -101,6 +101,7 @@ public partial class SendMessageResult
 | `[Channel("GameServer")]` | 表示该 Hub 由指定服务端角色提供，可用于跨服契约消歧 |
 | `[PulseHub(Provide = true, Consume = true)]` | 同一服务端契约既处理入站调用，又生成出站 Router 代理 |
 | `[PulseHub(Provide = false, Consume = true)]` | 只生成出站 Router 代理，不生成服务注册或 ModuleInitializer |
+| `[assembly: PulseRouterGeneration(typeof(IGameHub))]` | 在当前消费程序集只生成指定 Router 代理，不把项目角色写进共享契约 |
 | `[Authorize]` / `[Authorize(Role = RoleTypes.Internal)]` | 方法或接口鉴权 |
 | `[ClientFacing]` | 开启 `EnableClientFacingGate` 后，白名单式允许外部客户端调用 |
 | `[Delivery(DeliveryMode.AtMostOnce)]` | 声明投递保证；默认是至多一次 |
@@ -230,10 +231,10 @@ services.AddSingleton<IChatRoomHub, ChatRoomHub>();
 
 ### 5. 服务端强类型 Router/Actor 调用
 
-需要经 `IPulseRouter` 调用另一个 Hub 或 Actor 时，在契约上显式开启 consumer 生成：
+需要经 `IPulseRouter` 调用另一个 Hub 或 Actor、且共享契约同时由其它项目提供时，保持契约不绑定
+项目角色，并在消费程序集添加本地 marker：
 
 ```csharp
-[PulseHub(Provide = false, Consume = true)]
 [Channel("GameServer")]
 public interface IGameHub : IPulseHub
 {
@@ -241,6 +242,12 @@ public interface IGameHub : IPulseHub
         string playerId,
         CancellationToken cancellationToken = default);
 }
+```
+
+```csharp
+using PulseRPC.Abstractions;
+
+[assembly: PulseRouterGeneration(typeof(IGameHub))]
 ```
 
 服务端生成器会在契约命名空间的 `Generated` 子命名空间中生成 `GameHubRouterProxy`：
@@ -252,7 +259,7 @@ var game = GameHubRouterProxy.ForActor(router, playerId, nodeId);
 var player = await game.GetPlayerAsync(playerId, cancellationToken);
 ```
 
-代理内含与入站路由相同的协议常量，并负责 MemoryPack 序列化、`SendAsync`/`AskAsync` 选择和响应反序列化。纯 consumer 模式不注册服务端路由表，可用它替代手写的 `GameHubProtocol` 常量层。
+代理内含与入站路由相同的协议常量，并负责 MemoryPack 序列化、`SendAsync`/`AskAsync` 选择和响应反序列化。包含 marker 的程序集进入 consumer-only 模式，不生成服务路由、registry、Receiver host 类型或 `ModuleInitializer`，可用它替代手写的 `GameHubProtocol` 常量层。契约与实现确实位于同一项目时，仍可用 `[PulseHub(Provide = ..., Consume = ...)]` 做接口级覆盖。
 
 ## 客户端开发
 
@@ -445,7 +452,7 @@ Push 的错误策略是显式的：
 单次选择 strict 策略：
 
 ```csharp
-using Your.Contracts.Generated;
+using PulseRPC.Server;
 
 var strictClients = _timerReceiver.Clients
     .WithDeliveryMode(ReceiverDeliveryMode.Strict);
@@ -454,7 +461,9 @@ await strictClients.Single(connectionId)
     .OnTickAsync("important tick", cancellationToken);
 ```
 
-`WithDeliveryMode` 由 Receiver 生成器放在契约命名空间的 `Generated` 子命名空间中，如果 IDE 未自动导入，需显式添加对应 `using`。
+`WithDeliveryMode` 是 `PulseRPC.Server` 的运行时通用扩展。声明 `IHubContext<T>` 消费者的普通类库
+无需启用 Server Generator 或引用最终宿主的生成命名空间；最终宿主生成的选择器实现会在运行时
+接收 `BestEffort` / `Strict` 配置。
 
 服务端需要注册生成的 HubContext：
 

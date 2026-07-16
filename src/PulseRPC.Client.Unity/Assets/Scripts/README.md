@@ -10,11 +10,12 @@ Assets/Scripts/
 ├── PulseRPC.Client.Unity/
 │   ├── AOT/AOTSupport.cs           # IL2CPP/AOT 类型预热
 │   ├── Extensions/TaskExtensions.cs
+│   ├── Samples~/BasicExample/      # 可从 Package Manager 导入的 Hub/Receiver 示例
 │   ├── PulseRPC.Client.Unity.asmdef
 │   └── package.json
 └── RuntimeUnitTestToolkit/          # Unity 运行时测试辅助
 ```
 
-Unity 项目中实际的聊天/游戏连接示例位于 `samples/ChatApp/ChatApp.Unity/Assets/Scripts`。
+正式 UPM tarball 内含 `Samples~/BasicExample`，可从 Package Manager 的 Samples 面板导入。
 
 当前核心传输类型只有 TCP 和 KCP；旧文档中的 WebSocket、BinaryFormatter 默认序列化等描述不符合当前实现。

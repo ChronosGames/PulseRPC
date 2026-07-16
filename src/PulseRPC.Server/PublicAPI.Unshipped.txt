@@ -1,4 +1,8 @@
 #nullable enable
+PulseRPC.Server.HubClientsDeliveryModeExtensions
+PulseRPC.Server.IReceiverDeliveryModeSelector<TReceiver>
+PulseRPC.Server.IReceiverDeliveryModeSelector<TReceiver>.WithDeliveryMode(PulseRPC.Server.ReceiverDeliveryMode deliveryMode) -> PulseRPC.Server.IHubClients<TReceiver!>!
+static PulseRPC.Server.HubClientsDeliveryModeExtensions.WithDeliveryMode<TReceiver>(this PulseRPC.Server.IHubClients<TReceiver!>! clients, PulseRPC.Server.ReceiverDeliveryMode deliveryMode) -> PulseRPC.Server.IHubClients<TReceiver!>!
 PulseRPC.Server.ReceiverDeliveryMode
 PulseRPC.Server.ReceiverDeliveryMode.BestEffort = 0 -> PulseRPC.Server.ReceiverDeliveryMode
 PulseRPC.Server.ReceiverDeliveryMode.Strict = 1 -> PulseRPC.Server.ReceiverDeliveryMode
