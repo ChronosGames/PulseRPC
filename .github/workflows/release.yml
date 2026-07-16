@@ -47,6 +47,20 @@ jobs:
       # pack nuget
       - run: dotnet build -c Release ./PulseRPC.sln
       - run: dotnet pack -c Release ./PulseRPC.Packaging.slnf --no-build -o ./publish
+      - name: Collect build outputs for Unity
+        run: |
+          set -euo pipefail
+          dotnet build -c Release ./src/PulseRPC.Client.SourceGenerator.Unity/PulseRPC.Client.SourceGenerator.Unity.csproj
+          mkdir -p ./build-output
+          cp ./src/PulseRPC.Abstractions/bin/Release/netstandard2.1/PulseRPC.Abstractions.dll ./build-output/
+          cp ./src/PulseRPC.Shared/bin/Release/netstandard2.1/PulseRPC.Shared.dll ./build-output/
+          cp ./src/PulseRPC.Client/.artifacts/bin/release_netstandard2.1/PulseRPC.Client.dll ./build-output/
+          unity_generator=./src/PulseRPC.Client.SourceGenerator.Unity/bin/Release/netstandard2.0/PulseRPC.Client.SourceGenerator.dll
+          if grep -a -q "Microsoft.CodeAnalysis.Workspaces" "$unity_generator"; then
+            echo "Unity source generator must not depend on Microsoft.CodeAnalysis.Workspaces"
+            exit 1
+          fi
+          cp "$unity_generator" ./build-output/
       - name: Verify NuGet packages
         shell: bash
         run: |
@@ -77,12 +91,17 @@ jobs:
           name: nuget
           path: ./publish/
           retention-days: 1
+      - uses: ChronosGames/Actions/.github/actions/upload-artifact@main
+        with:
+          name: build-output
+          path: ./build-output/
+          retention-days: 1
 
   build-unity:
-    needs: [update-packagejson]
+    needs: [update-packagejson, build-dotnet]
     strategy:
       matrix:
-        unity: ["2022.3.39f1"]
+        unity: ["2022.3.62f3"]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -92,9 +111,22 @@ jobs:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
 
+      - uses: ChronosGames/Actions/.github/actions/download-artifact@main
+        with:
+          name: build-output
+          path: ./build-output/
+
       # Setup .NET and build PulseRPC.Client for Unity dependency
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
       - run: dotnet build -c Debug ./src/PulseRPC.Client/PulseRPC.Client.csproj -f netstandard2.1
+      - name: Copy DLLs to Unity project
+        run: |
+          set -euo pipefail
+          mkdir -p ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins
+          cp ./build-output/PulseRPC.Abstractions.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
+          cp ./build-output/PulseRPC.Shared.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
+          cp ./build-output/PulseRPC.Client.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
+          cp ./build-output/PulseRPC.Client.SourceGenerator.dll ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/Plugins/
 
       # Execute scripts: Export Package
       # /opt/Unity/Editor/Unity -quit -batchmode -nographics -silent-crashes -logFile -projectPath . -executeMethod PackageExporter.Export
