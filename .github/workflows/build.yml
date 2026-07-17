@@ -194,7 +194,9 @@ jobs:
 
       - name: Install the versioned tarball in the clean Unity project
         shell: bash
-        run: cp ./artifacts/unity-upm/*.tgz ./tests/PulseRPC.Client.Unity.Smoke/Packages/PulseRPC.Client.Unity.tgz
+        run: |
+          mkdir -p ./tests/PulseRPC.Client.Unity.Smoke/Packages
+          cp ./artifacts/unity-upm/*.tgz ./tests/PulseRPC.Client.Unity.Smoke/Packages/PulseRPC.Client.Unity.tgz
 
       - name: Build and start the HelloRPC TCP server
         shell: bash
