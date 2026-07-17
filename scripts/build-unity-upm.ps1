@@ -59,65 +59,51 @@ function Write-PluginMeta {
 
     $relativePath = [IO.Path]::GetRelativePath($stagePath, $DllPath).Replace('\', '/')
     $guid = Get-DeterministicGuid $relativePath
-    if ($IsAnalyzer) {
-        $content = @"
-fileFormatVersion: 2
-guid: $guid
-labels:
-- RoslynAnalyzer
-PluginImporter:
-  externalObjects: {}
-  serializedVersion: 2
-  iconMap: {}
-  executionOrder: {}
-  defineConstraints: []
-  isPreloaded: 0
-  isOverridable: 0
-  isExplicitlyReferenced: 0
-  validateReferences: 1
-  platformData:
-  - first:
-      : Any
-    second:
-      enabled: 0
-      settings: {}
-  - first:
-      Any:
-    second:
-      enabled: 0
-      settings: {}
-  userData:
-  assetBundleName:
-  assetBundleVariant:
-"@
+    $templateName = if ($IsAnalyzer) {
+        'PulseRPC.Client.SourceGenerator.dll.meta'
     }
     else {
-        $content = @"
-fileFormatVersion: 2
-guid: $guid
-PluginImporter:
-  externalObjects: {}
-  serializedVersion: 2
-  iconMap: {}
-  executionOrder: {}
-  defineConstraints: []
-  isPreloaded: 0
-  isOverridable: 0
-  isExplicitlyReferenced: 0
-  validateReferences: 1
-  platformData:
-  - first:
-      Any:
-    second:
-      enabled: 1
-      settings: {}
-  userData:
-  assetBundleName:
-  assetBundleVariant:
-"@
+        'PulseRPC.Client.dll.meta'
+    }
+    $templatePath = Join-Path $pluginsPath $templateName
+    if (-not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
+        throw "Unity plugin meta template '$templatePath' was not found."
     }
 
-    Write-Utf8NoBom -Path ($DllPath + '.meta') -Content ($content.Replace("`r`n", "`n"))
+    $content = [IO.File]::ReadAllText($templatePath)
+    $guidPattern = [regex]::new('(?m)^guid: [0-9a-f]{32}\r?$')
+    if (-not $guidPattern.IsMatch($content)) {
+        throw "Unity plugin meta template '$templatePath' has no valid GUID."
+    }
+    $content = $guidPattern.Replace($content, "guid: $guid", 1)
+    $content = $content.Replace("`r`n", "`n").Replace("`r", "`n").TrimEnd("`n") + "`n"
+    Write-Utf8NoBom -Path ($DllPath + '.meta') -Content $content
+}
+
+function Assert-UnityPluginMeta {
+    param(
+        [Parameter(Mandatory)] [string]$DllPath,
+        [Parameter(Mandatory)] [bool]$IsAnalyzer
+    )
+
+    $metaPath = $DllPath + '.meta'
+    $content = [IO.File]::ReadAllText($metaPath)
+    if (-not $content.EndsWith("`n")) {
+        throw "Unity plugin meta '$metaPath' must end with LF."
+    }
+    foreach ($key in @('Any', 'userData', 'assetBundleName', 'assetBundleVariant')) {
+        if ($content -notmatch "(?m)^\s+${key}: $") {
+            throw "Unity plugin meta '$metaPath' must preserve Unity's empty '$key' scalar format."
+        }
+    }
+
+    $expectedEnabled = if ($IsAnalyzer) { 0 } else { 1 }
+    if ($content -notmatch ("(?m)^\s+enabled: {0}$" -f $expectedEnabled)) {
+        throw "Unity plugin meta '$metaPath' must set Any Platform enabled to $expectedEnabled."
+    }
+    if ($IsAnalyzer -and $content -notmatch '(?m)^- RoslynAnalyzer$') {
+        throw "Unity analyzer meta '$metaPath' must contain the RoslynAnalyzer label."
+    }
 }
 
 function Get-ManagedAssemblyMetadata {
@@ -273,7 +259,9 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $
 
 $analyzerNames = @('MemoryPack.Generator.dll', 'PulseRPC.Client.SourceGenerator.dll')
 foreach ($dll in Get-ChildItem -Path $pluginsPath -Filter '*.dll' -File) {
-    Write-PluginMeta -DllPath $dll.FullName -IsAnalyzer ($analyzerNames -contains $dll.Name)
+    $isAnalyzer = $analyzerNames -contains $dll.Name
+    Write-PluginMeta -DllPath $dll.FullName -IsAnalyzer $isAnalyzer
+    Assert-UnityPluginMeta -DllPath $dll.FullName -IsAnalyzer $isAnalyzer
 }
 
 $deps = Get-Content -Raw $depsPath | ConvertFrom-Json
@@ -440,6 +428,12 @@ if (-not $SkipArchive) {
     )) {
         if ($archiveEntries -notcontains $requiredEntry) {
             throw "UPM tarball is missing '$requiredEntry'."
+        }
+    }
+    foreach ($dllName in @($runtimeNames + $analyzerNames)) {
+        $metaEntry = "package/Plugins/$dllName.meta"
+        if ($archiveEntries -notcontains $metaEntry) {
+            throw "UPM tarball is missing plugin metadata '$metaEntry'."
         }
     }
     foreach ($sample in @($manifest.samples)) {
