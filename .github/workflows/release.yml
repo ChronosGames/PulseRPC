@@ -125,14 +125,43 @@ jobs:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
 
+      - uses: ChronosGames/Actions/.github/actions/check-metas@main
+        with:
+          directory: src/PulseRPC.Client.Unity
+
       - uses: ChronosGames/Actions/.github/actions/download-artifact@main
         with:
           name: unity-upm
           path: ./unity-upm/
 
-      - name: Materialize the verified UPM closure for legacy unitypackage export
+      - name: Materialize an isolated UPM closure for legacy unitypackage export
         shell: bash
-        run: rsync -a --delete ./unity-upm/package/ ./src/PulseRPC.Client.Unity/Assets/Scripts/PulseRPC.Client.Unity/
+        run: |
+          set -euo pipefail
+          project=./src/PulseRPC.Client.Unity
+          package_assets="$project/Assets/Scripts/PulseRPC.Client.Unity"
+          manifest="$project/Packages/manifest.json"
+
+          rsync -a --delete ./unity-upm/package/ "$package_assets/"
+
+          # PulseRPC and MemoryPack come only from the staged UPM closure. Keep UGUI
+          # solely for the legacy RuntimeUnitTestToolkit scripts in this export project.
+          rm -rf "$project/Assets/Packages" "$project/Assets/Packages.meta"
+          jq '.dependencies = {"com.unity.ugui": "1.0.0"}' "$manifest" > "$manifest.tmp"
+          mv "$manifest.tmp" "$manifest"
+          rm -f "$project/Packages/packages-lock.json"
+
+          if grep -Fq 'com.chronosgames.pulserpc.client.internal' "$manifest"; then
+            echo "Release Unity project still references the development-only PulseRPC package."
+            exit 1
+          fi
+
+          duplicate_dlls=$(find "$project/Assets" -type f -name '*.dll' -printf '%f\n' | sort | uniq -d)
+          if [ -n "$duplicate_dlls" ]; then
+            echo "Release Unity project contains duplicate managed assemblies:"
+            echo "$duplicate_dlls"
+            exit 1
+          fi
 
       # Execute scripts: Export Package
       # /opt/Unity/Editor/Unity -quit -batchmode -nographics -silent-crashes -logFile -projectPath . -executeMethod PackageExporter.Export
@@ -149,11 +178,6 @@ jobs:
           unityVersion: ${{ matrix.unity }}
           targetPlatform: StandaloneLinux64
           buildMethod: PackageExporter.Export
-
-      # check meta files
-      - uses: ChronosGames/Actions/.github/actions/check-metas@main
-        with:
-          directory: src/PulseRPC.Client.Unity
 
       - name: Stage Unity release assets
         shell: bash
