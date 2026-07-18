@@ -142,6 +142,11 @@ src/PulseRPC.Client.Unity/Packages/manifest.json
 
 packages
 
+# Unity smoke project manifest is source; CI injects only the package tarball.
+!tests/PulseRPC.Client.Unity.Smoke/Packages/
+!tests/PulseRPC.Client.Unity.Smoke/Packages/manifest.json
+tests/PulseRPC.Client.Unity.Smoke/Packages/PulseRPC.Client.Unity.tgz
+
 
 # Node
 node_modules/

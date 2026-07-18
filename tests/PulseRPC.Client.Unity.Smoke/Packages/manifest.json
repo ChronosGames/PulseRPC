@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "com.chronosgames.pulserpc.client.unity": "file:PulseRPC.Client.Unity.tgz"
+  }
+}
