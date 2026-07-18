@@ -46,7 +46,7 @@ PulseRPC/
 
 - **.NET 10 SDK**（版本以 [`global.json`](global.json) 为准）
 - **Visual Studio 2022** 或 **JetBrains Rider**（推荐）
-- **Unity 2022.3 LTS**（用于 Unity 集成，客户端兼容 `netstandard2.1`）
+- **Unity 2022.3.12f1+ LTS**（Roslyn 4.3，用于 Unity 集成；客户端兼容 `netstandard2.1`）
 
 ## ⚡ 快速开始
 

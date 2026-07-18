@@ -18,7 +18,7 @@ Unity 编译中，客户端生成器会额外生成带 `[UnityEngine.Scripting.P
 - 契约实际使用的 MemoryPack 请求、多参数元组和响应类型泛型闭包。
 
 Unity 包中的 `link.xml` 保留 PulseRPC 运行时程序集；用户契约的闭包由上述生成根精确提供，不依赖运行时反射或手写类型列表。
-Unity 包使用不含 IDE CodeFix 的专用生成器构建，避免对 Unity Roslyn 宿主未保证提供的 `Microsoft.CodeAnalysis.Workspaces`/MEF 程序集产生加载依赖。
+Unity UPM 包与 `PulseRPC.Client` NuGet 包使用不含 IDE CodeFix 的专用 `netstandard2.0` 生成器构建，避免对 Unity Roslyn 宿主未保证提供的 `Microsoft.CodeAnalysis.Workspaces`/MEF 程序集产生加载依赖。NuGetForUnity 场景的最低版本为 Unity 2022.3.12f1 / Roslyn 4.3。
 
 ## 设计原则
 

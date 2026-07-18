@@ -7,6 +7,7 @@
       "src\\PulseRPC.Backplane.Redis\\PulseRPC.Backplane.Redis.csproj",
       "src\\PulseRPC.Shared\\PulseRPC.Shared.csproj",
       "src\\PulseRPC.Client\\PulseRPC.Client.csproj",
+      "src\\PulseRPC.Client.SourceGenerator.Unity\\PulseRPC.Client.SourceGenerator.Unity.csproj",
       "src\\PulseRPC.Server\\PulseRPC.Server.csproj",
       "src\\PulseRPC.Infrastructure\\PulseRPC.Infrastructure.csproj",
       "src\\PulseRPC.Infrastructure.Consul\\PulseRPC.Infrastructure.Consul.csproj",

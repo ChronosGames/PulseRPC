@@ -28,6 +28,7 @@
     <ProjectReference Include="..\PulseRPC.Abstractions\PulseRPC.Abstractions.csproj" />
     <ProjectReference Include="..\PulseRPC.Shared\PulseRPC.Shared.csproj" />
     <ProjectReference Include="..\PulseRPC.Client.SourceGenerator\PulseRPC.Client.SourceGenerator.csproj" ReferenceOutputAssembly="false" OutputItemType="Analyzer" />
+    <ProjectReference Include="..\PulseRPC.Client.SourceGenerator.Unity\PulseRPC.Client.SourceGenerator.Unity.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
@@ -59,7 +60,7 @@
 
   <!-- 包含 Source Generator -->
   <ItemGroup>
-    <None Include="..\PulseRPC.Client.SourceGenerator\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\cs" Pack="true" Visible="false" />
+    <None Include="..\PulseRPC.Client.SourceGenerator.Unity\bin\$(Configuration)\netstandard2.0\PulseRPC.Client.SourceGenerator.dll" PackagePath="analyzers\dotnet\roslyn4.3\cs" Pack="true" Visible="false" />
   </ItemGroup>
 
   <ItemGroup>

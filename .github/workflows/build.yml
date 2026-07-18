@@ -153,6 +153,13 @@ jobs:
             fi
           done
 
+          client_package=$(find ./publish -maxdepth 1 -name "PulseRPC.Client.*.nupkg" ! -name "*.snupkg" -print -quit)
+          client_analyzer="analyzers/dotnet/roslyn4.3/cs/PulseRPC.Client.SourceGenerator.dll"
+          unzip -Z1 "$client_package" | grep -Fx "$client_analyzer"
+          cmp \
+            <(unzip -p "$client_package" "$client_analyzer") \
+            ./src/PulseRPC.Client.SourceGenerator.Unity/bin/Release/netstandard2.0/PulseRPC.Client.SourceGenerator.dll
+
   verify-samples:
     name: "Build maintained samples"
     runs-on: ubuntu-latest

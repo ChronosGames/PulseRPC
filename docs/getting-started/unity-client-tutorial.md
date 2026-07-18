@@ -1,15 +1,25 @@
 # Unity 客户端与 IL2CPP/AOT
 
-本文说明 Unity 2022.3 LTS 中的当前集成方式。PulseRPC 使用 Unity 自带的 Roslyn Source Generator 管线；生成代码参与当前 Unity compilation，不会写入 `Assets/Scripts/Generated`。
+本文说明 Unity 2022.3.12f1 及以上版本中的当前集成方式。PulseRPC 使用 Unity 自带的 Roslyn Source Generator 管线；生成代码参与当前 Unity compilation，不会写入 `Assets/Scripts/Generated`。
 
 ## 前置条件
 
-- Unity 2022.3 LTS。仓库 CI 固定在 `2022.3.62f3`。
+- Unity 2022.3.12f1 或更高版本（Roslyn 4.3）。仓库 CI 固定在 `2022.3.62f3`。
 - `PulseRPC.Client` 的 `netstandard2.1` 程序集。
 - `PulseRPC.Client.SourceGenerator.dll` 与 MemoryPack Generator。
 - iOS 构建模块（仅 iOS CI/发布需要）。
 
 ## 1. 导入运行时与生成器
+
+### NuGetForUnity
+
+在 NuGetForUnity 中安装 `PulseRPC.Client`。该 NuGet 包会从
+`analyzers/dotnet/roslyn4.3/cs` 路径导入 Unity 专用的 `netstandard2.0` Source Generator；该构建不包含
+IDE CodeFix、`Microsoft.CodeAnalysis.Workspaces` 或 MEF 依赖。MemoryPack 及其 Generator 由包依赖一并恢复。
+
+此安装路径要求 Unity 2022.3.12f1+ / Roslyn 4.3，不支持更低版本的 Unity Roslyn 宿主。
+
+### Unity Package Manager
 
 从对应 GitHub Release 下载版本化的
 `com.chronosgames.pulserpc.client.unity-<version>.tgz` 与同名 `.sha256`，校验后在 Unity Package
@@ -40,7 +50,7 @@ Unity Inspector 中的 `PulseRPC.Client.SourceGenerator.dll` 必须满足：
 - 不出现在业务 asmdef 的 `precompiledReferences` 中。
 
 PulseRPC Unity 包已按此方式配置，且内含以 Roslyn Analyzer 导入的 MemoryPack Generator。
-Unity 包中的 PulseRPC 生成器为专用构建：它保留 Generator/Analyzer，但不携带只供 IDE 使用的 CodeFix 类型，因此不需要 `Microsoft.CodeAnalysis.Workspaces` 或 MEF 依赖。
+UPM 与 `PulseRPC.Client` NuGet 包使用同一个 Unity 专用生成器构建：它保留 Generator/Analyzer，但不携带只供 IDE 使用的 CodeFix 类型，因此不需要 `Microsoft.CodeAnalysis.Workspaces` 或 MEF 依赖。
 如果标记类位于自定义 asmdef，该 asmdef 必须引用 `PulseRPC.Client.Unity`；Unity 只会把位于某 asmdef 下的 Analyzer 应用到该程序集及引用它的程序集。
 
 ## 2. 声明生成入口
