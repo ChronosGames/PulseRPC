@@ -133,6 +133,7 @@ function Get-ManagedAssemblyMetadata {
     }
 }
 
+$requestedVersion = $Version
 if ([string]::IsNullOrWhiteSpace($Version)) {
     [xml]$buildProperties = Get-Content -Raw (Join-Path $repoRoot 'Directory.Build.props')
     $versionNode = $buildProperties.SelectSingleNode('/Project/PropertyGroup/VersionPrefix')
@@ -174,7 +175,7 @@ if ($manifestMatches[0].FullName -ne (Join-Path $packageSource 'package.json')) 
 }
 
 $manifest = Get-Content -Raw $manifestMatches[0].FullName | ConvertFrom-Json
-if ($manifest.version -ne $Version) {
+if (-not [string]::IsNullOrWhiteSpace($requestedVersion) -and $manifest.version -ne $Version) {
     throw "Unity manifest version '$($manifest.version)' does not match requested version '$Version'."
 }
 if ($manifest.unity -ne '2022.3') {
@@ -369,7 +370,7 @@ New-Item -ItemType Directory -Path $dependencyDocumentation -Force | Out-Null
 $inventory = [ordered]@{
     schemaVersion = 1
     package = $packageId
-    packageVersion = $Version
+    packageVersion = $manifest.version
     unity = '2022.3'
     targetFramework = 'netstandard2.1'
     runtimeAssemblies = @($runtimeInventory)
