@@ -1,4 +1,16 @@
 #nullable enable
+PulseRPC.Server.Gateway.GatewayActorInvocationContext
+PulseRPC.Server.Gateway.GatewayActorInvocationContext.CallerContext.get -> PulseRPC.Server.Contexts.IPulseContext!
+PulseRPC.Server.Gateway.GatewayActorInvocationContext.GatewayActorInvocationContext(string! hub, string! key, ushort protocolId, PulseRPC.Server.Gateway.GatewayActorInvocationKind invocationKind, PulseRPC.Server.Contexts.IPulseContext! callerContext) -> void
+PulseRPC.Server.Gateway.GatewayActorInvocationContext.Hub.get -> string!
+PulseRPC.Server.Gateway.GatewayActorInvocationContext.InvocationKind.get -> PulseRPC.Server.Gateway.GatewayActorInvocationKind
+PulseRPC.Server.Gateway.GatewayActorInvocationContext.Key.get -> string!
+PulseRPC.Server.Gateway.GatewayActorInvocationContext.ProtocolId.get -> ushort
+PulseRPC.Server.Gateway.GatewayActorInvocationKind
+PulseRPC.Server.Gateway.GatewayActorInvocationKind.Ask = 0 -> PulseRPC.Server.Gateway.GatewayActorInvocationKind
+PulseRPC.Server.Gateway.GatewayActorInvocationKind.Send = 1 -> PulseRPC.Server.Gateway.GatewayActorInvocationKind
+PulseRPC.Server.Gateway.IGatewayActorInvocationPolicy
+PulseRPC.Server.Gateway.IGatewayActorInvocationPolicy.EvaluateAsync(PulseRPC.Server.Gateway.GatewayActorInvocationContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 PulseRPC.Server.HubClientsDeliveryModeExtensions
 PulseRPC.Server.IReceiverDeliveryModeSelector<TReceiver>
 PulseRPC.Server.IReceiverDeliveryModeSelector<TReceiver>.WithDeliveryMode(PulseRPC.Server.ReceiverDeliveryMode deliveryMode) -> PulseRPC.Server.IHubClients<TReceiver!>!

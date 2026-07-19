@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -20,13 +21,20 @@ public sealed class GatewayFrontHub : IGatewayFrontHub
     private readonly ILogger<GatewayFrontHub> _logger;
     private readonly IConnectionDirectory? _connectionDirectory;
     private readonly IServiceRoutingTable? _routingTable;
+    private readonly IEnumerable<IGatewayActorInvocationPolicy> _invocationPolicies;
 
     /// <summary>创建网关前端中转 Hub。</summary>
     public GatewayFrontHub(
         IPulseRouter router,
         IOptions<ClusterTopologyOptions> topologyOptions,
         ILogger<GatewayFrontHub> logger)
-        : this(router, topologyOptions, logger, connectionDirectory: null, routingTable: null)
+        : this(
+            router,
+            topologyOptions,
+            logger,
+            connectionDirectory: null,
+            routingTable: null,
+            invocationPolicies: Array.Empty<IGatewayActorInvocationPolicy>())
     {
     }
 
@@ -37,6 +45,23 @@ public sealed class GatewayFrontHub : IGatewayFrontHub
         ILogger<GatewayFrontHub> logger,
         IConnectionDirectory? connectionDirectory,
         IServiceRoutingTable? routingTable = null)
+        : this(
+            router,
+            topologyOptions,
+            logger,
+            connectionDirectory,
+            routingTable,
+            Array.Empty<IGatewayActorInvocationPolicy>())
+    {
+    }
+
+    internal GatewayFrontHub(
+        IPulseRouter router,
+        IOptions<ClusterTopologyOptions> topologyOptions,
+        ILogger<GatewayFrontHub> logger,
+        IConnectionDirectory? connectionDirectory,
+        IServiceRoutingTable? routingTable,
+        IEnumerable<IGatewayActorInvocationPolicy> invocationPolicies)
     {
         _router = router ?? throw new ArgumentNullException(nameof(router));
         ArgumentNullException.ThrowIfNull(topologyOptions);
@@ -44,6 +69,7 @@ public sealed class GatewayFrontHub : IGatewayFrontHub
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _connectionDirectory = connectionDirectory;
         _routingTable = routingTable;
+        _invocationPolicies = invocationPolicies ?? throw new ArgumentNullException(nameof(invocationPolicies));
     }
 
     /// <inheritdoc/>
@@ -55,6 +81,13 @@ public sealed class GatewayFrontHub : IGatewayFrontHub
         var context = RequireExternalClientContext();
         var cancellationToken = context.CancellationToken;
         var clientConnectionId = context.ConnectionId!;
+        await EvaluateInvocationPoliciesAsync(
+            hub,
+            key,
+            protocolId,
+            GatewayActorInvocationKind.Ask,
+            context,
+            cancellationToken).ConfigureAwait(false);
         await RegisterGatewayVirtualConnectionAsync(clientConnectionId, cancellationToken).ConfigureAwait(false);
         using (GatewayRelayContext.SetScope(_localNodeId, clientConnectionId))
         {
@@ -73,12 +106,40 @@ public sealed class GatewayFrontHub : IGatewayFrontHub
         var context = RequireExternalClientContext();
         var cancellationToken = context.CancellationToken;
         var clientConnectionId = context.ConnectionId!;
+        await EvaluateInvocationPoliciesAsync(
+            hub,
+            key,
+            protocolId,
+            GatewayActorInvocationKind.Send,
+            context,
+            cancellationToken).ConfigureAwait(false);
         await RegisterGatewayVirtualConnectionAsync(clientConnectionId, cancellationToken).ConfigureAwait(false);
         using (GatewayRelayContext.SetScope(_localNodeId, clientConnectionId))
         {
             await _router.SendAsync(
                 PulseAddress.Actor(hub, key), protocolId, body,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask EvaluateInvocationPoliciesAsync(
+        string hub,
+        string key,
+        ushort protocolId,
+        GatewayActorInvocationKind invocationKind,
+        IPulseContext callerContext,
+        System.Threading.CancellationToken cancellationToken)
+    {
+        var invocationContext = new GatewayActorInvocationContext(
+            hub,
+            key,
+            protocolId,
+            invocationKind,
+            callerContext);
+
+        foreach (var policy in _invocationPolicies)
+        {
+            await policy.EvaluateAsync(invocationContext, cancellationToken).ConfigureAwait(false);
         }
     }
 

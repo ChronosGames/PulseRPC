@@ -1,5 +1,6 @@
 using System;
 using System.Reflection;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -163,6 +164,133 @@ public class GatewayFrontHubTests
             GatewayVirtualChannel.ComposeId("gateway-1", "client-conn-9"),
             new ConnectionPlacement("gateway-1", "client-conn-9"),
             Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RelayAskAsync_WithInvocationPolicies_MustRunInRegistrationOrderBeforeRouting()
+    {
+        var router = Substitute.For<IPulseRouter>();
+        var events = new List<string>();
+        router.AskAsync(Arg.Any<PulseAddress>(), Arg.Any<ushort>(), Arg.Any<ReadOnlyMemory<byte>>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                events.Add("router");
+                return new ValueTask<ReadOnlyMemory<byte>>(Array.Empty<byte>());
+            });
+        var first = new RecordingInvocationPolicy("first", events);
+        var second = new RecordingInvocationPolicy("second", events);
+        var topology = Options.Create(new ClusterTopologyOptions { LocalNodeId = "gateway-1" });
+        var hub = new GatewayFrontHub(
+            router,
+            topology,
+            NullLogger<GatewayFrontHub>.Instance,
+            connectionDirectory: null,
+            routingTable: null,
+            new IGatewayActorInvocationPolicy[] { first, second });
+
+        using (PulseContext.SetContext(PulseContextData.CreateUserContext("user-1", connectionId: "client-1")))
+        {
+            await hub.RelayAskAsync("RoomHub", "room-1", 0x1234, Array.Empty<byte>(), hopLimit: 4);
+        }
+
+        events.Should().Equal("first", "second", "router");
+        first.Context.Should().NotBeNull();
+        first.Context!.Hub.Should().Be("RoomHub");
+        first.Context.Key.Should().Be("room-1");
+        first.Context.ProtocolId.Should().Be(0x1234);
+        first.Context.InvocationKind.Should().Be(GatewayActorInvocationKind.Ask);
+        first.Context.CallerContext.UserId.Should().Be("user-1");
+    }
+
+    [Fact]
+    public async Task RelaySendAsync_WhenInvocationPolicyRejects_MustNotRegisterOrRoute()
+    {
+        var router = Substitute.For<IPulseRouter>();
+        var directory = Substitute.For<IConnectionDirectory>();
+        var topology = Options.Create(new ClusterTopologyOptions { LocalNodeId = "gateway-1" });
+        var hub = new GatewayFrontHub(
+            router,
+            topology,
+            NullLogger<GatewayFrontHub>.Instance,
+            directory,
+            routingTable: null,
+            new IGatewayActorInvocationPolicy[] { new RejectingInvocationPolicy() });
+
+        var act = async () =>
+        {
+            using (PulseContext.SetContext(PulseContextData.CreateUserContext("user-1", connectionId: "client-1")))
+            {
+                await hub.RelaySendAsync("RoomHub", "room-1", 0x1234, Array.Empty<byte>(), hopLimit: 4);
+            }
+        };
+
+        await act.Should().ThrowAsync<UnauthorizedAccessException>();
+        await directory.DidNotReceiveWithAnyArgs().RegisterConnectionAsync(default!, default, default);
+        await router.DidNotReceiveWithAnyArgs().SendAsync(default, default, default, default, default);
+    }
+
+    [Fact]
+    public async Task RelaySendAsync_WithInvocationPolicy_MustPassAmbientCancellationAndSendKind()
+    {
+        var router = Substitute.For<IPulseRouter>();
+        using var cts = new CancellationTokenSource();
+        var policy = new RecordingInvocationPolicy("policy", new List<string>());
+        var topology = Options.Create(new ClusterTopologyOptions { LocalNodeId = "gateway-1" });
+        var hub = new GatewayFrontHub(
+            router,
+            topology,
+            NullLogger<GatewayFrontHub>.Instance,
+            connectionDirectory: null,
+            routingTable: null,
+            new IGatewayActorInvocationPolicy[] { policy });
+
+        using (PulseContext.SetContext(
+                   PulseContextData.CreateUserContext("user-1", connectionId: "client-1") with
+                   {
+                       CancellationToken = cts.Token,
+                   }))
+        {
+            await hub.RelaySendAsync("RoomHub", "room-1", 0x1234, Array.Empty<byte>(), hopLimit: 4);
+        }
+
+        policy.CancellationToken.Should().Be(cts.Token);
+        policy.Context!.InvocationKind.Should().Be(GatewayActorInvocationKind.Send);
+    }
+
+    private sealed class RecordingInvocationPolicy : IGatewayActorInvocationPolicy
+    {
+        private readonly string _name;
+        private readonly List<string> _events;
+
+        public RecordingInvocationPolicy(string name, List<string> events)
+        {
+            _name = name;
+            _events = events;
+        }
+
+        public GatewayActorInvocationContext? Context { get; private set; }
+
+        public CancellationToken CancellationToken { get; private set; }
+
+        public ValueTask EvaluateAsync(
+            GatewayActorInvocationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            Context = context;
+            CancellationToken = cancellationToken;
+            _events.Add(_name);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class RejectingInvocationPolicy : IGatewayActorInvocationPolicy
+    {
+        public ValueTask EvaluateAsync(
+            GatewayActorInvocationContext context,
+            CancellationToken cancellationToken = default)
+        {
+            throw new UnauthorizedAccessException("rejected");
+        }
     }
 
 }

@@ -1,6 +1,11 @@
 using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using PulseRPC.Clustering;
+using PulseRPC.Routing;
+using PulseRPC.Server.Clustering;
 using PulseRPC.Server.Gateway;
 
 namespace PulseRPC.Server.Extensions;
@@ -28,7 +33,13 @@ public static class PulseGatewayServiceExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IGatewayFrontHub, GatewayFrontHub>();
+        services.TryAddSingleton<IGatewayFrontHub>(serviceProvider => new GatewayFrontHub(
+            serviceProvider.GetRequiredService<IPulseRouter>(),
+            serviceProvider.GetRequiredService<IOptions<ClusterTopologyOptions>>(),
+            serviceProvider.GetRequiredService<ILogger<GatewayFrontHub>>(),
+            serviceProvider.GetService<IConnectionDirectory>(),
+            serviceProvider.GetService<IServiceRoutingTable>(),
+            serviceProvider.GetServices<IGatewayActorInvocationPolicy>()));
         services.TryAddSingleton<IGatewayRelayHub, GatewayRelayHub>();
 
         return services;

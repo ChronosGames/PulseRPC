@@ -171,6 +171,11 @@ services.AddPulseGateway(); // 仅 Gateway 角色需要
 
 新部署建议显式开启 `EnableClientFacingGate`；`IGatewayFrontHub` 与允许外部访问的业务契约必须标记 `[ClientFacing]`。这仍只是协议可见性控制，不能替代资源级业务授权。
 
+需要在集群路由前校验 Actor key、会话或限流时，可向 Gateway 注册一个或多个
+`IGatewayActorInvocationPolicy`。策略按 DI 注册顺序运行，并获得目标 Hub、Actor key、协议号、
+Ask/Send 类型及当前外部调用者上下文；任一策略抛出异常都会在虚拟连接登记和 Actor 路由前终止调用。
+未注册策略时保持默认中转行为。目标服务仍应使用 `[Authorize]` 执行最终资源授权，Gateway 策略只负责尽早拒绝无效流量。
+
 ## 5. 创建强类型客户端代理
 
 客户端先建立到 Gateway 的普通 `IClientChannel`，再用 Actor key 获取代理：
