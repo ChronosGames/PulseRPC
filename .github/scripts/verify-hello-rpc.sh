@@ -34,7 +34,7 @@ cleanup() {
 trap cleanup EXIT
 
 ready=false
-for attempt in $(seq 1 100); do
+for _ in {1..100}; do
   if ! kill -0 "$server_pid" 2>/dev/null; then
     cat "$server_log"
     exit 1

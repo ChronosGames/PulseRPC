@@ -213,7 +213,7 @@ jobs:
           dotnet run --project ./samples/HelloRPC/HelloRPC.Server/HelloRPC.Server.csproj \
             -c Release --no-build >"$RUNNER_TEMP/pulserpc-unity-server.log" 2>&1 &
           echo $! >"$RUNNER_TEMP/pulserpc-unity-server.pid"
-          for attempt in $(seq 1 30); do
+          for _ in {1..30}; do
             if grep -q "HelloRPC server ready" "$RUNNER_TEMP/pulserpc-unity-server.log"; then
               exit 0
             fi
