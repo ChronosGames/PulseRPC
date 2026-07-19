@@ -14,6 +14,12 @@ public sealed class ServiceModel
     public string Namespace { get; set; } = null!;
     public string ChannelName { get; set; } = null!;
     public string? ServiceName { get; set; }
+    /// <summary>
+    /// 仅用于生成 C# 成员名和 source hint name 的唯一标识。通常等于 canonical Hub 名；
+    /// 同一实现通过多个命名空间暴露同名 facet 时改用完全限定接口名的安全形式。
+    /// 线上 Hub 名不受此属性影响。
+    /// </summary>
+    public string CodeIdentifier { get; set; } = string.Empty;
     public List<MethodModel> Methods { get; set; } = null!;
     /// <summary>
     /// 组合 facet 中由独立基 Hub 提供实际分发、但仍属于本 Hub 的合法协议别名。

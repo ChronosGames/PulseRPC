@@ -334,6 +334,70 @@ public class ProtocolIdConsistencyTests
     }
 
     [Fact]
+    public void SameCanonicalFacets_WithSharedImplementation_MustGenerateOneAddressableHub()
+    {
+        const string source = """
+            using System.Threading.Tasks;
+            using PulseRPC;
+
+            namespace ClientFacet
+            {
+                public interface IPlayerService : IPulseHub
+                {
+                    [PulseRPC.Protocol.Protocol(0xE100)]
+                    Task<int> ExternalAsync(int value);
+                }
+            }
+
+            namespace ServiceFacet
+            {
+                public interface IPlayerService : IPulseHub
+                {
+                    [PulseRPC.Protocol.Protocol(0xE101)]
+                    Task<int> InternalAsync(int value);
+                }
+            }
+
+            namespace Host
+            {
+                public sealed class PlayerService : ClientFacet.IPlayerService, ServiceFacet.IPlayerService
+                {
+                    public Task<int> ExternalAsync(int value) => Task.FromResult(value);
+                    public Task<int> InternalAsync(int value) => Task.FromResult(value);
+                }
+            }
+            """;
+        var additionalReferences = new[]
+        {
+            MetadataReference.CreateFromFile(typeof(global::PulseRPC.Server.IServiceRoutingTable).Assembly.Location),
+            MetadataReference.CreateFromFile(typeof(global::PulseRPC.Server.Security.AuthorizationGate).Assembly.Location),
+            MetadataReference.CreateFromFile(Path.Combine(
+                Path.GetDirectoryName(typeof(global::PulseRPC.Server.IServiceRoutingTable).Assembly.Location)!,
+                "PulseRPC.Shared.dll")),
+            MetadataReference.CreateFromFile(typeof(global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions).Assembly.Location),
+        };
+        var compilation = CreateCompilation(source, additionalReferences);
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator());
+
+        driver = driver.RunGeneratorsAndUpdateCompilation(
+            compilation,
+            out var outputCompilation,
+            out var generatorDiagnostics);
+
+        generatorDiagnostics.Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("同一 Actor 实现的同名 facet 应共享 canonical Hub");
+        outputCompilation.GetDiagnostics().Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+            .Should().BeEmpty("同名 facet 的生成代理和路由成员必须保持唯一");
+        var generated = string.Join(
+            "\n",
+            driver.GetRunResult().Results.SelectMany(result => result.GeneratedSources).Select(sourceResult => sourceResult.SourceText.ToString()));
+        generated.Should().Contain("\"PlayerService\" => protocolId is 0xE100 or 0xE101");
+        generated.Should().Contain("ExternalAsync");
+        generated.Should().Contain("InternalAsync");
+    }
+
+    [Fact]
     public void GeneratedClientExtensions_MustExposeTypedGatewayActorEntryPoint()
     {
         var clientGeneratedText = RunClientGenerator(CreateCompilation(TestSource));

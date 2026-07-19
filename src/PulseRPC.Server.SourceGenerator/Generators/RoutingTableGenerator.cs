@@ -245,17 +245,20 @@ public static class RoutingTableGenerator
         {
             sb.AppendLine("        switch (hub)");
             sb.AppendLine("        {");
-            foreach (var service in servicesWithAliases)
+            foreach (var hubGroup in servicesWithAliases.GroupBy(GetCanonicalHubName, StringComparer.Ordinal))
             {
-                sb.AppendLine($"            case \"{EscapeString(GetCanonicalHubName(service))}\":");
+                sb.AppendLine($"            case \"{EscapeString(hubGroup.Key)}\":");
                 sb.AppendLine("                switch (protocolId)");
                 sb.AppendLine("                {");
-                foreach (var alias in service.ProtocolAliases)
+                foreach (var service in hubGroup)
                 {
-                    sb.AppendLine($"                    case 0x{alias.ProtocolId:X4}:");
-                    sb.AppendLine($"                        PulseRPC.Server.Security.ClientFacingGate.Enforce(serviceProvider, isClientFacing: {FormatBoolean(alias.IsClientFacing)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
-                    sb.AppendLine($"                        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAliasAuthorizationExpression(service, alias)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
-                    sb.AppendLine("                        return;");
+                    foreach (var alias in service.ProtocolAliases)
+                    {
+                        sb.AppendLine($"                    case 0x{alias.ProtocolId:X4}:");
+                        sb.AppendLine($"                        PulseRPC.Server.Security.ClientFacingGate.Enforce(serviceProvider, isClientFacing: {FormatBoolean(alias.IsClientFacing)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
+                        sb.AppendLine($"                        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAliasAuthorizationExpression(service, alias)}, protocolId: 0x{alias.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{alias.MethodName}\");");
+                        sb.AppendLine("                        return;");
+                    }
                 }
                 sb.AppendLine("                }");
                 sb.AppendLine("                return;");
@@ -291,8 +294,8 @@ public static class RoutingTableGenerator
         {
             foreach (var method in service.Methods)
             {
-                var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service.InterfaceName, method)}";
-                var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method);
+                var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service, method)}";
+                var routerMethodName = GetProtocolIdRouterMethodName(service, method);
                 sb.AppendLine($"            {protocolIdConstantName} => {routerMethodName}(serviceProvider, data, cancellationToken),");
             }
         }
@@ -359,8 +362,8 @@ public static class RoutingTableGenerator
         {
             foreach (var method in service.Methods)
             {
-                var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service.InterfaceName, method)}";
-                var keyedRouterMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method) + "_Keyed";
+                var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service, method)}";
+                var keyedRouterMethodName = GetProtocolIdRouterMethodName(service, method) + "_Keyed";
                 sb.AppendLine($"            case {protocolIdConstantName}:");
                 sb.AppendLine($"                return await {keyedRouterMethodName}(serviceProvider, serviceKey, data, cancellationToken);");
             }
@@ -389,7 +392,7 @@ public static class RoutingTableGenerator
             sb.AppendLine($"        // {service.InterfaceName}");
             foreach (var method in service.Methods)
             {
-                var constantName = GetProtocolIdConstantName(service.InterfaceName, method);
+                var constantName = GetProtocolIdConstantName(service, method);
                 sb.AppendLine($"        public const ushort {constantName} = 0x{method.ProtocolId:X4};  // {service.InterfaceName}.{method.MethodName}");
             }
             sb.AppendLine();
@@ -445,7 +448,7 @@ public static class RoutingTableGenerator
     /// </summary>
     private static void GenerateProtocolIdMethodRouter(StringBuilder sb, ServiceModel service, MethodModel method)
     {
-        var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method);
+        var routerMethodName = GetProtocolIdRouterMethodName(service, method);
         var proxyClassName = $"{GetCanonicalHubName(service)}Proxy";
 
         sb.AppendLine($"    /// <summary>");
@@ -460,7 +463,7 @@ public static class RoutingTableGenerator
         sb.AppendLine($"        PulseRPC.Server.Security.ClientFacingGate.Enforce(serviceProvider, isClientFacing: {(method.IsClientFacing ? "true" : "false")}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
         sb.AppendLine($"        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAuthorizationExpression(method)}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
 
-        sb.AppendLine($"        var proxy = GetOrCreate{GetCanonicalHubName(service)}Proxy(serviceProvider);");
+        sb.AppendLine($"        var proxy = GetOrCreate{GetCodeIdentifier(service)}Proxy(serviceProvider);");
         sb.AppendLine($"        return proxy.Invoke_{method.GeneratedIdentifier}_Async(data, cancellationToken);");
         sb.AppendLine("    }");
         sb.AppendLine();
@@ -472,7 +475,7 @@ public static class RoutingTableGenerator
     /// </summary>
     private static void GenerateKeyedProtocolIdMethodRouter(StringBuilder sb, ServiceModel service, MethodModel method)
     {
-        var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method) + "_Keyed";
+        var routerMethodName = GetProtocolIdRouterMethodName(service, method) + "_Keyed";
         var hubShortName = GetCanonicalHubName(service);
 
         sb.AppendLine($"    /// <summary>");
@@ -483,7 +486,7 @@ public static class RoutingTableGenerator
         sb.AppendLine($"        PulseRPC.Server.Security.ClientFacingGate.Enforce(serviceProvider, isClientFacing: {(method.IsClientFacing ? "true" : "false")}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
         sb.AppendLine($"        PulseRPC.Server.Security.AuthorizationGate.Enforce(serviceProvider, {GetAuthorizationExpression(method)}, protocolId: 0x{method.ProtocolId:X4}, methodDisplayName: \"{service.InterfaceName}.{method.MethodName}\");");
         sb.AppendLine($"        var implementation = await ResolveKeyedHubInstanceAsync<{service.InterfaceFullName}>(serviceProvider, \"{hubShortName}\", serviceKey, cancellationToken);");
-        sb.AppendLine($"        var proxy = GetOrCreate{hubShortName}ProxyForInstance(implementation);");
+        sb.AppendLine($"        var proxy = GetOrCreate{GetCodeIdentifier(service)}ProxyForInstance(implementation);");
         sb.AppendLine("        if (implementation is global::PulseRPC.Server.Services.PulseServiceBase actor)");
         sb.AppendLine("        {");
         sb.AppendLine($"            return await actor.EnqueueAsync(");
@@ -504,7 +507,7 @@ public static class RoutingTableGenerator
     private static void GenerateProxyGetter(StringBuilder sb, ServiceModel service)
     {
         var proxyClassName = $"{GetCanonicalHubName(service)}Proxy";
-        var serviceName = GetCanonicalHubName(service);
+        var serviceName = GetCodeIdentifier(service);
         var cacheFieldName = $"_{serviceName}ProxyCache";
 
         sb.AppendLine($"    // Proxy 缓存 - 使用 ConditionalWeakTable 避免内存泄漏，键为服务实现实例");
@@ -693,17 +696,17 @@ public static class RoutingTableGenerator
     /// <summary>
     /// 获取协议号常量名（支持方法重载）
     /// </summary>
-    private static string GetProtocolIdConstantName(string interfaceName, MethodModel method)
+    private static string GetProtocolIdConstantName(ServiceModel service, MethodModel method)
     {
-        return $"{interfaceName.TrimStart('I')}_{method.GeneratedIdentifier}";
+        return $"{GetCodeIdentifier(service)}_{method.GeneratedIdentifier}";
     }
 
     /// <summary>
     /// 获取基于协议号的路由器方法名
     /// </summary>
-    private static string GetProtocolIdRouterMethodName(string interfaceName, MethodModel method)
+    private static string GetProtocolIdRouterMethodName(ServiceModel service, MethodModel method)
     {
-        return $"RouteById_{interfaceName.TrimStart('I')}_{method.UniqueGeneratedIdentifier}";
+        return $"RouteById_{GetCodeIdentifier(service)}_{method.UniqueGeneratedIdentifier}";
     }
 
     /// <summary>
@@ -752,8 +755,8 @@ public static class RoutingTableGenerator
             {
                 foreach (var method in service.Methods)
                 {
-                    var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service.InterfaceName, method)}";
-                    var routerMethodName = GetProtocolIdRouterMethodName(service.InterfaceName, method);
+                    var protocolIdConstantName = $"ProtocolIds.{GetProtocolIdConstantName(service, method)}";
+                    var routerMethodName = GetProtocolIdRouterMethodName(service, method);
                     sb.AppendLine($"            {protocolIdConstantName} => {routerMethodName}(serviceProvider, data, cancellationToken),");
                 }
             }
@@ -771,11 +774,16 @@ public static class RoutingTableGenerator
     private static string GetCanonicalHubName(ServiceModel service)
         => service.InterfaceName.TrimStart('I');
 
+    private static string GetCodeIdentifier(ServiceModel service)
+        => string.IsNullOrWhiteSpace(service.CodeIdentifier)
+            ? GetCanonicalHubName(service)
+            : service.CodeIdentifier;
+
     private static string GetAuthorizationFieldName(MethodModel method)
         => $"s_authorization_{method.ProtocolId:X4}";
 
     private static string GetAliasAuthorizationFieldName(ServiceModel service, MethodModel method)
-        => $"s_authorization_alias_{service.InterfaceName}_{method.ProtocolId:X4}";
+        => $"s_authorization_alias_{GetCodeIdentifier(service)}_{method.ProtocolId:X4}";
 
     private static string GetAuthorizationExpression(MethodModel method)
         => method.Authorization is null

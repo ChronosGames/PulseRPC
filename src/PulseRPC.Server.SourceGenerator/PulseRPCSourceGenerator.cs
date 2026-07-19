@@ -103,11 +103,16 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
             {
                 // 自动扫描直接引用的用户项目程序集
                 var autoScanAssemblies = GetUserProjectAssemblies(compilation);
+                var implementedServiceInterfaces = GetImplementedServiceInterfaces(compilation, autoScanAssemblies);
+                var ambiguousCanonicalHubNames = GetAmbiguousCanonicalHubNames(autoScanAssemblies);
                 foreach (var assembly in autoScanAssemblies)
                 {
                     if (scannedAssemblies.Add(assembly))
                     {
-                        var assemblyServiceModels = ScanAssemblyForServices(assembly, compilation);
+                        var assemblyServiceModels = ScanAssemblyForServices(
+                            assembly,
+                            implementedServiceInterfaces,
+                            ambiguousCanonicalHubNames);
 
                         foreach (var serviceModel in assemblyServiceModels)
                         {
@@ -187,15 +192,16 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
                 AddServiceModelIfMissing(protocolModels, routerModel);
             }
 
-            if (protocolModels.Count > 0 && !ValidateCanonicalHubNames(context, protocolModels))
-            {
-                return;
-            }
-
             if (protocolModels.Count > 0)
             {
                 AssignProtocolIdsForIncremental(protocolModels, context);
                 SynchronizeRouterProtocolIds(routerModels, protocolModels);
+                AssignCodeIdentifiers(protocolModels);
+
+                if (!ValidateCanonicalHubNames(context, protocolModels, serviceModels, compilation))
+                {
+                    return;
+                }
 
                 if (!ValidateResponseTypes(context, protocolModels))
                 {
@@ -450,18 +456,29 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
 
     private static bool ValidateCanonicalHubNames(
         SourceProductionContext context,
-        List<ServiceModel> serviceModels)
+        List<ServiceModel> protocolModels,
+        List<ServiceModel> serviceModels,
+        Compilation compilation)
     {
         var isValid = true;
-        foreach (var group in serviceModels.GroupBy(
+        var providedInterfaces = new HashSet<string>(
+            serviceModels.Select(service => service.InterfaceFullName),
+            StringComparer.Ordinal);
+        foreach (var group in protocolModels.GroupBy(
                      service => service.InterfaceName.TrimStart('I'),
                      StringComparer.Ordinal))
         {
             var conflictingServices = group
+                .Where(service => providedInterfaces.Contains(service.InterfaceFullName))
                 .Select(service => service.InterfaceFullName)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
             if (conflictingServices.Count < 2)
+            {
+                continue;
+            }
+
+            if (HasSharedConcreteImplementation(compilation, conflictingServices))
             {
                 continue;
             }
@@ -482,6 +499,55 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         }
 
         return isValid;
+    }
+
+    private static void AssignCodeIdentifiers(List<ServiceModel> serviceModels)
+    {
+        foreach (var group in serviceModels.GroupBy(
+                     service => service.InterfaceName.TrimStart('I'),
+                     StringComparer.Ordinal))
+        {
+            var hasFacets = group
+                .Select(service => service.InterfaceFullName)
+                .Distinct(StringComparer.Ordinal)
+                .Skip(1)
+                .Any();
+            foreach (var service in group)
+            {
+                service.CodeIdentifier = hasFacets
+                    ? ToSafeIdentifier(service.InterfaceFullName)
+                    : service.InterfaceName.TrimStart('I');
+            }
+        }
+    }
+
+    private static bool HasSharedConcreteImplementation(
+        Compilation compilation,
+        IReadOnlyCollection<string> interfaceNames)
+    {
+        foreach (var type in GetImplementationCandidateTypes(compilation, GetUserProjectAssemblies(compilation)))
+        {
+            var implemented = new HashSet<string>(
+                type.AllInterfaces.Select(@interface => @interface.ToDisplayString()),
+                StringComparer.Ordinal);
+            if (interfaceNames.All(implemented.Contains))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static string ToSafeIdentifier(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            builder.Append(char.IsLetterOrDigit(character) || character == '_' ? character : '_');
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>
@@ -801,7 +867,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     private static void GenerateServiceProxy(SourceProductionContext context, ServiceModel serviceModel)
     {
         var sourceText = ServiceProxyGenerator.GenerateSourceText(serviceModel);
-        var fileName = $"{serviceModel.InterfaceName.TrimStart('I')}.Proxy.g.cs";
+        var fileName = $"{serviceModel.CodeIdentifier}.Proxy.g.cs";
 
         context.AddSource(fileName, sourceText);
     }
@@ -983,7 +1049,10 @@ public static partial class ProtocolIdMapping
     /// <summary>
     /// 扫描程序集中的所有服务接口
     /// </summary>
-    private static List<ServiceModel> ScanAssemblyForServices(IAssemblySymbol assembly, Compilation compilation)
+    private static List<ServiceModel> ScanAssemblyForServices(
+        IAssemblySymbol assembly,
+        HashSet<string> implementedServiceInterfaces,
+        HashSet<string> ambiguousCanonicalHubNames)
     {
         var serviceModels = new List<ServiceModel>();
 
@@ -993,7 +1062,9 @@ public static partial class ProtocolIdMapping
             if (type is INamedTypeSymbol namedType && namedType.TypeKind == TypeKind.Interface)
             {
                 // 检查是否实现了IPulseHub接口或有PulseService特性
-                if (IsServiceInterface(namedType))
+                if (IsServiceInterface(namedType)
+                    && (!ambiguousCanonicalHubNames.Contains(namedType.Name.TrimStart('I'))
+                        || implementedServiceInterfaces.Contains(namedType.ToDisplayString())))
                 {
                     var serviceModel = CreateServiceModelFromSymbol(namedType);
                     if (serviceModel != null)
@@ -1005,6 +1076,66 @@ public static partial class ProtocolIdMapping
         }
 
         return serviceModels;
+    }
+
+    private static HashSet<string> GetAmbiguousCanonicalHubNames(
+        IReadOnlyCollection<IAssemblySymbol> userAssemblies)
+    {
+        return new HashSet<string>(
+            userAssemblies
+                .SelectMany(GetAllTypesInAssembly)
+                .Where(type => type.TypeKind == TypeKind.Interface && IsServiceInterface(type))
+                .GroupBy(type => type.Name.TrimStart('I'), StringComparer.Ordinal)
+                .Where(group => group
+                    .Select(type => type.ToDisplayString())
+                    .Distinct(StringComparer.Ordinal)
+                    .Skip(1)
+                    .Any())
+                .Select(group => group.Key),
+            StringComparer.Ordinal);
+    }
+
+    private static HashSet<string> GetImplementedServiceInterfaces(
+        Compilation compilation,
+        IReadOnlyCollection<IAssemblySymbol> userAssemblies)
+    {
+        var interfaces = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var type in GetImplementationCandidateTypes(compilation, userAssemblies))
+        {
+            foreach (var @interface in type.AllInterfaces)
+            {
+                if (IsServiceInterface(@interface))
+                {
+                    interfaces.Add(@interface.ToDisplayString());
+                }
+            }
+        }
+
+        return interfaces;
+    }
+
+    private static IEnumerable<INamedTypeSymbol> GetImplementationCandidateTypes(
+        Compilation compilation,
+        IReadOnlyCollection<IAssemblySymbol> userAssemblies)
+    {
+        foreach (var type in GetAllTypesInAssembly(compilation.Assembly))
+        {
+            if (type.TypeKind == TypeKind.Class && !type.IsAbstract)
+            {
+                yield return type;
+            }
+        }
+
+        foreach (var assembly in userAssemblies)
+        {
+            foreach (var type in GetAllTypesInAssembly(assembly))
+            {
+                if (type.TypeKind == TypeKind.Class && !type.IsAbstract)
+                {
+                    yield return type;
+                }
+            }
+        }
     }
 
     private static List<ServiceModel> ScanAssemblyForRouterConsumers(IAssemblySymbol assembly)

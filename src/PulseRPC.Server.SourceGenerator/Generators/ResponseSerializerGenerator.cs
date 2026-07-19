@@ -327,7 +327,10 @@ public static class ResponseSerializerGenerator
                         $"Response type '{method.ResponseTypeFullName}' for {service.InterfaceName}.{method.MethodName} is not MemoryPack serializable.");
                 }
 
-                var className = $"{GetSafeIdentifier(service.ServiceName ?? service.InterfaceName)}_{GetSafeIdentifier(method.GeneratedIdentifier)}_ResponseSerializer";
+                var serviceIdentifier = service.CodeIdentifier == service.InterfaceName.TrimStart('I')
+                    ? service.ServiceName ?? service.InterfaceName
+                    : service.CodeIdentifier;
+                var className = $"{GetSafeIdentifier(serviceIdentifier)}_{GetSafeIdentifier(method.GeneratedIdentifier)}_ResponseSerializer";
 
                 // responseType 为 null 表示 void 返回，否则为 MemoryPackable 类型
                 var responseType = string.IsNullOrWhiteSpace(method.ResponseTypeFullName) ? null : method.ResponseTypeFullName;

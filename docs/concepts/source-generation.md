@@ -34,6 +34,8 @@ Unity UPM 包与 `PulseRPC.Client` NuGet 包使用不含 IDE CodeFix 的专用 `
 
 只有 `Provide = true` 的服务端 Hub 会生成路由表、响应序列化器、服务清单及其 ModuleInitializer。运行时注册中心提供组合视图，因此多个 provider 程序集的结果会同时进入 DI；跨程序集重复的 `(Hub, ProtocolId)` 或响应协议号会显式失败。
 
+同一个具体服务可以实现位于不同命名空间、但去掉前导 `I` 后名称相同的多个契约面。生成器会把这些接口视为同一 canonical Hub 的 facet，共享线上 Hub 名，同时为生成的 C# 成员分配唯一标识；如果找不到同时实现全部同名接口的具体类型，仍报告 `PULSE005`，不会创建服务别名或名称映射。
+
 ## 服务端出站 Router 代理
 
 当共享契约不能绑定具体项目角色时，消费程序集使用程序集本地 marker：

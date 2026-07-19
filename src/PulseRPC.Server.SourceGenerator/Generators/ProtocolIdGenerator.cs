@@ -74,7 +74,7 @@ public static class ProtocolIdGenerator
 
             foreach (var method in service.Methods)
             {
-                var constName = $"{service.InterfaceName.TrimStart('I')}_{method.GeneratedIdentifier}";
+                var constName = $"{service.CodeIdentifier}_{method.GeneratedIdentifier}";
                 sb.AppendLine($"        public const ushort {constName} = 0x{method.ProtocolId:X4}; // {method.ProtocolId}");
             }
 
