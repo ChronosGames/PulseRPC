@@ -214,13 +214,28 @@ jobs:
       commit-id: ${{ needs.update-packagejson.outputs.sha }}
       dry-run: ${{ inputs.dry-run }}
       tag: ${{ inputs.tag }}
-      nuget-push: true
       release-upload: true
       release-asset-path: |
         ./PulseRPC.Client.Unity.unitypackage/*.unitypackage
         ./PulseRPC.Client.Unity.unitypackage/*.tgz
         ./PulseRPC.Client.Unity.unitypackage/*.tgz.sha256
-    secrets: inherit
+
+  publish-nuget:
+    needs: [build-dotnet, create-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nuget
+          path: ./nuget
+      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - uses: ChronosGames/Actions/.github/actions/publish-nuget@main
+        with:
+          nuget-user: ${{ secrets.NUGET_USER }}
+          dry-run: ${{ inputs.dry-run }}
 
   cleanup:
     if: ${{ needs.update-packagejson.outputs.is-branch-created == 'true' }}
