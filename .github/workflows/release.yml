@@ -234,7 +234,7 @@ jobs:
       - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
       - uses: ChronosGames/Actions/.github/actions/publish-nuget@main
         with:
-          nuget-user: ${{ secrets.NUGET_USER }}
+          nuget-user: ${{ vars.NUGET_USER }}
           dry-run: ${{ inputs.dry-run }}
 
   cleanup:
