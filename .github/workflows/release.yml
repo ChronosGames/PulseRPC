@@ -43,7 +43,7 @@ jobs:
         with:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
-      - uses: ChronosGames/Actions/.github/actions/setup-dotnet@main
+      - uses: ./.github/actions/setup-dotnet
       # pack nuget
       - run: dotnet build -c Release ./PulseRPC.sln
       - run: dotnet pack -c Release ./PulseRPC.Packaging.slnf --no-build -o ./publish
@@ -125,9 +125,6 @@ jobs:
           ref: ${{ needs.update-packagejson.outputs.sha }}
           lfs: true
 
-      - uses: ChronosGames/Actions/.github/actions/check-metas@main
-        with:
-          directory: src/PulseRPC.Client.Unity
 
       - uses: ChronosGames/Actions/.github/actions/download-artifact@main
         with:
