@@ -84,7 +84,9 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
         services.Configure<StaticClusterMembershipOptions>(membership =>
         {
             membership.FailureThreshold = 1;
-            membership.QuarantineDuration = TimeSpan.FromSeconds(5);
+            // Keep a failed candidate excluded beyond placement expiry and RPC timeout.
+            // A shorter quarantine can select the dead node again when its lease expires.
+            membership.QuarantineDuration = TimeSpan.FromSeconds(20);
         });
         services.AddRedisActorLeases(options => options.KeyPrefix = "game-acceptance");
         services.AddSingleton<IActorPlacementStrategy, BackendPlacement>();

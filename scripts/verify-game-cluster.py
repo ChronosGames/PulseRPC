@@ -6,6 +6,7 @@ Requires .NET 10, openssl, stunnel4, GAME_REDIS and GAME_POSTGRES.
 """
 import json
 import os
+import platform
 from pathlib import Path
 import random
 import signal
@@ -78,11 +79,9 @@ def tls_rejected(directory, port, certificate=None, hostname="game-a"):
     try:
         with socket.create_connection(("127.0.0.1", port), timeout=3) as raw:
             with context.wrap_socket(raw, server_hostname=hostname) as stream:
-                # TLS 1.3 client-certificate rejection can arrive after client handshake returns.
-                stream.sendall(b"unauthorized-probe")
-                data = stream.recv(1)
-                if not data:
-                    return
+                # TLS 1.3 certificate alerts can follow the client handshake. Send no
+                # application bytes: a malformed RPC reset would falsely pass this test.
+                stream.recv(1)
     except (ssl.SSLError, ConnectionResetError):
         return
     raise AssertionError("TLS accepted an unauthorized peer")
@@ -98,6 +97,11 @@ def main():
     node_processes = {}
     results = {"separate_processes": True, "real_redis": True, "real_postgres": True,
                "actual_mtls": True, "capacity_certified": False, "checks": [], "loads": []}
+    results["environment"] = {"commit": run(["git", "rev-parse", "HEAD"]).strip(),
+                              "platform": platform.platform(), "cpu_count": os.cpu_count(),
+                              "sdk": run(["dotnet", "--version"]).strip()}
+    # Generous CI regression ceiling, not a production latency SLO.
+    results["smoke_p99_limit_ms"] = 250
     redis_paused = False
     base = available_base()
     run_id = uuid.uuid4().hex[:10]
@@ -166,6 +170,7 @@ def main():
         tls_rejected(directory, base + 11, "gateway", "wrong-node")
         record("mTLS rejects absent certificate, untrusted issuer, unauthorized subject and wrong server name")
         results["security"] = client(player_id, "security")
+        record("anonymous, cross-player, expired-token and expired-session requests rejected")
         operation = uuid.uuid4()
         purchase = client(player_id, "purchase", operation)
         assert purchase["Balance"] == 993 and purchase["Inventory"] == 1, purchase
@@ -193,6 +198,7 @@ def main():
         assert replay["NodeId"] != owner and replay["Fence"] > purchase["Fence"], replay
         assert replay["Balance"] == 993 and replay["Inventory"] == 1, replay
         results["failover_seconds"] = time.monotonic() - failover_started
+        assert results["failover_seconds"] < 20, "Owner recovery exceeded the 20-second acceptance budget"
         record("killed owner replaced; PostgreSQL fence advances; replay survives process loss")
 
         index = NODES.index(owner)
@@ -271,7 +277,9 @@ def main():
 
         results["server_rss_before_load"] = resident_bytes()
         for player, payload in [("load-" + run_id, 128), ("load-" + run_id, 4096), ("hot", 128)]:
-            results["loads"].append(client(player, "load", 1000, 16, payload))
+            sample = client(player, "load", 1000, 16, payload)
+            results["loads"].append(sample)
+            assert sample["P99Ms"] < results["smoke_p99_limit_ms"], sample
         results["server_rss_after_load"] = resident_bytes()
         for _ in range(20):
             state = client(player_id, "state")
