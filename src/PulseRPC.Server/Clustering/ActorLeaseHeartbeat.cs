@@ -215,7 +215,7 @@ public sealed class ActorLeaseHeartbeat : IActorLeaseHeartbeat, IActorLeaseBindi
         {
             await Parallel.ForEachAsync(_tracked.ToArray(),
                 new ParallelOptions { MaxDegreeOfParallelism = _maxConcurrentRenewals },
-                async (entry, _) =>
+                async (entry, schedulerToken) =>
                 {
                     var lease = entry.Value;
                     if (!lease.Activated || !lease.IsValid || lease.Renewal is { IsCompleted: false }) return;
