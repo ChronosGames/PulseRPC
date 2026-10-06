@@ -10,6 +10,7 @@ using PulseRPC.Client.Configuration;
 namespace GameServer.Host;
 
 [PulseClientGeneration(typeof(IPlayerHub))]
+[PulseClientGeneration(typeof(ISessionHub))]
 internal static class AcceptanceClient
 {
     internal static async Task RunAsync(string[] args)

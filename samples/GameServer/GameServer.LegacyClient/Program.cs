@@ -12,6 +12,7 @@ using PulseRPC.Client.Configuration;
 namespace GameServer.LegacyClient
 {
     [PulseClientGeneration(typeof(IPlayerHub))]
+    [PulseClientGeneration(typeof(ISessionHub))]
     internal static class Program
     {
         private static async Task Main(string[] args)
