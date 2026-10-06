@@ -42,6 +42,8 @@ jobs:
       - name: Verify test execution, including real Redis
         if: always()
         run: python3 scripts/summarize-game-server-tests.py artifacts/game-server/tests
+      - name: Build the game server persistence and cluster sample
+        run: dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror
       - uses: actions/upload-artifact@v6
         if: always()
         with:

@@ -266,6 +266,7 @@ public sealed record class PulseContextData : IPulseContext
             Claims = claims,
             IpAddress = transport?.RemoteEndPoint?.ToString(),
             AuthenticatedAt = authContext?.AuthenticationTime ?? DateTime.UtcNow,
+            ExpiresAt = ResolveAuthenticationExpiry(authContext),
             AuthenticationContext = authContext,
 
             // Transport
@@ -370,6 +371,7 @@ public sealed record class PulseContextData : IPulseContext
             UserId = IsAuthenticatedClient(authContext) ? authContext.Identity : null,
             Token = authContext.Token,
             AuthenticatedAt = authContext.AuthenticationTime ?? DateTime.UtcNow,
+            ExpiresAt = ResolveAuthenticationExpiry(authContext),
             AuthenticationContext = authContext,
             Permissions = permissions,
             Roles = roles,
@@ -397,6 +399,24 @@ public sealed record class PulseContextData : IPulseContext
             Transport = transport,
             StartTimestamp = Stopwatch.GetTimestamp(),
         };
+
+    private static DateTime? ResolveAuthenticationExpiry(IAuthenticationContext? authContext)
+    {
+        // Only inspect claims already validated by the host's authentication provider;
+        // never decode or trust the raw token here. Preserve non-expiring legacy sessions.
+        if (!IsAuthenticatedClient(authContext)) return null;
+        DateTime? expires = null;
+        foreach (var claim in authContext!.Principal?.FindAll("exp") ?? Enumerable.Empty<Claim>())
+        {
+            if (!long.TryParse(claim.Value, System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture, out var seconds)) return DateTime.MinValue;
+            DateTime value;
+            try { value = DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime; }
+            catch (ArgumentOutOfRangeException) { return DateTime.MinValue; }
+            if (expires is null || value < expires.Value) expires = value;
+        }
+        return expires;
+    }
 
     private static CallSourceType ResolveCallSource(IAuthenticationContext? authContext)
         => authContext?.IsAuthenticated == true
