@@ -11,7 +11,7 @@ namespace GameServer.Contracts
     public interface ISessionHub : IPulseHub
     {
         [Protocol(0x7100)]
-        Task AuthenticateAsync(string token, CancellationToken cancellationToken = default);
+        Task<bool> AuthenticateAsync(string token, CancellationToken cancellationToken = default);
     }
 
     [ClientFacing]

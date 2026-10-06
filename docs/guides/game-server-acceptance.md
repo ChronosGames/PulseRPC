@@ -24,7 +24,7 @@ python3 scripts/verify-game-cluster.py
 
 玩家 → 本地测试 TLS 客户端代理 → Gateway TLS 入口 → Gateway；节点 → 本节点出站 TLS 代理 → 对端 mTLS 入口 → 对端节点。应用 TCP 端口仅监听 loopback。`ExternalMutualTls` 是对实际部署的声明，本身不会加密线路。生产跨主机部署需要把应用与代理放在受保护的网络命名空间，限制明文端口可达性，并配置证书轮换与撤销。
 
-公网 TLS 入口不要求玩家客户端证书；玩家用 JWT 登录，Gateway 验证签名、算法、issuer、audience 和有效期，将已验证身份绑定到连接。客户端只应持有登录服务签发的令牌。示例客户端持有临时签名密钥，是为了模拟测试身份提供者；生产应拆分签发与验证权限。
+公网 TLS 入口不要求玩家客户端证书；玩家用 JWT 登录，Gateway 验证签名、算法、issuer、audience 和有效期，将已验证身份绑定到连接。登录契约返回 `Task<bool>`，让调用方等待服务端确认并接收错误；框架中的无返回值 `Task` 是单向命令，不适合承担登录成功确认。客户端只应持有登录服务签发的令牌。示例客户端持有临时签名密钥，是为了模拟测试身份提供者；生产应拆分签发与验证权限。
 
 `UserOwnedActorInvocationPolicy` 在 placement 和激活前限制 `Actor key == UserId`、身份期限和显式方法白名单。`PlayerService` 在业务入口再次验证身份。房间成员与租户授权需要业务策略。节点证书凭据与玩家身份分开验证，不能用玩家 JWT 代替节点认证。
 
@@ -42,7 +42,7 @@ Redis 决定路由属主，PostgreSQL 独立签发单调递增的写入代次。
 
 显式协议号 `0x7100`–`0x7103` 保持稳定。DTO 使用 MemoryPack VersionTolerant 与显式字段序号，新增字段追加序号，已有序号不复用。独立 `GameServer.LegacyContracts` 只包含 V1 的余额和背包字段；C# 9 客户端使用旧方法名与相同协议号访问 V2 服务端。
 
-契约项目同时面向 netstandard2.1 和 net10.0。MemoryPack 在现代 .NET 和 netstandard 中采用不同的生成接口，不能把仅为 netstandard 编译的 DTO 程序集直接加载到现代运行时；参见 [MemoryPack 官方说明](https://github.com/Cysharp/MemoryPack#net7-and-netstandard-21)。Unity 使用适用目标的契约构建与 C# 9 生成代理；本专项测试的旧客户端运行在 .NET 10，Unity 导入与 TCP 实测由原有 Build workflow 另行覆盖。
+契约项目同时面向 netstandard2.1 和 net10.0。MemoryPack 在现代 .NET 和 netstandard 中采用不同的生成接口，不能把仅为 netstandard 编译的 DTO 程序集直接加载到现代运行时；参见 [MemoryPack 官方说明](https://github.com/Cysharp/MemoryPack#target-framework-dependency)。Unity 使用适用目标的契约构建与 C# 9 生成代理；本专项测试的旧客户端运行在 .NET 10，Unity 导入与 TCP 实测由原有 Build workflow 另行覆盖。
 
 ## 故障与性能结果
 

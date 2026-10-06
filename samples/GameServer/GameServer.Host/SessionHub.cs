@@ -26,7 +26,7 @@ public sealed class SessionHub : ISessionHub
         };
     }
 
-    public Task AuthenticateAsync(string token, CancellationToken cancellationToken = default)
+    public Task<bool> AuthenticateAsync(string token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ClaimsPrincipal principal;
@@ -39,7 +39,7 @@ public sealed class SessionHub : ISessionHub
         var context = new AuthenticationContext(id);
         context.SetClientAuthentication(user, user, principal: principal);
         channel.SetAuthentication(context);
-        return Task.CompletedTask;
+        return Task.FromResult(true);
     }
 
     // The acceptance client acts as the test identity provider. Production signing keys
