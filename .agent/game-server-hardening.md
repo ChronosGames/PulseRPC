@@ -20,11 +20,11 @@ This is an agent execution record, not a statement of supported production guara
 | Stage | Scope | Status |
 | --- | --- | --- |
 | 0 | Reproducible baseline and required-suite/Redis execution checks | Run 37494029780 passed: 80 Client, 407 Server, 59 generator, 18 infrastructure, 25 Redis tests; no skips; Debug/Release and benchmark passed |
-| 1 | Lease loss, expiry, quiescence, bounded renewal, stale-writer fencing example | Runtime guard and 11 new safety tests passed in runs 37501715307 and 37502950121; durable fencing example pending |
+| 1 | Lease loss, expiry, quiescence, bounded renewal, stale-writer fencing example | Runtime guard and 11 new safety tests passed in runs 37501715307 and 37502950121; PostgreSQL fencing and 20 concurrent durable-replay transactions passed run 37508687232 |
 | 2 | Bounded concurrent ingress, Actor ordering, lifecycle/context isolation | Concurrent shard implementation, 4 new tests and existing lifecycle/ordering tests passed in run 37502950121; real multiplexed cluster acceptance pending |
 | 3 | Overload response, budgets, deadline/cancellation, resource recovery | Byte/connection budgets, busy/deadline replies, bounded reentrant mailbox and reliable response queue passed run 37503795155 |
-| 4 | Production Gateway/internal profiles, resource authorization, actual mTLS | Explicit profiles, owner/method policy and loopback binding implemented; mTLS process topology pending |
-| 5 | Durable idempotency example, retry contracts, client/protocol compatibility | Transient retry classification and tests implemented; PostgreSQL example and compatibility acceptance pending |
+| 4 | Production Gateway/internal profiles, resource authorization, actual mTLS | Explicit profiles, owner/method policy and loopback binding implemented; actual mTLS negative checks passed run 37508687232; positive generated routing acceptance pending |
+| 5 | Durable idempotency example, retry contracts, client/protocol compatibility | Transient retry classification and tests implemented; PostgreSQL fencing/idempotency/outbox acceptance passed run 37508687232; wire compatibility acceptance pending |
 | 6 | Separate-process cluster, real Redis, faults, load and capacity evidence | Pending |
 
 ## Execution rules
@@ -54,3 +54,14 @@ asset transactions must integrate the fencing/idempotency contract demonstrated 
   now collects all correctness suites even if an earlier suite fails.
 - Run 37502950121 (0ce95f4): Debug/Release, all five correctness suites and baseline/candidate
   smoke benchmark passed. Hosted benchmarks remain regression evidence, not capacity certification.
+
+- Run 37508687232: 637 tests passed without skips (80 Client, 455 Server, 59 generator,
+  18 infrastructure, 25 Redis); PostgreSQL verification passed all durable replay/fencing
+  checks; actual TLS rejected absent certificate, untrusted issuer, unauthorized subject and
+  wrong hostname. Cluster RPC exposed missing runtime-generated Gateway routes.
+- Fix the Server analyzer project reference so built-in routing is generated in the runtime
+  assembly. Keep those generated helper types internal to avoid C# name collisions with host
+  output. Add a compiled runtime routing test and generator visibility regressions.
+- Five-round same-runner benchmark in run 37508687232: transport/mailbox throughput roughly
+  unchanged; hot lookup throughput -9.1%; Actor lifecycle P95 +15.8% with throughput +5.5%.
+  These mixed results are evidence, not a claim of blanket improvement or production capacity.
