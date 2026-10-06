@@ -56,15 +56,44 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         context.RegisterSourceOutput(combinedData, static (spc, source) =>
         {
             var ((interfaces, channels), compilation) = source;
-            ExecuteGeneration(spc, interfaces, channels, compilation);
+            ExecuteGeneration(new GenerationOutput(spc, compilation.AssemblyName == "PulseRPC.Server"), interfaces, channels, compilation);
         });
+    }
+
+    // Runtime contracts are generated once into PulseRPC.Server. Their helper types must
+    // remain private to that assembly; hosts generate helpers with the same C# names.
+    private readonly struct GenerationOutput
+    {
+        private readonly SourceProductionContext _context;
+        private readonly bool _runtime;
+
+        internal GenerationOutput(SourceProductionContext context, bool runtime)
+        { _context = context; _runtime = runtime; }
+
+        internal void ReportDiagnostic(Diagnostic diagnostic) => _context.ReportDiagnostic(diagnostic);
+        internal void AddSource(string name, string source) => AddSource(name, SourceText.From(source, Encoding.UTF8));
+        internal void AddSource(string name, SourceText source)
+        {
+            if (_runtime)
+            {
+                var root = CSharpSyntaxTree.ParseText(source).GetRoot();
+                var declarations = root.DescendantNodes().OfType<ClassDeclarationSyntax>()
+                    .Where(type => type.Parent is CompilationUnitSyntax or BaseNamespaceDeclarationSyntax);
+                root = root.ReplaceNodes(declarations, (original, rewritten) => rewritten.WithModifiers(
+                    SyntaxFactory.TokenList(rewritten.Modifiers.Select(token => token.IsKind(SyntaxKind.PublicKeyword)
+                        ? SyntaxFactory.Token(token.LeadingTrivia, SyntaxKind.InternalKeyword, token.TrailingTrivia)
+                        : token))));
+                source = SourceText.From(root.ToFullString(), Encoding.UTF8);
+            }
+            _context.AddSource(name, source);
+        }
     }
 
     /// <summary>
     /// 执行代码生成的主逻辑
     /// </summary>
     private static void ExecuteGeneration(
-        SourceProductionContext context,
+        GenerationOutput context,
         ImmutableArray<InterfaceDeclarationSyntax?> candidateInterfaces,
         string[] channelNames,
         Compilation compilation)
@@ -381,7 +410,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     }
 
     private static bool TryGetLocalRouterGenerationTarget(
-        SourceProductionContext context,
+        GenerationOutput context,
         AttributeData attribute,
         out INamedTypeSymbol? target)
     {
@@ -455,7 +484,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     }
 
     private static bool ValidateCanonicalHubNames(
-        SourceProductionContext context,
+        GenerationOutput context,
         List<ServiceModel> protocolModels,
         List<ServiceModel> serviceModels,
         Compilation compilation)
@@ -582,7 +611,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         }
     }
 
-    private static void AssignProtocolIdsForIncremental(List<ServiceModel> serviceModels, SourceProductionContext context)
+    private static void AssignProtocolIdsForIncremental(List<ServiceModel> serviceModels, GenerationOutput context)
     {
         var invalidMethods = new HashSet<MethodModel>();
 
@@ -738,7 +767,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <c>ProtocolIdConflictCodeFixProvider</c> 自动插入 <c>[Protocol(0xXXXX)]</c> 使用。
     /// </remarks>
     private static void ReportProtocolIdConflict(
-        SourceProductionContext context,
+        GenerationOutput context,
         ushort protocolId,
         (string service, string method, Location? location) existing,
         string conflictingService,
@@ -771,7 +800,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     }
 
     private static void ReportReservedProtocolId(
-        SourceProductionContext context,
+        GenerationOutput context,
         string contractName,
         string methodName,
         Location? location,
@@ -791,7 +820,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     }
 
     private static void ReportInvalidProtocolId(
-        SourceProductionContext context,
+        GenerationOutput context,
         string contractName,
         string methodName,
         Location? location)
@@ -808,7 +837,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     }
 
     private static void ReportWireSignatureCollision(
-        SourceProductionContext context,
+        GenerationOutput context,
         string contractName,
         MethodModel second)
     {
@@ -828,7 +857,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     }
 
     private static void ReportMultipleCancellationTokens(
-        SourceProductionContext context,
+        GenerationOutput context,
         string contractName,
         string methodName,
         Location? location)
@@ -864,7 +893,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// 生成服务代理类
     /// </summary>
-    private static void GenerateServiceProxy(SourceProductionContext context, ServiceModel serviceModel)
+    private static void GenerateServiceProxy(GenerationOutput context, ServiceModel serviceModel)
     {
         var sourceText = ServiceProxyGenerator.GenerateSourceText(serviceModel);
         var fileName = $"{serviceModel.CodeIdentifier}.Proxy.g.cs";
@@ -872,7 +901,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
         context.AddSource(fileName, sourceText);
     }
 
-    private static void GenerateRouterProxy(SourceProductionContext context, ServiceModel serviceModel)
+    private static void GenerateRouterProxy(GenerationOutput context, ServiceModel serviceModel)
     {
         var sourceText = RouterProxyGenerator.GenerateSourceText(serviceModel);
         var namespacePrefix = string.IsNullOrWhiteSpace(serviceModel.Namespace)
@@ -885,7 +914,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// 生成全局路由表
     /// </summary>
-    private static void GenerateGlobalRoutingTable(SourceProductionContext context, List<ServiceModel> serviceModels, string[] channelNames)
+    private static void GenerateGlobalRoutingTable(GenerationOutput context, List<ServiceModel> serviceModels, string[] channelNames)
     {
         var sourceText = RoutingTableGenerator.GenerateSourceText(serviceModels, channelNames);
         context.AddSource("ServiceRoutingTable.g.cs", sourceText);
@@ -894,7 +923,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// 生成响应序列化器
     /// </summary>
-    private static void GenerateResponseSerializers(SourceProductionContext context, List<ServiceModel> serviceModels)
+    private static void GenerateResponseSerializers(GenerationOutput context, List<ServiceModel> serviceModels)
     {
         var sourceText = ResponseSerializerGenerator.GenerateSourceText(serviceModels);
         context.AddSource("ResponseSerializers.g.cs", sourceText);
@@ -903,7 +932,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// 生成服务元数据清单
     /// </summary>
-    private static void GenerateServiceManifest(SourceProductionContext context, List<ServiceModel> serviceModels)
+    private static void GenerateServiceManifest(GenerationOutput context, List<ServiceModel> serviceModels)
     {
         var sourceText = ServiceManifestGenerator.GenerateSourceText(serviceModels);
         context.AddSource("ServiceManifest.g.cs", sourceText);
@@ -912,7 +941,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// 生成协议号映射表
     /// </summary>
-    private static void GenerateProtocolIdMapping(SourceProductionContext context, List<ServiceModel> serviceModels)
+    private static void GenerateProtocolIdMapping(GenerationOutput context, List<ServiceModel> serviceModels)
     {
         var sourceText = ProtocolIdGenerator.GenerateProtocolIdMappingTable(serviceModels);
         context.AddSource("ProtocolIdMapping.g.cs", sourceText);
@@ -921,7 +950,7 @@ public class PulseRPCSourceGenerator : IIncrementalGenerator
     /// <summary>
     /// 生成空的协议号映射表（当没有服务时）
     /// </summary>
-    private static void GenerateEmptyProtocolIdMapping(SourceProductionContext context)
+    private static void GenerateEmptyProtocolIdMapping(GenerationOutput context)
     {
         var code = @"// <auto-generated />
 #nullable enable
@@ -959,7 +988,7 @@ public static partial class ProtocolIdMapping
     /// <summary>
     /// 报告生成成功信息
     /// </summary>
-    private static void ReportGenerationSuccess(SourceProductionContext context, List<ServiceModel> serviceModels)
+    private static void ReportGenerationSuccess(GenerationOutput context, List<ServiceModel> serviceModels)
     {
         var totalMethods = serviceModels.Sum(s => s.Methods.Count);
 
@@ -1359,7 +1388,7 @@ public static partial class ProtocolIdMapping
     /// （无论手动号之间、自动号之间，还是手动号与自动号之间）一律报告 <c>PULSE004</c> 编译错误，
     /// 要求开发者手动指定不同的协议号来区分。
     /// </remarks>
-    private static void AssignReceiverProtocolIds(List<ReceiverModel> receivers, SourceProductionContext context)
+    private static void AssignReceiverProtocolIds(List<ReceiverModel> receivers, GenerationOutput context)
     {
         var usedIds = new Dictionary<ushort, (string receiver, string method, Location? location)>();
         var invalidMethods = new HashSet<ReceiverMethodModel>();
@@ -1459,7 +1488,7 @@ public static partial class ProtocolIdMapping
     /// （键 <c>SuggestedProtocolId</c>），供 <c>ProtocolIdConflictCodeFixProvider</c> 使用。
     /// </remarks>
     private static void ReportReceiverProtocolIdConflict(
-        SourceProductionContext context,
+        GenerationOutput context,
         ushort protocolId,
         (string receiver, string method, Location? location) existing,
         string conflictingReceiver,
@@ -1489,7 +1518,7 @@ public static partial class ProtocolIdMapping
     /// <summary>
     /// 生成接收器代理
     /// </summary>
-    private static void GenerateReceiverProxy(SourceProductionContext context, ReceiverModel receiver)
+    private static void GenerateReceiverProxy(GenerationOutput context, ReceiverModel receiver)
     {
         var sourceText = ReceiverProxyGenerator.GenerateSourceText(receiver);
         var fileName = $"{receiver.InterfaceName.TrimStart('I')}.ReceiverProxy.g.cs";
@@ -1500,7 +1529,7 @@ public static partial class ProtocolIdMapping
     /// <summary>
     /// 报告接收器生成成功
     /// </summary>
-    private static void ReportReceiverGenerationSuccess(SourceProductionContext context, List<ReceiverModel> receivers)
+    private static void ReportReceiverGenerationSuccess(GenerationOutput context, List<ReceiverModel> receivers)
     {
         var totalMethods = receivers.Sum(r => r.Methods.Count);
 
@@ -1693,7 +1722,7 @@ public static partial class ProtocolIdMapping
                 SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier));
     }
 
-    private static bool ValidateResponseTypes(SourceProductionContext context, List<ServiceModel> serviceModels)
+    private static bool ValidateResponseTypes(GenerationOutput context, List<ServiceModel> serviceModels)
     {
         var valid = true;
         var descriptor = new DiagnosticDescriptor(

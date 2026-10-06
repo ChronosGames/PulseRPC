@@ -252,6 +252,18 @@ def main():
                 sizes[name] = int(next(line.split()[1] for line in status.splitlines() if line.startswith("VmRSS:"))) * 1024
             return sizes
 
+        overload_player = "overload-" + run_id
+        client(overload_player, "state")
+        lock_process = start(["dotnet", str(HOST), "hold-player-row", overload_player], "row-lock")
+        deadline = time.monotonic() + 10
+        while "LOCKED" not in (ARTIFACTS / "row-lock.log").read_text():
+            if lock_process.poll() is not None or time.monotonic() > deadline:
+                raise RuntimeError("Could not establish the overload test SQL lock")
+            time.sleep(0.01)
+        results["overload"] = client(overload_player, "overload")
+        lock_process.wait(timeout=10)
+        results["checks"].append("blocked purchase produces explicit SERVER_BUSY under a burst; same connection recovers")
+
         results["server_rss_before_load"] = resident_bytes()
         for player, payload in [("load-" + run_id, 128), ("load-" + run_id, 4096), ("hot", 128)]:
             results["loads"].append(client(player, "load", 1000, 16, payload))

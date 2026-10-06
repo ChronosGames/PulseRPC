@@ -26,6 +26,22 @@ public sealed class IncrementalGeneratorCachingTests
         }
         """;
 
+    [Theory]
+    [InlineData("PulseRPC.Server", "internal sealed class ServiceRoutingTable")]
+    [InlineData("Game.Server", "public sealed class ServiceRoutingTable")]
+    public void RuntimeArtifacts_AreInternal_WithoutChangingUserGeneratedApi(string assemblyName, string declaration)
+    {
+        var compilation = ProtocolIdConsistencyTestsHelpers.CreateCompilation(Source, assemblyName);
+        GeneratorDriver driver = CSharpGeneratorDriver.Create(
+            new global::PulseRPC.Server.SourceGenerator.PulseRPCSourceGenerator());
+        var result = driver.RunGenerators(compilation).GetRunResult();
+        result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error).Should().BeEmpty();
+        var generated = string.Join("\n", result.Results.SelectMany(r => r.GeneratedSources).Select(s => s.SourceText.ToString()));
+        generated.Should().Contain(declaration);
+        generated.Should().Contain("ModuleInitializer");
+        generated.Should().Contain("public ValueTask<object?> RouteByProtocolIdAsync");
+    }
+
     [Fact]
     public void ClientGenerator_UnchangedCompilation_MustReuseIncrementalOutputs()
     {

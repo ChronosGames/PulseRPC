@@ -46,7 +46,11 @@ internal static class AcceptanceClient
                 case "security":
                     await MustRejectAsync(() => channel.ForGatewayActor<IPlayerHub>(player + "-other").GetHub<IPlayerHub>().GetStateAsync(deadline.Token));
                     await MustRejectAsync(() => channel.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(player, DateTime.UtcNow.AddSeconds(-1)), deadline.Token));
-                    Print(new { SecurityChecks = 3, Passed = true });
+                    await channel.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(player, DateTime.UtcNow.AddSeconds(5)), deadline.Token);
+                    await actor.GetStateAsync(deadline.Token);
+                    await Task.Delay(TimeSpan.FromSeconds(6), deadline.Token);
+                    await MustRejectAsync(() => actor.GetStateAsync(deadline.Token));
+                    Print(new { SecurityChecks = 4, Passed = true });
                     break;
                 case "load":
                     var count = args.Length > 4 ? int.Parse(args[4]) : 2000;
@@ -87,6 +91,28 @@ internal static class AcceptanceClient
                         ClientWorkingSetBytes = Environment.WorkingSet, Failures = 0,
                         CapacityCertified = false, Workload = "bounded closed-loop generated-client echo"
                     });
+                    break;
+                case "overload":
+                    // The harness holds this player's SQL row; the first request blocks
+                    // while later requests fill this physical connection's bounded queue.
+                    var blocked = actor.PurchaseAsync(new PurchaseCommand { OperationId = Guid.NewGuid() }, deadline.Token);
+                    await Task.Delay(100, deadline.Token);
+                    var outcomes = await Task.WhenAll(Enumerable.Range(0, 256).Select(async _ =>
+                    {
+                        try
+                        {
+                            if (await actor.EchoAsync("bounded", deadline.Token) != "bounded")
+                                throw new InvalidOperationException("Overload response corruption.");
+                            return true;
+                        }
+                        catch (PulseRemoteException error) when (error.ErrorCode == "SERVER_BUSY") { return false; }
+                    }));
+                    await blocked;
+                    var busy = outcomes.Count(success => !success);
+                    if (busy == 0 || busy == outcomes.Length) throw new InvalidOperationException("Expected bounded admission and explicit busy responses.");
+                    if (await actor.EchoAsync("recovered", deadline.Token) != "recovered")
+                        throw new InvalidOperationException("Connection did not recover after overload.");
+                    Print(new { Requests = outcomes.Length, Busy = busy, Succeeded = outcomes.Length - busy, Recovered = true });
                     break;
                 default: throw new ArgumentException("Unknown client scenario.");
             }
