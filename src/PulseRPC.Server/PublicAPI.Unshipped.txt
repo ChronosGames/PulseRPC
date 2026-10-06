@@ -85,3 +85,5 @@ PulseRPC.Server.Clustering.TcpNodeTransportOptions.RecvBufferSize.get -> int
 PulseRPC.Server.Clustering.TcpNodeTransportOptions.RecvBufferSize.set -> void
 PulseRPC.Server.Clustering.TcpNodeTransportOptions.SendBufferSize.get -> int
 PulseRPC.Server.Clustering.TcpNodeTransportOptions.SendBufferSize.set -> void
+PulseRPC.Server.Clustering.CertificateNodeAuthenticatorOptions.AllowedNodeIds.get -> System.Collections.Generic.HashSet<string!>!
+PulseRPC.Server.Clustering.CertificateNodeAuthenticatorOptions.AllowedNodeIds.set -> void

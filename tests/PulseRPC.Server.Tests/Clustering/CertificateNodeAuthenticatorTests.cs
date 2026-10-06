@@ -84,6 +84,26 @@ public class CertificateNodeAuthenticatorTests
     }
 
     [Fact]
+    public async Task TrustedCa_DoesNotAuthorizeNonMember_WhenIdentityAllowlistIsConfigured()
+    {
+        var (ca, leaf) = CreateCaAndLeaf("Cluster-CA", "outsider");
+        using (ca)
+        using (leaf)
+        {
+            var unrestricted = Create(new CertificateNodeAuthenticatorOptions
+            { LocalCertificate = leaf, TrustedCertificateAuthorities = { ca } });
+            var credential = await unrestricted.CreateCredentialAsync("outsider");
+            (await unrestricted.ValidateAsync("outsider", credential)).IsAuthenticated.Should().BeTrue();
+
+            var options = new CertificateNodeAuthenticatorOptions
+            { LocalCertificate = leaf, TrustedCertificateAuthorities = { ca }, AllowedNodeIds = { "node-a" } };
+            var restricted = Create(options);
+            options.AllowedNodeIds.Add("outsider"); // Later mutation cannot weaken the snapshot.
+            (await restricted.ValidateAsync("outsider", credential)).IsAuthenticated.Should().BeFalse();
+        }
+    }
+
+    [Fact]
     public async Task UntrustedCertificate_FailsClosed()
     {
         using var certA = CreateSelfSignedCert("node-a");

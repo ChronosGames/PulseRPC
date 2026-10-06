@@ -26,7 +26,7 @@ python3 scripts/verify-game-cluster.py
 
 公网 TLS 入口不要求玩家客户端证书；玩家用 JWT 登录，Gateway 验证签名、算法、issuer、audience 和有效期，将已验证身份绑定到连接。登录契约返回 `Task<bool>`，让调用方等待服务端确认并接收错误；框架中的无返回值 `Task` 是单向命令，不适合承担登录成功确认。客户端只应持有登录服务签发的令牌。示例客户端持有临时签名密钥，是为了模拟测试身份提供者；生产应拆分签发与验证权限。
 
-`UserOwnedActorInvocationPolicy` 在 placement 和激活前限制 `Actor key == UserId`、身份期限和显式方法白名单。`PlayerService` 在业务入口再次验证身份。房间成员与租户授权需要业务策略。节点证书凭据与玩家身份分开验证，不能用玩家 JWT 代替节点认证。
+`UserOwnedActorInvocationPolicy` 在 placement 和激活前限制 `Actor key == UserId`、身份期限和显式方法白名单。`PlayerService` 在业务入口再次验证身份。房间成员与租户授权需要业务策略。节点证书凭据与玩家身份分开验证，不能用玩家 JWT 代替节点认证。示例同时配置 `CertificateNodeAuthenticatorOptions.AllowedNodeIds`，只允许三个成员身份；TLS 的主体限制与应用层限制必须一致，避免同 CA 签发的非成员证书通过公网认证协议绕过内部 TLS 入口。此集合在鉴权器创建时快照；默认为空，保留既有 CA/指纹信任行为。
 
 ## 持久化与投递语义
 
