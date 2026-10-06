@@ -103,6 +103,10 @@ def main():
     run_id = uuid.uuid4().hex[:10]
     player_id = "alice-" + run_id
 
+    def record(message):
+        results["checks"].append(message)
+        print("PASS " + message, flush=True)
+
     def start(command, name):
         output = open(ARTIFACTS / f"{name}.log", "w", encoding="utf-8")
         logs.append(output)
@@ -124,6 +128,7 @@ def main():
         run(["dotnet", str(HOST), "init"])
         verification = run(["dotnet", str(HOST), "verify-store"], timeout=50)
         results["database"] = json.loads(next(line[7:] for line in verification.splitlines() if line.startswith("RESULT ")))
+        record("PostgreSQL concurrent replay, stale-writer fencing and outbox/inbox verification")
         for index, node in enumerate(NODES):
             common = (f"cert = {directory}/{node}.crt\nkey = {directory}/{node}.key\n"
                       f"CAfile = {directory}/ca.crt\nverifyChain = yes\nrequireCert = yes\n")
@@ -159,17 +164,17 @@ def main():
         tls_rejected(directory, base + 11, "outsider")
         tls_rejected(directory, base + 11, "rogue")
         tls_rejected(directory, base + 11, "gateway", "wrong-node")
-        results["checks"].append("mTLS rejects absent certificate, untrusted issuer, unauthorized subject and wrong server name")
+        record("mTLS rejects absent certificate, untrusted issuer, unauthorized subject and wrong server name")
         results["security"] = client(player_id, "security")
         operation = uuid.uuid4()
         purchase = client(player_id, "purchase", operation)
         assert purchase["Balance"] == 993 and purchase["Inventory"] == 1, purchase
-        results["checks"].append("generated client purchase and repeated operation ID commit once")
+        record("generated client purchase and repeated operation ID commit once")
         legacy = ROOT / "samples/GameServer/GameServer.LegacyClient/bin/Release/net10.0/GameServer.LegacyClient.dll"
         legacy_output = run(["dotnet", str(legacy), str(base + 60), player_id])
         legacy_result = json.loads(next(line[7:] for line in legacy_output.splitlines() if line.startswith("RESULT ")))
         assert legacy_result["Balance"] == 993 and legacy_result["Inventory"] == 1, legacy_result
-        results["checks"].append("independent C# 9 V1 client reads V2 DTO and stable protocol ID over TLS")
+        record("independent C# 9 V1 client reads V2 DTO and stable protocol ID over TLS")
         owner = purchase["NodeId"]
         assert owner in ("game-a", "game-b"), owner
         node_processes[owner].kill()
@@ -188,7 +193,7 @@ def main():
         assert replay["NodeId"] != owner and replay["Fence"] > purchase["Fence"], replay
         assert replay["Balance"] == 993 and replay["Inventory"] == 1, replay
         results["failover_seconds"] = time.monotonic() - failover_started
-        results["checks"].append("killed owner replaced; PostgreSQL fence advances; replay survives process loss")
+        record("killed owner replaced; PostgreSQL fence advances; replay survives process loss")
 
         index = NODES.index(owner)
         node_processes[owner] = start(["dotnet", str(HOST), "node", owner, str(base + index), str(directory),
@@ -214,7 +219,7 @@ def main():
         assert after_resume["Balance"] == 993 and after_resume["Inventory"] == 1, after_resume
         assert after_resume["Fence"] >= resumed_replay["Fence"], after_resume
         results["pause_failover_seconds"] = time.monotonic() - pause_started
-        results["checks"].append("SIGSTOP owner replaced; resumed old process cannot restore its generation or duplicate purchase")
+        record("SIGSTOP owner replaced; resumed old process cannot restore its generation or duplicate purchase")
 
         redis_container = os.environ.get("GAME_REDIS_CONTAINER")
         if not redis_container:
@@ -243,7 +248,7 @@ def main():
             raise AssertionError("Cluster did not recover after Redis outage")
         assert recovered["Balance"] == 993 and recovered["Inventory"] == 1, recovered
         results["redis_recovery_seconds"] = time.monotonic() - recovery_started
-        results["checks"].append("Redis outage stops Actor Tick/DB renewal and RPC; recovery preserves committed state")
+        record("Redis outage stops Actor Tick/DB renewal and RPC; recovery preserves committed state")
 
         def resident_bytes():
             sizes = {}
@@ -262,7 +267,7 @@ def main():
             time.sleep(0.01)
         results["overload"] = client(overload_player, "overload")
         lock_process.wait(timeout=10)
-        results["checks"].append("blocked purchase produces explicit SERVER_BUSY under a burst; same connection recovers")
+        record("blocked purchase produces explicit SERVER_BUSY under a burst; same connection recovers")
 
         results["server_rss_before_load"] = resident_bytes()
         for player, payload in [("load-" + run_id, 128), ("load-" + run_id, 4096), ("hot", 128)]:
@@ -271,7 +276,7 @@ def main():
         for _ in range(20):
             state = client(player_id, "state")
             assert state["Balance"] == 993 and state["Inventory"] == 1, state
-        results["checks"].append("normal, larger payload, hot-Actor load and 20 fresh client sessions preserve state")
+        record("normal, larger payload, hot-Actor load and 20 fresh client sessions preserve state")
         results["passed"] = True
     finally:
         if redis_paused:

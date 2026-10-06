@@ -200,6 +200,8 @@ public sealed class TcpNodeTransport : IVersionedNodeTransport, IDisposable
             MaxPacketSize = _options.MaxFrameSize,
             SendQueueCapacity = _options.SendQueueCapacity,
             NoDelay = _options.NoDelay,
+            RecvBufferSize = _options.RecvBufferSize,
+            SendBufferSize = _options.SendBufferSize,
             AutoReconnect = false,
             KeepAlive = true,
         };
@@ -359,6 +361,8 @@ public sealed class TcpNodeTransport : IVersionedNodeTransport, IDisposable
 
     private static void ValidateOptions(TcpNodeTransportOptions options)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.RecvBufferSize);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(options.SendBufferSize);
         if (options.SecurityMode == NodeTransportSecurityMode.Unspecified)
         {
             throw new InvalidOperationException(

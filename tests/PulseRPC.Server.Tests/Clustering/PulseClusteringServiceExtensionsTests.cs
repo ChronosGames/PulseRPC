@@ -11,6 +11,26 @@ namespace PulseRPC.Server.Tests.Clustering;
 
 public class PulseClusteringServiceExtensionsTests
 {
+    [Theory]
+    [InlineData(0, 8192)]
+    [InlineData(8192, 0)]
+    [InlineData(-1, 8192)]
+    public void NodeTransport_RejectsInvalidSocketBudgets(int receive, int send)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddPulseClustering(topology => topology.LocalNodeId = "node-a", auth => auth.SharedSecret = "test-secret");
+        services.Configure<TcpNodeTransportOptions>(options =>
+        {
+            options.SecurityMode = NodeTransportSecurityMode.InsecureDevelopment;
+            options.RecvBufferSize = receive;
+            options.SendBufferSize = send;
+        });
+        using var provider = services.BuildServiceProvider();
+        var act = () => provider.GetRequiredService<INodeTransport>();
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
     [Fact]
     public void AddPulseClustering_DefaultNodeLink_MustUseBuiltInTcpNodeTransport()
     {

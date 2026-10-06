@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Configuration;
+using PulseRPC.Shared;
 
 namespace GameServer.Host;
 
@@ -22,7 +23,13 @@ internal static class AcceptanceClient
         using var client = new PulseClientBuilder().WithLogging(logging).Build();
         await client.InitializeAsync();
         using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-        var channel = await client.ConnectToServerAsync("127.0.0.1", port);
+        Task<IClientChannel> ConnectAsync()
+        {
+            var descriptor = ConnectionDescriptor.CreateTcp(Guid.NewGuid().ToString("N"), "acceptance", "127.0.0.1", port);
+            descriptor.TransportOptions = new TcpTransportOptions { RecvBufferSize = 64 * 1024, SendBufferSize = 64 * 1024 };
+            return client.ConnectAsync(descriptor, deadline.Token);
+        }
+        var channel = await ConnectAsync();
         var actor = channel.ForGatewayActor<IPlayerHub>(player).GetHub<IPlayerHub>();
         try
         {
@@ -59,7 +66,7 @@ internal static class AcceptanceClient
                     var actors = new List<IPlayerHub>();
                     for (var i = 0; i < connections; i++)
                     {
-                        var peer = i == 0 ? channel : await client.ConnectToServerAsync("127.0.0.1", port);
+                        var peer = i == 0 ? channel : await ConnectAsync();
                         var user = player == "hot" ? "hot" : player + "-" + i;
                         await peer.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(user), deadline.Token);
                         var target = peer.ForGatewayActor<IPlayerHub>(user).GetHub<IPlayerHub>();

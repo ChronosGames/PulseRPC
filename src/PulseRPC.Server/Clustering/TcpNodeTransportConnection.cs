@@ -56,6 +56,12 @@ public sealed class TcpNodeTransportOptions
     /// <summary>是否禁用 Nagle 算法。默认启用低延迟模式。</summary>
     public bool NoDelay { get; set; } = true;
 
+    /// <summary>Socket receive buffer request in bytes; default 8192 preserves existing behavior.</summary>
+    public int RecvBufferSize { get; set; } = 8192;
+
+    /// <summary>Socket send buffer request in bytes; default 8192 preserves existing behavior.</summary>
+    public int SendBufferSize { get; set; } = 8192;
+
     /// <summary>
     /// 建连成功后必须协商出的能力。默认要求当前生产节点 wire 的全部安全能力。
     /// </summary>
