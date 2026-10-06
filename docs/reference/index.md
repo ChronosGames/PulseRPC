@@ -56,6 +56,7 @@
 - 传输抽象为 `ITransport`、`IClientTransport`、`IServerTransport`、`IServerListener`。
 - 当前帧头、握手和协议常量以 `src/PulseRPC.Abstractions/Transport/ProtocolConstants.cs` 以及 `PulseRPC.Shared` 中实现为准。
 - `TransportOptions.SmallPacketThreshold` 和 `ChunkSize` 当前保留兼容，已不作为应用层分片主路径依据。
+- `TcpNodeTransportOptions.RecvBufferSize/SendBufferSize` 控制节点连接收发缓冲，默认各 8192 字节且必须为正；大包和多路复用应在实际网络测量后调整，同时核算每连接内存。
 - `TcpNodeTransport` 是默认节点数据面，提供连接复用、实际写完成、执行 ACK、请求关联、超时隔离、断线淘汰和 node wire 能力协商；`SecurityMode` 未显式设置时 fail closed，生产必须声明并实际提供外部 mTLS。
 - node wire 当前生产版本为 v2；legacy Actor wire 默认关闭。
 - `IHubAddressedClientChannel` 让生成代理显式携带 canonical Hub，服务端按 `(Hub, ProtocolId)` 强校验；生成代理不再回退到无 Hub API。
