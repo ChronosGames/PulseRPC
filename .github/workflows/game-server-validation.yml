@@ -55,13 +55,24 @@ jobs:
         if: always()
         run: python3 scripts/summarize-game-server-tests.py artifacts/game-server/tests
       - name: Build the game server persistence and cluster sample
-        run: dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror
+        run: |
+          dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror
+          dotnet build samples/GameServer/GameServer.LegacyClient/GameServer.LegacyClient.csproj -c Release --warnaserror
       - name: Install TLS acceptance proxy
         run: sudo apt-get update -qq && sudo apt-get install -y stunnel4
       - name: Verify independent cluster processes through actual mTLS
         run: |
           export GAME_JWT_KEY=$(openssl rand -base64 32)
           python3 scripts/verify-game-cluster.py
+      - name: Show cluster diagnostics on failure
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for path in Path('artifacts/game-server/cluster').glob('*.log'):
+              print(path.name)
+              print(path.read_text()[-12000:])
+          PY
       - uses: actions/upload-artifact@v6
         if: always()
         with:
