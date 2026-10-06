@@ -12,6 +12,21 @@ namespace PulseRPC.Server.Tests.Gateway;
 public sealed class GameServerProfileTests
 {
     [Theory]
+    [InlineData("1", true)]
+    [InlineData("bad", true)]
+    [InlineData("9223372036854775807", true)]
+    [InlineData("4102444800", false)]
+    public void AuthenticatedJwtExpiry_IsPreservedInRequestContext(string expiration, bool expired)
+    {
+        var auth = new PulseRPC.Server.Security.AuthenticationContext("client");
+        auth.SetClientAuthentication("alice", "Alice", principal: new System.Security.Claims.ClaimsPrincipal(
+            new System.Security.Claims.ClaimsIdentity(new[] { new System.Security.Claims.Claim("exp", expiration) }, "jwt")));
+        var context = PulseContextData.FromAuthenticationContext(auth);
+        Assert.Equal(expired, context.IsExpired);
+        Assert.NotNull(context.ExpiresAt);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void Profiles_EnableGateAndResourceBudgets_WithoutChangingLegacyDefaults(bool internalNode)
