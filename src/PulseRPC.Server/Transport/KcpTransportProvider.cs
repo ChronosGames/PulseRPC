@@ -25,7 +25,7 @@ internal sealed class KcpTransportProvider : ITransportProvider
         var kcpOptions = CreateKcpOptions(config.Options);
 
         // 创建现有的 KcpServerListener 实例
-        return new KcpServerListener(config.Port, kcpOptions, loggerFactory.CreateLogger<KcpServerListener>());
+        return new KcpServerListener(config.Port, kcpOptions, loggerFactory.CreateLogger<KcpServerListener>(), config.ListenAddress);
     }
 
     public TransportValidationResult ValidateConfiguration(TransportChannelConfiguration config)

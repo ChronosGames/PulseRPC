@@ -218,7 +218,7 @@ public sealed class LocalPulseRouter : IPulseRouter
                     var sent = await target.SendAsync(packet, ct).ConfigureAwait(false);
                     if (!sent)
                     {
-                        throw new InvalidOperationException($"向连接 '{target.Id}' 发送失败（连接可能已断开或释放）。");
+                        throw new System.IO.IOException($"向连接 '{target.Id}' 发送失败（连接可能已断开或释放）。");
                     }
                 },
                 _logger, $"Fan-out 投递到连接 '{target.Id}'", cancellationToken).ConfigureAwait(false);

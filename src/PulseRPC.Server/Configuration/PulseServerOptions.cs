@@ -112,6 +112,7 @@ public sealed class PulseServerOptions
         // Validate port ranges
         foreach (var transport in Transports)
         {
+            ArgumentNullException.ThrowIfNull(transport.ListenAddress);
             if (transport.Port < 1 || transport.Port > 65535)
                 throw new InvalidOperationException($"Transport '{transport.Name}' port must be between 1 and 65535 (got {transport.Port})");
         }

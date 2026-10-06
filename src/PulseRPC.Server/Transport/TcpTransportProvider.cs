@@ -26,7 +26,7 @@ internal sealed class TcpTransportProvider : ITransportProvider
 
         // 创建现有的 TcpServerListener 实例
         return new TcpServerListener(config.Port, tcpOptions,
-            loggerFactory.CreateLogger<TcpServerListener>());
+            loggerFactory.CreateLogger<TcpServerListener>(), config.ListenAddress);
     }
 
     public TransportValidationResult ValidateConfiguration(TransportChannelConfiguration config)

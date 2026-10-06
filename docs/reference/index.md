@@ -37,6 +37,9 @@
 | `PulseServerOptions.MaxRequestTimeoutMs` | 本节点入队到执行的期限上限；默认 `0`，保留客户端期限 |
 | `ServiceExecutionOptions.MaxConcurrentReentrantRequests` | 专属 Actor 邮箱同时执行的可重入读请求上限；默认 `64` |
 | `TransportChannelConfiguration` | 服务端 TCP/KCP 监听配置 |
+| `TransportChannelConfiguration.ListenAddress` | 监听 IP；默认所有 IPv4 接口，TLS sidecar 后端使用 loopback |
+| `UseGameGatewayProfile()` / `UseGameNodeProfile()` | 显式启用 ClientFacing 门闸和游戏服务端资源预算；仍需认证、TLS 与容量验证 |
+| `UserOwnedActorInvocationPolicy` | 按 Hub/协议白名单及 `Actor key == UserId` 校验玩家资源所有权 |
 | `AddPulseClustering(...)` | 注册集群路由和节点配置 |
 | `AddRedisActorLeases(...)` | 以 Redis 原子脚本替换默认进程内 Actor 租约 |
 | `ProtocolId.Generate(signature)` | 使用与 Source Generator 一致的 FNV-1a 规则计算运行期协议号 |

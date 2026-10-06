@@ -11,6 +11,20 @@ PulseRPC 服务端可以作为普通 .NET Worker/Host 进程部署。游戏后�
 
 ## 多节点部署
 
+游戏项目可显式调用 `PulseServerOptions.UseGameGatewayProfile()` 或 `UseGameNodeProfile()`。
+两者都会开启 ClientFacing 门闸、连接/分片队列和载荷预算及 30 秒请求期限；Gateway 保持单连接串行，
+内部节点允许单连接最多 16 个请求并发。它们是压测的起始配置，不代表机器容量保证，也不会自动安装 TLS 或认证。
+
+TLS sidecar 后的应用端口应设置 `TransportChannelConfiguration.ListenAddress = IPAddress.Loopback`。
+TCP 支持指定 IP 接口，KCP 当前限 IPv4；未配置时保持 `IPAddress.Any` 兼容行为。跨容器仅暴露 TLS 代理端口，
+客户端和集群成员连接本地出站 TLS 代理，由代理校验目标证书及名称后连接远端 TLS 入口。
+不能把明文 `TcpNodeTransport` 直接连接到远端 TLS 端口。
+
+玩家自有 Actor 可注册 `UserOwnedActorInvocationPolicy`，传入 canonical Hub → 显式协议号集合：
+它在 placement 前校验外部用户、身份期限、方法白名单以及 `Actor key == UserId`，拒绝访问其他玩家资源。
+房间成员、租户复合键和管理员操作需要业务实现 `IGatewayActorInvocationPolicy`，并在业务入口保留相同授权检查，
+以覆盖直接调用和非 Gateway 路径。只有 ClientFacing 或 Authorize 特性并不表示玩家拥有目标资源。
+
 1. 为每个节点配置稳定 `LocalNodeId`。
 2. 调用 `AddPulseClustering(...)`；它默认注册内置 `TcpNodeTransport`。
 3. 选择静态成员或 Consul/Etcd/Kubernetes 发现后端，并保证成员端点指向可接受 PulseRPC TCP 的节点监听端口。

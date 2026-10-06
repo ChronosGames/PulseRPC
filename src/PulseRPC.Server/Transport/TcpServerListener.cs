@@ -247,11 +247,16 @@ public class TcpServerListener : IServerListener
     public event EventHandler<ServerConnectionEventArgs>? ConnectionAccepted;
 
     public TcpServerListener(int port, TcpTransportOptions? options = null, ILogger? logger = null)
+        : this(port, options, logger, IPAddress.Any)
+    {
+    }
+
+    internal TcpServerListener(int port, TcpTransportOptions? options, ILogger? logger, IPAddress listenAddress)
     {
         _port = port;
         _options = options ?? new TcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
-        _listener = new TcpListener(IPAddress.Any, port);
+        _listener = new TcpListener(listenAddress ?? throw new ArgumentNullException(nameof(listenAddress)), port);
     }
 
     /// <summary>
