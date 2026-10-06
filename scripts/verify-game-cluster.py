@@ -24,8 +24,13 @@ NODES = ["gateway", "game-a", "game-b"]
 
 
 def run(command, timeout=40):
-    return subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          check=True, timeout=timeout, cwd=ROOT).stdout
+    result = subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            timeout=timeout, cwd=ROOT)
+    if result.returncode:
+        # Commands never contain signing keys/tokens; preserve the failing process output.
+        print(result.stdout[-6000:], file=sys.stderr)
+        raise subprocess.CalledProcessError(result.returncode, command, output=result.stdout)
+    return result.stdout
 
 
 def available_base():
@@ -113,6 +118,8 @@ def main():
             directory = Path(temporary)
             certificates(directory)
             run(["dotnet", str(HOST), "init"])
+            verification = run(["dotnet", str(HOST), "verify-store"], timeout=50)
+            results["database"] = json.loads(next(line[7:] for line in verification.splitlines() if line.startswith("RESULT ")))
             for index, node in enumerate(NODES):
                 common = (f"cert = {directory}/{node}.crt\nkey = {directory}/{node}.key\n"
                           f"CAfile = {directory}/ca.crt\nverifyChain = yes\nrequireCert = yes\n")
@@ -153,6 +160,11 @@ def main():
             purchase = client(player_id, "purchase", operation)
             assert purchase["Balance"] == 993 and purchase["Inventory"] == 1, purchase
             results["checks"].append("generated client purchase and repeated operation ID commit once")
+            legacy = ROOT / "samples/GameServer/GameServer.LegacyClient/bin/Release/net10.0/GameServer.LegacyClient.dll"
+            legacy_output = run(["dotnet", str(legacy), str(base + 60), player_id])
+            legacy_result = json.loads(next(line[7:] for line in legacy_output.splitlines() if line.startswith("RESULT ")))
+            assert legacy_result["Balance"] == 993 and legacy_result["Inventory"] == 1, legacy_result
+            results["checks"].append("independent C# 9 V1 client reads V2 DTO and stable protocol ID over TLS")
             owner = purchase["NodeId"]
             assert owner in ("game-a", "game-b"), owner
             node_processes[owner].kill()
