@@ -1,0 +1,416 @@
+{
+  "schema_version": 1,
+  "source_head": "ac4075508c251f602cf2661dca3928e5a623a6ff",
+  "workflow_run": "https://github.com/ChronosGames/PulseRPC/actions/runs/37512688617",
+  "capacity_certified": false,
+  "notes": [
+    "Recorded GitHub-hosted regression evidence, not production CCU or SLO certification.",
+    "Actions checks out the PR merge commit; artifact environment records the actually executed commit and SDK selected by global.json.",
+    "Baseline and candidate microbenchmarks run on the same runner; five-repetition median results."
+  ],
+  "correctness": {
+    "suites": {
+      "Backplane.Redis": {
+        "outcomes": {
+          "Passed": 25
+        },
+        "skipped": []
+      },
+      "Client": {
+        "outcomes": {
+          "Passed": 80
+        },
+        "skipped": []
+      },
+      "Infrastructure": {
+        "outcomes": {
+          "Passed": 18
+        },
+        "skipped": []
+      },
+      "Server": {
+        "outcomes": {
+          "Passed": 460
+        },
+        "skipped": []
+      },
+      "SourceGenerator": {
+        "outcomes": {
+          "Passed": 61
+        },
+        "skipped": []
+      }
+    },
+    "failures": []
+  },
+  "cluster": {
+    "separate_processes": true,
+    "real_redis": true,
+    "real_postgres": true,
+    "actual_mtls": true,
+    "capacity_certified": false,
+    "checks": [
+      "PostgreSQL concurrent replay, stale-writer fencing and outbox/inbox verification",
+      "mTLS rejects absent certificate, untrusted issuer, unauthorized subject and wrong server name",
+      "anonymous, cross-player, expired identities and CA-trusted non-member node credentials rejected",
+      "generated client purchase and repeated operation ID commit once",
+      "independent C# 9 V1 client reads V2 DTO and stable protocol ID over TLS",
+      "killed owner replaced; PostgreSQL fence advances; replay survives process loss",
+      "SIGSTOP owner replaced; resumed old process cannot restore its generation or duplicate purchase",
+      "Redis outage stops Actor Tick/DB renewal and RPC; recovery preserves committed state",
+      "blocked purchase produces explicit SERVER_BUSY under a burst; same connection recovers",
+      "normal, larger payload, hot-Actor load and 20 fresh client sessions preserve state"
+    ],
+    "loads": [
+      {
+        "Operations": 1000,
+        "Connections": 16,
+        "PayloadBytes": 128,
+        "Seconds": 0.5185292,
+        "RequestsPerSecond": 1928.5317008183915,
+        "P50Ms": 7.0713,
+        "P95Ms": 13.6324,
+        "P99Ms": 17.9547,
+        "ClientWorkingSetBytes": 72650752,
+        "Failures": 0,
+        "CapacityCertified": false,
+        "Workload": "bounded closed-loop generated-client echo"
+      },
+      {
+        "Operations": 1000,
+        "Connections": 16,
+        "PayloadBytes": 4096,
+        "Seconds": 0.5553785,
+        "RequestsPerSecond": 1800.5738428837271,
+        "P50Ms": 7.4797,
+        "P95Ms": 13.0565,
+        "P99Ms": 16.6829,
+        "ClientWorkingSetBytes": 88084480,
+        "Failures": 0,
+        "CapacityCertified": false,
+        "Workload": "bounded closed-loop generated-client echo"
+      },
+      {
+        "Operations": 1000,
+        "Connections": 16,
+        "PayloadBytes": 128,
+        "Seconds": 0.3687898,
+        "RequestsPerSecond": 2711.57174086702,
+        "P50Ms": 5.497,
+        "P95Ms": 9.008,
+        "P99Ms": 10.6961,
+        "ClientWorkingSetBytes": 72339456,
+        "Failures": 0,
+        "CapacityCertified": false,
+        "Workload": "bounded closed-loop generated-client echo"
+      }
+    ],
+    "environment": {
+      "commit": "6a58410ceeb82dfa9ed4cd40e14538b4a417a18a",
+      "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+      "cpu_count": 4,
+      "sdk": "10.0.401"
+    },
+    "smoke_p99_limit_ms": 250,
+    "database": {
+      "Passed": true,
+      "ConcurrentDuplicateTransactions": 20,
+      "AssetMutations": 1,
+      "StaleWriterRejectedWithoutCancellation": true,
+      "StaleRenewAndReleaseSafe": true,
+      "ExpiredFenceCannotRevive": true,
+      "DurableReceiptSurvivesReplacement": true,
+      "OutboxRetryDeduplicatedByInbox": true
+    },
+    "security": {
+      "SecurityChecks": 5,
+      "Passed": true
+    },
+    "failover_seconds": 7.872884161999991,
+    "pause_failover_seconds": 15.112024327,
+    "redis_recovery_seconds": 0.36722264200000154,
+    "overload": {
+      "Requests": 256,
+      "Busy": 224,
+      "Succeeded": 32,
+      "Recovered": true
+    },
+    "server_rss_before_load": {
+      "gateway": 112590848,
+      "game-a": 109674496,
+      "game-b": 100327424
+    },
+    "server_rss_after_load": {
+      "gateway": 136118272,
+      "game-a": 137662464,
+      "game-b": 127328256
+    },
+    "passed": true
+  },
+  "benchmark": {
+    "environment": {
+      "baseline": "5ea04df00e1648eb53effdb0aba762f50cc01fca",
+      "candidate": "6a58410ceeb82dfa9ed4cd40e14538b4a417a18a",
+      "mode": "full",
+      "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+      "processor": "x86_64",
+      "cpu_count": 4,
+      "capacity_certified": false,
+      "note": "Same-runner regression evidence; hosted-runner results are not production capacity."
+    },
+    "baseline": {
+      "schemaVersion": 1,
+      "createdUtc": "2026-10-06T18:37:43.806193+00:00",
+      "runtime": ".NET 10.0.12",
+      "operatingSystem": "Ubuntu 24.04.5 LTS",
+      "architecture": "X64",
+      "processorCount": 4,
+      "processor": "X64",
+      "serverGc": false,
+      "configuration": {
+        "operations": 2000,
+        "concurrency": 32,
+        "repetitions": 5,
+        "smoke": false
+      },
+      "scenarios": [
+        {
+          "name": "transport-batched-block",
+          "operations": 2000,
+          "concurrency": 32,
+          "durationMs": 414.6365,
+          "operationsPerSecond": 4823.502031297293,
+          "allocatedBytesPerOperation": 622.224,
+          "latency": {
+            "count": 2000,
+            "averageMs": 6.582506099999982,
+            "p50Ms": 6.6179,
+            "p95Ms": 6.729725,
+            "p99Ms": 6.860906,
+            "maxMs": 8.495
+          },
+          "backpressureWait": {
+            "count": 2000,
+            "averageMs": 6.373989849999998,
+            "p50Ms": 6.4105,
+            "p95Ms": 6.517605,
+            "p99Ms": 6.648810999999999,
+            "maxMs": 6.692
+          }
+        },
+        {
+          "name": "actor-hot-lookup",
+          "operations": 200000,
+          "concurrency": 32,
+          "durationMs": 31.5793,
+          "operationsPerSecond": 6333262.611900834,
+          "allocatedBytesPerOperation": 112.00636,
+          "latency": {
+            "count": 200000,
+            "averageMs": 0.00011015199999982985,
+            "p50Ms": 0.0001,
+            "p95Ms": 0.0001,
+            "p99Ms": 0.0006,
+            "maxMs": 0.0916
+          },
+          "backpressureWait": {
+            "count": 0,
+            "averageMs": 0,
+            "p50Ms": 0,
+            "p95Ms": 0,
+            "p99Ms": 0,
+            "maxMs": 0
+          }
+        },
+        {
+          "name": "actor-mailbox-block",
+          "operations": 2000,
+          "concurrency": 32,
+          "durationMs": 416.5483,
+          "operationsPerSecond": 4801.363971477017,
+          "allocatedBytesPerOperation": 1264.888,
+          "latency": {
+            "count": 2000,
+            "averageMs": 6.613171050000012,
+            "p50Ms": 6.6717,
+            "p95Ms": 6.6976,
+            "p99Ms": 6.764738,
+            "maxMs": 6.8163
+          },
+          "backpressureWait": {
+            "count": 2000,
+            "averageMs": 6.403927800000017,
+            "p50Ms": 6.4621,
+            "p95Ms": 6.48731,
+            "p99Ms": 6.553928,
+            "maxMs": 6.6083
+          }
+        },
+        {
+          "name": "actor-create-remove",
+          "operations": 5000,
+          "concurrency": 32,
+          "durationMs": 16.1352,
+          "operationsPerSecond": 309881.5013138976,
+          "allocatedBytesPerOperation": 5075.0608,
+          "latency": {
+            "count": 5000,
+            "averageMs": 0.10168313999999988,
+            "p50Ms": 0.0928,
+            "p95Ms": 0.11850500000000001,
+            "p99Ms": 0.3494050000000001,
+            "maxMs": 10.5165
+          },
+          "backpressureWait": {
+            "count": 0,
+            "averageMs": 0,
+            "p50Ms": 0,
+            "p95Ms": 0,
+            "p99Ms": 0,
+            "maxMs": 0
+          }
+        }
+      ]
+    },
+    "candidate": {
+      "schemaVersion": 1,
+      "createdUtc": "2026-10-06T18:37:58.211788+00:00",
+      "runtime": ".NET 10.0.12",
+      "operatingSystem": "Ubuntu 24.04.5 LTS",
+      "architecture": "X64",
+      "processorCount": 4,
+      "processor": "X64",
+      "serverGc": false,
+      "configuration": {
+        "operations": 2000,
+        "concurrency": 32,
+        "repetitions": 5,
+        "smoke": false
+      },
+      "scenarios": [
+        {
+          "name": "transport-batched-block",
+          "operations": 2000,
+          "concurrency": 32,
+          "durationMs": 415.713,
+          "operationsPerSecond": 4811.011442990717,
+          "allocatedBytesPerOperation": 621.804,
+          "latency": {
+            "count": 2000,
+            "averageMs": 6.584953350000003,
+            "p50Ms": 6.6175,
+            "p95Ms": 6.7527099999999995,
+            "p99Ms": 6.806716,
+            "maxMs": 7.7042
+          },
+          "backpressureWait": {
+            "count": 2000,
+            "averageMs": 6.3764224999999835,
+            "p50Ms": 6.4097,
+            "p95Ms": 6.540505,
+            "p99Ms": 6.594601,
+            "maxMs": 7.2691
+          }
+        },
+        {
+          "name": "actor-hot-lookup",
+          "operations": 200000,
+          "concurrency": 32,
+          "durationMs": 36.2458,
+          "operationsPerSecond": 5517880.692383669,
+          "allocatedBytesPerOperation": 112.00636,
+          "latency": {
+            "count": 200000,
+            "averageMs": 0.00011073049999983095,
+            "p50Ms": 0.0001,
+            "p95Ms": 0.0001,
+            "p99Ms": 0.0006,
+            "maxMs": 0.0191
+          },
+          "backpressureWait": {
+            "count": 0,
+            "averageMs": 0,
+            "p50Ms": 0,
+            "p95Ms": 0,
+            "p99Ms": 0,
+            "maxMs": 0
+          }
+        },
+        {
+          "name": "actor-mailbox-block",
+          "operations": 2000,
+          "concurrency": 32,
+          "durationMs": 416.7101,
+          "operationsPerSecond": 4799.499700151256,
+          "allocatedBytesPerOperation": 1281.212,
+          "latency": {
+            "count": 2000,
+            "averageMs": 6.615262250000001,
+            "p50Ms": 6.6683,
+            "p95Ms": 6.69972,
+            "p99Ms": 6.8478330000000005,
+            "maxMs": 6.8858
+          },
+          "backpressureWait": {
+            "count": 2000,
+            "averageMs": 6.405988900000011,
+            "p50Ms": 6.4588,
+            "p95Ms": 6.489465,
+            "p99Ms": 6.634759,
+            "maxMs": 6.6728
+          }
+        },
+        {
+          "name": "actor-create-remove",
+          "operations": 5000,
+          "concurrency": 32,
+          "durationMs": 18.2107,
+          "operationsPerSecond": 274563.8553158308,
+          "allocatedBytesPerOperation": 5107.376,
+          "latency": {
+            "count": 5000,
+            "averageMs": 0.11222637999999995,
+            "p50Ms": 0.1058,
+            "p95Ms": 0.1536,
+            "p99Ms": 0.3867380000000008,
+            "maxMs": 5.3397
+          },
+          "backpressureWait": {
+            "count": 0,
+            "averageMs": 0,
+            "p50Ms": 0,
+            "p95Ms": 0,
+            "p99Ms": 0,
+            "maxMs": 0
+          }
+        }
+      ]
+    },
+    "changes": [
+      {
+        "scenario": "transport-batched-block",
+        "throughput_change_percent": -0.26,
+        "p95_change_percent": 0.34,
+        "allocation_change_percent": -0.07
+      },
+      {
+        "scenario": "actor-hot-lookup",
+        "throughput_change_percent": -12.87,
+        "p95_change_percent": 0.0,
+        "allocation_change_percent": 0.0
+      },
+      {
+        "scenario": "actor-mailbox-block",
+        "throughput_change_percent": -0.04,
+        "p95_change_percent": 0.03,
+        "allocation_change_percent": 1.29
+      },
+      {
+        "scenario": "actor-create-remove",
+        "throughput_change_percent": -11.4,
+        "p95_change_percent": 29.61,
+        "allocation_change_percent": 0.64
+      }
+    ]
+  }
+}
