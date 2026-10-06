@@ -16,6 +16,7 @@ using PulseRPC.Server.Services.Management;
 using StackExchange.Redis;
 
 if (args.Length < 1) throw new ArgumentException("Use init or node <node-id> <port> <certificate-directory> <outbound-base-port>.");
+if (args[0] == "client") { await AcceptanceClient.RunAsync(args); return; }
 var database = Environment.GetEnvironmentVariable("GAME_POSTGRES") ?? throw new InvalidOperationException("Set GAME_POSTGRES.");
 await using var source = NpgsqlDataSource.Create(database);
 var store = new AssetStore(source);

@@ -1,0 +1,104 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Text.Json;
+using GameServer.Contracts;
+using Microsoft.Extensions.Logging;
+using PulseRPC;
+using PulseRPC.Client;
+using PulseRPC.Client.Configuration;
+
+namespace GameServer.Host;
+
+[PulseClientGeneration(typeof(IPlayerHub))]
+internal static class AcceptanceClient
+{
+    internal static async Task RunAsync(string[] args)
+    {
+        if (args.Length < 4) throw new ArgumentException("client <port> <player> <state|purchase|security|load> [operation-id|operations] [connections] [payload-bytes]");
+        var port = int.Parse(args[1]);
+        var player = args[2];
+        using var logging = LoggerFactory.Create(options => options.SetMinimumLevel(LogLevel.Error));
+        using var client = new PulseClientBuilder().WithLogging(logging).Build();
+        await client.InitializeAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        var channel = await client.ConnectToServerAsync("127.0.0.1", port);
+        var actor = channel.ForGatewayActor<IPlayerHub>(player).GetHub<IPlayerHub>();
+        try
+        {
+            if (args[3] == "security")
+                await MustRejectAsync(() => actor.GetStateAsync(deadline.Token));
+            await channel.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(player), deadline.Token);
+            switch (args[3])
+            {
+                case "state":
+                    Print(await actor.GetStateAsync(deadline.Token));
+                    break;
+                case "purchase":
+                    var operation = args.Length > 4 ? Guid.Parse(args[4]) : Guid.NewGuid();
+                    var command = new PurchaseCommand { OperationId = operation };
+                    var first = await actor.PurchaseAsync(command, deadline.Token);
+                    var replay = await actor.PurchaseAsync(command, deadline.Token);
+                    if (first.Balance != replay.Balance || first.Inventory != replay.Inventory)
+                        throw new InvalidOperationException("Purchase replay changed committed state.");
+                    Print(replay);
+                    break;
+                case "security":
+                    await MustRejectAsync(() => channel.ForGatewayActor<IPlayerHub>(player + "-other").GetHub<IPlayerHub>().GetStateAsync(deadline.Token));
+                    await MustRejectAsync(() => channel.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(player, DateTime.UtcNow.AddSeconds(-1)), deadline.Token));
+                    Print(new { SecurityChecks = 3, Passed = true });
+                    break;
+                case "load":
+                    var count = args.Length > 4 ? int.Parse(args[4]) : 2000;
+                    var connections = args.Length > 5 ? int.Parse(args[5]) : 16;
+                    var bytes = args.Length > 6 ? int.Parse(args[6]) : 128;
+                    var actors = new List<IPlayerHub>();
+                    for (var i = 0; i < connections; i++)
+                    {
+                        var peer = i == 0 ? channel : await client.ConnectToServerAsync("127.0.0.1", port);
+                        var user = player == "hot" ? "hot" : player + "-" + i;
+                        await peer.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(user), deadline.Token);
+                        var target = peer.ForGatewayActor<IPlayerHub>(user).GetHub<IPlayerHub>();
+                        await target.GetStateAsync(deadline.Token); // Exclude initial DB/Actor activation.
+                        actors.Add(target);
+                    }
+                    var payload = new string('x', bytes);
+                    var latency = new ConcurrentBag<double>();
+                    var elapsed = Stopwatch.StartNew();
+                    await Parallel.ForEachAsync(Enumerable.Range(0, connections),
+                        new ParallelOptions { MaxDegreeOfParallelism = connections, CancellationToken = deadline.Token },
+                        async (index, ct) =>
+                        {
+                            for (var i = index; i < count; i += connections)
+                            {
+                                var start = Stopwatch.GetTimestamp();
+                                if (await actors[index].EchoAsync(payload, ct) != payload) throw new InvalidOperationException("Echo corruption.");
+                                latency.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
+                            }
+                        });
+                    elapsed.Stop();
+                    var sorted = latency.Order().ToArray();
+                    double Percentile(double p) => sorted[Math.Min(sorted.Length - 1, (int)Math.Ceiling(sorted.Length * p) - 1)];
+                    Print(new
+                    {
+                        Operations = count, Connections = connections, PayloadBytes = bytes,
+                        Seconds = elapsed.Elapsed.TotalSeconds, RequestsPerSecond = count / elapsed.Elapsed.TotalSeconds,
+                        P50Ms = Percentile(.5), P95Ms = Percentile(.95), P99Ms = Percentile(.99),
+                        ClientWorkingSetBytes = Environment.WorkingSet, Failures = 0,
+                        CapacityCertified = false, Workload = "bounded closed-loop generated-client echo"
+                    });
+                    break;
+                default: throw new ArgumentException("Unknown client scenario.");
+            }
+        }
+        finally { await channel.DisconnectAsync(); await client.StopAsync(); }
+    }
+
+    private static async Task MustRejectAsync(Func<Task> action)
+    {
+        try { await action(); }
+        catch (PulseRemoteException error) when (error.ErrorCode == "UNAUTHORIZED") { return; }
+        throw new InvalidOperationException("An unauthorized request was not rejected explicitly.");
+    }
+
+    private static void Print<T>(T value) => Console.WriteLine("RESULT " + JsonSerializer.Serialize(value));
+}
