@@ -45,6 +45,7 @@ Unity 客户端开发者：
 5. [历史归档](archive/)
 6. [Proto.Actor .NET 架构对比研究](archive/research/proto-actor-dotnet-architecture-analysis.md)
 7. [架构优化清单](reference/architecture-optimization-checklist.md)
+8. [游戏服务端验收数据](reference/game-server-validation-results.json)
 
 AI Agent 或自动化维护任务请阅读仓库根目录下的 `.agent/README.md`。
 

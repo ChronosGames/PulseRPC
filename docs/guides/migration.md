@@ -48,7 +48,7 @@ await clients.Single(connectionId).OnMessageAsync(message, cancellationToken);
 
 ## 迁移服务端消息引擎配置
 
-服务端消息引擎已收敛为固定数量 worker shard 和每 shard 一个有界队列。新代码只通过 `PulseServerOptions` 配置：
+服务端消息引擎已收敛为固定数量 worker shard、每 shard 有界队列与可配置的在途并发。新代码只通过 `PulseServerOptions` 配置：
 
 ```csharp
 services.AddPulseServer(options =>
@@ -71,7 +71,7 @@ services.AddPulseServer(options =>
 | `AdaptiveBatchScheduler` 及其 batch 参数 | 不再接入服务端运行时；通过固定 shard 数和有界容量控制并发与背压 |
 | `AddServiceScheduler(...)` / `InvokeWithSchedulerAsync(...)` | 该独立 scheduler 不被 `MessageEngine` 消费；删除注册，使用固定 shard 配置 |
 | `ServerPreset` / `ServerPresets` / `PulseServerOptions.UsePreset(...)` | 显式调用 `AddTcp` / `AddKcp` 并设置两个 shard 选项 |
-| `PulseServerOptions.BackpressurePolicy` / `DefaultOperationTimeout` / `MaxConcurrentOperations` / `EnableDetailedLogging` | 背压使用有界 shard 队列；并发使用 shard 数；日志使用 `Microsoft.Extensions.Logging` |
+| `PulseServerOptions.BackpressurePolicy` / `DefaultOperationTimeout` / `MaxConcurrentOperations` / `EnableDetailedLogging` | 背压使用有界 shard 队列及连接/载荷预算；并发使用 shard 数与每 shard 并发；日志使用 `Microsoft.Extensions.Logging` |
 | `BackpressureStrategy` | 未接入固定 shard 引擎；队列满固定为立即拒绝，通过队列容量和拒绝指标调优 |
 | `ServerOptions` / `ServerConfigurationBuilder` | 使用 `PulseServerOptions` 和 `AddPulseServer(...)` |
 | `ResponseProcessorOptions` | 不再作为 `AddPulseServer` 配置入口；响应处理由内部运行时组合 |
