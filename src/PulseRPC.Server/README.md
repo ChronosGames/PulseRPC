@@ -31,12 +31,17 @@ services.AddPulseServer(options =>
     options.AddTcp(7000);
     options.MessageWorkerShardCount = Math.Max(1, Environment.ProcessorCount);
     options.MessageQueueCapacityPerShard = 1024;
+    options.MaxConcurrentMessagesPerShard = 8;
+    options.MaxConcurrentMessagesPerConnection = 1;
 });
 ```
 
-- `MessageWorkerShardCount` 控制固定 worker 数，也限定消息分发的最大在途并发；默认值为逻辑处理器数。
+- `MessageWorkerShardCount` 控制固定 shard 数；默认值为逻辑处理器数。
+- `MaxConcurrentMessagesPerShard` 控制每个 shard 的在途上限；默认 `1`，保持原串行行为。总在途上限为 shard 数乘以此值。
+- `MaxConcurrentMessagesPerConnection` 默认 `1`，保留单连接处理顺序。内部节点连接复用多个 Actor 时可调高，但不得依赖跨请求的网络到达顺序；同一 Actor 仍通过邮箱串行执行，需要业务序号时由契约携带并校验。
 - `MessageQueueCapacityPerShard` 控制每个 shard 最多排队的消息数；默认值为 `1024`。
 - 连接注册时按轮询分配 shard，并在断开前保持不变。断开会停用该连接的生命周期租约，使旧积压消息不会进入同 ID 的新连接。
+- shard 按连接轮询分配可用执行槽。慢请求只占用其在途槽，其他连接可在并发上限内继续执行；处理器实际退出后才释放载荷和执行槽，忽略取消的业务仍会占用容量。
 - shard 队列满时立即拒绝新消息，不做同步休眠、重试或无界排队。关闭服务器时会停止接收、取消连接工作并等待固定 worker 完成清理。
 
 旧的 `MessageEngineConfiguration`、`TieredEngineManagerOptions`、`TieredMessageProcessorOptions` 和 `ServerPreset` 已仅作二进制兼容保留，不再控制运行时。迁移清单见[迁移指南](../../docs/guides/migration.md)。

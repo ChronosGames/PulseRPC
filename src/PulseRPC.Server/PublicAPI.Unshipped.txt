@@ -1,4 +1,8 @@
 #nullable enable
+PulseRPC.Server.Configuration.PulseServerOptions.MaxConcurrentMessagesPerShard.get -> int
+PulseRPC.Server.Configuration.PulseServerOptions.MaxConcurrentMessagesPerShard.set -> void
+PulseRPC.Server.Configuration.PulseServerOptions.MaxConcurrentMessagesPerConnection.get -> int
+PulseRPC.Server.Configuration.PulseServerOptions.MaxConcurrentMessagesPerConnection.set -> void
 PulseRPC.Server.Clustering.ActorLeaseHeartbeatOptions.MaxConcurrentRenewals.get -> int
 PulseRPC.Server.Clustering.ActorLeaseHeartbeatOptions.MaxConcurrentRenewals.set -> void
 PulseRPC.Server.Clustering.ActorLeaseHeartbeatOptions.RenewalTimeout.get -> System.TimeSpan

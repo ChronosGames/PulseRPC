@@ -29,6 +29,15 @@ public sealed class PulseServerOptions
     /// </summary>
     public int MessageQueueCapacityPerShard { get; set; } = 1024;
 
+    /// <summary>每个分片最多同时执行的请求数。默认 1，保留原有串行行为。</summary>
+    public int MaxConcurrentMessagesPerShard { get; set; } = 1;
+
+    /// <summary>
+    /// 每个物理连接最多同时执行的请求数。默认 1，保持该连接内的执行顺序。
+    /// 节点多路复用连接可调大；启用并发后，业务顺序由 Actor 邮箱及业务序号管理。
+    /// </summary>
+    public int MaxConcurrentMessagesPerConnection { get; set; } = 1;
+
     // === Pipeline Configuration ===
 
     /// <summary>
@@ -100,6 +109,9 @@ public sealed class PulseServerOptions
 
         if (MessageQueueCapacityPerShard <= 0)
             throw new InvalidOperationException("MessageQueueCapacityPerShard must be greater than zero");
+
+        if (MaxConcurrentMessagesPerShard <= 0 || MaxConcurrentMessagesPerConnection <= 0)
+            throw new InvalidOperationException("Message concurrency limits must be greater than zero");
 
     }
 
