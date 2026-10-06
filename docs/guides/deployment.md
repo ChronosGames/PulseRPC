@@ -29,7 +29,7 @@ TCP 支持指定 IP 接口，KCP 当前限 IPv4；未配置时保持 `IPAddress.
 2. 调用 `AddPulseClustering(...)`；它默认注册内置 `TcpNodeTransport`。
 3. 选择静态成员或 Consul/Etcd/Kubernetes 发现后端，并保证成员端点指向可接受 PulseRPC TCP 的节点监听端口。
 4. 注册共享 `IConnectionMultiplexer` 并调用 `AddRedisActorLeases(...)`，或提供等价的 CAS + TTL `IActorLeaseStore`。多成员拓扑默认拒绝进程内租约。
-5. 配置节点认证；生产优先使用 `UseCertificateNodeAuthentication(...)`。
+5. 配置节点认证；生产优先使用 `UseCertificateNodeAuthentication(...)`，并用 `CertificateNodeAuthenticatorOptions.AllowedNodeIds` 或等价身份策略限制成员，尤其是 CA 同时签发非成员证书时。应用层和 TLS 代理的成员限制应一致。
 6. 用私网、防火墙以及 mTLS service mesh/TLS 终止层保护节点端口。内置 TCP 节点传输不自行加密线路。
 7. 针对 Actor 属主变化设计幂等、状态持久化或 L3 迁移。
 

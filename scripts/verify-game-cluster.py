@@ -169,8 +169,8 @@ def main():
         tls_rejected(directory, base + 11, "rogue")
         tls_rejected(directory, base + 11, "gateway", "wrong-node")
         record("mTLS rejects absent certificate, untrusted issuer, unauthorized subject and wrong server name")
-        results["security"] = client(player_id, "security")
-        record("anonymous, cross-player, expired-token and expired-session requests rejected")
+        results["security"] = client(player_id, "security", directory)
+        record("anonymous, cross-player, expired identities and CA-trusted non-member node credentials rejected")
         operation = uuid.uuid4()
         purchase = client(player_id, "purchase", operation)
         assert purchase["Balance"] == 993 and purchase["Inventory"] == 1, purchase

@@ -66,6 +66,7 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
         {
             auth.LocalCertificate = certificate;
             auth.TrustedCertificateAuthorities.Add(authority);
+            auth.AllowedNodeIds.UnionWith(["gateway", "game-a", "game-b"]);
         });
         services.Configure<TcpNodeTransportOptions>(transport =>
         {

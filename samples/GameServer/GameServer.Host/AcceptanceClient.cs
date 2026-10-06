@@ -1,12 +1,16 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using MemoryPack;
 using GameServer.Contracts;
 using Microsoft.Extensions.Logging;
 using PulseRPC;
 using PulseRPC.Client;
 using PulseRPC.Client.Configuration;
 using PulseRPC.Shared;
+using PulseRPC.Clustering;
+using PulseRPC.Server.Clustering;
 
 namespace GameServer.Host;
 
@@ -57,7 +61,20 @@ internal static class AcceptanceClient
                     await actor.GetStateAsync(deadline.Token);
                     await Task.Delay(TimeSpan.FromSeconds(6), deadline.Token);
                     await MustRejectAsync(() => actor.GetStateAsync(deadline.Token));
-                    Print(new { SecurityChecks = 4, Passed = true });
+                    // A CA-trusted non-member must not bypass mTLS subject rules by
+                    // presenting a signed node credential on the public player endpoint.
+                    using (var outsider = X509Certificate2.CreateFromPemFile(
+                        Path.Combine(args[4], "outsider.crt"), Path.Combine(args[4], "outsider.key")))
+                    {
+                        var signer = new CertificateNodeAuthenticator(new CertificateNodeAuthenticatorOptions { LocalCertificate = outsider });
+                        var credential = await signer.CreateCredentialAsync("outsider", deadline.Token);
+                        var response = await ((IHubAddressedClientChannel)channel).InvokeHubRawAsync(
+                            NodeWireProtocol.ClusterInternalHubName, NodeWireProtocol.AuthenticateProtocolId,
+                            MemoryPackSerializer.Serialize(("outsider", credential.ToArray())), deadline.Token);
+                        if (MemoryPackSerializer.Deserialize<bool>(response.Span))
+                            throw new InvalidOperationException("A trusted-CA non-member became a cluster node through the public endpoint.");
+                    }
+                    Print(new { SecurityChecks = 5, Passed = true });
                     break;
                 case "load":
                     var count = args.Length > 4 ? int.Parse(args[4]) : 2000;

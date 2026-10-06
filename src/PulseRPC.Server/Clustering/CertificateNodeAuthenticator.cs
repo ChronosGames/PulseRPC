@@ -31,6 +31,13 @@ public sealed class CertificateNodeAuthenticatorOptions
     /// </summary>
     public HashSet<string> TrustedThumbprints { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// Optional exact node identity allowlist. Empty preserves CA/thumbprint-only trust.
+    /// Configure this alongside TLS peer rules when the CA also issues non-member certificates.
+    /// The authenticator snapshots the set at construction.
+    /// </summary>
+    public HashSet<string> AllowedNodeIds { get; set; } = new(StringComparer.Ordinal);
+
     /// <summary>是否要求对端 <c>nodeId</c> 与其证书主体（CN 或 SAN DNS）匹配。默认 true。</summary>
     public bool RequireNodeIdMatchesCertificate { get; set; } = true;
 
@@ -64,6 +71,7 @@ public sealed class CertificateNodeAuthenticator : INodeAuthenticator
     private const int ClockSkewToleranceMillis = 30_000;
 
     private readonly CertificateNodeAuthenticatorOptions _options;
+    private readonly HashSet<string>? _allowedNodeIds;
 
     /// <summary>创建证书节点鉴权器。</summary>
     public CertificateNodeAuthenticator(IOptions<CertificateNodeAuthenticatorOptions> options)
@@ -75,6 +83,9 @@ public sealed class CertificateNodeAuthenticator : INodeAuthenticator
     public CertificateNodeAuthenticator(CertificateNodeAuthenticatorOptions options)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
+        ArgumentNullException.ThrowIfNull(options.AllowedNodeIds);
+        _allowedNodeIds = options.AllowedNodeIds.Count == 0
+            ? null : new HashSet<string>(options.AllowedNodeIds, StringComparer.Ordinal);
 
         if (_options.LocalCertificate is null)
         {
@@ -116,6 +127,9 @@ public sealed class CertificateNodeAuthenticator : INodeAuthenticator
     public ValueTask<NodeAuthResult> ValidateAsync(string remoteNodeId, ReadOnlyMemory<byte> credential, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(remoteNodeId);
+
+        if (_allowedNodeIds is not null && !_allowedNodeIds.Contains(remoteNodeId))
+            return Result(NodeAuthResult.Failure("Node identity is not authorized for this cluster."));
 
         if (!TryParse(credential.Span, out var certDer, out var timestamp, out var signature))
         {
