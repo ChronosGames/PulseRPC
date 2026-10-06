@@ -55,13 +55,21 @@ public class PhaseDLeaseDirectoryRecoveryTests
     {
         var directory = Substitute.For<IActorDirectory>();
         var renewAttempts = 0;
+        var failedRenewal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         directory.RenewAsync("RoomHub", "room-1", "node-a", "lease-1", Arg.Any<CancellationToken>())
-            .Returns(_ => new ValueTask<bool>(Interlocked.Increment(ref renewAttempts) == 1));
+            .Returns(_ =>
+            {
+                var renewed = Interlocked.Increment(ref renewAttempts) == 1;
+                if (!renewed) failedRenewal.TrySetResult();
+                return new ValueTask<bool>(renewed);
+            });
+        directory.ResolveAsync("RoomHub", "room-1", Arg.Any<CancellationToken>())
+            .Returns(_ => new ValueTask<ActorPlacement?>(new ActorPlacement("node-a", "lease-1", DateTime.UtcNow.AddSeconds(30).Ticks)));
 
         using var heartbeat = new ActorLeaseHeartbeat(directory, new ActorLeaseHeartbeatOptions { Interval = TimeSpan.FromMilliseconds(10) });
         heartbeat.Track("RoomHub", "room-1", new ActorPlacement("node-a", "lease-1", DateTime.UtcNow.AddSeconds(30).Ticks));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(80));
+        await failedRenewal.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         renewAttempts.Should().BeGreaterThanOrEqualTo(2, "第一次续租成功，第二次续租失败后应停止跟踪");
         var attemptsAfterUntrack = renewAttempts;

@@ -190,6 +190,52 @@ public sealed class ActorLeaseSafetyTests
         Func<IPulseService, ValueTask> cleanup)
         => new(directory, new ActorLeaseHeartbeatOptions { Interval = TimeSpan.FromHours(1) }, cleanup, time);
 
+    [Fact]
+    public async Task LostLease_CancelsRunningTickAndStopsFurtherTicks()
+    {
+        var time = new ManualTime();
+        using var heartbeat = CreateHeartbeat(Substitute.For<IActorDirectory>(), time, _ => default);
+        await using var actor = new TickingActor();
+        ((IActorLeaseBinding)heartbeat).BindService("Player", "tick", Placement(time), actor);
+        heartbeat.Track("Player", "tick", Placement(time));
+        await actor.StartAsync();
+        await actor.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        time.Advance(TimeSpan.FromSeconds(31));
+        heartbeat.CheckExpirations();
+        await actor.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await actor.StopAsync();
+        Assert.Equal(1, actor.TickCount);
+    }
+
+    [Fact]
+    public async Task LostLease_RemovesManagedInstanceAndReleasesBoundHubAlias()
+    {
+        var time = new ManualTime();
+        var directory = Substitute.For<IActorDirectory>();
+        var removed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PulseServiceManager? manager = null;
+        using var heartbeat = CreateHeartbeat(directory, time, async service =>
+        {
+            await manager!.RemoveServiceIfSameAsync(service);
+            removed.TrySetResult();
+        });
+        using var provider = new ServiceCollection()
+            .AddSingleton<IServiceInstanceLeaseLifetime>(heartbeat).BuildServiceProvider();
+        await using var managerLifetime = manager = new PulseServiceManager(provider, NullLogger<PulseServiceManager>.Instance);
+        manager.Register<TestActor>((_, key) => new TestActor(key));
+        var placement = Placement(time);
+        using (ServiceActivationScope.Enter(
+            onActivated: () => heartbeat.Track("Player", "1", placement),
+            onResolved: service => ((IActorLeaseBinding)heartbeat).BindService("Player", "1", placement, service)))
+        {
+            await manager.GetOrCreateServiceAsync(nameof(TestActor), "1");
+        }
+        await RenewAsync(heartbeat);
+        await removed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(manager.GetService(nameof(TestActor), "1"));
+        await directory.Received(1).ReleaseAsync("Player", "1", "node-1", "lease-1", Arg.Any<CancellationToken>());
+    }
+
     private static ActorPlacement Placement(TimeProvider time, string leaseId = "lease-1")
         => new("node-1", leaseId, time.GetUtcNow().AddSeconds(30).UtcTicks);
 
@@ -208,6 +254,22 @@ public sealed class ActorLeaseSafetyTests
     {
         public TestActor(string key) : base(nameof(TestActor), key, executionOptions: ServiceExecutionOptions.Actor) { }
         public CancellationToken LeaseToken => ActorLeaseCancellationToken;
+    }
+
+    [Tick(60)]
+    private sealed class TickingActor : PulseServiceBase
+    {
+        public TickingActor() : base("Player", "tick", executionOptions: ServiceExecutionOptions.Actor) { }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Cancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int TickCount;
+        protected override async Task OnTickAsync(CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref TickCount);
+            Entered.TrySetResult();
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
+            finally { Cancelled.TrySetResult(); }
+        }
     }
 
     private sealed class ManualTime : TimeProvider

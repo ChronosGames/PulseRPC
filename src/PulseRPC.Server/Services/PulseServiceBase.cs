@@ -357,7 +357,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 await StopTickLoopAsync();
 
                 // 停止接收新消息
-                _messageQueue?.Writer.Complete();
+                _messageQueue?.Writer.TryComplete();
 
                 // 等待消息处理完成
                 if (_messageProcessingTask != null)
