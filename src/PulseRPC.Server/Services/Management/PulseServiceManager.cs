@@ -296,6 +296,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
 
         if (immediateService is not null)
         {
+            ServiceActivationScope.BindService(immediateService);
             ServiceActivationScope.MarkActivated();
             return immediateService;
         }
@@ -316,6 +317,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
 
         ServiceActivationScope.Observe(creationTask);
         var createdService = await creationTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+        ServiceActivationScope.BindService(createdService);
         ServiceActivationScope.MarkActivated();
         return createdService;
     }
@@ -332,6 +334,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
         // 再次检查是否已存在（可能在等待获取创建任务时被其他线程创建）
         if (_instances.TryGetValue(serviceAddress, out var existingService))
         {
+            ServiceActivationScope.BindService(existingService);
             Interlocked.Increment(ref _totalRaceConditionsAvoided);
             ServiceActivationScope.MarkActivated();
             return existingService;
@@ -345,6 +348,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
             service = registration.Factory(_serviceProvider, serviceId)
                 ?? throw new InvalidOperationException(
                     $"Service factory for '{serviceAddress}' returned null.");
+            ServiceActivationScope.BindService(service);
             if (registration.Attribute.StartupType == ServiceStartupType.OnDemand &&
                 service.State == ServiceLifecycleState.Created)
             {
@@ -372,6 +376,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
             if (raceWinner is not null)
             {
                 await service.DisposeAsync().ConfigureAwait(false);
+                ServiceActivationScope.BindService(raceWinner);
                 Interlocked.Increment(ref _totalRaceConditionsAvoided);
                 ServiceActivationScope.MarkActivated();
                 return raceWinner;
@@ -441,10 +446,22 @@ public sealed class PulseServiceManager : IAsyncDisposable
         return result.Disposed && result.StopException is null;
     }
 
+    internal async ValueTask RemoveServiceIfSameAsync(IPulseService expected)
+    {
+        var result = await RemoveServiceCoreAsync(expected.ServiceType, expected.ServiceId, CancellationToken.None, expected)
+            .ConfigureAwait(false);
+        if (result.Found && !result.Disposed)
+            throw result.DisposeException ?? new InvalidOperationException("Actor cleanup remains incomplete.");
+        // Migration can supply an instance outside this manager's registry.
+        if (!result.Found && expected.State == ServiceLifecycleState.Running)
+            await expected.StopAsync(CancellationToken.None).ConfigureAwait(false);
+    }
+
     private async ValueTask<ServiceRemovalResult> RemoveServiceCoreAsync(
         string serviceType,
         string serviceId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IPulseService? expected = null)
     {
         var serviceAddress = $"{serviceType}:{serviceId}";
         var operationGate = _serviceOperationGates.GetOrAdd(
@@ -468,6 +485,13 @@ public sealed class PulseServiceManager : IAsyncDisposable
                     // Activation failure may have retained an instance whose Dispose failed.
                     // Continue into the pending-cleanup lookup before deciding there is no owner.
                 }
+            }
+
+            if (expected is not null
+                && !(_instances.TryGetValue(serviceAddress, out var current) && ReferenceEquals(current, expected))
+                && !(_instancesPendingCleanup.TryGetValue(serviceAddress, out var pending) && ReferenceEquals(pending, expected)))
+            {
+                return ServiceRemovalResult.NotFound;
             }
 
             if (!_instancesPendingCleanup.TryGetValue(serviceAddress, out var service))
@@ -518,7 +542,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
             _instancesPendingCleanup.TryRemove(
                 new KeyValuePair<string, IPulseService>(serviceAddress, service));
             Interlocked.Increment(ref _totalDisposed);
-            await ReleaseActorLeaseAsync(serviceType, serviceId).ConfigureAwait(false);
+            await ReleaseActorLeaseAsync(serviceType, serviceId, service).ConfigureAwait(false);
 
             _logger.LogInformation("Removed service instance: {ServiceAddress}", serviceAddress);
             return new ServiceRemovalResult(
@@ -746,7 +770,7 @@ public sealed class PulseServiceManager : IAsyncDisposable
         _logger.LogInformation("PulseServiceManager disposed");
     }
 
-    private async ValueTask ReleaseActorLeaseAsync(string serviceType, string serviceId)
+    private async ValueTask ReleaseActorLeaseAsync(string serviceType, string serviceId, IPulseService service)
     {
         if (_serviceInstanceLeaseLifetime is null)
         {
@@ -755,9 +779,11 @@ public sealed class PulseServiceManager : IAsyncDisposable
 
         try
         {
-            await _serviceInstanceLeaseLifetime
-                .ReleaseAsync(serviceType, serviceId, CancellationToken.None)
-                .ConfigureAwait(false);
+            if (_serviceInstanceLeaseLifetime is IServiceInstanceLeaseBindingLifetime binding)
+                await binding.ReleaseAsync(service, CancellationToken.None).ConfigureAwait(false);
+            else
+                await _serviceInstanceLeaseLifetime.ReleaseAsync(serviceType, serviceId, CancellationToken.None)
+                    .ConfigureAwait(false);
         }
         catch (Exception ex)
         {

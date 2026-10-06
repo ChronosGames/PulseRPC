@@ -677,7 +677,9 @@ public sealed class ClusterInternalHub : IClusterInternalHub
     {
         using var activationScope = ServiceActivationScope.Enter(
             onActivated: () => TrackActivatedLease(invocation, placement),
-            onActivationFailed: () => ReleaseFailedActivationAsync(invocation, placement));
+            onActivationFailed: () => ReleaseFailedActivationAsync(invocation, placement),
+            onResolved: service => (_leaseHeartbeat as IActorLeaseBinding)?.BindService(
+                invocation.Hub, invocation.Key, placement, service));
         try
         {
             var result = await routingTable.RouteByProtocolIdAsync(

@@ -118,7 +118,10 @@ public static class PulseClusteringServiceExtensions
 
             return new ActorLeaseHeartbeat(
                 sp.GetRequiredService<IActorDirectory>(),
-                heartbeatOptions);
+                heartbeatOptions,
+                service => sp.GetRequiredService<PulseServiceManager>().RemoveServiceIfSameAsync(service),
+                TimeProvider.System,
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<ActorLeaseHeartbeat>>());
         });
         services.TryAddSingleton<IServiceInstanceLeaseLifetime>(sp =>
             sp.GetRequiredService<IActorLeaseHeartbeat>() as IServiceInstanceLeaseLifetime

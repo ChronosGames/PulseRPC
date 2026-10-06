@@ -164,6 +164,7 @@ public sealed class ActorMigrationCoordinator
 
             try
             {
+                (_leaseHeartbeat as IActorLeaseBinding)?.BindService(hub, key, placement, localActor);
                 // 2. 恢复状态（在开始处理消息前）。
                 if (snapshot.Length > 0 && localActor is IActorStateSnapshot snapshottable)
                 {
@@ -176,6 +177,7 @@ public sealed class ActorMigrationCoordinator
             }
             catch
             {
+                _leaseHeartbeat?.Untrack(hub, key, placement.LeaseId);
                 await DisposeAfterFailedMigrationAsync(hub, key, localActor).ConfigureAwait(false);
                 try
                 {

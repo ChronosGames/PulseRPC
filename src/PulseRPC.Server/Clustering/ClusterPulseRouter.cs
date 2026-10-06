@@ -220,7 +220,9 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
         {
             using var activationScope = ServiceActivationScope.Enter(
                 onActivated: () => TrackLocalLease(address, localPlacement),
-                onActivationFailed: () => ReleaseFailedLocalActivationAsync(address, localPlacement));
+                onActivationFailed: () => ReleaseFailedLocalActivationAsync(address, localPlacement),
+                onResolved: service => (_leaseHeartbeat as IActorLeaseBinding)?.BindService(
+                    address.Hub!, address.Key!, localPlacement, service));
             try
             {
                 await _local.SendAsync(address, protocolId, body, delivery, cancellationToken, messageId).ConfigureAwait(false);
@@ -314,7 +316,9 @@ public sealed class ClusterPulseRouter : IPulseRouter, IDisposable
 
         using var activationScope = ServiceActivationScope.Enter(
             onActivated: () => TrackLocalLease(address, localPlacement),
-            onActivationFailed: () => ReleaseFailedLocalActivationAsync(address, localPlacement));
+            onActivationFailed: () => ReleaseFailedLocalActivationAsync(address, localPlacement),
+            onResolved: service => (_leaseHeartbeat as IActorLeaseBinding)?.BindService(
+                address.Hub!, address.Key!, localPlacement, service));
         try
         {
             var response = await _local.AskAsync(address, protocolId, body, cancellationToken).ConfigureAwait(false);

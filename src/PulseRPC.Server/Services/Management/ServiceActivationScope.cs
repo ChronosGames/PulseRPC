@@ -8,6 +8,12 @@ internal interface IServiceInstanceLeaseLifetime
     ValueTask ReleaseAsync(string serviceType, string serviceId, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Release only the lease bound to the removed service generation.</summary>
+internal interface IServiceInstanceLeaseBindingLifetime : IServiceInstanceLeaseLifetime
+{
+    ValueTask ReleaseAsync(IPulseService service, CancellationToken cancellationToken = default);
+}
+
 internal sealed class NoopServiceInstanceLeaseLifetime : IServiceInstanceLeaseLifetime
 {
     public static readonly NoopServiceInstanceLeaseLifetime Instance = new();
@@ -32,6 +38,7 @@ internal sealed class ServiceActivationScope : IDisposable
     private readonly ServiceActivationScope? _previous;
     private readonly Action? _onActivated;
     private readonly Func<ValueTask>? _onActivationFailed;
+    private readonly Action<IPulseService>? _onResolved;
     private readonly object _failureSync = new();
     private int _state;
     private int _activatedCallbackState;
@@ -40,10 +47,12 @@ internal sealed class ServiceActivationScope : IDisposable
 
     private ServiceActivationScope(
         Action? onActivated,
-        Func<ValueTask>? onActivationFailed)
+        Func<ValueTask>? onActivationFailed,
+        Action<IPulseService>? onResolved)
     {
         _onActivated = onActivated;
         _onActivationFailed = onActivationFailed;
+        _onResolved = onResolved;
         _previous = CurrentSlot.Value;
         CurrentSlot.Value = this;
     }
@@ -54,8 +63,12 @@ internal sealed class ServiceActivationScope : IDisposable
 
     public static ServiceActivationScope Enter(
         Action? onActivated = null,
-        Func<ValueTask>? onActivationFailed = null)
-        => new(onActivated, onActivationFailed);
+        Func<ValueTask>? onActivationFailed = null,
+        Action<IPulseService>? onResolved = null)
+        => new(onActivated, onActivationFailed, onResolved);
+
+    public static void BindService(IPulseService service)
+        => CurrentSlot.Value?._onResolved?.Invoke(service);
 
     public static void MarkActivated()
         => CurrentSlot.Value?.MarkActivatedCore();
