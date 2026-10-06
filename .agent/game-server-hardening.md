@@ -19,8 +19,8 @@ This is an agent execution record, not a statement of supported production guara
 
 | Stage | Scope | Status |
 | --- | --- | --- |
-| 0 | Reproducible baseline and required-suite/Redis execution checks | Workflow prepared; execution pending |
-| 1 | Lease loss, expiry, quiescence, bounded renewal, stale-writer fencing example | Pending |
+| 0 | Reproducible baseline and required-suite/Redis execution checks | Run 37494029780 passed: 80 Client, 407 Server, 59 generator, 18 infrastructure, 25 Redis tests; no skips; Debug/Release and benchmark passed |
+| 1 | Lease loss, expiry, quiescence, bounded renewal, stale-writer fencing example | Runtime guard, bounded renewal and regression tests in progress; durable fencing example pending |
 | 2 | Bounded concurrent ingress, Actor ordering, lifecycle/context isolation | Pending |
 | 3 | Overload response, budgets, deadline/cancellation, resource recovery | Pending |
 | 4 | Production Gateway/internal profiles, resource authorization, actual mTLS | Pending |
@@ -38,3 +38,12 @@ ownership until execution actually finishes. Scope lease cleanup to the old gene
 Remote validation must run on the final commit. Hosted performance results are regression
 evidence; representative production capacity requires a controlled environment. Real game
 asset transactions must integrate the fencing/idempotency contract demonstrated by examples.
+
+## Follow-up findings
+
+- Original Build workflow run 37494029763: .NET build/tests, package API validation, samples,
+  and iOS IL2CPP passed. Unity clean-UPM job 112374909423 failed before executing Unity:
+  its semantic-version step rejects the manifest/tarball modifications deliberately made by
+  the workflow. Fix that job's versioning/dirty-worktree configuration and rerun.
+- Publish Git Data API blobs from the Git index (`git show :path`), not raw working-tree bytes;
+  the local checkout applies line-ending filters. Verify returned tree SHA equals `git write-tree`.

@@ -9,6 +9,7 @@ using PulseRPC.Server.Services.Scheduling;
 using PulseRPC.Shared;
 using System.Diagnostics;
 using PulseRPC.Diagnostics;
+using PulseRPC.Server.Clustering;
 
 namespace PulseRPC.Server.Services;
 
@@ -62,6 +63,42 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
     private readonly IThreadAffinityScheduler? _affinityScheduler;
     private Task? _messageProcessingTask;
     private CancellationTokenSource? _processingCts;
+    private ActorLeaseState? _actorLease;
+
+    /// <summary>
+    /// 当前 Actor 实例失租时取消的令牌；非集群服务返回不可取消令牌。
+    /// 此令牌仅用于合作式取消，业务数据库仍须校验写入所有权。
+    /// </summary>
+    protected CancellationToken ActorLeaseCancellationToken => _actorLease?.CancellationToken ?? CancellationToken.None;
+
+    internal void BindActorLease(ActorLeaseState lease)
+    {
+        var previous = Interlocked.CompareExchange(ref _actorLease, lease, null);
+        if (previous is not null && !ReferenceEquals(previous, lease))
+            throw new InvalidOperationException("An Actor instance cannot change lease generation.");
+        lease.ThrowIfInvalid();
+    }
+
+    internal void QuiesceForLeaseLoss()
+    {
+        _messageQueue?.Writer.TryComplete();
+        _ = CancelForLeaseLossAsync(_processingCts);
+        _ = CancelForLeaseLossAsync(_tickCts);
+    }
+
+    private async Task CancelForLeaseLossAsync(CancellationTokenSource? source)
+    {
+        if (source is null) return;
+        try { await source.CancelAsync().ConfigureAwait(false); }
+        catch (ObjectDisposedException) { /* Concurrent normal service cleanup already cancelled it. */ }
+        catch (Exception ex) { Logger.LogWarning(ex, "Cancellation callback failed during Actor lease loss"); }
+    }
+
+    private void EnsureCanExecute(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _actorLease?.ThrowIfInvalid();
+    }
 
     // 固定帧驱动（[Tick]）相关状态
     private CancellationTokenSource? _tickCts;
@@ -275,6 +312,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 // 调用子类启动逻辑
                 await OnStartingAsync(cancellationToken);
 
+                EnsureCanExecute(cancellationToken);
                 State = ServiceLifecycleState.Running;
                 Logger.LogInformation("Service started: {ServiceAddress}", ((IPulseService)this).ServiceAddress);
 
@@ -405,6 +443,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
 
     private async Task EnqueueCoreAsync(Func<Task> work, bool reentrant, CancellationToken cancellationToken)
     {
+        EnsureCanExecute(cancellationToken);
         if (State != ServiceLifecycleState.Running)
         {
             throw new InvalidOperationException($"Service is not running: {((IPulseService)this).ServiceAddress}");
@@ -423,6 +462,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
             {
                 try
                 {
+                    EnsureCanExecute(cancellationToken);
                     if (capturedContext != null)
                     {
                         using var _ = PulseContext.SetContext(capturedContext);
@@ -455,6 +495,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
 
             await _affinityScheduler.ScheduleAsync(key, async () =>
             {
+                EnsureCanExecute(cancellationToken);
                 if (capturedContext != null)
                 {
                     using var _ = PulseContext.SetContext(capturedContext);
@@ -518,6 +559,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
 
     private async Task<TResult> EnqueueCoreAsync<TResult>(Func<Task<TResult>> work, bool reentrant, CancellationToken cancellationToken)
     {
+        EnsureCanExecute(cancellationToken);
         if (State != ServiceLifecycleState.Running)
         {
             throw new InvalidOperationException($"Service is not running: {((IPulseService)this).ServiceAddress}");
@@ -536,6 +578,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
             {
                 try
                 {
+                    EnsureCanExecute(cancellationToken);
                     TResult result;
                     if (capturedContext != null)
                     {
@@ -554,9 +597,17 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 }
             };
 
-            await WriteMailboxAsync(
-                new WorkItem(wrapped, reentrant, exception => valueTaskSource.TrySetException(exception)),
-                cancellationToken);
+            try
+            {
+                await WriteMailboxAsync(
+                    new WorkItem(wrapped, reentrant, exception => valueTaskSource.TrySetException(exception)),
+                    cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                // Consume the pooled source even if admission fails, returning it to its pool.
+                valueTaskSource.TrySetException(ex);
+            }
 
             return await valueTaskSource.GetValueTask();
         }
@@ -568,6 +619,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
 
             return await _affinityScheduler.ScheduleAsync(key, async () =>
             {
+                EnsureCanExecute(cancellationToken);
                 if (capturedContext != null)
                 {
                     using var _ = PulseContext.SetContext(capturedContext);
@@ -628,7 +680,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
             return;
         }
 
-        _tickCts = new CancellationTokenSource();
+        _tickCts = CancellationTokenSource.CreateLinkedTokenSource(ActorLeaseCancellationToken);
         _tickLoopTask = TickLoopAsync(tick.Interval, _tickCts.Token);
         Logger.LogInformation(
             "Tick loop started at {Hz}Hz (interval {Interval}) for {ServiceAddress}",
@@ -828,6 +880,12 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
         }
         finally
         {
+            // Cancellation can end ReadAllAsync with accepted work still in the channel.
+            // Complete every caller without executing work after revocation or shutdown.
+            while (_messageQueue.Reader.TryRead(out var rejected))
+                rejected.Reject(new OperationCanceledException("Service mailbox processing has stopped.", cancellationToken));
+            _mailboxMetrics?.Observe();
+
             // 停止/取消时排空剩余在途读者，避免遗留悬空任务。
             try
             {

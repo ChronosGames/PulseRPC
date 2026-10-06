@@ -1,4 +1,9 @@
 #nullable enable
+PulseRPC.Server.Clustering.ActorLeaseHeartbeatOptions.MaxConcurrentRenewals.get -> int
+PulseRPC.Server.Clustering.ActorLeaseHeartbeatOptions.MaxConcurrentRenewals.set -> void
+PulseRPC.Server.Clustering.ActorLeaseHeartbeatOptions.RenewalTimeout.get -> System.TimeSpan
+PulseRPC.Server.Clustering.ActorLeaseHeartbeatOptions.RenewalTimeout.set -> void
+PulseRPC.Server.Services.PulseServiceBase.ActorLeaseCancellationToken.get -> System.Threading.CancellationToken
 PulseRPC.Server.Gateway.GatewayActorInvocationContext
 PulseRPC.Server.Gateway.GatewayActorInvocationContext.CallerContext.get -> PulseRPC.Server.Contexts.IPulseContext!
 PulseRPC.Server.Gateway.GatewayActorInvocationContext.GatewayActorInvocationContext(string! hub, string! key, ushort protocolId, PulseRPC.Server.Gateway.GatewayActorInvocationKind invocationKind, PulseRPC.Server.Contexts.IPulseContext! callerContext) -> void

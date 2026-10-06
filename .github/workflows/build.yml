@@ -214,6 +214,9 @@ jobs:
           cat "$RUNNER_TEMP/pulserpc-unity-server.log"
           exit 1
 
+      - name: Check that only the intended UPM manifest was modified
+        run: git diff --exit-code -- . ':!tests/PulseRPC.Client.Unity.Smoke/Packages/manifest.json'
+
       - name: Import UPM tarball, load generators, and run TCP smoke
         uses: game-ci/unity-builder@v5
         env:
@@ -227,6 +230,8 @@ jobs:
           targetPlatform: StandaloneLinux64
           buildMethod: PulseRPC.UnityPackageSmoke.UnityPackageSmokeCi.Run
           useHostNetwork: true
+          # The preceding step intentionally injects the just-built UPM into the manifest.
+          allowDirtyBuild: true
 
       - name: Verify TCP smoke result
         shell: bash
@@ -332,4 +337,3 @@ jobs:
             ./src/PulseRPC.Client.Unity/Logs/
             ./src/PulseRPC.Client.Unity/Builds/iOS/
           retention-days: 1
-
