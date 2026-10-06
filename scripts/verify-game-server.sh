@@ -17,11 +17,13 @@ dotnet restore PulseRPC.sln
 dotnet build PulseRPC.sln -c Debug --no-restore --warnaserror
 dotnet build PulseRPC.sln -c Release --no-restore --warnaserror
 
+test_status=0
 for project in Client Server SourceGenerator Infrastructure Backplane.Redis; do
   dotnet test "tests/PulseRPC.$project.Tests/PulseRPC.$project.Tests.csproj" \
     -c Release --no-restore \
     --logger "trx;LogFileName=$project.trx" \
-    --results-directory "$result_root/tests"
+    --results-directory "$result_root/tests" || test_status=1
 done
 
-python3 scripts/summarize-game-server-tests.py "$result_root/tests"
+python3 scripts/summarize-game-server-tests.py "$result_root/tests" || test_status=1
+exit "$test_status"

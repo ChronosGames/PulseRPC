@@ -28,7 +28,7 @@ namespace PulseRPC.Server.Processing.Engine;
 
 /// <summary>
 /// 固定分片消息引擎。连接注册时以 round-robin 绑定到固定 worker shard；
-/// 每个 shard 使用单消费者有界队列，队列满时立即拒绝，不创建每连接 worker，
+/// 每个 shard 使用有界队列和连接轮询并发调度，队列满时立即拒绝，不创建每连接 worker，
 /// 也不运行 adaptive 或 L3 调度循环。
 /// </summary>
 internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
@@ -85,6 +85,8 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
         var options = configuration?.Value ?? throw new ArgumentNullException(nameof(configuration));
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MessageWorkerShardCount, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MessageQueueCapacityPerShard, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxConcurrentMessagesPerShard, 1);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxConcurrentMessagesPerConnection, 1);
 
         _cancellationTokenSource = new CancellationTokenSource();
 
@@ -106,7 +108,9 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
                 options.MessageQueueCapacityPerShard,
                 handler,
                 OnMessageSlotFinalized,
-                _logger));
+                _logger,
+                options.MaxConcurrentMessagesPerShard,
+                options.MaxConcurrentMessagesPerConnection));
             }
 
             _workerShards = shards.ToArray();
