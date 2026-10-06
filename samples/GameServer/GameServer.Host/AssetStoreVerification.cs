@@ -6,6 +6,18 @@ namespace GameServer.Host;
 
 internal static class AssetStoreVerification
 {
+    internal static async Task HoldPlayerRowAsync(NpgsqlDataSource source, string player)
+    {
+        await using var connection = await source.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await using var query = new NpgsqlCommand("SELECT player FROM game_players WHERE player=$1 FOR UPDATE", connection, transaction);
+        query.Parameters.AddWithValue(player);
+        if (await query.ExecuteScalarAsync() is null) throw new InvalidOperationException("Missing overload test player.");
+        Console.WriteLine("LOCKED");
+        await Task.Delay(TimeSpan.FromSeconds(3));
+        await transaction.RollbackAsync();
+    }
+
     internal static async Task VerifyInactiveOwnerAsync(NpgsqlDataSource source, string player)
     {
         await using var query = source.CreateCommand("SELECT owner_until <= clock_timestamp() FROM game_players WHERE player=$1");
