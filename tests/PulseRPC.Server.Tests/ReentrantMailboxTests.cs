@@ -30,8 +30,8 @@ public class ReentrantMailboxTests
         public int MaxConcurrentReaders => Volatile.Read(ref _maxConcurrentReaders);
         public int MaxConcurrentWriters => Volatile.Read(ref _maxConcurrentWriters);
 
-        public ProbeService()
-            : base("Probe", "probe-1", logger: null, executionOptions: ServiceExecutionOptions.Actor)
+        public ProbeService(ServiceExecutionOptions? options = null)
+            : base("Probe", "probe-1", logger: null, executionOptions: options ?? ServiceExecutionOptions.Actor)
         {
         }
 
@@ -77,6 +77,23 @@ public class ReentrantMailboxTests
                 Interlocked.CompareExchange(ref target, value, current);
             }
         }
+    }
+
+    [Fact]
+    public async Task ReentrantRequests_RespectConfiguredBound_WithoutOverlappingWriter()
+    {
+        var options = new ServiceExecutionOptions { MaxConcurrentReentrantRequests = 2 };
+        Assert.Equal(2, options.Clone().MaxConcurrentReentrantRequests);
+        Assert.Equal(2, options.With(queueCapacity: 16).MaxConcurrentReentrantRequests);
+        await using var svc = new ProbeService(options);
+        await svc.StartAsync();
+        var reads = Enumerable.Range(0, 20)
+            .Select(_ => svc.EnqueueAsync(() => svc.ReadAsync(20), reentrant: true)).ToArray();
+        var writer = svc.EnqueueAsync(() => svc.WriteAsync(1));
+        await Task.WhenAll(reads.Append(writer)).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(2, svc.MaxConcurrentReaders);
+        Assert.False(svc.WriterOverlappedReader);
+        Assert.False(svc.ReaderOverlappedWriter);
     }
 
     [Fact]

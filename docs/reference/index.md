@@ -32,6 +32,10 @@
 | `PulseServerOptions.MessageQueueCapacityPerShard` | 每个消息 shard 的有界队列容量；默认 `1024` |
 | `PulseServerOptions.MaxConcurrentMessagesPerShard` | 每个 shard 的在途上限；默认 `1` |
 | `PulseServerOptions.MaxConcurrentMessagesPerConnection` | 每条物理连接的在途上限；默认 `1` 保持连接处理顺序 |
+| `PulseServerOptions.MaxQueuedMessagesPerConnection` | 单连接排队数量上限；默认 `0`，仅受分片容量限制 |
+| `PulseServerOptions.MaxPendingMessageBytesPerShard` / `MaxPendingMessageBytesPerConnection` | 排队和在途载荷字节上限；默认 `0`，无额外字节限制 |
+| `PulseServerOptions.MaxRequestTimeoutMs` | 本节点入队到执行的期限上限；默认 `0`，保留客户端期限 |
+| `ServiceExecutionOptions.MaxConcurrentReentrantRequests` | 专属 Actor 邮箱同时执行的可重入读请求上限；默认 `64` |
 | `TransportChannelConfiguration` | 服务端 TCP/KCP 监听配置 |
 | `AddPulseClustering(...)` | 注册集群路由和节点配置 |
 | `AddRedisActorLeases(...)` | 以 Redis 原子脚本替换默认进程内 Actor 租约 |

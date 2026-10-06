@@ -21,6 +21,50 @@ namespace PulseRPC.Server.Tests.Processing;
 
 public class ResponseProcessorTests
 {
+    [Fact]
+    public async Task ConcurrentResponseWriters_MustDeliverEveryResponse_WhenCapacityIsOne()
+    {
+        using var manager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
+        var transport = new MockServerTransport("competing-writers");
+        manager.AddChannel(transport);
+        using var processor = new ResponseProcessor(manager,
+            options: new ResponseProcessorSettings { ProcessorThreadCount = 1, ChannelCapacity = 1 },
+            responseSerializerRegistry: new TestResponseSerializerRegistry(), routingTable: new TestRoutingTable());
+        // Fill before starting the consumer: all remaining writes must take the slow path.
+        var writes = Enumerable.Range(0, 200).Select(_ => processor.ProcessMessageResultAsync(
+            AdmissionFailure(transport.Id, Guid.NewGuid())).AsTask()).ToArray();
+        Assert.True(writes.Skip(1).All(write => !write.IsCompleted));
+        await processor.StartAsync();
+        await Task.WhenAll(writes).WaitAsync(TimeSpan.FromSeconds(10));
+        await SpinUntilAsync(() => transport.SentFrames.Count == writes.Length);
+        Assert.Equal(writes.Length, transport.SentFrames.Count);
+    }
+
+    [Fact]
+    public async Task ImmediateAdmissionResponse_ReturnsFalseWhenFull_AndSendsRecognizableBusyCode()
+    {
+        using var manager = new ServerChannelManager(NullLogger<ServerChannelManager>.Instance);
+        var transport = new MockServerTransport("busy-response");
+        manager.AddChannel(transport);
+        using var processor = new ResponseProcessor(manager,
+            options: new ResponseProcessorSettings { ProcessorThreadCount = 1, ChannelCapacity = 1 },
+            responseSerializerRegistry: new TestResponseSerializerRegistry(), routingTable: new TestRoutingTable());
+        var id = Guid.NewGuid();
+        Assert.True(processor.TryProcessMessageResult(AdmissionFailure(transport.Id, id)));
+        Assert.False(processor.TryProcessMessageResult(AdmissionFailure(transport.Id, Guid.NewGuid())));
+        await processor.StartAsync();
+        await SpinUntilAsync(() => transport.SentFrames.Count == 1);
+        Assert.True(MessagePacket.TryReadFrom(transport.SentFrames[0], out var packet));
+        Assert.Equal(id, packet.Header.MessageId);
+        Assert.Equal(MessageType.Error, packet.Header.Type);
+        Assert.Equal("SERVER_BUSY", MemoryPackSerializer.Deserialize<ErrorResponse>(packet.Payload)!.ErrorCode);
+    }
+
+    private static MessageProcessedEventArgs AdmissionFailure(string connection, Guid id) => new(
+        new ServiceCallContext(connection, id, "Test", "Call", 0, null, MessageType.Request,
+            DateTime.UtcNow, 0, MessageFlags.None), null, TimeSpan.Zero, 0, false,
+        new RpcAdmissionException("Server capacity is exhausted."));
+
     [Theory]
     [InlineData(NullableResponseKind.String, 0x2101)]
     [InlineData(NullableResponseKind.Dto, 0x2102)]

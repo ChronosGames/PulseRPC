@@ -20,9 +20,9 @@ This is an agent execution record, not a statement of supported production guara
 | Stage | Scope | Status |
 | --- | --- | --- |
 | 0 | Reproducible baseline and required-suite/Redis execution checks | Run 37494029780 passed: 80 Client, 407 Server, 59 generator, 18 infrastructure, 25 Redis tests; no skips; Debug/Release and benchmark passed |
-| 1 | Lease loss, expiry, quiescence, bounded renewal, stale-writer fencing example | Runtime guard, bounded renewal and regression tests in progress; durable fencing example pending |
-| 2 | Bounded concurrent ingress, Actor ordering, lifecycle/context isolation | Pending |
-| 3 | Overload response, budgets, deadline/cancellation, resource recovery | Pending |
+| 1 | Lease loss, expiry, quiescence, bounded renewal, stale-writer fencing example | Runtime guard and 11 new safety tests passed in runs 37501715307 and 37502950121; durable fencing example pending |
+| 2 | Bounded concurrent ingress, Actor ordering, lifecycle/context isolation | Concurrent shard implementation, 4 new tests and existing lifecycle/ordering tests passed in run 37502950121; real multiplexed cluster acceptance pending |
+| 3 | Overload response, budgets, deadline/cancellation, resource recovery | Byte/connection budgets, busy/deadline replies, bounded reentrant mailbox and reliable response queue implemented; validation pending |
 | 4 | Production Gateway/internal profiles, resource authorization, actual mTLS | Pending |
 | 5 | Durable idempotency example, retry contracts, client/protocol compatibility | Pending |
 | 6 | Separate-process cluster, real Redis, faults, load and capacity evidence | Pending |
@@ -47,3 +47,10 @@ asset transactions must integrate the fencing/idempotency contract demonstrated 
   the workflow. Fix that job's versioning/dirty-worktree configuration and rerun.
 - Publish Git Data API blobs from the Git index (`git show :path`), not raw working-tree bytes;
   the local checkout applies line-ending filters. Verify returned tree SHA equals `git write-tree`.
+- Run 37501715307: Unity clean UPM import and actual TCP roundtrip passed after the workflow fix.
+- Run 37501715306 hit a KCP test timeout; its minimal peer never consumed ACKs, causing
+  retransmitted fragment bursts against a deliberately small receive buffer. Complete the
+  peer's ACK processing. Do not mask the failure with a retry or skipped test. Validation
+  now collects all correctness suites even if an earlier suite fails.
+- Run 37502950121 (0ce95f4): Debug/Release, all five correctness suites and baseline/candidate
+  smoke benchmark passed. Hosted benchmarks remain regression evidence, not capacity certification.

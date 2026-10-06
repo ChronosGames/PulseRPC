@@ -46,6 +46,9 @@ public sealed class ServiceExecutionOptions
     /// </remarks>
     public int MaxConcurrency { get; init; } = 1;
 
+    /// <summary>专属邮箱中同时执行的可重入读请求上限。写请求仍独占执行。</summary>
+    public int MaxConcurrentReentrantRequests { get; init; } = 64;
+
     /// <summary>
     /// 队列容量
     /// </summary>
@@ -271,6 +274,9 @@ public sealed class ServiceExecutionOptions
         if (QueueCapacity < 1)
             throw new ArgumentException("QueueCapacity must be at least 1", nameof(QueueCapacity));
 
+        if (MaxConcurrentReentrantRequests < 1)
+            throw new ArgumentException("MaxConcurrentReentrantRequests must be positive", nameof(MaxConcurrentReentrantRequests));
+
         if (EnableYielding && SchedulingMode != ServiceSchedulingMode.DedicatedQueue)
         {
             throw new ArgumentException(
@@ -286,6 +292,7 @@ public sealed class ServiceExecutionOptions
     {
         SchedulingMode = SchedulingMode,
         MaxConcurrency = MaxConcurrency,
+        MaxConcurrentReentrantRequests = MaxConcurrentReentrantRequests,
         QueueCapacity = QueueCapacity,
         BackpressureMode = BackpressureMode,
         EnableYielding = EnableYielding
@@ -303,6 +310,7 @@ public sealed class ServiceExecutionOptions
     {
         SchedulingMode = schedulingMode ?? SchedulingMode,
         MaxConcurrency = maxConcurrency ?? MaxConcurrency,
+        MaxConcurrentReentrantRequests = MaxConcurrentReentrantRequests,
         QueueCapacity = queueCapacity ?? QueueCapacity,
         BackpressureMode = backpressureMode ?? BackpressureMode,
         EnableYielding = enableYielding ?? EnableYielding
