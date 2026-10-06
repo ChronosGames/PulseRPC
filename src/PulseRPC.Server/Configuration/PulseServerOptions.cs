@@ -38,6 +38,18 @@ public sealed class PulseServerOptions
     /// </summary>
     public int MaxConcurrentMessagesPerConnection { get; set; } = 1;
 
+    /// <summary>单连接最多排队的消息数；0 表示仅受分片队列容量限制。</summary>
+    public int MaxQueuedMessagesPerConnection { get; set; }
+
+    /// <summary>分片排队及在途请求的载荷字节上限；0 表示不额外限制。</summary>
+    public long MaxPendingMessageBytesPerShard { get; set; }
+
+    /// <summary>单连接排队及在途请求的载荷字节上限；0 表示不额外限制。</summary>
+    public long MaxPendingMessageBytesPerConnection { get; set; }
+
+    /// <summary>请求在本节点排队和执行的总期限上限；0 保留客户端期限。</summary>
+    public int MaxRequestTimeoutMs { get; set; }
+
     // === Pipeline Configuration ===
 
     /// <summary>
@@ -112,6 +124,10 @@ public sealed class PulseServerOptions
 
         if (MaxConcurrentMessagesPerShard <= 0 || MaxConcurrentMessagesPerConnection <= 0)
             throw new InvalidOperationException("Message concurrency limits must be greater than zero");
+
+        if (MaxQueuedMessagesPerConnection < 0 || MaxPendingMessageBytesPerShard < 0 ||
+            MaxPendingMessageBytesPerConnection < 0 || MaxRequestTimeoutMs < 0)
+            throw new InvalidOperationException("Message admission budgets must not be negative");
 
     }
 

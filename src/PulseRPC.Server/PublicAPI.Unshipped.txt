@@ -1,4 +1,15 @@
 #nullable enable
+PulseRPC.Server.Configuration.PulseServerOptions.MaxQueuedMessagesPerConnection.get -> int
+PulseRPC.Server.Configuration.PulseServerOptions.MaxQueuedMessagesPerConnection.set -> void
+PulseRPC.Server.Configuration.PulseServerOptions.MaxPendingMessageBytesPerShard.get -> long
+PulseRPC.Server.Configuration.PulseServerOptions.MaxPendingMessageBytesPerShard.set -> void
+PulseRPC.Server.Configuration.PulseServerOptions.MaxPendingMessageBytesPerConnection.get -> long
+PulseRPC.Server.Configuration.PulseServerOptions.MaxPendingMessageBytesPerConnection.set -> void
+PulseRPC.Server.Configuration.PulseServerOptions.MaxRequestTimeoutMs.get -> int
+PulseRPC.Server.Configuration.PulseServerOptions.MaxRequestTimeoutMs.set -> void
+PulseRPC.Server.Processing.Pipeline.IResponseProcessor.TryProcessMessageResult(PulseRPC.Server.Processing.Engine.MessageProcessedEventArgs! eventArgs) -> bool
+PulseRPC.Server.Services.ServiceExecutionOptions.MaxConcurrentReentrantRequests.get -> int
+PulseRPC.Server.Services.ServiceExecutionOptions.MaxConcurrentReentrantRequests.init -> void
 PulseRPC.Server.Configuration.PulseServerOptions.MaxConcurrentMessagesPerShard.get -> int
 PulseRPC.Server.Configuration.PulseServerOptions.MaxConcurrentMessagesPerShard.set -> void
 PulseRPC.Server.Configuration.PulseServerOptions.MaxConcurrentMessagesPerConnection.get -> int

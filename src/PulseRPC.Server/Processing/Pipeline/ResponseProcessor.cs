@@ -134,6 +134,12 @@ public interface IResponseProcessor : IDisposable
     /// 处理消息处理结果
     /// </summary>
     ValueTask ProcessMessageResultAsync(MessageProcessedEventArgs eventArgs);
+
+    /// <summary>
+    /// 立即尝试提交响应，不创建等待者。队列已满或不支持此能力时返回 false。
+    /// 消息引擎在过载响应无法提交时会关闭对应连接。
+    /// </summary>
+    bool TryProcessMessageResult(MessageProcessedEventArgs eventArgs) => false;
 }
 
 /// <summary>
@@ -401,16 +407,27 @@ internal sealed class ResponseProcessor : IResponseProcessor
      [MethodImpl(MethodImplOptions.AggressiveInlining)]
      public ValueTask ProcessMessageResultAsync(MessageProcessedEventArgs eventArgs)
      {
+         if (eventArgs.CallContext.MessageType == MessageType.OneWay)
+             return ValueTask.CompletedTask;
+         var task = CreateResponseTask(eventArgs);
+         if (TryWriteResponse(task)) return ValueTask.CompletedTask;
+         return ProcessMessageResultSlowPathAsync(task);
+     }
+
+     public bool TryProcessMessageResult(MessageProcessedEventArgs eventArgs)
+         => eventArgs.CallContext.MessageType == MessageType.OneWay || TryWriteResponse(CreateResponseTask(eventArgs));
+
+     private bool TryWriteResponse(ResponseTask task)
+     {
+         if (!_responseWriter.TryWrite(task)) return false;
+         _queueMetrics.Observe();
+         return true;
+     }
+
+     private static ResponseTask CreateResponseTask(MessageProcessedEventArgs eventArgs)
+     {
          var callContext = eventArgs.CallContext;
-
-        // 只有需要响应的消息才处理
-        if (callContext.MessageType == MessageType.OneWay)
-        {
-            return ValueTask.CompletedTask; // 单向消息不需要响应
-        }
-
-        // 创建响应任务
-        var responseTask = new ResponseTask(
+        return new ResponseTask(
             callContext.ConnectionId,
             callContext.MessageId,
             callContext.ServiceName,
@@ -422,15 +439,6 @@ internal sealed class ResponseProcessor : IResponseProcessor
             DateTime.UtcNow,
             callContext.ExpectedChannel);
 
-         // 快速路径：尝试同步写入（零分配）
-         if (_responseWriter.TryWrite(responseTask))
-         {
-             _queueMetrics.Observe();
-             return ValueTask.CompletedTask;
-         }
-
-         // 慢速路径：异步等待（通道满时）
-         return ProcessMessageResultSlowPathAsync(responseTask);
      }
 
      /// <summary>
@@ -477,26 +485,10 @@ internal sealed class ResponseProcessor : IResponseProcessor
      {
          _queueMetrics.Observe();
          var waitStart = Stopwatch.GetTimestamp();
-         if (!await _responseWriter.WaitToWriteAsync(_shutdownCts.Token))
-         {
-             _logger.LogWarning("响应处理器通道已关闭");
-             return;
-         }
-
-         if (!_responseWriter.TryWrite(responseTask))
-         {
-             _queueMetrics.RecordRejectedEnqueue();
-             _logger.LogWarning("无法写入响应任务到通道，连接: {ConnectionId}, 消息ID: {MessageId}",
-                 responseTask.ConnectionId, responseTask.MessageId);
-
-             // 使用线程本地计数器（避免原子操作开销）
-             var metrics = GetLocalMetrics();
-             metrics.ResponseErrors++;
-         }
-         else
-         {
-             _queueMetrics.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
-         }
+         // WaitToWrite does not reserve capacity. WriteAsync retries competing writers
+         // instead of silently losing a response when another writer takes the slot.
+         await _responseWriter.WriteAsync(responseTask, _shutdownCts.Token).ConfigureAwait(false);
+         _queueMetrics.RecordEnqueueWait(Stopwatch.GetElapsedTime(waitStart));
      }
 
      /// <summary>
@@ -753,6 +745,7 @@ internal sealed class ResponseProcessor : IResponseProcessor
      {
          return exception switch
          {
+             RpcAdmissionException => "SERVER_BUSY",
              ArgumentNullException => "NULL_ARGUMENT",
              ArgumentException => "INVALID_ARGUMENT",
              InvalidOperationException => "INVALID_OPERATION",

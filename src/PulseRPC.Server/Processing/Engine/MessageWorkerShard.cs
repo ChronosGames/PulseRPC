@@ -15,6 +15,7 @@ internal sealed class MessageWorkerShard : IAsyncDisposable
         internal readonly object Key;
         internal readonly Queue<MessageSlot> Pending = new();
         internal int Active;
+        internal long Bytes;
         internal bool Ready;
         internal ConnectionLane(object key) => Key = key;
     }
@@ -23,6 +24,10 @@ internal sealed class MessageWorkerShard : IAsyncDisposable
     private readonly int _capacity;
     private readonly int _maxConcurrency;
     private readonly int _maxConcurrencyPerConnection;
+    private readonly int _maxQueuedPerConnection;
+    private readonly long _maxBytes;
+    private readonly long _maxBytesPerConnection;
+    private readonly Action<MessageSlot, Exception>? _rejectionHandler;
     private readonly Func<MessageSlot, CancellationToken, ValueTask<ProcessingResult>> _messageHandler;
     private readonly Action<MessageSlot> _messageFinalizer;
     private readonly ILogger _logger;
@@ -38,22 +43,32 @@ internal sealed class MessageWorkerShard : IAsyncDisposable
     private int _stopping;
     private int _queued;
     private int _inFlight;
+    private long _pendingBytes;
     private long _processed;
     private long _dropped;
 
     public MessageWorkerShard(string shardId, int capacity,
         Func<MessageSlot, CancellationToken, ValueTask<ProcessingResult>> messageHandler,
         Action<MessageSlot> messageFinalizer, ILogger logger,
-        int maxConcurrency = 1, int maxConcurrencyPerConnection = 1)
+        int maxConcurrency = 1, int maxConcurrencyPerConnection = 1,
+        int maxQueuedPerConnection = 0, long maxPendingBytes = 0,
+        long maxPendingBytesPerConnection = 0, Action<MessageSlot, Exception>? rejectionHandler = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(shardId);
         ArgumentOutOfRangeException.ThrowIfLessThan(capacity, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrency, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(maxConcurrencyPerConnection, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxQueuedPerConnection);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxPendingBytes);
+        ArgumentOutOfRangeException.ThrowIfNegative(maxPendingBytesPerConnection);
         _shardId = shardId;
         _capacity = capacity;
         _maxConcurrency = maxConcurrency;
         _maxConcurrencyPerConnection = Math.Min(maxConcurrencyPerConnection, maxConcurrency);
+        _maxQueuedPerConnection = maxQueuedPerConnection;
+        _maxBytes = maxPendingBytes;
+        _maxBytesPerConnection = maxPendingBytesPerConnection;
+        _rejectionHandler = rejectionHandler;
         _messageHandler = messageHandler ?? throw new ArgumentNullException(nameof(messageHandler));
         _messageFinalizer = messageFinalizer ?? throw new ArgumentNullException(nameof(messageFinalizer));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -70,22 +85,30 @@ internal sealed class MessageWorkerShard : IAsyncDisposable
     public long DroppedCount => Interlocked.Read(ref _dropped);
     public CancellationToken ShutdownToken => _shutdown.Token;
     internal int InFlightCount => Volatile.Read(ref _inFlight);
+    internal long PendingBytes => Interlocked.Read(ref _pendingBytes);
 
     public bool TryEnqueue(MessageSlot slot)
     {
         lock (_lifecycleLock)
         {
             if (!_accepting) return false;
-            if (_queued >= _capacity)
+            object key = slot.ConnectionLease ?? (object?)slot.ConnectionId ?? string.Empty;
+            _lanes.TryGetValue(key, out var lane);
+            var bytes = slot.Payload.Length;
+            if (_queued >= _capacity ||
+                (_maxQueuedPerConnection > 0 && lane?.Pending.Count >= _maxQueuedPerConnection) ||
+                (_maxBytes > 0 && bytes > _maxBytes - _pendingBytes) ||
+                (_maxBytesPerConnection > 0 && bytes > _maxBytesPerConnection - (lane?.Bytes ?? 0)))
             {
                 _queueMetrics.RecordRejectedEnqueue();
                 return false;
             }
             // Physical connection generations must never share a lane with replacements.
-            object key = slot.ConnectionLease ?? (object?)slot.ConnectionId ?? string.Empty;
-            if (!_lanes.TryGetValue(key, out var lane))
+            if (lane is null)
                 _lanes.Add(key, lane = new ConnectionLane(key));
             lane.Pending.Enqueue(slot);
+            lane.Bytes += bytes;
+            _pendingBytes += bytes;
             _queued++;
             MakeReady(lane);
             _queueMetrics.Observe();
@@ -153,6 +176,7 @@ internal sealed class MessageWorkerShard : IAsyncDisposable
 
     private void Dispatch(MessageSlot slot, ConnectionLane lane)
     {
+        var bytes = slot.Payload.Length;
         // A synchronous/CPU-heavy handler must not block admission for other connection lanes.
         _ = Task.Run(async () =>
         {
@@ -168,6 +192,8 @@ internal sealed class MessageWorkerShard : IAsyncDisposable
                 {
                     _inFlight--;
                     lane.Active--;
+                    lane.Bytes -= bytes;
+                    _pendingBytes -= bytes;
                     if (lane.Active == 0 && lane.Pending.Count == 0) _lanes.Remove(lane.Key);
                     else MakeReady(lane);
                     lane = null!;
@@ -185,7 +211,12 @@ internal sealed class MessageWorkerShard : IAsyncDisposable
             dropped = new List<MessageSlot>(_queued);
             foreach (var lane in _lanes.Values)
             {
-                while (lane.Pending.TryDequeue(out var slot)) dropped.Add(slot);
+                while (lane.Pending.TryDequeue(out var slot))
+                {
+                    lane.Bytes -= slot.Payload.Length;
+                    _pendingBytes -= slot.Payload.Length;
+                    dropped.Add(slot);
+                }
                 lane.Ready = false;
             }
             _ready.Clear();
@@ -224,6 +255,7 @@ internal sealed class MessageWorkerShard : IAsyncDisposable
                 {
                     slot.Status = MessageStatus.Failed;
                     Interlocked.Increment(ref _dropped);
+                    _rejectionHandler?.Invoke(slot, new TimeoutException("Request deadline expired while queued."));
                     return;
                 }
 

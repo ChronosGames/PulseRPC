@@ -10,6 +10,7 @@ using PulseRPC.Shared;
 using System.Diagnostics;
 using PulseRPC.Diagnostics;
 using PulseRPC.Server.Clustering;
+using PulseRPC.Server.Processing;
 
 namespace PulseRPC.Server.Services;
 
@@ -247,6 +248,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
         ServiceId = serviceId;
         Logger = logger ?? NullLogger.Instance;
         ExecutionOptions = executionOptions ?? ServiceExecutionOptions.Default;
+        ArgumentOutOfRangeException.ThrowIfLessThan(ExecutionOptions.MaxConcurrentReentrantRequests, 1);
         _affinityScheduler = affinityScheduler;
 
         // 根据调度模式创建消息队列
@@ -269,7 +271,7 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 itemDropped: item =>
                 {
                     _mailboxMetrics?.RecordRejectedEnqueue();
-                    item.Reject(new InvalidOperationException(
+                    item.Reject(new RpcAdmissionException(
                         $"Service mailbox is full and rejected a request ({ExecutionOptions.BackpressureMode}): " +
                         ((IPulseService)this).ServiceAddress));
                 });
@@ -858,8 +860,18 @@ public abstract class PulseServiceBase : IPulseService, IPulseServiceLifecycle, 
                 _mailboxMetrics?.Observe();
                 if (item.Reentrant)
                 {
-                    // 读者：并发派发，不等待其完成即可继续读取下一项。
+                    // Readers are bounded even when they ignore cancellation.
                     PruneCompleted(inFlightReaders);
+                    if (inFlightReaders.Count >= ExecutionOptions.MaxConcurrentReentrantRequests)
+                    {
+                        await Task.WhenAny(inFlightReaders).ConfigureAwait(false);
+                        PruneCompleted(inFlightReaders);
+                    }
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        item.Reject(new OperationCanceledException(cancellationToken));
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
                     inFlightReaders.Add(RunWorkSafeAsync(item.Work));
                 }
                 else

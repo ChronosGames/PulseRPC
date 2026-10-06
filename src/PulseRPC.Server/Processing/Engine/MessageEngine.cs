@@ -40,6 +40,7 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
     private readonly ILogger<MessageEngine> _logger;
     private readonly IServerChannelManager _channelManager;
     private readonly IResponseProcessor _responseProcessor;
+    private readonly int _maxRequestTimeoutMs;
     private readonly ConcurrentDictionary<Guid, RequestCancellation> _requestCancellations = new();
 
     // 固定 shard：连接只保存轻量 generation/lease，不再按连接创建 worker、队列和调度器。
@@ -87,6 +88,11 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MessageQueueCapacityPerShard, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxConcurrentMessagesPerShard, 1);
         ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxConcurrentMessagesPerConnection, 1);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.MaxQueuedMessagesPerConnection);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.MaxPendingMessageBytesPerShard);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.MaxPendingMessageBytesPerConnection);
+        ArgumentOutOfRangeException.ThrowIfNegative(options.MaxRequestTimeoutMs);
+        _maxRequestTimeoutMs = options.MaxRequestTimeoutMs;
 
         _cancellationTokenSource = new CancellationTokenSource();
 
@@ -110,7 +116,11 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
                 OnMessageSlotFinalized,
                 _logger,
                 options.MaxConcurrentMessagesPerShard,
-                options.MaxConcurrentMessagesPerConnection));
+                options.MaxConcurrentMessagesPerConnection,
+                options.MaxQueuedMessagesPerConnection,
+                options.MaxPendingMessageBytesPerShard,
+                options.MaxPendingMessageBytesPerConnection,
+                RejectMessage));
             }
 
             _workerShards = shards.ToArray();
@@ -398,6 +408,10 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
                 }
             }
 
+            if (_maxRequestTimeoutMs > 0 &&
+                (messagePacket.Header.TimeoutMs <= 0 || messagePacket.Header.TimeoutMs > _maxRequestTimeoutMs))
+                messagePacket.Header.TimeoutMs = _maxRequestTimeoutMs;
+
             var slot = new MessageSlot
             {
                 MessageId = messagePacket.Header.MessageId,
@@ -415,6 +429,7 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
             {
                 _metrics.BackpressureEvents.Add(1);
                 _metrics.MessagesDropped.Add(1);
+                RejectMessage(slot, new RpcAdmissionException("Server request capacity is exhausted."));
                 leaseAcquired = false;
                 FinalizeRejectedSlot(slot);
                 return false;
@@ -486,6 +501,37 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
             {
                 slot.ConnectionLease?.Release();
             }
+        }
+    }
+
+    private void RejectMessage(MessageSlot slot, Exception reason)
+    {
+        var lease = slot.ConnectionLease;
+        if (slot.Header?.Type != MessageType.Request || lease is null || !lease.IsActive) return;
+        if (!_connections.TryGetValue(slot.ConnectionId, out var current) || !ReferenceEquals(lease, current)) return;
+        var context = new ServiceCallContext(slot.ConnectionId, slot.MessageId,
+            slot.Header.ServiceName, slot.Header.MethodName, slot.Header.ProtocolId,
+            null, slot.Header.Type, DateTime.UtcNow, 0, slot.Header.Flags)
+        {
+            ExpectedChannel = lease.Channel
+        };
+        try
+        {
+            if (_responseProcessor.TryProcessMessageResult(new MessageProcessedEventArgs(
+                context, null, TimeSpan.Zero, 0, false, reason))) return;
+        }
+        catch (Exception ex)
+        {
+            SafeLog(() => _logger.LogWarning(ex, "Could not enqueue admission failure response"));
+        }
+
+        // The response queue is bounded too. Do not allocate a background waiter for
+        // every rejected frame: terminate this physical generation so callers fail fast.
+        if (lease.Channel is { } channel)
+        {
+            UnregisterConnection(channel);
+            try { channel.Dispose(); }
+            catch (Exception ex) { SafeLog(() => _logger.LogWarning(ex, "Could not close overloaded connection")); }
         }
     }
 
@@ -792,6 +838,13 @@ internal sealed class MessageEngine : IAsyncDisposable, ITieredMessageEngine
             _metrics.MessagesDropped.Add(1);
             _logger.LogDebug("消息处理被取消: MessageId={MessageId}, ConnectionId={ConnectionId}",
                 envelope.MessageId, envelope.ConnectionId);
+
+            if (cancellationToken.IsCancellationRequested &&
+                !_cancellationTokenSource.IsCancellationRequested &&
+                requestCancellation?.IsCancellationRequested != true &&
+                envelope.ConnectionLease is { IsActive: true })
+                await TriggerMessageProcessedEventAsync(envelope, null,
+                    new TimeoutException("Request deadline expired during execution."));
 
             return new MessageResponse
             {

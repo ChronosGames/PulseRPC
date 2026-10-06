@@ -234,8 +234,18 @@ public sealed class KcpClientTransportTests
         Assert.Equal(0, sender.Send(wirePayload));
 
         var stopwatch = Stopwatch.StartNew();
+        var ackBuffer = new byte[4096];
         while (!cancellationToken.IsCancellationRequested)
         {
+            // The peer must consume acknowledgements. Repeatedly retransmitting every
+            // fragment can otherwise starve later fragments with the deliberately small
+            // receive buffer, depending on scheduling on the CI host.
+            while (socket.Poll(0, SelectMode.SelectRead))
+            {
+                EndPoint source = new IPEndPoint(IPAddress.Any, 0);
+                var count = socket.ReceiveFrom(ackBuffer, ref source);
+                if (source.Equals(remoteEndpoint)) sender.Input(ackBuffer.AsSpan(0, count));
+            }
             sender.Update((uint)stopwatch.ElapsedMilliseconds);
 
             try
