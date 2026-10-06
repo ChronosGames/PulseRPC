@@ -22,6 +22,9 @@ public class TransportChannelConfiguration
     /// </summary>
     public int Port { get; set; }
 
+    /// <summary>监听地址。默认所有 IPv4 接口；TLS sidecar 后端应显式使用 loopback。</summary>
+    public System.Net.IPAddress ListenAddress { get; set; } = System.Net.IPAddress.Any;
+
     /// <summary>
     /// 传输选项
     /// </summary>

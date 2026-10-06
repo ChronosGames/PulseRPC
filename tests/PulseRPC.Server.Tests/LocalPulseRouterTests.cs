@@ -230,7 +230,7 @@ public class LocalPulseRouterTests
                 callCount++;
                 if (callCount < 3)
                 {
-                    throw new InvalidOperationException("transient");
+                    throw new System.IO.IOException("transient");
                 }
 
                 return new ValueTask<object?>((object?)null);

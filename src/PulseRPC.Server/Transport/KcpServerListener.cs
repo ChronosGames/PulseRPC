@@ -484,6 +484,7 @@ public class KcpServerListener : IServerListener
     private Task? _listenTask;
     private bool _isListening;
     private readonly int _port;
+    private readonly IPAddress _listenAddress;
     private readonly ConcurrentDictionary<string, KcpServerTransport> _connections = new();
     private readonly ConcurrentDictionary<uint, string> _conversationOwners = new();
     private readonly ConcurrentDictionary<string, Task> _connectionCloseTasks = new();
@@ -498,7 +499,16 @@ public class KcpServerListener : IServerListener
     public event System.EventHandler<ServerConnectionEventArgs>? ConnectionAccepted;
 
     public KcpServerListener(int port, KcpTransportOptions? options = null, ILogger? logger = null)
+        : this(port, options, logger, IPAddress.Any)
     {
+    }
+
+    internal KcpServerListener(int port, KcpTransportOptions? options, ILogger? logger, IPAddress listenAddress)
+    {
+        ArgumentNullException.ThrowIfNull(listenAddress);
+        if (listenAddress.AddressFamily != AddressFamily.InterNetwork)
+            throw new ArgumentException("KCP listeners currently require an IPv4 address.", nameof(listenAddress));
+        _listenAddress = listenAddress;
         _port = port;
         _options = options ?? new KcpTransportOptions();
         _logger = logger ?? NullLogger.Instance;
@@ -518,7 +528,7 @@ public class KcpServerListener : IServerListener
         try
         {
             // 绑定端口
-            _socket.Bind(new IPEndPoint(IPAddress.Any, _port));
+            _socket.Bind(new IPEndPoint(_listenAddress, _port));
 
             // 启动监听任务
             _listenTask = ListenAsync(_cts.Token);

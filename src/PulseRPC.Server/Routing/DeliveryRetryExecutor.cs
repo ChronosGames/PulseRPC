@@ -19,6 +19,12 @@ public sealed class DeliveryRetryOptions
 
     /// <summary>单次退避延迟的上限，默认 2 秒。</summary>
     public TimeSpan MaxDelay { get; set; } = TimeSpan.FromSeconds(2);
+
+    /// <summary>自定义重试分类；默认仅重试网络 IO、超时和 SERVER_BUSY。取消不重试。</summary>
+    public Func<Exception, bool>? ShouldRetry { get; set; }
+
+    /// <summary>退避随机抖动比例，范围 0 到 1；默认 0.2，最终延迟仍受 MaxDelay 限制。</summary>
+    public double JitterRatio { get; set; } = 0.2;
 }
 
 /// <summary>
@@ -45,6 +51,12 @@ public static class DeliveryRetryExecutor
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(action);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.MaxAttempts, 1);
+        if (options.BaseDelay < TimeSpan.Zero || options.MaxDelay < TimeSpan.Zero ||
+            options.MaxDelay.TotalMilliseconds > uint.MaxValue - 1 ||
+            !double.IsFinite(options.JitterRatio) || options.JitterRatio < 0 || options.JitterRatio > 1)
+            throw new ArgumentOutOfRangeException(nameof(options), "Retry backoff and jitter must be finite and bounded.");
+        cancellationToken.ThrowIfCancellationRequested();
 
         if (delivery == DeliveryMode.AtMostOnce)
         {
@@ -60,9 +72,11 @@ public static class DeliveryRetryExecutor
                 await action(cancellationToken).ConfigureAwait(false);
                 return;
             }
-            catch (Exception ex) when (attempt < maxAttempts)
+            catch (Exception ex)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if (ex is OperationCanceledException || attempt >= maxAttempts ||
+                    !(options.ShouldRetry?.Invoke(ex) ?? IsTransient(ex))) throw;
 
                 var delay = ComputeBackoff(options, attempt);
                 logger.LogWarning(
@@ -77,8 +91,18 @@ public static class DeliveryRetryExecutor
 
     private static TimeSpan ComputeBackoff(DeliveryRetryOptions options, int attempt)
     {
+        if (options.BaseDelay == TimeSpan.Zero || options.MaxDelay == TimeSpan.Zero) return TimeSpan.Zero;
         var exponentialMillis = options.BaseDelay.TotalMilliseconds * Math.Pow(2, attempt - 1);
         var cappedMillis = Math.Min(exponentialMillis, options.MaxDelay.TotalMilliseconds);
-        return TimeSpan.FromMilliseconds(cappedMillis);
+        var jitter = 1 + (Random.Shared.NextDouble() * 2 - 1) * options.JitterRatio;
+        return TimeSpan.FromMilliseconds(Math.Min(cappedMillis * jitter, options.MaxDelay.TotalMilliseconds));
     }
+
+    private static bool IsTransient(Exception exception) => exception switch
+    {
+        System.IO.IOException or System.Net.Sockets.SocketException or TimeoutException => true,
+        PulseRPC.Server.Processing.RpcAdmissionException => true,
+        PulseRemoteException remote => remote.ErrorCode is "SERVER_BUSY" or "TIMEOUT",
+        _ => false
+    };
 }

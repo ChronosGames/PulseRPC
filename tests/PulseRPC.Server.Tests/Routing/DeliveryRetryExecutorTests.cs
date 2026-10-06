@@ -17,6 +17,65 @@ namespace PulseRPC.Server.Tests.Routing;
 /// </summary>
 public class DeliveryRetryExecutorTests
 {
+    [Theory]
+    [InlineData("authorization")]
+    [InlineData("argument")]
+    [InlineData("business")]
+    [InlineData("cancellation")]
+    [InlineData("remote")]
+    public async Task DeterministicFailures_AreNeverRetriedByDefault(string kind)
+    {
+        Exception failure = kind switch
+        {
+            "authorization" => new UnauthorizedAccessException(),
+            "argument" => new ArgumentException(),
+            "business" => new InvalidOperationException(),
+            "cancellation" => new OperationCanceledException(),
+            _ => new PulseRemoteException("denied", "UNAUTHORIZED")
+        };
+        var calls = 0;
+        var actual = await Record.ExceptionAsync(async () => await DeliveryRetryExecutor.ExecuteAsync(
+            DeliveryMode.AtLeastOnce, FastOptions(), _ => { calls++; throw failure; },
+            NullLogger.Instance, "terminal", CancellationToken.None));
+        Assert.Same(failure, actual);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task CustomClassifier_CanAllowAnApplicationSpecificTransientFailure()
+    {
+        var options = FastOptions();
+        options.ShouldRetry = ex => ex is InvalidOperationException;
+        var calls = 0;
+        await DeliveryRetryExecutor.ExecuteAsync(DeliveryMode.AtLeastOnce, options,
+            _ => { if (++calls < 2) throw new InvalidOperationException(); return default; },
+            NullLogger.Instance, "custom", CancellationToken.None);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task CanceledAction_IsNotRetried_EvenWithPermissiveClassifier()
+    {
+        var options = FastOptions();
+        options.ShouldRetry = _ => true;
+        var calls = 0;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await DeliveryRetryExecutor.ExecuteAsync(DeliveryMode.AtLeastOnce, options,
+                _ => { calls++; throw new OperationCanceledException(); },
+                NullLogger.Instance, "canceled", CancellationToken.None));
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public async Task BusyReply_CanBeRetriedWithBoundedAttempts()
+    {
+        var calls = 0;
+        await DeliveryRetryExecutor.ExecuteAsync(DeliveryMode.AtLeastOnce, FastOptions(),
+            _ => { if (++calls == 1) throw new PulseRemoteException("busy", "SERVER_BUSY"); return default; },
+            NullLogger.Instance, "busy", CancellationToken.None);
+        Assert.Equal(2, calls);
+    }
+
     private static DeliveryRetryOptions FastOptions() => new()
     {
         MaxAttempts = 4,
@@ -69,7 +128,7 @@ public class DeliveryRetryExecutorTests
                 callCount++;
                 if (callCount < 3)
                 {
-                    throw new InvalidOperationException("transient");
+                    throw new System.IO.IOException("transient");
                 }
 
                 return default;
@@ -92,11 +151,11 @@ public class DeliveryRetryExecutorTests
             _ =>
             {
                 callCount++;
-                throw new InvalidOperationException($"failure-{callCount}");
+                throw new System.IO.IOException($"failure-{callCount}");
             },
             NullLogger.Instance, "test-op", CancellationToken.None);
 
-        (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Be($"failure-{options.MaxAttempts}");
+        (await act.Should().ThrowAsync<System.IO.IOException>()).Which.Message.Should().Be($"failure-{options.MaxAttempts}");
         callCount.Should().Be(options.MaxAttempts, "应恰好尝试 MaxAttempts 次（含首次），不多不少");
     }
 
@@ -140,7 +199,7 @@ public class DeliveryRetryExecutorTests
                 callCount++;
                 if (callCount < 4)
                 {
-                    throw new InvalidOperationException("transient");
+                    throw new System.IO.IOException("transient");
                 }
 
                 return default;

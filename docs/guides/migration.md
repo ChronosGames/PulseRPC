@@ -92,6 +92,23 @@ services.AddPulseServer(options =>
 
 不要把旧字段机械映射成新的高数值。先使用默认值，再以 `message-engine.shard` 队列指标和固定 workload 决定是否调整。
 
+### 游戏服务端并发与准入
+
+- `MaxConcurrentMessagesPerShard` 和 `MaxConcurrentMessagesPerConnection` 默认均为 `1`；调高后，最大在途数为 shard 数乘以每 shard 并发。单连接并发大于 `1` 时不再保证网络请求处理顺序，同一 Actor 写请求仍通过邮箱互斥。
+- 新的单连接排队、连接/分片载荷字节和服务端期限预算默认 `0`，保留原有配置；可从 `UseGameGatewayProfile()` / `UseGameNodeProfile()` 起步。字节预算覆盖排队和实际未完成的业务，不把合作式取消误当成已释放资源。
+- 准入过载返回 `SERVER_BUSY`，响应队列也满时关闭物理连接；客户端应使用有界退避，并为资产操作提供持久化业务操作 ID。自定义 `IResponseProcessor` 应实现非阻塞 `TryProcessMessageResult`，否则过载时使用关闭连接策略。
+- 专属邮箱可重入读请求新增默认上限 `64`，通过 `ServiceExecutionOptions.MaxConcurrentReentrantRequests` 调整；写请求仍独占。热点 Actor 宜使用小邮箱和 `ThrowException`，避免大量调用等待同一个 Actor 并占满入口执行槽。
+- Actor 租约过期或续租失败会停止接收该实例的新任务、取消 Tick 并请求清理。运行中的业务应观察 `ActorLeaseCancellationToken`，持久化写入仍须数据库 fencing 和幂等。
+- `TransportChannelConfiguration.ListenAddress` 默认仍为所有 IPv4 接口；应用放到 TLS 代理之后时，应显式绑定 loopback 并关闭后端端口的外部访问。
+
+### 投递重试分类
+
+`DeliveryRetryExecutor` 默认仅重试网络 IO、Socket 错误、超时和 `SERVER_BUSY`，不再重试任意业务异常。
+有意用业务异常表达短暂故障的应用可配置 `DeliveryRetryOptions.ShouldRetry`；取消始终停止重试。
+默认退避加入 20% 抖动，可通过 `JitterRatio = 0` 关闭，最终仍受 `MaxDelay` 和 `MaxAttempts` 限制。
+超时或连接断开可能发生在数据库已提交之后；重试必须复用业务操作 ID。`DeliveryMode.ExactlyOnce`
+只有当前进程内的有限去重窗口，不能替代持久化幂等记录和事务，也不能保证 Redis Pub/Sub 断线期间补投。
+
 ## 迁移到严格 Hub 路由和 node wire v2
 
 - 重新生成客户端代理；新代理要求通道实现 `IHubAddressedClientChannel` 并始终发送 canonical Hub，不再静默回退为空 Hub 调用。

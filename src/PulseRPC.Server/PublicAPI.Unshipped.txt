@@ -1,4 +1,16 @@
 #nullable enable
+PulseRPC.Server.Routing.DeliveryRetryOptions.ShouldRetry.get -> System.Func<System.Exception!, bool>?
+PulseRPC.Server.Routing.DeliveryRetryOptions.ShouldRetry.set -> void
+PulseRPC.Server.Routing.DeliveryRetryOptions.JitterRatio.get -> double
+PulseRPC.Server.Routing.DeliveryRetryOptions.JitterRatio.set -> void
+PulseRPC.Server.TransportChannelConfiguration.ListenAddress.get -> System.Net.IPAddress!
+PulseRPC.Server.TransportChannelConfiguration.ListenAddress.set -> void
+PulseRPC.Server.Configuration.GameServerProfiles
+static PulseRPC.Server.Configuration.GameServerProfiles.UseGameGatewayProfile(this PulseRPC.Server.Configuration.PulseServerOptions! options) -> PulseRPC.Server.Configuration.PulseServerOptions!
+static PulseRPC.Server.Configuration.GameServerProfiles.UseGameNodeProfile(this PulseRPC.Server.Configuration.PulseServerOptions! options) -> PulseRPC.Server.Configuration.PulseServerOptions!
+PulseRPC.Server.Gateway.UserOwnedActorInvocationPolicy
+PulseRPC.Server.Gateway.UserOwnedActorInvocationPolicy.UserOwnedActorInvocationPolicy(System.Collections.Generic.IReadOnlyDictionary<string!, System.Collections.Generic.IReadOnlyCollection<ushort>!>! allowedMethods) -> void
+PulseRPC.Server.Gateway.UserOwnedActorInvocationPolicy.EvaluateAsync(PulseRPC.Server.Gateway.GatewayActorInvocationContext! context, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.ValueTask
 PulseRPC.Server.Configuration.PulseServerOptions.MaxQueuedMessagesPerConnection.get -> int
 PulseRPC.Server.Configuration.PulseServerOptions.MaxQueuedMessagesPerConnection.set -> void
 PulseRPC.Server.Configuration.PulseServerOptions.MaxPendingMessageBytesPerShard.get -> long

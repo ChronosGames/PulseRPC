@@ -22,9 +22,9 @@ This is an agent execution record, not a statement of supported production guara
 | 0 | Reproducible baseline and required-suite/Redis execution checks | Run 37494029780 passed: 80 Client, 407 Server, 59 generator, 18 infrastructure, 25 Redis tests; no skips; Debug/Release and benchmark passed |
 | 1 | Lease loss, expiry, quiescence, bounded renewal, stale-writer fencing example | Runtime guard and 11 new safety tests passed in runs 37501715307 and 37502950121; durable fencing example pending |
 | 2 | Bounded concurrent ingress, Actor ordering, lifecycle/context isolation | Concurrent shard implementation, 4 new tests and existing lifecycle/ordering tests passed in run 37502950121; real multiplexed cluster acceptance pending |
-| 3 | Overload response, budgets, deadline/cancellation, resource recovery | Byte/connection budgets, busy/deadline replies, bounded reentrant mailbox and reliable response queue implemented; validation pending |
-| 4 | Production Gateway/internal profiles, resource authorization, actual mTLS | Pending |
-| 5 | Durable idempotency example, retry contracts, client/protocol compatibility | Pending |
+| 3 | Overload response, budgets, deadline/cancellation, resource recovery | Byte/connection budgets, busy/deadline replies, bounded reentrant mailbox and reliable response queue passed run 37503795155 |
+| 4 | Production Gateway/internal profiles, resource authorization, actual mTLS | Explicit profiles, owner/method policy and loopback binding implemented; mTLS process topology pending |
+| 5 | Durable idempotency example, retry contracts, client/protocol compatibility | Transient retry classification and tests implemented; PostgreSQL example and compatibility acceptance pending |
 | 6 | Separate-process cluster, real Redis, faults, load and capacity evidence | Pending |
 
 ## Execution rules

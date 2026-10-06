@@ -353,7 +353,7 @@ internal sealed class TcpNodeTransportConnection : IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         if (!_requestSlots.Wait(0))
         {
-            throw new InvalidOperationException("节点连接的最大并发请求数已达到上限。");
+            throw new PulseRPC.Server.Processing.RpcAdmissionException("节点连接的最大并发请求数已达到上限。");
         }
 
         try
