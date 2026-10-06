@@ -117,8 +117,10 @@ internal sealed class AssetStore(NpgsqlDataSource source)
             result = new PurchaseReceipt { OperationId = request.OperationId, Balance = reader.GetInt64(0), Inventory = reader.GetInt32(1) };
         }
         await using (var insert = new NpgsqlCommand("""
-            INSERT INTO game_receipts(player,operation,sku,quantity,balance,inventory) VALUES ($1,$2,$3,$4,$5,$6);
-            INSERT INTO game_outbox(player,operation) VALUES ($1,$2);
+            WITH receipt AS (
+              INSERT INTO game_receipts(player,operation,sku,quantity,balance,inventory)
+              VALUES ($1,$2,$3,$4,$5,$6) RETURNING player,operation)
+            INSERT INTO game_outbox(player,operation) SELECT player,operation FROM receipt
             """, connection, transaction))
         {
             insert.Parameters.AddWithValue(fence.Player);

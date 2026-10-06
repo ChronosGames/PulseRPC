@@ -446,8 +446,13 @@ public sealed class PulseServiceManager : IAsyncDisposable
         return result.Disposed && result.StopException is null;
     }
 
-    internal async ValueTask RemoveServiceIfSameAsync(IPulseService expected)
+    /// <summary>
+    /// Retires the supplied activation without removing a newer instance at the same address.
+    /// An unregistered running instance is stopped directly. Cleanup is not cancellable.
+    /// </summary>
+    public async ValueTask RemoveServiceIfSameAsync(IPulseService expected)
     {
+        ArgumentNullException.ThrowIfNull(expected);
         var result = await RemoveServiceCoreAsync(expected.ServiceType, expected.ServiceId, CancellationToken.None, expected)
             .ConfigureAwait(false);
         if (result.Found && !result.Disposed)

@@ -15,6 +15,7 @@
 | 示例 | 说明 |
 |------|------|
 | [ChatApp](ChatApp/) | 基于服务隔离架构的实时聊天/游戏示例，包含控制台与 Unity 客户端（见 [README](ChatApp/README.md)） |
+| [GameServer](../docs/guides/game-server-acceptance.md) | 玩家入口、内部 mTLS、Redis 故障与 PostgreSQL 幂等/旧代次写入专项验收 |
 | [GameApp](GameApp/) | 完整的游戏服务器示例（见 [README](GameApp/README.md)） |
 | [DistributedGameApp](DistributedGameApp/) | 分布式游戏服务器示例（见 [README](DistributedGameApp/README.md)） |
 | [JwtAuthentication](JwtAuthentication/) | JWT 身份验证集成示例（客户端 / 服务端 / 共享契约） |

@@ -22,6 +22,8 @@ await using var source = NpgsqlDataSource.Create(database);
 var store = new AssetStore(source);
 if (args[0] == "init") { await store.InitializeAsync(); return; }
 if (args[0] == "verify-store") { await AssetStoreVerification.RunAsync(store, source); return; }
+if (args[0] == "verify-inactive-owner" && args.Length == 2)
+{ await AssetStoreVerification.VerifyInactiveOwnerAsync(source, args[1]); return; }
 if (args[0] != "node" || args.Length != 5) throw new ArgumentException("Invalid node arguments.");
 var node = args[1];
 var port = int.Parse(args[2]);
