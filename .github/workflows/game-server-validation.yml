@@ -22,6 +22,37 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 2s --health-retries 20
+    env:
+      PULSERPC_TEST_REDIS: localhost:6379,abortConnect=false,connectTimeout=5000
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.100'
+      - name: Build and run correctness suites
+        run: bash scripts/verify-game-server.sh
+      - name: Verify test execution, including real Redis
+        if: always()
+        run: python3 scripts/summarize-game-server-tests.py artifacts/game-server/tests
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: game-server-correctness
+          path: artifacts/game-server/
+          retention-days: 14
+
+  cluster:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
       postgres:
         image: postgres:17-alpine
         env:
@@ -39,7 +70,6 @@ jobs:
           --health-cmd "redis-cli ping"
           --health-interval 2s --health-timeout 2s --health-retries 20
     env:
-      PULSERPC_TEST_REDIS: localhost:6379,abortConnect=false,connectTimeout=5000
       GAME_REDIS: localhost:6379,abortConnect=false,connectTimeout=1000,syncTimeout=1000,asyncTimeout=1000
       GAME_POSTGRES: Host=localhost;Username=game;Password=acceptance-only;Database=game;Timeout=5;Command Timeout=5
     steps:
@@ -49,11 +79,6 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.100'
-      - name: Build and run correctness suites
-        run: bash scripts/verify-game-server.sh
-      - name: Verify test execution, including real Redis
-        if: always()
-        run: python3 scripts/summarize-game-server-tests.py artifacts/game-server/tests
       - name: Build the game server persistence and cluster sample
         run: |
           dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror
@@ -78,7 +103,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: game-server-correctness
+          name: game-server-cluster
           path: artifacts/game-server/
           retention-days: 14
 

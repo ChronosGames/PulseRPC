@@ -48,6 +48,8 @@ Redis 决定路由属主，PostgreSQL 独立签发单调递增的写入代次。
 
 脚本检查真实 TLS 拒绝、匿名/越权/过期身份、数据库并发去重与旧代次拒绝、旧协议客户端、杀死属主、暂停后恢复旧属主、Redis 中断后的 Tick 停止与恢复，以及数据库行锁下的请求突发与 SERVER_BUSY 恢复、正常/大载荷/热点 Actor 和重新建连。每项必须实际完成后才计入结果。
 
+验收显式将客户端、服务端监听和节点连接的 TCP 收发缓冲设为 64 KiB；节点选项 `TcpNodeTransportOptions.RecvBufferSize/SendBufferSize` 默认仍为 8 KiB。增加缓冲会增加每条连接的内存预算，应与实际载荷和并发共同调优。
+
 集群负载输出吞吐、P50/P95/P99、客户端 RSS，以及负载前后的各节点 RSS。它是固定并发闭环 Echo 工作负载，不能推导数据库写入吞吐或生产 CCU。`scripts/benchmark-game-server.sh <baseline-ref> full` 在同一 runner 上运行基线与候选版本的五轮比较；CI 的比较报告记录延迟和分配，不把共享 runner 的抖动作为硬性容量门禁。
 
 生产容量仍需使用目标硬件、网络、认证、真实业务比例和峰值到达率，在指定 P99、错误率、内存与恢复时间 SLO 下测量；报告始终标记 `capacity_certified: false`。本验收为可重复的正确性和回归证据，不宣称已获生产容量认证。

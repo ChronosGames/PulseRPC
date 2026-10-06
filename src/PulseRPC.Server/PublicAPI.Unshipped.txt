@@ -81,3 +81,7 @@ PulseRPC.Server.Processing.Engine.ITieredMessageEngine.TryEnqueueMessage(PulseRP
 PulseRPC.Server.Processing.Engine.ITieredMessageEngine.UnregisterConnection(PulseRPC.Server.Transport.IServerChannel! channel) -> void
 override PulseRPC.Server.Transport.TcpServerTransport.Dispose() -> void
 PulseRPC.Server.Services.Management.PulseServiceManager.RemoveServiceIfSameAsync(PulseRPC.Server.Services.IPulseService! expected) -> System.Threading.Tasks.ValueTask
+PulseRPC.Server.Clustering.TcpNodeTransportOptions.RecvBufferSize.get -> int
+PulseRPC.Server.Clustering.TcpNodeTransportOptions.RecvBufferSize.set -> void
+PulseRPC.Server.Clustering.TcpNodeTransportOptions.SendBufferSize.get -> int
+PulseRPC.Server.Clustering.TcpNodeTransportOptions.SendBufferSize.set -> void

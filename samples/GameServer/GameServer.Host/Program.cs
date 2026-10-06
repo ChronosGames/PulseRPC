@@ -46,7 +46,11 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
             if (node == "gateway") options.UseGameGatewayProfile();
             else options.UseGameNodeProfile();
             options.MessageWorkerShardCount = 2;
-            options.AddTcp(node, port, configure: tcp => tcp.MaxPacketSize = 256 * 1024);
+            options.AddTcp(node, port, configure: tcp =>
+            {
+                tcp.MaxPacketSize = 256 * 1024;
+                tcp.RecvBufferSize = tcp.SendBufferSize = 64 * 1024;
+            });
             options.Transports[0].ListenAddress = IPAddress.Loopback;
         });
         services.AddPulseClustering(topology =>
@@ -70,6 +74,7 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
             transport.RequestTimeout = TimeSpan.FromSeconds(5);
             transport.MaxFrameSize = 256 * 1024;
             transport.SendQueueCapacity = 128;
+            transport.RecvBufferSize = transport.SendBufferSize = 64 * 1024;
         });
         services.Configure<ActorLeaseHeartbeatOptions>(heartbeat =>
         {
