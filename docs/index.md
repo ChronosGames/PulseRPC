@@ -25,6 +25,7 @@ Unity 客户端开发者：
 4. [Actor 服务开发](guides/actor-services.md)
 5. [经 Gateway 调用 Actor](guides/gateway-actors.md)
 6. [认证与授权](guides/authentication.md)
+7. [游戏服务端专项验收](guides/game-server-acceptance.md)
 
 集群和部署维护者：
 

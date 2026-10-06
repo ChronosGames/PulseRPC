@@ -78,6 +78,8 @@ PulseRPC 不提供“私有容器网络明文”安全模式。Docker/Compose br
 
 ## 相关示例
 
+- [GameServer 专项验收](game-server-acceptance.md)：真实 mTLS、Redis 和 PostgreSQL，多进程故障及持久化幂等。
+
 - [DistributedGameApp](../../samples/DistributedGameApp/)
 - [DistributedGameApp deploy](../../samples/DistributedGameApp/deploy/README.md)
 

@@ -6,6 +6,15 @@ namespace GameServer.Host;
 
 internal static class AssetStoreVerification
 {
+    internal static async Task VerifyInactiveOwnerAsync(NpgsqlDataSource source, string player)
+    {
+        await using var query = source.CreateCommand("SELECT owner_until <= clock_timestamp() FROM game_players WHERE player=$1");
+        query.Parameters.AddWithValue(player);
+        if (await query.ExecuteScalarAsync() is not true)
+            throw new InvalidOperationException("The Actor continued renewing database ownership after losing its Redis lease.");
+        Console.WriteLine("RESULT {\"InactiveOwner\":true}");
+    }
+
     internal static async Task RunAsync(AssetStore store, NpgsqlDataSource source)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(40));

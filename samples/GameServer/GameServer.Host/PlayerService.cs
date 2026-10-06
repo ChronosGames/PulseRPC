@@ -58,7 +58,7 @@ public sealed class PlayerService : PulseServiceBase, IPlayerHub
     private async Task RetireAsync()
     {
         await Task.Yield();
-        try { await _manager.RemoveServiceAsync(ServiceType, ServiceId); }
+        try { await _manager.RemoveServiceIfSameAsync(this); }
         catch (Exception ex) { Logger.LogError(ex, "Could not retire database-fenced Actor"); }
     }
 

@@ -28,6 +28,7 @@ dotnet build samples/HelloRPC/HelloRPC.sln
 
 | 示例 | 状态 | 说明 |
 | --- | --- | --- |
+| [GameServer](guides/game-server-acceptance.md) | 专项验收 | 独立进程、真实 mTLS、Redis 故障、PostgreSQL 代次与幂等、旧契约客户端。 |
 | GameApp | 综合样例 | 包含 Auth/Game/Battle 等模块，文档较多，部分内容是历史蓝图。 |
 | DistributedGameApp | 分布式游戏后端样例 | 展示多服务器类型、基础设施集成和启动编排，部分设计文档是历史记录。 |
 
