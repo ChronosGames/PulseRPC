@@ -6,6 +6,13 @@ This is an agent execution record, not a statement of supported production guara
 - Working branch: `codex/game-server-hardening`.
 - Local constraint: .NET 10 cannot be installed; Docker daemon is unavailable.
 - Validation: GitHub Actions via the connected GitHub app. Repository write permission verified.
+- Draft PR: https://github.com/ChronosGames/PulseRPC/pull/32.
+- Initial remote commit: `9306c7b361f74d80ba4ba098c2ec05e9269334c4`.
+- Initial Actions run: `37493266293`; benchmark passed. Correctness build was blocked by
+  existing SourceLink -> Microsoft.Build.Tasks.Git 10.0.102 advisory GHSA-23fw-v26w-5fgq.
+  Upgrade SourceLink to patched 10.0.111; preserve warnings-as-errors and rerun.
+- Local Git push credentials return HTTP 403; connected GitHub app writes succeed.
+  Publish through Git Data API, then fetch and fast-forward the local branch.
 - Do not mark tests, capacity, or stages complete without execution evidence.
 
 ## Acceptance stages
