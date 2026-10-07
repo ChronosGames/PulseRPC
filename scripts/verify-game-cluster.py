@@ -158,6 +158,7 @@ def main():
         broker_output = run(["dotnet", str(HOST), "broker", broker_stream, "verify", broker_player])
         results["broker"] = json.loads(next(line[7:] for line in broker_output.splitlines() if line.startswith("RESULT ")))
         record("real broker: SIGKILL after publish and after consumer commit; replay applies each side effect once")
+        cluster_process_start = len(processes)  # Earlier broker fault processes intentionally exited.
         for index, node in enumerate(NODES):
             common = (f"cert = {directory}/{node}.crt\nkey = {directory}/{node}.key\n"
                       f"CAfile = {directory}/ca.crt\nverifyChain = yes\nrequireCert = yes\n")
@@ -183,7 +184,7 @@ def main():
         start(["stunnel4", str(public)], "tls-player")
         deadline = time.monotonic() + 35
         while not all(f"READY {node}" in (ARTIFACTS / f"{node}.log").read_text() for node in NODES):
-            if any(process.poll() is not None for process in processes):
+            if any(process.poll() is not None for process in processes[cluster_process_start:]):
                 raise RuntimeError("A node or TLS proxy exited during startup; inspect cluster logs")
             if time.monotonic() >= deadline:
                 raise TimeoutError("Cluster did not start")
@@ -312,6 +313,16 @@ def main():
             state = client(player_id, "state")
             assert state["Balance"] == 993 and state["Inventory"] == 1, state
         record("normal, larger payload, hot-Actor load and 20 fresh client sessions preserve state")
+        os.environ["GAME_CANDIDATE_SHA"] = results["environment"]["commit"]
+        mixed_output = run(["dotnet", str(HOST), "load", "perf/game-server/ci.json", "127.0.0.1", str(base + 60),
+                            str(ARTIFACTS / "mixed-load")], timeout=100)
+        results["mixed_load"] = json.loads(next(line[7:] for line in mixed_output.splitlines() if line.startswith("RESULT ")))
+        assert results["mixed_load"]["complete"] and results["mixed_load"]["assetIntegrity"], results["mixed_load"]
+        mixed_counts = results["mixed_load"]["result"]
+        assert mixed_counts["offered"] == 2000 and mixed_counts["succeeded"] == 2000, mixed_counts
+        assert mixed_counts["purchases"] > 0 and mixed_counts["reads"] > 0, mixed_counts
+        assert mixed_counts["errors"] == 0 and mixed_counts["generatorDropped"] == 0, mixed_counts
+        record("open-loop mixed purchase/read/echo load retains offered, dropped, rejected and scheduled-arrival latency; SQL assets reconcile")
         results["passed"] = True
     finally:
         if redis_paused:

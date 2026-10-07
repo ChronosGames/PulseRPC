@@ -20,6 +20,7 @@ if (args[0] == "client") { await AcceptanceClient.RunAsync(args); return; }
 var database = Environment.GetEnvironmentVariable("GAME_POSTGRES") ?? throw new InvalidOperationException("Set GAME_POSTGRES.");
 await using var source = NpgsqlDataSource.Create(database);
 var store = new AssetStore(source);
+if (args[0] == "load") { await GameLoadClient.RunAsync(args, store); return; }
 if (args[0] == "init") { await store.InitializeAsync(); return; }
 if (args[0] == "verify-store") { await AssetStoreVerification.RunAsync(store, source); return; }
 if (args[0] == "verify-sessions-store") { await AssetStoreVerification.VerifySessionsAsync(store, source); return; }

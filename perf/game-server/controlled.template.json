@@ -1,0 +1,14 @@
+{
+  "durationSeconds": 86400,
+  "connections": 100,
+  "requestsPerSecond": 400,
+  "queuePerConnection": 2,
+  "payloadBytes": 128,
+  "readPercent": 15,
+  "purchasePercent": 5,
+  "requestTimeoutSeconds": 5,
+  "sampleSeconds": 30,
+  "minimumContinuousSeconds": 86400,
+  "environmentId": "REPLACE-WITH-TARGET-ENVIRONMENT",
+  "slo": null
+}
