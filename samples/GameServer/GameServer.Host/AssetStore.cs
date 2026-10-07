@@ -27,6 +27,8 @@ internal sealed class AssetStore(NpgsqlDataSource source)
               player text NOT NULL, operation uuid NOT NULL, PRIMARY KEY(player, operation));
             CREATE TABLE IF NOT EXISTS game_purchase_notifications (
               player text PRIMARY KEY, purchases integer NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS game_sessions (
+              player text PRIMARY KEY, session uuid NOT NULL, valid_until timestamptz NOT NULL);
             ALTER TABLE game_receipts ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
             ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
             ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS last_published_at timestamptz;
@@ -76,12 +78,15 @@ internal sealed class AssetStore(NpgsqlDataSource source)
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    internal async Task<PurchaseReceipt> PurchaseAsync(Fence fence, PurchaseCommand request, CancellationToken ct)
+    internal async Task<PurchaseReceipt> PurchaseAsync(Fence fence, PurchaseCommand request, CancellationToken ct,
+        PlayerSessions.Stamp? session = null)
     {
         if (request.OperationId == Guid.Empty || request.Sku != "potion" || request.Quantity < 1 || request.Quantity > 100)
             throw new ArgumentException("A purchase needs an operation ID, a supported SKU and quantity 1..100.");
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
+        if (session is not null)
+            await PlayerSessions.LockForPurchaseAsync(connection, transaction, session, fence.Player, ct);
         // Serialize both mutation and deduplication on the authoritative player row.
         await using (var guard = new NpgsqlCommand("""
             SELECT generation FROM game_players WHERE player=$1 AND owner=$2 AND generation=$3

@@ -95,10 +95,11 @@ internal sealed class PurchaseBroker(NpgsqlDataSource source, IConnectionMultipl
             }
             await using (var consume = new NpgsqlCommand("""
                 WITH accepted AS (
-                  INSERT INTO game_inbox(player,operation) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING player)
-                INSERT INTO game_purchase_notifications(player,purchases) SELECT player,1 FROM accepted
-                ON CONFLICT(player) DO UPDATE SET purchases=game_purchase_notifications.purchases+1;
-                UPDATE game_outbox SET delivered_at=COALESCE(delivered_at,clock_timestamp()) WHERE player=$1 AND operation=$2;
+                  INSERT INTO game_inbox(player,operation) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING player),
+                notified AS (
+                  INSERT INTO game_purchase_notifications(player,purchases) SELECT player,1 FROM accepted
+                  ON CONFLICT(player) DO UPDATE SET purchases=game_purchase_notifications.purchases+1 RETURNING player)
+                UPDATE game_outbox SET delivered_at=COALESCE(delivered_at,clock_timestamp()) WHERE player=$1 AND operation=$2
                 """, connection, transaction))
             {
                 consume.Parameters.AddWithValue(player);

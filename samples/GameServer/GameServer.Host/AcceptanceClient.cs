@@ -54,6 +54,33 @@ internal static class AcceptanceClient
                         throw new InvalidOperationException("Purchase replay changed committed state.");
                     Print(replay);
                     break;
+                case "sessions":
+                    var sessionCommand = new PurchaseCommand { OperationId = Guid.NewGuid() };
+                    var committed = await actor.PurchaseAsync(sessionCommand, deadline.Token);
+                    var replacement = await ConnectAsync();
+                    await replacement.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(player), deadline.Token);
+                    var replacementActor = replacement.ForGatewayActor<IPlayerHub>(player).GetHub<IPlayerHub>();
+                    await MustRejectAsync(() => actor.GetStateAsync(deadline.Token));
+                    await MustRejectAsync(() => actor.PurchaseAsync(new PurchaseCommand { OperationId = Guid.NewGuid() }, deadline.Token));
+                    // Late logout from the old connection must not revoke its replacement.
+                    await channel.GetHub<ISessionHub>().LogoutAsync(deadline.Token);
+                    var restored = await replacementActor.PurchaseAsync(sessionCommand, deadline.Token);
+                    if (restored.Balance != committed.Balance || restored.Inventory != committed.Inventory)
+                        throw new InvalidOperationException("Reconnect replay duplicated assets.");
+                    await replacement.GetHub<ISessionHub>().LogoutAsync(deadline.Token);
+                    await MustRejectAsync(() => replacementActor.GetStateAsync(deadline.Token));
+                    await replacement.DisconnectAsync();
+                    var reconnected = await ConnectAsync();
+                    var reconnectedActor = reconnected.ForGatewayActor<IPlayerHub>(player).GetHub<IPlayerHub>();
+                    await MustRejectAsync(() => reconnectedActor.GetStateAsync(deadline.Token));
+                    await reconnected.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(player), deadline.Token);
+                    var resynced = await reconnectedActor.GetStateAsync(deadline.Token);
+                    if (resynced.Balance != committed.Balance || resynced.Inventory != committed.Inventory)
+                        throw new InvalidOperationException("Session resynchronization changed state.");
+                    await reconnected.DisconnectAsync();
+                    Print(new { Passed = true, OldSessionDenied = true, LateLogoutSafe = true,
+                        ExplicitLogoutEnforced = true, ReconnectRequiresAuthentication = true, ReplayMutations = 1 });
+                    break;
                 case "security":
                     await MustRejectAsync(() => channel.ForGatewayActor<IPlayerHub>(player + "-other").GetHub<IPlayerHub>().GetStateAsync(deadline.Token));
                     await MustRejectAsync(() => channel.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(player, DateTime.UtcNow.AddSeconds(-1)), deadline.Token));
@@ -79,6 +106,9 @@ internal static class AcceptanceClient
                 case "load":
                     var count = args.Length > 4 ? int.Parse(args[4]) : 2000;
                     var connections = args.Length > 5 ? int.Parse(args[5]) : 16;
+                    // A player has one current session. Hot-player load multiplexes
+                    // one connection instead of creating sessions that revoke each other.
+                    if (player == "hot") connections = 1;
                     var bytes = args.Length > 6 ? int.Parse(args[6]) : 128;
                     var actors = new List<IPlayerHub>();
                     for (var i = 0; i < connections; i++)

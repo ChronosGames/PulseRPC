@@ -133,6 +133,9 @@ def main():
         verification = run(["dotnet", str(HOST), "verify-store"], timeout=50)
         results["database"] = json.loads(next(line[7:] for line in verification.splitlines() if line.startswith("RESULT ")))
         record("PostgreSQL concurrent replay, stale-writer fencing and outbox/inbox verification")
+        session_verification = run(["dotnet", str(HOST), "verify-sessions-store"])
+        results["session_database"] = json.loads(next(line[7:] for line in session_verification.splitlines() if line.startswith("RESULT ")))
+        record("database session lock serializes login replacement with purchases; stale queued writers are rejected")
         broker_player = "broker-" + run_id
         broker_stream = "game-acceptance:purchase:" + run_id
         run(["dotnet", str(HOST), "seed-broker", broker_player, str(uuid.uuid4())])
@@ -193,6 +196,8 @@ def main():
         record("mTLS rejects absent certificate, untrusted issuer, unauthorized subject and wrong server name")
         results["security"] = client(player_id, "security", directory)
         record("anonymous, cross-player, expired identities and CA-trusted non-member node credentials rejected")
+        results["sessions"] = client("sessions-" + run_id, "sessions")
+        record("replacement login revokes old calls; late logout is safe; reconnect authenticates and resynchronizes without duplicate assets")
         operation = uuid.uuid4()
         purchase = client(player_id, "purchase", operation)
         assert purchase["Balance"] == 993 and purchase["Inventory"] == 1, purchase

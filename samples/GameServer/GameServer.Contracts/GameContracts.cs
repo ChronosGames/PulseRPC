@@ -12,6 +12,9 @@ namespace GameServer.Contracts
     {
         [Protocol(0x7100)]
         Task<bool> AuthenticateAsync(string token, CancellationToken cancellationToken = default);
+
+        [Protocol(0x7104)]
+        Task<bool> LogoutAsync(CancellationToken cancellationToken = default);
     }
 
     [ClientFacing]

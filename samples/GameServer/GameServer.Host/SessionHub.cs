@@ -12,10 +12,12 @@ public sealed class SessionHub : ISessionHub
 {
     private readonly IServerChannelManager _channels;
     private readonly TokenValidationParameters _validation;
+    private readonly PlayerSessions _sessions;
 
-    public SessionHub(IServerChannelManager channels)
+    internal SessionHub(IServerChannelManager channels, PlayerSessions sessions)
     {
         _channels = channels;
+        _sessions = sessions;
         _validation = new TokenValidationParameters
         {
             ValidateIssuerSigningKey = true, IssuerSigningKey = new SymmetricSecurityKey(SigningKey()),
@@ -26,20 +28,32 @@ public sealed class SessionHub : ISessionHub
         };
     }
 
-    public Task<bool> AuthenticateAsync(string token, CancellationToken cancellationToken = default)
+    public async Task<bool> AuthenticateAsync(string token, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ClaimsPrincipal principal;
-        try { principal = new JwtSecurityTokenHandler { MapInboundClaims = false }.ValidateToken(token, _validation, out _); }
+        SecurityToken validated;
+        try { principal = new JwtSecurityTokenHandler { MapInboundClaims = false }.ValidateToken(token, _validation, out validated); }
         catch (SecurityTokenException) { throw new UnauthorizedAccessException("Invalid or expired player token."); }
         var user = principal.FindFirst("sub")?.Value;
         if (string.IsNullOrWhiteSpace(user)) throw new UnauthorizedAccessException("Missing player identity.");
         var id = PulseContext.CurrentConnectionId ?? throw new UnauthorizedAccessException("Missing connection.");
         var channel = _channels.GetChannel(id) ?? throw new UnauthorizedAccessException("Connection is closed.");
+        var stamp = new PlayerSessions.Stamp(user, Guid.NewGuid());
+        await _sessions.ReplaceAsync(stamp, validated.ValidTo, cancellationToken);
+        // This authoritative claim is issued by the Gateway, never trusted from the JWT.
+        principal = new ClaimsPrincipal(new ClaimsIdentity(principal.Claims.Where(claim => claim.Type != PlayerSessions.Claim)
+            .Append(new Claim(PlayerSessions.Claim, stamp.Session.ToString("D"))), "game-session"));
         var context = new AuthenticationContext(id);
         context.SetClientAuthentication(user, user, principal: principal);
         channel.SetAuthentication(context);
-        return Task.FromResult(true);
+        return true;
+    }
+
+    public async Task<bool> LogoutAsync(CancellationToken cancellationToken = default)
+    {
+        await _sessions.RevokeAsync(PlayerSessions.Require(PulseContext.Current), cancellationToken);
+        return true;
     }
 
     // The acceptance client acts as the test identity provider. Production signing keys

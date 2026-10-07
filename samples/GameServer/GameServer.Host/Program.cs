@@ -22,6 +22,7 @@ await using var source = NpgsqlDataSource.Create(database);
 var store = new AssetStore(source);
 if (args[0] == "init") { await store.InitializeAsync(); return; }
 if (args[0] == "verify-store") { await AssetStoreVerification.RunAsync(store, source); return; }
+if (args[0] == "verify-sessions-store") { await AssetStoreVerification.VerifySessionsAsync(store, source); return; }
 if (args[0] == "verify-inactive-owner" && args.Length == 2)
 { await AssetStoreVerification.VerifyInactiveOwnerAsync(source, args[1]); return; }
 if (args[0] == "hold-player-row" && args.Length == 2)
@@ -71,6 +72,7 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
     {
         services.AddSingleton(store);
         services.AddSingleton(source);
+        services.AddSingleton<PlayerSessions>();
         services.AddSingleton<IConnectionMultiplexer>(redis);
         if (Environment.GetEnvironmentVariable("GAME_PURCHASE_STREAM") is { Length: > 0 } stream)
         {
@@ -128,13 +130,16 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
         services.AddRedisActorLeases(options => options.KeyPrefix = "game-acceptance");
         services.AddSingleton<IActorPlacementStrategy, BackendPlacement>();
         services.AddPulseService<PlayerService>((provider, key) => new PlayerService(key, store, node,
-            provider.GetRequiredService<PulseServiceManager>(), provider.GetRequiredService<ILogger<PlayerService>>()));
+            provider.GetRequiredService<PulseServiceManager>(), provider.GetRequiredService<PlayerSessions>(),
+            provider.GetRequiredService<ILogger<PlayerService>>()));
         if (node == "gateway")
         {
             services.AddPulseGateway();
-            services.AddSingleton<ISessionHub, SessionHub>();
+            services.AddSingleton<ISessionHub>(provider => new SessionHub(provider.GetRequiredService<PulseRPC.Server.Transport.IServerChannelManager>(),
+                provider.GetRequiredService<PlayerSessions>()));
             services.AddSingleton<IGatewayActorInvocationPolicy>(new UserOwnedActorInvocationPolicy(
                 new Dictionary<string, IReadOnlyCollection<ushort>> { ["PlayerHub"] = new ushort[] { 0x7101, 0x7102, 0x7103 } }));
+            services.AddSingleton<IGatewayActorInvocationPolicy, PlayerSessionPolicy>();
         }
     }).Build();
 host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStarted.Register(() => Console.WriteLine($"READY {node}"));
