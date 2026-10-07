@@ -17,6 +17,8 @@ import sys
 import tempfile
 import time
 import uuid
+import urllib.error
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 HOST = ROOT / "samples/GameServer/GameServer.Host/bin/Release/net10.0/GameServer.Host.dll"
@@ -39,7 +41,7 @@ def available_base():
         base = random.randrange(20000, 45000)
         held = []
         try:
-            for port in range(base, base + 70):
+            for port in range(base, base + 90):
                 stream = socket.socket()
                 held.append(stream)
                 stream.bind(("127.0.0.1", port))
@@ -104,6 +106,7 @@ def main():
     results["smoke_p99_limit_ms"] = 250
     redis_paused = False
     base = available_base()
+    os.environ["GAME_ADMIN_BASE_PORT"] = str(base + 70)
     run_id = uuid.uuid4().hex[:10]
     player_id = "alice-" + run_id
 
@@ -124,6 +127,14 @@ def main():
         if len(lines) != 1:
             raise RuntimeError("Client did not produce exactly one result: " + output[-4000:])
         return json.loads(lines[0])
+
+    def admin(node, path, method="GET"):
+        request = urllib.request.Request(f"http://127.0.0.1:{base + 70 + NODES.index(node)}{path}", method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status, response.read().decode()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read().decode()
 
     temporary = tempfile.TemporaryDirectory(prefix="pulserpc-mtls-")
     try:
@@ -189,6 +200,13 @@ def main():
             if time.monotonic() >= deadline:
                 raise TimeoutError("Cluster did not start")
             time.sleep(0.1)
+
+        for node in NODES:
+            assert admin(node, "/ready")[0] == 200, node
+            status, metrics = admin(node, "/metrics")
+            assert status == 200 and "game_queue_capacity" in metrics and "game_outbox_pending" in metrics, metrics
+            (ARTIFACTS / f"{node}-metrics-before.txt").write_text(metrics)
+        record("loopback readiness checks dependencies; metrics expose queues, connections, RPC, GC and durable outbox lag")
 
         tls_rejected(directory, base + 11)
         tls_rejected(directory, base + 11, "outsider")
@@ -260,6 +278,7 @@ def main():
             raise RuntimeError("Set GAME_REDIS_CONTAINER to the isolated Redis test container; outage acceptance is mandatory")
         run(["docker", "pause", redis_container])
         redis_paused = True
+        assert admin("gateway", "/ready")[0] == 503, "Readiness ignored Redis outage"
         # Redis placement TTL (9s) + DB lease TTL (6s) + scheduling allowance.
         time.sleep(17)
         run(["dotnet", str(HOST), "verify-inactive-owner", player_id])
@@ -323,6 +342,33 @@ def main():
         assert mixed_counts["purchases"] > 0 and mixed_counts["reads"] > 0, mixed_counts
         assert mixed_counts["errors"] == 0 and mixed_counts["generatorDropped"] == 0, mixed_counts
         record("open-loop mixed purchase/read/echo load retains offered, dropped, rejected and scheduled-arrival latency; SQL assets reconcile")
+        for node in NODES:
+            status, metrics = admin(node, "/metrics")
+            assert status == 200, node
+            (ARTIFACTS / f"{node}-metrics-after.txt").write_text(metrics)
+
+        drain_player = "drain-" + run_id
+        drain_operation = uuid.uuid4()
+        before_drain = client(drain_player, "purchase", drain_operation)
+        draining_owner = before_drain["NodeId"]
+        drain_started = time.monotonic()
+        assert admin(draining_owner, "/drain", "POST")[0] in (200, 202)
+        while time.monotonic() - drain_started < 45:
+            status, body = admin(draining_owner, "/drain", "POST")
+            if status == 200:
+                break
+            assert status == 202, body
+            time.sleep(0.1)
+        else:
+            raise AssertionError("Node did not drain")
+        assert admin(draining_owner, "/ready")[0] == 503
+        time.sleep(1)  # Propagate the drain placement view to other processes.
+        after_drain = client(drain_player, "purchase", drain_operation)
+        assert after_drain["NodeId"] != draining_owner, after_drain
+        assert after_drain["Balance"] == before_drain["Balance"] and after_drain["Inventory"] == 1, after_drain
+        results["drain"] = {"seconds": time.monotonic() - drain_started, "old_owner": draining_owner,
+                            "new_owner": after_drain["NodeId"], "asset_mutations": 1}
+        record("drain stops admission and placement, retires owned Actors, and hands off with durable replay")
         results["passed"] = True
     finally:
         if redis_paused:

@@ -1,4 +1,6 @@
 #nullable enable
+PulseRPC.Server.Processing.RpcAdmissionException
+PulseRPC.Server.Processing.RpcAdmissionException.RpcAdmissionException(string! message) -> void
 PulseRPC.Server.Routing.DeliveryRetryOptions.ShouldRetry.get -> System.Func<System.Exception!, bool>?
 PulseRPC.Server.Routing.DeliveryRetryOptions.ShouldRetry.set -> void
 PulseRPC.Server.Routing.DeliveryRetryOptions.JitterRatio.get -> double
