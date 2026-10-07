@@ -131,8 +131,11 @@ internal static class GameLoadClient
                     nextSample = now + profile.SampleSeconds;
                 }
             }
-            var remaining = profile.DurationSeconds - Stopwatch.GetElapsedTime(started).TotalSeconds;
-            if (remaining > 0) await Task.Delay(TimeSpan.FromSeconds(remaining), lifetime.Token);
+            while (Stopwatch.GetElapsedTime(started).TotalSeconds < profile.DurationSeconds)
+            {
+                var remaining = profile.DurationSeconds - Stopwatch.GetElapsedTime(started).TotalSeconds;
+                await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, remaining * 1000)), lifetime.Token);
+            }
             elapsedSeconds = Stopwatch.GetElapsedTime(started).TotalSeconds;
             foreach (var queue in queues) queue.Writer.TryComplete();
             await Task.WhenAll(workers).WaitAsync(TimeSpan.FromSeconds(profile.RequestTimeoutSeconds * (profile.QueuePerConnection + 2)));

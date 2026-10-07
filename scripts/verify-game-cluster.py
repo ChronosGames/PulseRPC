@@ -397,6 +397,19 @@ def main():
         assert mixed_counts["purchases"] > 0 and mixed_counts["reads"] > 0, mixed_counts
         assert mixed_counts["errors"] == 0 and mixed_counts["generatorDropped"] == 0, mixed_counts
         record("open-loop mixed purchase/read/echo load retains offered, dropped, rejected and scheduled-arrival latency; SQL assets reconcile")
+        capacity_output = ARTIFACTS / "capacity-driver-smoke"
+        run([sys.executable, "scripts/run-game-capacity.py", "--profile", "perf/game-server/ci.json",
+             "--host", "127.0.0.1", "--port", str(base + 60), "--rates", "25,50", "--duration", "2",
+             "--admin", f"http://127.0.0.1:{base + 70}", "--output", str(capacity_output)], timeout=100)
+        capacity_files = list(capacity_output.glob("*/summary.json"))
+        assert len(capacity_files) == 1
+        capacity = json.loads(capacity_files[0].read_text())
+        assert capacity["all_requested_steps_completed"] and len(capacity["steps"]) == 2, capacity
+        assert all(step["execution_passed"] for step in capacity["steps"]), capacity
+        assert capacity["highest_tested_slo_passing_rate"] is None and not capacity["soak_24_hours_completed"], capacity
+        assert not capacity["capacity_certified"], capacity
+        results["capacity_driver"] = capacity
+        record("capacity driver executes two isolated steps and records evidence without certifying a short run or an absent SLO")
         for node in NODES:
             status, metrics = admin(node, "/metrics")
             assert status == 200, node

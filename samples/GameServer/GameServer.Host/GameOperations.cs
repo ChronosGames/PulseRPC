@@ -157,12 +157,13 @@ internal sealed class GameOperations(int port, string node, GameAdmission admiss
                     case ("GET", "/live"): break;
                     case ("GET", "/ready"):
                         if (admission.IsDraining) { status = 503; body = "draining\n"; break; }
-                        await redis.GetDatabase().PingAsync().WaitAsync(timeout.Token);
-                        await using (var query = source.CreateCommand("SELECT 1"))
-                            await query.ExecuteScalarAsync(timeout.Token);
+                        // A database cancellation may wait for its own network ACK.
+                        // Keep command ownership inside the probe task, but bound the
+                        // HTTP response independently of that asynchronous cleanup.
+                        await CheckDependenciesAsync(timeout.Token).WaitAsync(timeout.Token);
                         break;
                     case ("GET", "/metrics"):
-                        body = await MetricsAsync(timeout.Token);
+                        body = await MetricsAsync(timeout.Token).WaitAsync(timeout.Token);
                         break;
                     case ("POST", "/drain"):
                         _drain ??= DrainAsync(stoppingToken);
@@ -201,6 +202,13 @@ internal sealed class GameOperations(int port, string node, GameAdmission admiss
         foreach (var service in services.GetAllServices().ToArray())
             await services.RemoveServiceIfSameAsync(service).AsTask().WaitAsync(timeout.Token);
         logger.LogWarning("DRAINED {Node}; active requests={Active}", node, admission.Active);
+    }
+
+    private async Task CheckDependenciesAsync(CancellationToken ct)
+    {
+        await redis.GetDatabase().PingAsync().WaitAsync(ct);
+        await using var query = source.CreateCommand("SELECT 1");
+        await query.ExecuteScalarAsync(ct);
     }
 
     private async Task<string> MetricsAsync(CancellationToken ct)
