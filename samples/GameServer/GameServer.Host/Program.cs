@@ -26,6 +26,36 @@ if (args[0] == "verify-inactive-owner" && args.Length == 2)
 { await AssetStoreVerification.VerifyInactiveOwnerAsync(source, args[1]); return; }
 if (args[0] == "hold-player-row" && args.Length == 2)
 { await AssetStoreVerification.HoldPlayerRowAsync(source, args[1]); return; }
+if (args[0] == "seed-broker" && args.Length == 3)
+{
+    var fence = await store.AcquireAsync(args[1], Guid.NewGuid(), CancellationToken.None);
+    await store.PurchaseAsync(fence, new PurchaseCommand { OperationId = Guid.Parse(args[2]) }, CancellationToken.None);
+    await store.ReleaseAsync(fence, CancellationToken.None);
+    Console.WriteLine("RESULT {\"Seeded\":true}");
+    return;
+}
+if (args[0] == "broker" && args.Length >= 3)
+{
+    using var brokerConnection = await ConnectionMultiplexer.ConnectAsync(Environment.GetEnvironmentVariable("GAME_REDIS")
+        ?? throw new InvalidOperationException("Set GAME_REDIS."));
+    var broker = new PurchaseBroker(source, brokerConnection, args[1], args.Length == 4 ? args[3] : null);
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+    async Task CrashWindow()
+    {
+        Console.WriteLine("FAULT_READY " + args[2]);
+        await Task.Delay(Timeout.InfiniteTimeSpan, timeout.Token);
+    }
+    switch (args[2])
+    {
+        case "publish": await broker.PublishAsync(timeout.Token); break;
+        case "publish-crash": await broker.PublishAsync(timeout.Token, CrashWindow); break;
+        case "consume": await broker.ConsumeAsync(timeout.Token); break;
+        case "consume-crash": await broker.ConsumeAsync(timeout.Token, CrashWindow); break;
+        case "verify" when args.Length == 4: await broker.VerifyAsync(args[3], timeout.Token); break;
+        default: throw new ArgumentException("Invalid broker command.");
+    }
+    return;
+}
 if (args[0] != "node" || args.Length != 5) throw new ArgumentException("Invalid node arguments.");
 var node = args[1];
 var port = int.Parse(args[2]);
@@ -40,7 +70,13 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
     .ConfigureServices(services =>
     {
         services.AddSingleton(store);
+        services.AddSingleton(source);
         services.AddSingleton<IConnectionMultiplexer>(redis);
+        if (Environment.GetEnvironmentVariable("GAME_PURCHASE_STREAM") is { Length: > 0 } stream)
+        {
+            services.AddSingleton(new PurchaseBroker(source, redis, stream));
+            services.AddHostedService<PurchaseDeliveryWorker>();
+        }
         services.AddPulseServer(options =>
         {
             if (node == "gateway") options.UseGameGatewayProfile();

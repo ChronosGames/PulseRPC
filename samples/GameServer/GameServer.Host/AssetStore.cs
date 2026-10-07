@@ -25,6 +25,14 @@ internal sealed class AssetStore(NpgsqlDataSource source)
               PRIMARY KEY(player, operation));
             CREATE TABLE IF NOT EXISTS game_inbox (
               player text NOT NULL, operation uuid NOT NULL, PRIMARY KEY(player, operation));
+            CREATE TABLE IF NOT EXISTS game_purchase_notifications (
+              player text PRIMARY KEY, purchases integer NOT NULL DEFAULT 0);
+            ALTER TABLE game_receipts ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
+            ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
+            ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS last_published_at timestamptz;
+            ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+            ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS publish_attempts integer NOT NULL DEFAULT 0;
+            CREATE INDEX IF NOT EXISTS game_outbox_pending ON game_outbox(created_at) WHERE delivered_at IS NULL;
             """);
         await command.ExecuteNonQueryAsync(ct);
     }

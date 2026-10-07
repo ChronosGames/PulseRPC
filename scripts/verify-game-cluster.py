@@ -133,6 +133,28 @@ def main():
         verification = run(["dotnet", str(HOST), "verify-store"], timeout=50)
         results["database"] = json.loads(next(line[7:] for line in verification.splitlines() if line.startswith("RESULT ")))
         record("PostgreSQL concurrent replay, stale-writer fencing and outbox/inbox verification")
+        broker_player = "broker-" + run_id
+        broker_stream = "game-acceptance:purchase:" + run_id
+        run(["dotnet", str(HOST), "seed-broker", broker_player, str(uuid.uuid4())])
+
+        def kill_at_broker_window(mode):
+            process = start(["dotnet", str(HOST), "broker", broker_stream, mode, broker_player], mode)
+            deadline = time.monotonic() + 20
+            while "FAULT_READY " + mode not in (ARTIFACTS / f"{mode}.log").read_text():
+                if process.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Broker crash window was not reached: " + mode)
+                time.sleep(0.05)
+            process.kill()
+            process.wait(timeout=5)
+
+        kill_at_broker_window("publish-crash")
+        run(["dotnet", str(HOST), "broker", broker_stream, "publish", broker_player])
+        kill_at_broker_window("consume-crash")
+        time.sleep(1.1)  # The new process claims the killed consumer's pending delivery.
+        run(["dotnet", str(HOST), "broker", broker_stream, "consume", broker_player])
+        broker_output = run(["dotnet", str(HOST), "broker", broker_stream, "verify", broker_player])
+        results["broker"] = json.loads(next(line[7:] for line in broker_output.splitlines() if line.startswith("RESULT ")))
+        record("real broker: SIGKILL after publish and after consumer commit; replay applies each side effect once")
         for index, node in enumerate(NODES):
             common = (f"cert = {directory}/{node}.crt\nkey = {directory}/{node}.key\n"
                       f"CAfile = {directory}/ca.crt\nverifyChain = yes\nrequireCert = yes\n")
