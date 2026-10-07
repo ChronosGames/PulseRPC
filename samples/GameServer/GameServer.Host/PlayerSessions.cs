@@ -4,6 +4,19 @@ using PulseRPC.Server.Gateway;
 
 namespace GameServer.Host;
 
+internal sealed class PlayerSessionMode
+{
+    internal bool Required { get; } = Environment.GetEnvironmentVariable("GAME_SESSION_MODE") switch
+    {
+        null or "required" => true,
+        "legacy-compatible" => false,
+        _ => throw new ArgumentException("GAME_SESSION_MODE must be required or legacy-compatible.")
+    };
+
+    internal PlayerSessions.Stamp? GetStamp(IPulseContext? context)
+        => Required || context?.Claims.ContainsKey(PlayerSessions.Claim) == true ? PlayerSessions.Require(context) : null;
+}
+
 internal sealed class PlayerSessions(NpgsqlDataSource source)
 {
     internal const string Claim = "game_session";
@@ -66,8 +79,11 @@ internal sealed class PlayerSessions(NpgsqlDataSource source)
     }
 }
 
-internal sealed class PlayerSessionPolicy(PlayerSessions sessions) : IGatewayActorInvocationPolicy
+internal sealed class PlayerSessionPolicy(PlayerSessions sessions, PlayerSessionMode mode) : IGatewayActorInvocationPolicy
 {
     public async ValueTask EvaluateAsync(GatewayActorInvocationContext context, CancellationToken cancellationToken = default)
-        => await sessions.ValidateAsync(PlayerSessions.Require(context.CallerContext), cancellationToken);
+    {
+        if (mode.GetStamp(context.CallerContext) is { } stamp)
+            await sessions.ValidateAsync(stamp, cancellationToken);
+    }
 }

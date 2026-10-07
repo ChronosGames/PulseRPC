@@ -369,6 +369,66 @@ def main():
         results["drain"] = {"seconds": time.monotonic() - drain_started, "old_owner": draining_owner,
                             "new_owner": after_drain["NodeId"], "asset_mutations": 1}
         record("drain stops admission and placement, retires owned Actors, and hands off with durable replay")
+
+        previous_host = os.environ.get("GAME_PREVIOUS_HOST")
+        if not previous_host or not Path(previous_host).is_file():
+            raise RuntimeError("Set GAME_PREVIOUS_HOST to the built d49a053 host for mandatory mixed-version acceptance")
+        rolling_player = "rolling-" + run_id
+        rolling_operation = uuid.uuid4()
+        rolling = []
+
+        def rolling_replay(label):
+            deadline = time.monotonic() + 45
+            while True:
+                try:
+                    receipt = client(rolling_player, "purchase", rolling_operation)
+                    break
+                except subprocess.CalledProcessError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.5)
+            assert receipt["Balance"] == 993 and receipt["Inventory"] == 1, receipt
+            rolling.append({"phase": label, "owner": receipt["NodeId"], "fence": receipt["Fence"]})
+
+        def replace_node(node, binary, label):
+            process = node_processes[node]
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=35)
+            index = NODES.index(node)
+            log_name = f"{node}-{label}"
+            process = start(["dotnet", str(binary), "node", node, str(base + index), str(directory),
+                             str(base + 30 + index * 10)], log_name)
+            node_processes[node] = process
+            deadline = time.monotonic() + 35
+            while f"READY {node}" not in (ARTIFACTS / f"{log_name}.log").read_text():
+                if process.poll() is not None or time.monotonic() >= deadline:
+                    raise RuntimeError("Replacement node did not start: " + log_name)
+                time.sleep(0.1)
+
+        # New session semantics are activated after all participants understand them.
+        # Legacy-compatible mode is explicit, temporary, and not session-fencing certified.
+        os.environ["GAME_SESSION_MODE"] = "legacy-compatible"
+        for node in ("game-a", "game-b", "gateway"):
+            replace_node(node, HOST, "compatibility")
+        rolling_replay("candidate cluster in explicit compatibility mode")
+        for node in ("game-a", "game-b", "gateway"):
+            replace_node(node, previous_host, "rollback")
+            rolling_replay("rollback " + node)
+        for node in ("game-a", "game-b", "gateway"):
+            replace_node(node, HOST, "upgrade")
+            rolling_replay("upgrade " + node)
+        os.environ["GAME_SESSION_MODE"] = "required"
+        for node in ("game-a", "game-b", "gateway"):
+            replace_node(node, HOST, "strict")
+            rolling_replay("enable required session fencing " + node)
+        legacy_output = run(["dotnet", str(legacy), str(base + 60), rolling_player])
+        legacy_state = json.loads(next(line[7:] for line in legacy_output.splitlines() if line.startswith("RESULT ")))
+        assert legacy_state["Balance"] == 993 and legacy_state["Inventory"] == 1, legacy_state
+        assert client("sessions-after-upgrade-" + run_id, "sessions")["Passed"]
+        results["rolling"] = {"previous_commit": "d49a053e6b41bf6396536074e43521ea50478710",
+                              "phases": rolling, "strict_sessions_reenabled": True, "legacy_client_passed": True}
+        record("previous and candidate binaries mixed, rolled back and upgraded; old client survives; strict sessions enabled last")
         results["passed"] = True
     finally:
         if redis_paused:

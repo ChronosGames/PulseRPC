@@ -75,6 +75,7 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
         services.AddSingleton(store);
         services.AddSingleton(source);
         services.AddSingleton<PlayerSessions>();
+        services.AddSingleton<PlayerSessionMode>();
         services.AddSingleton<GameAdmission>();
         services.AddSingleton<IConnectionMultiplexer>(redis);
         services.AddSingleton(provider => new DrainDirectory(redis, provider.GetRequiredService<GameAdmission>(), node,
@@ -143,7 +144,7 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
         services.AddSingleton<IActorPlacementStrategy, BackendPlacement>();
         services.AddPulseService<PlayerService>((provider, key) => new PlayerService(key, store, node,
             provider.GetRequiredService<PulseServiceManager>(), provider.GetRequiredService<PlayerSessions>(),
-            provider.GetRequiredService<ILogger<PlayerService>>()));
+            provider.GetRequiredService<PlayerSessionMode>(), provider.GetRequiredService<ILogger<PlayerService>>()));
         if (node == "gateway")
         {
             services.AddPulseGateway();

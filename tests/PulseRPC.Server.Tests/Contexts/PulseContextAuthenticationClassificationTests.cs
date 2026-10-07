@@ -9,6 +9,26 @@ namespace PulseRPC.Server.Tests.Contexts;
 public sealed class PulseContextAuthenticationClassificationTests
 {
     [Fact]
+    public void ValidatedSessionAndTenantClaims_AreAvailableToAdmissionPolicies_AsASnapshot()
+    {
+        var identity = new System.Security.Claims.ClaimsIdentity(new[]
+        {
+            new System.Security.Claims.Claim("game_session", "original-session"),
+            new System.Security.Claims.Claim("tenant", "tenant-a"),
+            new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "player")
+        }, "validated-jwt");
+        var authentication = new AuthenticationContext("connection");
+        authentication.SetClientAuthentication("player-a", "Player A",
+            principal: new System.Security.Claims.ClaimsPrincipal(identity));
+        using var context = PulseContextData.FromAuthenticationContext(authentication);
+        identity.AddClaim(new System.Security.Claims.Claim("game_session", "later-session"));
+        Assert.Equal("original-session", context.Claims["game_session"]);
+        Assert.Equal("tenant-a", context.Claims["tenant"]);
+        Assert.Contains("player", context.Roles);
+        Assert.False(context.Claims.ContainsKey(System.Security.Claims.ClaimTypes.Role));
+    }
+
+    [Fact]
     public void FromAuthenticationContext_ClientIdentityIsExternalUser()
     {
         var authentication = new AuthenticationContext("client-1");

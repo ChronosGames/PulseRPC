@@ -15,11 +15,12 @@ public sealed class PlayerService : PulseServiceBase, IPlayerHub
     private readonly string _node;
     private readonly PulseServiceManager _manager;
     private readonly PlayerSessions _sessions;
+    private readonly PlayerSessionMode _sessionMode;
     private AssetStore.Fence? _fence;
     private int _retiring;
 
     internal PlayerService(string player, AssetStore store, string node, PulseServiceManager manager,
-        PlayerSessions sessions, ILogger<PlayerService> logger)
+        PlayerSessions sessions, PlayerSessionMode sessionMode, ILogger<PlayerService> logger)
         : base("PlayerHub", player, logger, new ServiceExecutionOptions
         {
             QueueCapacity = 32, BackpressureMode = ServiceBackpressureMode.ThrowException,
@@ -30,6 +31,7 @@ public sealed class PlayerService : PulseServiceBase, IPlayerHub
         _node = node;
         _manager = manager;
         _sessions = sessions;
+        _sessionMode = sessionMode;
     }
 
     public override async Task OnStartingAsync(CancellationToken cancellationToken = default)
@@ -74,7 +76,7 @@ public sealed class PlayerService : PulseServiceBase, IPlayerHub
     {
         RequireOwner();
         using var operation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, ActorLeaseCancellationToken);
-        var receipt = await _store.PurchaseAsync(RequireFence(), command, operation.Token, PlayerSessions.Require(PulseContext.Current));
+        var receipt = await _store.PurchaseAsync(RequireFence(), command, operation.Token, _sessionMode.GetStamp(PulseContext.Current));
         receipt.NodeId = _node;
         receipt.Fence = RequireFence().Generation;
         return receipt;
@@ -83,7 +85,8 @@ public sealed class PlayerService : PulseServiceBase, IPlayerHub
     public async Task<PlayerSnapshot> GetStateAsync(CancellationToken cancellationToken = default)
     {
         RequireOwner();
-        await _sessions.ValidateAsync(PlayerSessions.Require(PulseContext.Current), cancellationToken);
+        if (_sessionMode.GetStamp(PulseContext.Current) is { } stamp)
+            await _sessions.ValidateAsync(stamp, cancellationToken);
         var state = await _store.ReadAsync(RequireFence(), cancellationToken);
         state.NodeId = _node;
         return state;
