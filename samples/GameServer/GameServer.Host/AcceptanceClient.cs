@@ -16,6 +16,7 @@ namespace GameServer.Host;
 
 [PulseClientGeneration(typeof(IPlayerHub))]
 [PulseClientGeneration(typeof(ISessionHub))]
+[PulseClientGeneration(typeof(IRoomHub))]
 internal static class AcceptanceClient
 {
     internal static async Task RunAsync(string[] args)
@@ -42,8 +43,18 @@ internal static class AcceptanceClient
             await channel.GetHub<ISessionHub>().AuthenticateAsync(SessionHub.IssueTestToken(player), deadline.Token);
             switch (args[3])
             {
+                case "room-state":
+                    Print(await channel.ForGatewayActor<IRoomHub>(args[4]).GetHub<IRoomHub>().GetStateAsync(deadline.Token));
+                    break;
+                case "room-denied":
+                    await MustRejectAsync(() => channel.ForGatewayActor<IRoomHub>(args[4]).GetHub<IRoomHub>().GetStateAsync(deadline.Token));
+                    Print(new { Passed = true, RoomAccessDenied = true });
+                    break;
                 case "state":
                     Print(await actor.GetStateAsync(deadline.Token));
+                    break;
+                case "purchase-once":
+                    Print(await actor.PurchaseAsync(new PurchaseCommand { OperationId = Guid.Parse(args[4]) }, deadline.Token));
                     break;
                 case "purchase":
                     var operation = args.Length > 4 ? Guid.Parse(args[4]) : Guid.NewGuid();

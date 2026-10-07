@@ -112,9 +112,11 @@ internal static class GameLoadClient
                 lifetime.Token.ThrowIfCancellationRequested();
                 var due = index / (double)profile.RequestsPerSecond;
                 var now = Stopwatch.GetElapsedTime(started).TotalSeconds;
-                if (due > now)
+                while (due > now)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(due - now), lifetime.Token);
+                    // Task.Delay may round a sub-millisecond duration down. Never
+                    // dispatch before its scheduled arrival or subtract future time.
+                    await Task.Delay(TimeSpan.FromMilliseconds(Math.Max(1, (due - now) * 1000)), lifetime.Token);
                     now = Stopwatch.GetElapsedTime(started).TotalSeconds;
                 }
                 Interlocked.Increment(ref counters.Offered);

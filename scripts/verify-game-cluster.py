@@ -5,6 +5,7 @@ Certificates and private keys live only in a temporary directory, never in artif
 Requires .NET 10, openssl, stunnel4, GAME_REDIS and GAME_POSTGRES.
 """
 import json
+import hashlib
 import os
 import platform
 from pathlib import Path
@@ -54,19 +55,32 @@ def available_base():
     raise RuntimeError("No free test port block")
 
 
+def issue_leaf(directory, node):
+    run(["openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", f"/CN={node}",
+         "-keyout", str(directory / f"{node}.key"), "-out", str(directory / f"{node}.csr")])
+    extensions = directory / f"{node}.ext"
+    extensions.write_text(f"basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
+                          f"extendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=DNS:{node}\n")
+    run(["openssl", "x509", "-req", "-in", str(directory / f"{node}.csr"), "-CA", str(directory / "ca.crt"),
+         "-CAkey", str(directory / "ca.key"), "-CAcreateserial", "-days", "2", "-extfile", str(extensions),
+         "-out", str(directory / f"{node}.crt")])
+    (directory / f"{node}.key").chmod(0o600)
+
+
+def peer_fingerprint(directory, port, node):
+    context = ssl.create_default_context(cafile=str(directory / "ca.crt"))
+    context.load_cert_chain(str(directory / "gateway.crt"), str(directory / "gateway.key"))
+    with socket.create_connection(("127.0.0.1", port), timeout=3) as raw:
+        with context.wrap_socket(raw, server_hostname=node) as stream:
+            return hashlib.sha256(stream.getpeercert(binary_form=True)).hexdigest()
+
+
 def certificates(directory):
     run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
          "-keyout", str(directory / "ca.key"), "-out", str(directory / "ca.crt"),
          "-subj", "/CN=PulseRPC acceptance CA"])
     for node in NODES + ["outsider"]:
-        run(["openssl", "req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", f"/CN={node}",
-             "-keyout", str(directory / f"{node}.key"), "-out", str(directory / f"{node}.csr")])
-        extensions = directory / f"{node}.ext"
-        extensions.write_text(f"basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\n"
-                              f"extendedKeyUsage=serverAuth,clientAuth\nsubjectAltName=DNS:{node}\n")
-        run(["openssl", "x509", "-req", "-in", str(directory / f"{node}.csr"), "-CA", str(directory / "ca.crt"),
-             "-CAkey", str(directory / "ca.key"), "-CAcreateserial", "-days", "2", "-extfile", str(extensions),
-             "-out", str(directory / f"{node}.crt")])
+        issue_leaf(directory, node)
     run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
          "-keyout", str(directory / "rogue.key"), "-out", str(directory / "rogue.crt"),
          "-subj", "/CN=gateway"])
@@ -97,6 +111,7 @@ def main():
     processes = []
     logs = []
     node_processes = {}
+    tls_processes = {}
     results = {"separate_processes": True, "real_redis": True, "real_postgres": True,
                "actual_mtls": True, "capacity_certified": False, "checks": [], "loads": []}
     results["environment"] = {"commit": run(["git", "rev-parse", "HEAD"]).strip(),
@@ -105,6 +120,7 @@ def main():
     # Generous CI regression ceiling, not a production latency SLO.
     results["smoke_p99_limit_ms"] = 250
     redis_paused = False
+    postgres_paused = False
     base = available_base()
     os.environ["GAME_ADMIN_BASE_PORT"] = str(base + 70)
     run_id = uuid.uuid4().hex[:10]
@@ -185,7 +201,7 @@ def main():
                            f"cert = {directory}/{node}.crt\nkey = {directory}/{node}.key\n")
             config_path = directory / f"{node}.conf"
             config_path.write_text(config)
-            start(["stunnel4", str(config_path)], f"tls-{node}")
+            tls_processes[node] = start(["stunnel4", str(config_path)], f"tls-{node}")
             node_processes[node] = start(["dotnet", str(HOST), "node", node, str(base + index),
                                           str(directory), str(base + 30 + index * 10)], node)
         public = directory / "player.conf"
@@ -217,6 +233,17 @@ def main():
         record("anonymous, cross-player, expired identities and CA-trusted non-member node credentials rejected")
         results["sessions"] = client("sessions-" + run_id, "sessions")
         record("replacement login revokes old calls; late logout is safe; reconnect authenticates and resynchronizes without duplicate assets")
+        room = "room-" + run_id
+        for member in ("room-a-" + run_id, "room-b-" + run_id):
+            run(["dotnet", str(HOST), "room-member", "add", room, member])
+        first_room = client("room-a-" + run_id, "room-state", room)
+        second_room = client("room-b-" + run_id, "room-state", room)
+        assert first_room["Members"] == 2 and first_room["NodeId"] == second_room["NodeId"], second_room
+        assert client("room-outsider-" + run_id, "room-denied", room)["Passed"]
+        run(["dotnet", str(HOST), "room-member", "remove", room, "room-a-" + run_id])
+        assert client("room-a-" + run_id, "room-denied", room)["Passed"]
+        assert client("room-b-" + run_id, "room-state", room)["Members"] == 1
+        record("shared Room Actor authorizes current membership; outsiders and revoked members are rejected")
         operation = uuid.uuid4()
         purchase = client(player_id, "purchase", operation)
         assert purchase["Balance"] == 993 and purchase["Inventory"] == 1, purchase
@@ -303,6 +330,34 @@ def main():
         results["redis_recovery_seconds"] = time.monotonic() - recovery_started
         record("Redis outage stops Actor Tick/DB renewal and RPC; recovery preserves committed state")
 
+        postgres_container = os.environ.get("GAME_POSTGRES_CONTAINER")
+        if not postgres_container:
+            raise RuntimeError("Set GAME_POSTGRES_CONTAINER to the isolated PostgreSQL test container")
+        run(["docker", "pause", postgres_container])
+        postgres_paused = True
+        assert admin("gateway", "/ready")[0] == 503, "Readiness ignored PostgreSQL outage"
+        time.sleep(8)  # Exceed the independent six-second database ownership lease.
+        try:
+            client(player_id, "state")
+        except subprocess.CalledProcessError:
+            pass
+        else:
+            raise AssertionError("RPC ignored the unavailable database authority")
+        run(["docker", "unpause", postgres_container])
+        postgres_paused = False
+        recovery_started = time.monotonic()
+        while time.monotonic() - recovery_started < 45:
+            try:
+                recovered = client(player_id, "purchase", operation)
+                break
+            except subprocess.CalledProcessError:
+                time.sleep(0.5)
+        else:
+            raise AssertionError("Cluster did not recover after database outage")
+        assert recovered["Balance"] == 993 and recovered["Inventory"] == 1, recovered
+        results["postgres_recovery_seconds"] = time.monotonic() - recovery_started
+        record("PostgreSQL outage fails readiness and asset access; expired owners retire and replay preserves assets after recovery")
+
         def resident_bytes():
             sizes = {}
             for name, process in node_processes.items():
@@ -349,10 +404,31 @@ def main():
 
         drain_player = "drain-" + run_id
         drain_operation = uuid.uuid4()
-        before_drain = client(drain_player, "purchase", drain_operation)
+        before_drain = client(drain_player, "state")
         draining_owner = before_drain["NodeId"]
+        drain_lock = start(["dotnet", str(HOST), "hold-player-row", drain_player], "drain-row-lock")
+        deadline = time.monotonic() + 10
+        while "LOCKED" not in (ARTIFACTS / "drain-row-lock.log").read_text():
+            if drain_lock.poll() is not None or time.monotonic() >= deadline:
+                raise RuntimeError("Drain test row lock was not established")
+            time.sleep(0.01)
+        draining_purchase = start(["dotnet", str(HOST), "client", str(base + 60), drain_player,
+                                   "purchase-once", str(drain_operation)], "drain-purchase")
+        deadline = time.monotonic() + 2
+        while True:
+            _, metrics = admin(draining_owner, "/metrics")
+            active = next(float(line.split()[-1]) for line in metrics.splitlines() if line.startswith("game_requests_active{"))
+            if active > 0:
+                break
+            if time.monotonic() >= deadline:
+                raise AssertionError("Purchase did not enter the dispatcher before drain")
+            time.sleep(0.02)
         drain_started = time.monotonic()
-        assert admin(draining_owner, "/drain", "POST")[0] in (200, 202)
+        assert admin(draining_owner, "/drain", "POST")[0] == 202, "Drain did not wait for the admitted request"
+        assert draining_purchase.poll() is None, "Purchase was not in flight when drain began"
+        draining_purchase.wait(timeout=15)
+        assert draining_purchase.returncode == 0, (ARTIFACTS / "drain-purchase.log").read_text()
+        drain_lock.wait(timeout=5)
         while time.monotonic() - drain_started < 45:
             status, body = admin(draining_owner, "/drain", "POST")
             if status == 200:
@@ -365,10 +441,10 @@ def main():
         time.sleep(1)  # Propagate the drain placement view to other processes.
         after_drain = client(drain_player, "purchase", drain_operation)
         assert after_drain["NodeId"] != draining_owner, after_drain
-        assert after_drain["Balance"] == before_drain["Balance"] and after_drain["Inventory"] == 1, after_drain
+        assert after_drain["Balance"] == before_drain["Balance"] - 7 and after_drain["Inventory"] == 1, after_drain
         results["drain"] = {"seconds": time.monotonic() - drain_started, "old_owner": draining_owner,
                             "new_owner": after_drain["NodeId"], "asset_mutations": 1}
-        record("drain stops admission and placement, retires owned Actors, and hands off with durable replay")
+        record("drain waits for an admitted blocked purchase, stops new admission, and hands off without duplicating assets")
 
         previous_host = os.environ.get("GAME_PREVIOUS_HOST")
         if not previous_host or not Path(previous_host).is_file():
@@ -429,10 +505,39 @@ def main():
         results["rolling"] = {"previous_commit": "d49a053e6b41bf6396536074e43521ea50478710",
                               "phases": rolling, "strict_sessions_reenabled": True, "legacy_client_passed": True}
         record("previous and candidate binaries mixed, rolled back and upgraded; old client survives; strict sessions enabled last")
+        # Rotate the actual owner's leaf/key, reload the proxy, and restart the
+        # application credential holder so the subsequent RPC uses a fresh link.
+        rotation_owner = rolling[-1]["owner"]
+        rotation_port = base + 10 + NODES.index(rotation_owner)
+        old_fingerprint = peer_fingerprint(directory, rotation_port, rotation_owner)
+        issue_leaf(directory, rotation_owner)
+        expected = hashlib.sha256(ssl.PEM_cert_to_DER_cert((directory / f"{rotation_owner}.crt").read_text())).hexdigest()
+        assert expected != old_fingerprint
+        tls_processes[rotation_owner].send_signal(signal.SIGHUP)
+        deadline = time.monotonic() + 10
+        while True:
+            try:
+                if peer_fingerprint(directory, rotation_port, rotation_owner) == expected:
+                    break
+            except (OSError, ssl.SSLError):
+                pass
+            if time.monotonic() >= deadline:
+                raise AssertionError("TLS proxy did not load the replacement certificate")
+            time.sleep(0.1)
+        replace_node(rotation_owner, HOST, "rotated-certificate")
+        rolling_replay("owner leaf certificate rotated")
+        assert rolling[-1]["owner"] == rotation_owner, "Rotation RPC did not reach the rotated node"
+        tls_rejected(directory, rotation_port, "outsider", rotation_owner)
+        tls_rejected(directory, rotation_port, "rogue", rotation_owner)
+        results["certificate_rotation"] = {"node": rotation_owner, "before_sha256": old_fingerprint,
+            "after_sha256": expected, "fresh_rpc_passed": True, "ca_revocation_verified": False}
+        record("owner leaf/key rotation changes the served certificate; fresh authenticated RPC succeeds and unauthorized peers remain rejected")
         results["passed"] = True
     finally:
         if redis_paused:
             subprocess.run(["docker", "unpause", os.environ["GAME_REDIS_CONTAINER"]], timeout=15, check=False)
+        if postgres_paused:
+            subprocess.run(["docker", "unpause", os.environ["GAME_POSTGRES_CONTAINER"]], timeout=15, check=False)
         for process in reversed(processes):
             if process.poll() is None:
                 process.send_signal(signal.SIGCONT)

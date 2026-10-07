@@ -61,6 +61,8 @@ internal sealed class AssetStore(NpgsqlDataSource source)
               player text PRIMARY KEY, purchases integer NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS game_sessions (
               player text PRIMARY KEY, session uuid NOT NULL, valid_until timestamptz NOT NULL);
+            CREATE TABLE IF NOT EXISTS game_room_memberships (
+              room text NOT NULL, player text NOT NULL, PRIMARY KEY(room,player));
             ALTER TABLE game_receipts ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
             ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
             ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS last_published_at timestamptz;

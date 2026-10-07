@@ -39,6 +39,8 @@ jobs:
           dotnet-version: '10.0.401'
       - name: Build and run correctness suites
         run: bash scripts/verify-game-server.sh
+      - name: Verify workload and benchmark evidence cannot pass incomplete runs
+        run: python3 -m unittest discover -s scripts/tests -v
       - name: Verify test execution, including real Redis
         if: always()
         run: python3 scripts/summarize-game-server-tests.py artifacts/game-server/tests
@@ -94,6 +96,7 @@ jobs:
       - name: Verify independent cluster processes through actual mTLS
         env:
           GAME_REDIS_CONTAINER: ${{ job.services.redis.id }}
+          GAME_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           export GAME_JWT_KEY=$(openssl rand -base64 32)
           python3 scripts/verify-game-cluster.py

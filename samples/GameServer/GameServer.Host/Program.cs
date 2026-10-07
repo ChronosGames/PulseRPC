@@ -22,6 +22,11 @@ await using var source = NpgsqlDataSource.Create(database);
 var store = new AssetStore(source);
 if (args[0] == "load") { await GameLoadClient.RunAsync(args, store); return; }
 if (args[0] == "init") { await store.InitializeAsync(); return; }
+if (args[0] == "room-member" && args.Length == 4 && args[1] is "add" or "remove")
+{
+    await new RoomStore(source).SetMemberAsync(args[2], args[3], args[1] == "add", CancellationToken.None);
+    return;
+}
 if (args[0] == "verify-store") { await AssetStoreVerification.RunAsync(store, source); return; }
 if (args[0] == "verify-sessions-store") { await AssetStoreVerification.VerifySessionsAsync(store, source); return; }
 if (args[0] == "verify-inactive-owner" && args.Length == 2)
@@ -75,6 +80,7 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
         services.AddSingleton(store);
         services.AddSingleton(source);
         services.AddSingleton<PlayerSessions>();
+        services.AddSingleton<RoomStore>();
         services.AddSingleton<PlayerSessionMode>();
         services.AddSingleton<GameAdmission>();
         services.AddSingleton<IConnectionMultiplexer>(redis);
@@ -145,13 +151,15 @@ using var host = Microsoft.Extensions.Hosting.Host.CreateDefaultBuilder(args)
         services.AddPulseService<PlayerService>((provider, key) => new PlayerService(key, store, node,
             provider.GetRequiredService<PulseServiceManager>(), provider.GetRequiredService<PlayerSessions>(),
             provider.GetRequiredService<PlayerSessionMode>(), provider.GetRequiredService<ILogger<PlayerService>>()));
+        services.AddPulseService<RoomService>((provider, key) => new RoomService(key,
+            provider.GetRequiredService<RoomStore>(), provider.GetRequiredService<PlayerSessions>(),
+            provider.GetRequiredService<PlayerSessionMode>(), node, provider.GetRequiredService<ILogger<RoomService>>()));
         if (node == "gateway")
         {
             services.AddPulseGateway();
             services.AddSingleton<ISessionHub>(provider => new SessionHub(provider.GetRequiredService<PulseRPC.Server.Transport.IServerChannelManager>(),
                 provider.GetRequiredService<PlayerSessions>()));
-            services.AddSingleton<IGatewayActorInvocationPolicy>(new UserOwnedActorInvocationPolicy(
-                new Dictionary<string, IReadOnlyCollection<ushort>> { ["PlayerHub"] = new ushort[] { 0x7101, 0x7102, 0x7103 } }));
+            services.AddSingleton<IGatewayActorInvocationPolicy, GameResourcePolicy>();
             services.AddSingleton<IGatewayActorInvocationPolicy, PlayerSessionPolicy>();
         }
         if (int.TryParse(Environment.GetEnvironmentVariable("GAME_ADMIN_BASE_PORT"), out var adminBase))
