@@ -2,7 +2,7 @@ name: Game server validation
 
 on:
   pull_request:
-    branches: [main, 'release/**']
+    branches: [main, 'release/**', 'codex/game-server-hardening']
   workflow_dispatch:
 
 permissions:
@@ -119,6 +119,8 @@ jobs:
         with:
           dotnet-version: '10.0.100'
       - name: Compare baseline and candidate on the same runner
+        env:
+          PULSERPC_CAPTURE_TRACE: '1'
         run: bash scripts/benchmark-game-server.sh "$BASELINE_REF" full
       - uses: actions/upload-artifact@v6
         if: always()
