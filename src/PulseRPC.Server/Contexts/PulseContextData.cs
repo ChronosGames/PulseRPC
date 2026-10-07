@@ -344,6 +344,7 @@ public sealed record class PulseContextData : IPulseContext
     {
         var permissions = new HashSet<string>();
         var roles = new HashSet<string>();
+        var claims = new Dictionary<string, string>(StringComparer.Ordinal);
 
         if (authContext.Scopes != null)
         {
@@ -361,6 +362,10 @@ public sealed record class PulseContextData : IPulseContext
                 {
                     roles.Add(claim.Value);
                 }
+                else
+                {
+                    claims[claim.Type] = claim.Value;
+                }
             }
         }
 
@@ -375,6 +380,7 @@ public sealed record class PulseContextData : IPulseContext
             AuthenticationContext = authContext,
             Permissions = permissions,
             Roles = roles,
+            Claims = claims,
             User = authContext.Principal,
             Transport = transport,
             ConnectionId = transport?.Id,

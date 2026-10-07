@@ -1,0 +1,14 @@
+{
+  "durationSeconds": 20,
+  "connections": 8,
+  "requestsPerSecond": 100,
+  "queuePerConnection": 2,
+  "payloadBytes": 128,
+  "readPercent": 15,
+  "purchasePercent": 5,
+  "requestTimeoutSeconds": 5,
+  "sampleSeconds": 5,
+  "minimumContinuousSeconds": 0,
+  "environmentId": "hosted-ci-smoke",
+  "slo": null
+}

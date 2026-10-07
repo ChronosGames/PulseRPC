@@ -1,0 +1,74 @@
+name: Controlled game server capacity
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_label:
+        description: Existing dedicated Linux runner label
+        required: true
+        type: string
+      profile:
+        description: Profile path with the actual environment ID and workload/SLO
+        required: true
+        default: perf/game-server/controlled.template.json
+        type: string
+      host:
+        description: Isolated test deployment's TLS client proxy host
+        required: true
+        default: '127.0.0.1'
+        type: string
+      port:
+        description: TLS client proxy port
+        required: true
+        type: string
+      mode:
+        description: Capacity steps or one continuous 24-hour run
+        type: choice
+        options: [ladder, soak]
+        default: ladder
+      rates:
+        description: Comma-separated offered requests per second for ladder mode
+        default: '100,200,400'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: controlled-game-capacity-${{ inputs.runner_label }}
+  cancel-in-progress: false
+
+jobs:
+  capacity:
+    runs-on: [self-hosted, linux, '${{ inputs.runner_label }}']
+    timeout-minutes: 1560
+    env:
+      GAME_REDIS: ${{ secrets.GAME_ACCEPTANCE_REDIS }}
+      GAME_POSTGRES: ${{ secrets.GAME_ACCEPTANCE_POSTGRES }}
+      GAME_JWT_KEY: ${{ secrets.GAME_ACCEPTANCE_JWT_KEY }}
+      GAME_PROFILE: ${{ inputs.profile }}
+      GAME_ENDPOINT_HOST: ${{ inputs.host }}
+      GAME_ENDPOINT_PORT: ${{ inputs.port }}
+      GAME_MODE: ${{ inputs.mode }}
+      GAME_RATES: ${{ inputs.rates }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.401'
+      - name: Build the workload client
+        run: dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror
+      - name: Run the configured isolated workload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode_arguments=()
+          if [[ "$GAME_MODE" == soak ]]; then mode_arguments+=(--soak); fi
+          python3 scripts/run-game-capacity.py --profile "$GAME_PROFILE" --host "$GAME_ENDPOINT_HOST" \
+            --port "$GAME_ENDPOINT_PORT" --rates "$GAME_RATES" "${mode_arguments[@]}"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: controlled-game-capacity
+          path: artifacts/game-server/capacity/
+          retention-days: 90

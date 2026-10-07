@@ -10,6 +10,38 @@ internal sealed class AssetStore(NpgsqlDataSource source)
     internal sealed record Fence(string Player, Guid Owner, long Generation);
     internal const int LeaseSeconds = 6;
 
+    internal async Task PrepareLoadAsync(string prefix, int players, long initialBalance, CancellationToken ct)
+    {
+        await using var query = source.CreateCommand("""
+            INSERT INTO game_players(player,balance,owner,generation,owner_until)
+            SELECT $1 || n::text,$3,$4,0,'epoch'::timestamptz FROM generate_series(0,$2-1) n
+            """);
+        query.Parameters.AddWithValue(prefix);
+        query.Parameters.AddWithValue(players);
+        query.Parameters.AddWithValue(initialBalance);
+        query.Parameters.AddWithValue(Guid.NewGuid());
+        await query.ExecuteNonQueryAsync(ct);
+    }
+
+    internal async Task VerifyLoadAsync(string prefix, int players, long initialBalance, CancellationToken ct)
+    {
+        await using var query = source.CreateCommand("""
+            SELECT count(*),count(*) FILTER(WHERE p.balance=$2-COALESCE(r.units,0)*7
+                AND p.inventory=COALESCE(r.units,0) AND COALESCE(r.receipts,0)=COALESCE(o.events,0))
+            FROM game_players p
+            LEFT JOIN (SELECT player,sum(quantity) units,count(*) receipts FROM game_receipts
+                WHERE starts_with(player,$1) GROUP BY player) r USING(player)
+            LEFT JOIN (SELECT player,count(*) events FROM game_outbox
+                WHERE starts_with(player,$1) GROUP BY player) o USING(player)
+            WHERE starts_with(p.player,$1)
+            """);
+        query.Parameters.AddWithValue(prefix);
+        query.Parameters.AddWithValue(initialBalance);
+        await using var reader = await query.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct) || reader.GetInt64(0) != players || reader.GetInt64(1) != players)
+            throw new InvalidOperationException("Asset balances, inventory, receipts and outbox differ after load.");
+    }
+
     internal async Task InitializeAsync(CancellationToken ct = default)
     {
         await using var command = source.CreateCommand("""
@@ -25,6 +57,18 @@ internal sealed class AssetStore(NpgsqlDataSource source)
               PRIMARY KEY(player, operation));
             CREATE TABLE IF NOT EXISTS game_inbox (
               player text NOT NULL, operation uuid NOT NULL, PRIMARY KEY(player, operation));
+            CREATE TABLE IF NOT EXISTS game_purchase_notifications (
+              player text PRIMARY KEY, purchases integer NOT NULL DEFAULT 0);
+            CREATE TABLE IF NOT EXISTS game_sessions (
+              player text PRIMARY KEY, session uuid NOT NULL, valid_until timestamptz NOT NULL);
+            CREATE TABLE IF NOT EXISTS game_room_memberships (
+              room text NOT NULL, player text NOT NULL, PRIMARY KEY(room,player));
+            ALTER TABLE game_receipts ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
+            ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS created_at timestamptz NOT NULL DEFAULT clock_timestamp();
+            ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS last_published_at timestamptz;
+            ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+            ALTER TABLE game_outbox ADD COLUMN IF NOT EXISTS publish_attempts integer NOT NULL DEFAULT 0;
+            CREATE INDEX IF NOT EXISTS game_outbox_pending ON game_outbox(created_at) WHERE delivered_at IS NULL;
             """);
         await command.ExecuteNonQueryAsync(ct);
     }
@@ -68,12 +112,15 @@ internal sealed class AssetStore(NpgsqlDataSource source)
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    internal async Task<PurchaseReceipt> PurchaseAsync(Fence fence, PurchaseCommand request, CancellationToken ct)
+    internal async Task<PurchaseReceipt> PurchaseAsync(Fence fence, PurchaseCommand request, CancellationToken ct,
+        PlayerSessions.Stamp? session = null)
     {
         if (request.OperationId == Guid.Empty || request.Sku != "potion" || request.Quantity < 1 || request.Quantity > 100)
             throw new ArgumentException("A purchase needs an operation ID, a supported SKU and quantity 1..100.");
         await using var connection = await source.OpenConnectionAsync(ct);
         await using var transaction = await connection.BeginTransactionAsync(ct);
+        if (session is not null)
+            await PlayerSessions.LockForPurchaseAsync(connection, transaction, session, fence.Player, ct);
         // Serialize both mutation and deduplication on the authoritative player row.
         await using (var guard = new NpgsqlCommand("""
             SELECT generation FROM game_players WHERE player=$1 AND owner=$2 AND generation=$3

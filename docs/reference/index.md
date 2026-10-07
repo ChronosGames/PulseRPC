@@ -39,6 +39,7 @@
 | `TransportChannelConfiguration` | 服务端 TCP/KCP 监听配置 |
 | `TransportChannelConfiguration.ListenAddress` | 监听 IP；默认所有 IPv4 接口，TLS sidecar 后端使用 loopback |
 | `UseGameGatewayProfile()` / `UseGameNodeProfile()` | 显式启用 ClientFacing 门闸和游戏服务端资源预算；仍需认证、TLS 与容量验证 |
+| `RpcAdmissionException` | 高级服务端准入异常；默认响应处理器映射为 `SERVER_BUSY`，可用于应用排空门闸 |
 | `UserOwnedActorInvocationPolicy` | 按 Hub/协议白名单及 `Actor key == UserId` 校验玩家资源所有权 |
 | `AddPulseClustering(...)` | 注册集群路由和节点配置 |
 | `AddRedisActorLeases(...)` | 以 Redis 原子脚本替换默认进程内 Actor 租约 |

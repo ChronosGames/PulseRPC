@@ -6,6 +6,57 @@ namespace GameServer.Host;
 
 internal static class AssetStoreVerification
 {
+    internal static async Task VerifySessionsAsync(AssetStore store, NpgsqlDataSource source)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var ct = timeout.Token;
+        var sessions = new PlayerSessions(source);
+        var player = "session-fence-" + Guid.NewGuid().ToString("N");
+        var original = new PlayerSessions.Stamp(player, Guid.NewGuid());
+        var replacement = new PlayerSessions.Stamp(player, Guid.NewGuid());
+        await sessions.ReplaceAsync(original, DateTime.UtcNow.AddMinutes(5), ct);
+        var fence = await store.AcquireAsync(player, Guid.NewGuid(), ct);
+        var operation = new PurchaseCommand { OperationId = Guid.NewGuid() };
+        await store.PurchaseAsync(fence, operation, ct, original);
+
+        await using (var connection = await source.OpenConnectionAsync(ct))
+        await using (var transaction = await connection.BeginTransactionAsync(ct))
+        {
+            await PlayerSessions.LockForPurchaseAsync(connection, transaction, original, player, ct);
+            // PostgreSQL itself proves replacement is serialized with a transaction
+            // already admitted by the old session; do not depend on timing a Task.
+            await using var competing = await source.OpenConnectionAsync(ct);
+            await using var competingTransaction = await competing.BeginTransactionAsync(ct);
+            await using (var configure = new NpgsqlCommand("SET LOCAL lock_timeout='100ms'", competing, competingTransaction))
+                await configure.ExecuteNonQueryAsync(ct);
+            await using var update = new NpgsqlCommand("""
+                UPDATE game_sessions SET session=$2 WHERE player=$1
+                """, competing, competingTransaction);
+            update.Parameters.AddWithValue(player);
+            update.Parameters.AddWithValue(replacement.Session);
+            try { await update.ExecuteNonQueryAsync(ct); throw new InvalidOperationException("Replacement bypassed the session transaction lock."); }
+            catch (PostgresException error) when (error.SqlState == "55P03") { }
+            await competingTransaction.RollbackAsync(ct);
+            await transaction.CommitAsync(ct);
+        }
+        await sessions.ReplaceAsync(replacement, DateTime.UtcNow.AddMinutes(5), ct);
+        await MustFailAsync<UnauthorizedAccessException>(() => store.PurchaseAsync(fence,
+            new PurchaseCommand { OperationId = Guid.NewGuid() }, CancellationToken.None, original));
+        await sessions.RevokeAsync(original, ct);
+        await sessions.ValidateAsync(replacement, ct);
+        var replay = await store.PurchaseAsync(fence, operation, ct, replacement);
+        if (replay.Balance != 993 || replay.Inventory != 1) throw new InvalidOperationException("Session replacement duplicated a purchase.");
+        await sessions.RevokeAsync(replacement, ct);
+        await MustFailAsync<UnauthorizedAccessException>(() => store.PurchaseAsync(fence,
+            new PurchaseCommand { OperationId = Guid.NewGuid() }, CancellationToken.None, replacement));
+        await store.ReleaseAsync(fence, ct);
+        Console.WriteLine("RESULT " + JsonSerializer.Serialize(new
+        {
+            Passed = true, DatabaseSerializesLoginWithPurchase = true,
+            StaleQueuedWriterRejectedWithoutCancellation = true, StaleLogoutSafe = true, DurableReplay = true
+        }));
+    }
+
     internal static async Task HoldPlayerRowAsync(NpgsqlDataSource source, string player)
     {
         await using var connection = await source.OpenConnectionAsync();

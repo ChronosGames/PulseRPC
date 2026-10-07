@@ -126,3 +126,11 @@ services.AddPulseServer(options =>
 - [性能指南](performance.md)
 - [传输与消息执行模型](../concepts/transport-model.md)
 - [历史归档](../archive/)
+
+## 游戏服务端生产验收扩展
+
+`PulseRPC.Server.Processing.RpcAdmissionException` 新增为公开高级 API，构造参数为错误消息；默认响应处理器将它映射为 `SERVER_BUSY`。自定义准入门闸可在排空时使用，客户端仍须区分可重试操作并携带持久化操作 ID。公开签名记录在 Server 的 Unshipped 基线中。
+
+`PulseContextData.FromAuthenticationContext` 现在快照已验证身份的非角色 claims，角色仍独立复制。Gateway 转发后的后端可读取会话等已验证 claim；不应在业务中将原始客户端字段替代验证后的上下文。
+
+GameServer 示例默认要求当前数据库会话；旧二进制混合升级/回滚时使用显式兼容阶段，详见[专项验收](game-server-acceptance.md)。已有框架协议及 C# 9 客户端签名保持兼容。

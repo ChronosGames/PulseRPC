@@ -41,7 +41,7 @@ services.AddPulseServer(options =>
 
 - `MessageWorkerShardCount` 是固定 worker 数。增加它可以提高独立消息的并发度，也会增加长期 worker 和队列数量。
 - `MessageQueueCapacityPerShard` 是每个 shard 的排队上限。增加容量只能吸收短时突发，也会提高最坏情况下的排队延迟和内存占用。
-- 连接在其生命周期内固定绑定一个 shard；长时间运行的调用会阻塞同 shard 的后续消息。应优先缩短 handler 临界路径，再根据同一 workload 调整 shard 数。
+- 连接在其生命周期内固定绑定一个 shard。默认每 shard 在途上限为 1，长调用会阻塞该 shard；提高 `MaxConcurrentMessagesPerShard` 后，不同连接可在预算内并发，单连接仍受自身在途上限约束。应先缩短 handler 临界路径，再用相同 workload 调整并发与 shard 数。
 - 队列满时立即拒绝新消息。不要依赖历史的 priority sleep/retry、adaptive batching 或 L1/L2/L3 配置规避背压。
 
 调优时同时记录 `message-engine.shard` 的 capacity、depth、saturation、高水位和 rejected enqueue，并在同一机器上比较吞吐、延迟与分配。只提高容量而不处理持续过载，会把拒绝转换成更长的尾延迟。

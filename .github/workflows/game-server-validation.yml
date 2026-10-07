@@ -36,9 +36,11 @@ jobs:
           lfs: true
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.100'
+          dotnet-version: '10.0.401'
       - name: Build and run correctness suites
         run: bash scripts/verify-game-server.sh
+      - name: Verify workload and benchmark evidence cannot pass incomplete runs
+        run: python3 -m unittest discover -s scripts/tests -v
       - name: Verify test execution, including real Redis
         if: always()
         run: python3 scripts/summarize-game-server-tests.py artifacts/game-server/tests
@@ -76,18 +78,25 @@ jobs:
       - uses: actions/checkout@v7
         with:
           lfs: true
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.100'
+          dotnet-version: '10.0.401'
       - name: Build the game server persistence and cluster sample
         run: |
           dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror
           dotnet build samples/GameServer/GameServer.LegacyClient/GameServer.LegacyClient.csproj -c Release --warnaserror
+      - name: Build previous game server for actual mixed-version and rollback checks
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/game-server-previous" d49a053e6b41bf6396536074e43521ea50478710
+          dotnet build "$RUNNER_TEMP/game-server-previous/samples/GameServer/GameServer.Host/GameServer.Host.csproj" -c Release --warnaserror
+          echo "GAME_PREVIOUS_HOST=$RUNNER_TEMP/game-server-previous/samples/GameServer/GameServer.Host/bin/Release/net10.0/GameServer.Host.dll" >> "$GITHUB_ENV"
       - name: Install TLS acceptance proxy
         run: sudo apt-get update -qq && sudo apt-get install -y stunnel4
       - name: Verify independent cluster processes through actual mTLS
         env:
           GAME_REDIS_CONTAINER: ${{ job.services.redis.id }}
+          GAME_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           export GAME_JWT_KEY=$(openssl rand -base64 32)
           python3 scripts/verify-game-cluster.py
@@ -117,8 +126,10 @@ jobs:
           lfs: true
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.100'
+          dotnet-version: '10.0.401'
       - name: Compare baseline and candidate on the same runner
+        env:
+          PULSERPC_CAPTURE_TRACE: '1'
         run: bash scripts/benchmark-game-server.sh "$BASELINE_REF" full
       - uses: actions/upload-artifact@v6
         if: always()

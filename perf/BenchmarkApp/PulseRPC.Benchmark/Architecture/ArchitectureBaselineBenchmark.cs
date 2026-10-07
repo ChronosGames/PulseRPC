@@ -15,7 +15,8 @@ namespace PulseRPC.Benchmark.Architecture;
 
 internal static class ArchitectureBaselineBenchmark
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
+    private static int _warmupOperations;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true
@@ -54,6 +55,13 @@ internal static class ArchitectureBaselineBenchmark
 
         operations = Math.Max(100, operations);
         concurrency = Math.Clamp(concurrency, 1, operations);
+        _warmupOperations = smoke ? 16 : 2048;
+        var warmupOverride = Environment.GetEnvironmentVariable("PULSERPC_BENCHMARK_WARMUP_OPERATIONS");
+        if (warmupOverride is not null
+            && (!int.TryParse(warmupOverride, out _warmupOperations) || _warmupOperations < 1))
+            throw new ArgumentException("PULSERPC_BENCHMARK_WARMUP_OPERATIONS must be a positive integer.");
+        ThreadPool.GetMinThreads(out var minimumWorkers, out var minimumIo);
+        ThreadPool.SetMinThreads(Math.Max(minimumWorkers, concurrency), minimumIo);
         var hotLookupOperations = smoke ? operations : Math.Max(200_000, checked(operations * 100));
         var lifecycleOperations = smoke
             ? Math.Max(100, operations / 4)
@@ -91,9 +99,12 @@ internal static class ArchitectureBaselineBenchmark
                 Operations = operations,
                 Concurrency = concurrency,
                 Repetitions = repetitions,
-                Smoke = smoke
+                Smoke = smoke,
+                WarmupOperations = _warmupOperations,
+                WorkerScheduling = "task-run-barrier-striped-v2"
             },
-            Scenarios = scenarios
+            Scenarios = scenarios,
+            Samples = scenarioSamples.SelectMany(samples => samples).ToList()
         };
 
         PrintReport(report);
@@ -151,8 +162,8 @@ internal static class ArchitectureBaselineBenchmark
             });
 
         await WarmupAsync(
-            Math.Min(32, operations),
-            Math.Min(4, concurrency),
+            Math.Min(_warmupOperations, operations),
+            concurrency,
             async (index, started) =>
             {
                 BinaryPrimitives.WriteInt64LittleEndian(payloads[index], started);
@@ -192,8 +203,8 @@ internal static class ArchitectureBaselineBenchmark
         await manager.GetOrCreateServiceAsync(nameof(BenchmarkActor), "hot", cancellationToken);
 
         await WarmupAsync(
-            Math.Min(32, operations),
-            Math.Min(4, concurrency),
+            Math.Min(_warmupOperations, operations),
+            concurrency,
             async (unusedIndex, unusedStarted) =>
             {
                 _ = await manager.GetOrCreateServiceAsync(
@@ -228,8 +239,8 @@ internal static class ArchitectureBaselineBenchmark
         await actor.StartAsync(cancellationToken);
 
         await WarmupAsync(
-            Math.Min(32, operations),
-            Math.Min(4, concurrency),
+            Math.Min(_warmupOperations, operations),
+            concurrency,
             async (index, started) =>
             {
                 await actor.EnqueueAsync(async () =>
@@ -268,8 +279,8 @@ internal static class ArchitectureBaselineBenchmark
         await using var manager = CreateActorManager(provider);
 
         await WarmupAsync(
-            Math.Min(16, operations),
-            Math.Min(4, concurrency),
+            Math.Min(_warmupOperations, operations),
+            concurrency,
             async (index, unusedStarted) =>
             {
                 var id = $"warmup-{index}";
@@ -340,9 +351,13 @@ internal static class ArchitectureBaselineBenchmark
         var latencies = new double[operations];
         ForceGc();
         var allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
+        using var process = Process.GetCurrentProcess();
+        var cpuBefore = process.TotalProcessorTime;
+        var contentionsBefore = Monitor.LockContentionCount;
+        var collectionsBefore = Enumerable.Range(0, 3).Select(GC.CollectionCount).ToArray();
         var elapsed = Stopwatch.StartNew();
 
-        await RunConcurrentAsync(operations, concurrency, operation, latencies, cancellationToken);
+        var workerOperations = await RunConcurrentAsync(operations, concurrency, operation, latencies, cancellationToken);
 
         elapsed.Stop();
         var allocatedBytes = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
@@ -354,6 +369,10 @@ internal static class ArchitectureBaselineBenchmark
             DurationMs = elapsed.Elapsed.TotalMilliseconds,
             OperationsPerSecond = operations / elapsed.Elapsed.TotalSeconds,
             AllocatedBytesPerOperation = Math.Max(0, allocatedBytes) / (double)operations,
+            CpuMs = (process.TotalProcessorTime - cpuBefore).TotalMilliseconds,
+            LockContentions = Monitor.LockContentionCount - contentionsBefore,
+            GcCollections = Enumerable.Range(0, 3).Select(generation => GC.CollectionCount(generation) - collectionsBefore[generation]).ToArray(),
+            WorkerOperations = workerOperations,
             Latency = Distribution.From(latencies),
             BackpressureWait = waitSamples is null
                 ? Distribution.Empty
@@ -361,35 +380,42 @@ internal static class ArchitectureBaselineBenchmark
         };
     }
 
-    private static async Task RunConcurrentAsync(
+    private static async Task<int[]> RunConcurrentAsync(
         int operations,
         int concurrency,
         Func<int, long, ValueTask> operation,
         double[]? latencies,
         CancellationToken cancellationToken)
     {
-        var next = -1;
-        var workers = Enumerable.Range(0, concurrency).Select(async _ =>
+        // Async delegates can finish synchronously. Without an explicit start barrier
+        // the first delegate consumes the entire hot-lookup workload during enumeration.
+        concurrency = Math.Min(concurrency, operations);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var remaining = concurrency;
+        var workerOperations = new int[concurrency];
+        var workers = Enumerable.Range(0, concurrency).Select(worker => Task.Run(async () =>
         {
-            while (true)
+            if (Interlocked.Decrement(ref remaining) == 0) ready.TrySetResult();
+            await start.Task.ConfigureAwait(false);
+            for (var index = worker; index < operations; index += concurrency)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var index = Interlocked.Increment(ref next);
-                if (index >= operations)
-                {
-                    return;
-                }
-
                 var started = Stopwatch.GetTimestamp();
                 await operation(index, started).ConfigureAwait(false);
+                workerOperations[worker]++;
                 if (latencies is not null)
                 {
                     latencies[index] = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 }
             }
-        });
-
+        }, CancellationToken.None)).ToArray();
+        await ready.Task.ConfigureAwait(false);
+        start.TrySetResult();
         await Task.WhenAll(workers).ConfigureAwait(false);
+        if (workerOperations.Sum() != operations || workerOperations.Any(count => count == 0))
+            throw new InvalidOperationException("Benchmark workers did not execute their assigned operations.");
+        return workerOperations;
     }
 
     private static void ForceGc()
@@ -492,6 +518,10 @@ internal static class ArchitectureBaselineBenchmark
             DurationMs = Median(samples.Select(item => item.DurationMs)),
             OperationsPerSecond = Median(samples.Select(item => item.OperationsPerSecond)),
             AllocatedBytesPerOperation = Median(samples.Select(item => item.AllocatedBytesPerOperation)),
+            CpuMs = Median(samples.Select(item => item.CpuMs)),
+            LockContentions = (long)Median(samples.Select(item => (double)item.LockContentions)),
+            WorkerOperations = first.WorkerOperations,
+            GcCollections = Enumerable.Range(0, 3).Select(generation => (int)Median(samples.Select(item => (double)item.GcCollections[generation]))).ToArray(),
             Latency = AggregateMedian(samples.Select(item => item.Latency)),
             BackpressureWait = AggregateMedian(samples.Select(item => item.BackpressureWait))
         };
@@ -534,6 +564,8 @@ internal static class ArchitectureBaselineBenchmark
         if (current.Configuration.Operations != baseline.Configuration.Operations
             || current.Configuration.Concurrency != baseline.Configuration.Concurrency
             || current.Configuration.Repetitions != baseline.Configuration.Repetitions
+            || current.Configuration.WarmupOperations != baseline.Configuration.WarmupOperations
+            || current.Configuration.WorkerScheduling != baseline.Configuration.WorkerScheduling
             || current.Configuration.Smoke != baseline.Configuration.Smoke)
         {
             throw new InvalidOperationException(
@@ -669,6 +701,7 @@ internal sealed class ArchitectureBenchmarkReport
     public bool ServerGc { get; set; }
     public ArchitectureBenchmarkConfiguration Configuration { get; set; } = new();
     public List<ArchitectureScenarioResult> Scenarios { get; set; } = new();
+    public List<ArchitectureScenarioResult> Samples { get; set; } = new();
 }
 
 internal sealed class ArchitectureBenchmarkConfiguration
@@ -677,6 +710,8 @@ internal sealed class ArchitectureBenchmarkConfiguration
     public int Concurrency { get; set; }
     public int Repetitions { get; set; }
     public bool Smoke { get; set; }
+    public int WarmupOperations { get; set; }
+    public string WorkerScheduling { get; set; } = string.Empty;
 }
 
 internal sealed class ArchitectureScenarioResult
@@ -687,6 +722,10 @@ internal sealed class ArchitectureScenarioResult
     public double DurationMs { get; set; }
     public double OperationsPerSecond { get; set; }
     public double AllocatedBytesPerOperation { get; set; }
+    public double CpuMs { get; set; }
+    public long LockContentions { get; set; }
+    public int[] GcCollections { get; set; } = new int[3];
+    public int[] WorkerOperations { get; set; } = [];
     public Distribution Latency { get; set; } = Distribution.Empty;
     public Distribution BackpressureWait { get; set; } = Distribution.Empty;
 }

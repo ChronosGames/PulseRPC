@@ -12,6 +12,27 @@ namespace GameServer.Contracts
     {
         [Protocol(0x7100)]
         Task<bool> AuthenticateAsync(string token, CancellationToken cancellationToken = default);
+
+        [Protocol(0x7104)]
+        Task<bool> LogoutAsync(CancellationToken cancellationToken = default);
+    }
+
+    [ClientFacing]
+    public interface IRoomHub : IPulseHub
+    {
+        [Protocol(0x7110)]
+        Task<RoomSnapshot> GetStateAsync(CancellationToken cancellationToken = default);
+
+        [Protocol(0x7111)]
+        Task<string> EchoAsync(string value, CancellationToken cancellationToken = default);
+    }
+
+    [MemoryPackable(GenerateType.VersionTolerant)]
+    public partial class RoomSnapshot
+    {
+        [MemoryPackOrder(0)] public string Room { get; set; } = "";
+        [MemoryPackOrder(1)] public long Members { get; set; }
+        [MemoryPackOrder(2)] public string NodeId { get; set; } = "";
     }
 
     [ClientFacing]
