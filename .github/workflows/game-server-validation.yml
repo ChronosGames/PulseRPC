@@ -44,7 +44,7 @@ jobs:
       - name: Verify test execution, including real Redis
         if: always()
         run: python3 scripts/summarize-game-server-tests.py artifacts/game-server/tests
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: game-server-correctness
@@ -109,7 +109,7 @@ jobs:
               print(path.name)
               print(path.read_text()[-12000:])
           PY
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: game-server-cluster
@@ -131,7 +131,7 @@ jobs:
         env:
           PULSERPC_CAPTURE_TRACE: '1'
         run: bash scripts/benchmark-game-server.sh "$BASELINE_REF" full
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: game-server-benchmark

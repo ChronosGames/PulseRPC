@@ -66,7 +66,7 @@ jobs:
           if [[ "$GAME_MODE" == soak ]]; then mode_arguments+=(--soak); fi
           python3 scripts/run-game-capacity.py --profile "$GAME_PROFILE" --host "$GAME_ENDPOINT_HOST" \
             --port "$GAME_ENDPOINT_PORT" --rates "$GAME_RATES" "${mode_arguments[@]}"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: controlled-game-capacity
