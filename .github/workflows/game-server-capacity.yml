@@ -4,31 +4,22 @@ on:
   workflow_dispatch:
     inputs:
       runner_label:
-        description: Existing dedicated Linux runner label
+        description: 已有专用 Linux x64 Docker runner 标签（不创建或购买资源）
         required: true
         type: string
       profile:
-        description: Profile path with the actual environment ID and workload/SLO
+        description: perf/game-server 下已提交的隔离验收配置，必须包含 SLO
         required: true
-        default: perf/game-server/controlled.template.json
-        type: string
-      host:
-        description: Isolated test deployment's TLS client proxy host
-        required: true
-        default: '127.0.0.1'
-        type: string
-      port:
-        description: TLS client proxy port
-        required: true
+        default: perf/game-server/acceptance-soak.json
         type: string
       mode:
-        description: Capacity steps or one continuous 24-hour run
+        description: 10–30 分钟 smoke 或单次连续 24 小时 soak
         type: choice
-        options: [ladder, soak]
-        default: ladder
-      rates:
-        description: Comma-separated offered requests per second for ladder mode
-        default: '100,200,400'
+        options: [smoke, soak]
+        default: soak
+      smoke_seconds:
+        description: smoke 持续秒数（600–1800），soak 忽略
+        default: '600'
         type: string
 
 permissions:
@@ -40,35 +31,45 @@ concurrency:
 
 jobs:
   capacity:
-    runs-on: [self-hosted, linux, '${{ inputs.runner_label }}']
+    # Never execute pull-request or arbitrary branch code on a persistent runner.
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, '${{ inputs.runner_label }}']
     timeout-minutes: 1560
     env:
-      GAME_REDIS: ${{ secrets.GAME_ACCEPTANCE_REDIS }}
-      GAME_POSTGRES: ${{ secrets.GAME_ACCEPTANCE_POSTGRES }}
-      GAME_JWT_KEY: ${{ secrets.GAME_ACCEPTANCE_JWT_KEY }}
       GAME_PROFILE: ${{ inputs.profile }}
-      GAME_ENDPOINT_HOST: ${{ inputs.host }}
-      GAME_ENDPOINT_PORT: ${{ inputs.port }}
       GAME_MODE: ${{ inputs.mode }}
-      GAME_RATES: ${{ inputs.rates }}
+      GAME_SMOKE_SECONDS: ${{ inputs.smoke_seconds }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.401'
-      - name: Build the workload client
-        run: dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror
-      - name: Run the configured isolated workload
+          persist-credentials: false
+      - name: 检查验收编排的失败路径
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: 部署隔离三节点并完成连续负载、采集和清理
+        id: acceptance
         shell: bash
         run: |
           set -euo pipefail
-          mode_arguments=()
-          if [[ "$GAME_MODE" == soak ]]; then mode_arguments+=(--soak); fi
-          python3 scripts/run-game-capacity.py --profile "$GAME_PROFILE" --host "$GAME_ENDPOINT_HOST" \
-            --port "$GAME_ENDPOINT_PORT" --rates "$GAME_RATES" "${mode_arguments[@]}"
+          python3 scripts/run-game-acceptance.py --mode "$GAME_MODE" --profile "$GAME_PROFILE" \
+            --duration "$GAME_SMOKE_SECONDS" --output-root "$RUNNER_TEMP/pulserpc-acceptance-evidence"
+      # upload-artifact uses ACTIONS_RUNTIME_TOKEN, not the 24h GITHUB_TOKEN.
+      # No GitHub API/git operations are performed after the long workload.
+      - name: 取消或失败后重试本次隔离资源清理
+        if: always() && steps.acceptance.outputs.artifact_path != ''
+        env:
+          EVIDENCE: ${{ steps.acceptance.outputs.artifact_path }}
+        run: python3 scripts/cleanup-game-acceptance.py --output "$EVIDENCE"
       - uses: actions/upload-artifact@v6
         if: always()
         with:
-          name: controlled-game-capacity
-          path: artifacts/game-server/capacity/
+          name: game-server-${{ inputs.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.acceptance.outputs.artifact_path }}
+          if-no-files-found: error
           retention-days: 90
+      - name: 保留结果位置
+        if: always()
+        env:
+          EVIDENCE: ${{ steps.acceptance.outputs.artifact_path }}
+        run: |
+          printf '验收证据保留在 runner：%s\n' "$EVIDENCE" >> "$GITHUB_STEP_SUMMARY"
+          printf '单机隔离验收不是生产容量认证；只有完整证据通过才能确认本次长稳。\n' >> "$GITHUB_STEP_SUMMARY"

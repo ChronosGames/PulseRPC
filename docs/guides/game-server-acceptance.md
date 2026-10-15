@@ -95,40 +95,30 @@ python3 scripts/run-game-capacity.py --profile perf/game-server/controlled.templ
 
 脚本拒绝占位环境标识；`--soak` 要求配置和实际连续运行至少 86400 秒。它保存提交、SDK、主机信息、配置哈希、逐阶段原始结果、退出码及可选每五秒节点指标。错误和生成器丢弃均计入失败率；未配置 SLO 时不输出“通过 SLO”的容量上限。中断、缺失到达请求、对账失败或短测冒充长测都不能通过验收。
 
-也可手动运行 `Controlled game server capacity` workflow，选择已有专用 Linux self-hosted runner 标签、工作负载文件、TLS 客户端代理地址和 ladder/soak 模式。它使用 `GAME_ACCEPTANCE_REDIS`、`GAME_ACCEPTANCE_POSTGRES`、`GAME_ACCEPTANCE_JWT_KEY` 三个仓库 secret，最长运行 26 小时，产物保留 90 天。请通过仓库 secret 管理配置凭据，不写入 profile 或日志。
+## Actions 一步式隔离验收
 
-本次尚未提供专用环境及业务 SLO，因此没有运行跨主机网络分区、Redis/PostgreSQL 高可用切换、饱和容量或连续 24 小时长稳。所有报告保留 `capacity_certified: false`；单机多个进程和容器暂停测试不能代替上述生产验收。
+PR 的 `Game server validation / acceptance-smoke` 使用托管 Ubuntu runner，自动构建镜像，启动独占 Redis、PostgreSQL、Gateway 和两个 Game 进程、mTLS 代理及 outbox worker，等待三个节点就绪，然后执行 600 秒连续混合负载。`perf/game-server/acceptance-smoke.json` 的 8 连接、50 RPS、P99 ≤1000 ms、失败率 ≤1% 仅是 CI 回归预算，不是业务或生产 SLO。
 
-相关配置见 [部署指南](deployment.md)、[性能指南](performance.md) 和 [迁移指南](migration.md)。
+手动运行 `Controlled game server capacity`：
 
-## 第二阶段已执行记录
+1. 将 workflow 合入 `main`，选择 `main`。其他分支会跳过自托管作业，PR 不会自动进入持久 runner。
+2. 填已有专用 Linux x64 runner 的标签。机器需提供 Python 3、Git、Docker Engine 和 Compose v2，并允许拉取官方 .NET SDK 10.0.401、Redis 7、PostgreSQL 17 镜像及构建时下载 NuGet/系统软件包。无需在宿主安装 .NET 或 stunnel。
+3. 默认 `mode=soak`、`profile=perf/game-server/acceptance-soak.json`，一次负载进程连续运行 86400 秒。默认规模和预算同 smoke，环境标识明确为单机隔离验收。需要不同负载或业务 SLO 时，先修改并审阅该配置，再运行。模板中的占位环境或缺失 SLO 不能通过严格验收。
+4. 需要调试时选择 `smoke`，填写 600–1800 秒。短测不会标为完成 24 小时。工作流不会自动注册 runner、购买机器、创建凭据或触发生产部署。
 
-实现提交 `e44f3c3` 的 [专项 Actions 验收](https://github.com/ChronosGames/PulseRPC/actions/runs/37560263340) 三个任务全部通过；SDK 10.0.401、运行时 .NET 10.0.12、Ubuntu 24.04.5、4 个逻辑处理器。实际测试的是 PR 合并提交 `6cbdda01`，完整结果及产物校验和保存在[第二阶段验收 JSON](../reference/game-server-production-results.json)。
+宿主手动复现：
 
-- 645 项 .NET 测试全部通过，无跳过；另有 9 项 Python 验收数据校验测试通过。
-- 21 项集群检查通过，包括真实 broker 两个崩溃窗口、会话与房间授权、数据库故障、在途购买排空、真实旧二进制回滚升级和叶证书轮换。
-- 20 秒开环测试：2000 次到达，2000 次成功，零错误/丢弃，99 次新购买、302 次读取；按计划到达计算的 P99 为 6.84 ms，资产对账通过。两档 25/50 次每秒的脚本短测均通过；没有配置生产 SLO，也未完成 24 小时长稳。
-- 排空及属主交接约 4.07 秒，期间等待被 SQL 行锁阻塞的已接纳购买提交；购买重放仍只扣一次。PostgreSQL 恢复后约 0.27 秒恢复业务。
-- 本次同机五轮微基准：热点吞吐约 -1.97%、生命周期约 -1.23%、mailbox 约 +0.20%、传输约 -0.01%；对应原始样本及 P95/分配/CPU/锁争用值见 JSON。保留这些波动，不将它们换算为生产容量结论。
+```bash
+python3 scripts/run-game-acceptance.py --mode smoke \
+  --profile perf/game-server/acceptance-smoke.json --duration 600
+python3 scripts/run-game-acceptance.py --mode soak \
+  --profile perf/game-server/acceptance-soak.json
+```
 
-## 第一阶段历史验收记录
+两种模式复用同一生命周期。每次使用随机 Compose 项目名、独立内部网络与数据库；所有端口均不映射到宿主，管理接口及应用端口只在工作负载容器内监听 loopback。JWT 密钥和数据库密码临时随机生成，无需 `GAME_ACCEPTANCE_*` 仓库 secrets。证书/私钥不进入产物，工作负载容器不挂载 Docker socket。清理仅针对本次项目及其卷/本地镜像，不使用全局 prune，不停止其他服务。
 
-实现提交 `ac40755` 的 [Actions 验收](https://github.com/ChronosGames/PulseRPC/actions/runs/37512688617) 三个任务全部通过。完整原始数据保存在 [验收 JSON](../reference/game-server-validation-results.json)，避免仅依赖有保留期限的 CI 附件。记录包含实际执行的 PR merge commit、SDK（本次为 10.0.401）、运行时和主机信息；仓库 `global.json` 允许 SDK roll-forward，复现实验时应使用记录中的版本。
+严格证据包含提交 SHA、解析后的配置/哈希、单次负载结果、定期 JSONL、三个节点 `/metrics`、初末健康状态、日志、`cluster-status.json` 和宿主 `orchestration.json`。无 SLO、缺指标、采集失败、节点退出、计数不一致、资产对账失败、中断、超时、清理失败均不能作为成功。指标用于完整性验证与人工分析；没有自动证明无内存泄漏或生产数据库容量。
 
-- Debug/Release 构建通过；644 项测试全部通过且无跳过：Client 80、Server 460、SourceGenerator 61、Infrastructure 18、Redis 25。
-- 三个独立进程通过实际 mTLS 通信；四项 TLS 拒绝检查及五项应用层身份检查通过。
-- 20 个并发数据库重试只产生一次扣款；旧代次写入、续租、释放和过期代次恢复检查通过；旧版 C# 9 客户端成功读取 V2 响应。
-- 杀死属主后约 7.87 秒恢复；进程暂停场景约 15.11 秒完成接管及恢复检查（含固定 11 秒暂停和 3 秒恢复等待）；Redis 恢复后约 0.37 秒可用。暂停 Redis 期间数据库证明 Actor 已停止续租。
-- 256 个突发请求中 32 个成功、224 个收到 `SERVER_BUSY`，同一连接随后恢复；20 次新建会话保持一致状态。
+工作流以 `always()` 上传成功和失败产物；缺产物上传报错。自托管作业最长 26 小时，测量阶段不拆分、不续跑拼接，执行前完成 checkout，不在长测后调用 GitHub API 或 Git 操作。`GITHUB_TOKEN` 最长 24 小时，artifact 上传使用独立的 Actions runtime token。若 runner 断电/失联、进程遭 SIGKILL 或 artifact 服务失败，无法保证远端上传或清理；证据仍保留在 runner 的 `$RUNNER_TEMP/pulserpc-acceptance-evidence/<项目名>`，只对 `orchestration.json` 记录的该项目手动清理，禁止全局删除。普通取消由信号处理和有界清理负责；GitHub 的强制终止仍可能留下资源。
 
-每项 Echo 负载均为 16 个连接、1000 次请求；不是饱和容量测试：
-
-| 场景 | 吞吐（请求/秒） | P50 / P95 / P99（ms） | 失败 |
-| --- | ---: | --- | ---: |
-| 普通 Actor，128 B | 1929 | 7.07 / 13.63 / 17.95 | 0 |
-| 普通 Actor，4 KiB | 1801 | 7.48 / 13.06 / 16.68 | 0 |
-| 热点 Actor，128 B | 2712 | 5.50 / 9.01 / 10.70 | 0 |
-
-三节点负载后 RSS 约 121–131 MiB，完整前后值见 JSON；此短测试不能证明长期无泄漏。4 KiB 载荷最初在 8 KiB socket 缓冲下 P99 约 1042 ms，调整示例各端缓冲后两轮分别为 12.7 和 16.7 ms。这是特定配置的实测改进，不能外推到所有硬件、业务和连接规模。
-
-同 runner 的五轮基线比较也保留了不利结果：传输与 mailbox 吞吐变化分别约 -0.26% 和 -0.04%；热点查询吞吐约 -12.87%；Actor 创建/删除吞吐约 -11.40%、P95 约 +29.61%，分配约 +0.64%。这些短微基准受共享 runner 波动影响，额外安全检查的成本也需进一步定位。未据此宣称全面加速；生产采用前应结合实际生命周期频率复测。
+目前尚未实际执行新的十分钟集成链路或连续 24 小时长稳；以对应提交的 Actions 产物为准。全部报告保留 `capacity_certified: false`。单机进程/容器验收不能替代跨主机网络分区、Redis/PostgreSQL 高可用、生产硬件与业务 SLO 验证。

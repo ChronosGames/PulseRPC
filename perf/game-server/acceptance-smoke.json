@@ -1,0 +1,14 @@
+{
+  "durationSeconds": 600,
+  "connections": 8,
+  "requestsPerSecond": 50,
+  "queuePerConnection": 2,
+  "payloadBytes": 128,
+  "readPercent": 15,
+  "purchasePercent": 5,
+  "requestTimeoutSeconds": 5,
+  "sampleSeconds": 5,
+  "minimumContinuousSeconds": 0,
+  "environmentId": "isolated-actions-single-host-smoke",
+  "slo": { "p99Ms": 1000, "maxFailureRatio": 0.01 }
+}
