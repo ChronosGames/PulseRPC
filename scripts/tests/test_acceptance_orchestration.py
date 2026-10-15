@@ -56,10 +56,13 @@ class OrchestrationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             with mock.patch('sys.argv', ['run', '--output-root', root]), \
                  mock.patch.object(module.subprocess, 'check_output', return_value='a' * 40), \
-                 mock.patch.object(module.subprocess, 'Popen', return_value=process), \
+                 mock.patch.object(module.subprocess, 'Popen', return_value=process) as start, \
                  mock.patch.object(module.subprocess, 'run', side_effect=run), \
                  mock.patch.dict(module.os.environ, {}, clear=True):
                 self.assertEqual(module.main(), 1)
+                import base64
+                key = start.call_args.kwargs['env']['ACCEPTANCE_JWT_KEY']
+                self.assertEqual(len(base64.b64decode(key, validate=True)), 48)
             result = json.loads(next(Path(root).glob('*/orchestration.json')).read_text())
             self.assertTrue(result['cleanup_completed'])
             self.assertFalse(result['passed'])

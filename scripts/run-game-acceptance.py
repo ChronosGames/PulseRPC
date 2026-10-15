@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """创建本次运行独占的 Docker 集群，验收后删除本次资源并保留证据。"""
 import argparse
+import base64
 from datetime import datetime, timezone
 import json
 import os
@@ -50,7 +51,7 @@ def main():
         raise ValueError('Invalid candidate commit')
     (output / 'ownership.json').write_text(json.dumps({'project': project, 'commit': commit}) + '\n')
     env = dict(os.environ, ACCEPTANCE_DB_PASSWORD=secrets.token_hex(24),
-               ACCEPTANCE_JWT_KEY=secrets.token_urlsafe(48), GAME_CANDIDATE_SHA=commit,
+               ACCEPTANCE_JWT_KEY=base64.b64encode(secrets.token_bytes(48)).decode('ascii'), GAME_CANDIDATE_SHA=commit,
                ACCEPTANCE_OUTPUT=str(output), ACCEPTANCE_PROFILE=profile,
                ACCEPTANCE_MODE=options.mode, ACCEPTANCE_DURATION=str(options.duration))
     summary = {'schema_version': 1, 'commit': commit, 'project': project,
