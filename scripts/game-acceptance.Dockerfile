@@ -3,5 +3,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 openssl
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 COPY . .
-RUN dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror
+# SourceLink is disabled only for this non-published test image: .git and credentials stay outside.
+RUN dotnet build samples/GameServer/GameServer.Host/GameServer.Host.csproj -c Release --warnaserror \
+    -p:EnableSourceControlManagerQueries=false -p:EnableSourceLink=false
 ENTRYPOINT ["python3", "scripts/game-acceptance-cluster.py"]

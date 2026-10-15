@@ -88,3 +88,9 @@ class OrchestrationTests(unittest.TestCase):
                 self.assertNotIn('up', args[0])
                 self.assertEqual(kwargs['env']['ACCEPTANCE_DB_PASSWORD'], 'cleanup-unused')
             self.assertTrue(json.loads((directory / 'cleanup-retry.json').read_text())['passed'])
+
+    def test_gitless_image_disables_only_source_link_metadata(self):
+        dockerfile = (ROOT / 'scripts/game-acceptance.Dockerfile').read_text()
+        self.assertIn('--warnaserror', dockerfile)
+        self.assertIn('-p:EnableSourceControlManagerQueries=false', dockerfile)
+        self.assertIn('-p:EnableSourceLink=false', dockerfile)
