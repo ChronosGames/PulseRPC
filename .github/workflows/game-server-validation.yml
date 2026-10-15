@@ -137,3 +137,29 @@ jobs:
           name: game-server-benchmark
           path: artifacts/game-server/
           retention-days: 14
+
+
+  acceptance-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 验证编排和证据的失败路径
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: 隔离部署、十分钟混合负载与三节点指标采集
+        id: acceptance
+        run: python3 scripts/run-game-acceptance.py --mode smoke --profile perf/game-server/acceptance-smoke.json --duration 600
+      - name: 取消或失败后重试本次隔离资源清理
+        if: always() && steps.acceptance.outputs.artifact_path != ''
+        env:
+          EVIDENCE: ${{ steps.acceptance.outputs.artifact_path }}
+        run: python3 scripts/cleanup-game-acceptance.py --output "$EVIDENCE"
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: game-server-acceptance-smoke-${{ github.run_attempt }}
+          path: ${{ steps.acceptance.outputs.artifact_path }}
+          if-no-files-found: error
+          retention-days: 14

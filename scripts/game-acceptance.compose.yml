@@ -1,0 +1,54 @@
+# No host ports or Docker socket are exposed to the workload.
+services:
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --save, '', --appendonly, 'no']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: game
+      POSTGRES_DB: game
+      POSTGRES_PASSWORD: ${ACCEPTANCE_DB_PASSWORD:?required}
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U game -d game]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    logging: *logging
+  acceptance:
+    build:
+      context: ..
+      dockerfile: scripts/game-acceptance.Dockerfile
+    init: true
+    stop_grace_period: 90s
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      GAME_REDIS: redis:6379,abortConnect=false,connectTimeout=1000,syncTimeout=1000,asyncTimeout=1000
+      GAME_POSTGRES: Host=postgres;Username=game;Password=${ACCEPTANCE_DB_PASSWORD:?required};Database=game;Timeout=5;Command Timeout=5
+      GAME_JWT_KEY: ${ACCEPTANCE_JWT_KEY:?required}
+      GAME_CANDIDATE_SHA: ${GAME_CANDIDATE_SHA:?required}
+      GAME_PURCHASE_STREAM: acceptance-purchases
+      GAME_SESSION_MODE: required
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    volumes:
+      - ${ACCEPTANCE_OUTPUT:?required}:/evidence
+    command: [--profile, '${ACCEPTANCE_PROFILE:?required}', --mode, '${ACCEPTANCE_MODE:?required}', --duration, '${ACCEPTANCE_DURATION:?required}', --output, /evidence]
+    logging: *logging
+networks:
+  default:
+    internal: true
